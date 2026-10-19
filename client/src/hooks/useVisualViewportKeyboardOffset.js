@@ -35,6 +35,12 @@ export function useVisualViewportKeyboardOffset() {
         setOffset(0);
         return;
       }
+      // In short landscape viewports (max-height: 500px), sticky bars unpin to
+      // position: static via CSS media query so they scroll with the document.
+      if (window.matchMedia?.('(orientation: landscape) and (max-height: 500px)')?.matches) {
+        setOffset(0);
+        return;
+      }
       if (!isEditableElement(document.activeElement)) {
         setOffset(0);
         return;

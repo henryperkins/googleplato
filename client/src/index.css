@@ -169,7 +169,8 @@
     @apply flex flex-col;
   }
   html {
-    @apply font-sans;
+    @apply font-sans bg-background text-foreground;
+    color-scheme: light dark;
   }
   /* Prevent display utility classes (e.g. .flex) from overriding the UA
      stylesheet for closed native <dialog> and [popover] elements. */
@@ -202,9 +203,21 @@
   --ring: var(--classroom-ring-dark, var(--primary-text)) !important;
 }
 
-/* Ensure focused inputs clear the sticky bottom compose bar / footer (WCAG 2.4.11). */
+/* Ensure focused inputs clear the sticky top header and sticky bottom compose bar (WCAG 2.4.11). */
 html {
+  scroll-padding-top: 4rem;
   scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Enlarge compact chip removal buttons' tap area to 44x44px without growing visual chrome. */
+.compose-chip-remove {
+  position: relative;
+}
+
+.compose-chip-remove::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
 }
 
 /* Keep compact desktop controls and expand their actual touch hit area. */
@@ -234,6 +247,7 @@ html {
 /* Short landscape viewports: prevent sticky bars and multi-line compose boxes
    from colliding with the software keyboard and crushing visible content. */
 @media (orientation: landscape) and (max-height: 500px) {
+  #lesson-header,
   .compose-sticky-bar {
     position: static;
   }

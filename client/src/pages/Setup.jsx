@@ -63,11 +63,19 @@ export default function Setup() {
     }
   }
 
+  function validateEmail(val) {
+    const trimmed = val.trim();
+    if (!trimmed) return 'Email is required.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return 'Please enter a valid email address.';
+    return '';
+  }
+
   async function handleSetup(e) {
     if (e) e.preventDefault();
     const nextErrs = {};
     if (!name.trim()) nextErrs.name = 'Name is required.';
-    if (!email.trim()) nextErrs.email = 'Email is required.';
+    const emailErr = validateEmail(email);
+    if (emailErr) nextErrs.email = emailErr;
     if (!password) nextErrs.password = 'Password is required.';
     else if (password.length < 8) nextErrs.password = 'Password must be at least 8 characters.';
     if (password && password.length >= 8 && password !== confirm) {
@@ -78,6 +86,8 @@ export default function Setup() {
       setFieldErrors(nextErrs);
       if (!email.trim() || !name.trim() || !password) {
         setError('All fields are required.');
+      } else if (nextErrs.email) {
+        setError(nextErrs.email);
       } else if (nextErrs.password) {
         setError(nextErrs.password);
       } else if (nextErrs.confirm) {
@@ -113,8 +123,8 @@ export default function Setup() {
   }
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4" style={{ backgroundColor: '#470d99' }}>
-      <img src="/assets/logo-white.svg" alt="plato" className="h-10 mb-6" />
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: '#470d99' }}>
+      <img src="/assets/logo-white.svg" alt="plato" width="160" height="40" fetchPriority="high" className="h-10 w-auto mb-6" />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Build your Classroom.</CardTitle>
@@ -209,7 +219,7 @@ export default function Setup() {
                 }}
                 onBlur={() => {
                   if (email || fieldErrors.email) {
-                    setFieldErrors(prev => ({ ...prev, email: email.trim() ? '' : 'Email is required.' }));
+                    setFieldErrors(prev => ({ ...prev, email: validateEmail(email) }));
                   }
                 }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); passwordRef.current?.focus(); } }}

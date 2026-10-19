@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import PasswordField from '../components/PasswordField.jsx';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
-import { missingRequired } from '../lib/userFields.js';
+import { missingRequired, validateCustomField, validateCustomFields } from '../lib/userFields.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -85,18 +85,28 @@ export default function Signup() {
       .catch(() => {});
   }, [token]);
 
+  function validateOptionalEmail(val) {
+    const trimmed = val.trim();
+    if (!trimmed) return '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return 'Please enter a valid email address.';
+    return '';
+  }
+
   async function handleGoogleSignup() {
-    const missing = missingRequired(userFields, fieldValues);
-    if (missing.length) {
+    const cfErrs = validateCustomFields(userFields, fieldValues);
+    const cfIds = Object.keys(cfErrs);
+    if (cfIds.length) {
       const nextErrs = {};
-      for (const id of missing) {
-        const def = userFields.find(f => f.id === id);
-        nextErrs[`cf_${id}`] = `${def?.label || 'This field'} is required.`;
-      }
+      for (const id of cfIds) nextErrs[`cf_${id}`] = cfErrs[id];
       setFieldErrors(prev => ({ ...prev, ...nextErrs }));
-      const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
-      setError(`Please fill in: ${labels.join(', ')}.`);
-      document.getElementById(`signup-field-${missing[0]}`)?.focus();
+      const missing = missingRequired(userFields, fieldValues);
+      if (missing.length) {
+        const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
+        setError(`Please fill in: ${labels.join(', ')}.`);
+      } else {
+        setError(cfErrs[cfIds[0]]);
+      }
+      document.getElementById(`signup-field-${cfIds[0]}`)?.focus();
       return;
     }
     setGoogleSubmitting(true);
@@ -127,22 +137,27 @@ export default function Signup() {
     // - Link invites: backend will reject with "Email is required" error
     // This prevents breaking in-flight email invite URLs sent before deployment.
     const nextErrs = {};
+    const emailErr = validateOptionalEmail(email);
+    if (emailErr) nextErrs.email = emailErr;
     if (!name.trim()) nextErrs.name = 'Name is required.';
     if (!password) nextErrs.password = 'Password is required.';
     else if (password.length < 8) nextErrs.password = 'Password must be at least 8 characters.';
     if (password && password.length >= 8 && password !== confirm) {
       nextErrs.confirm = 'Passwords do not match.';
     }
-    const missing = missingRequired(userFields, fieldValues);
-    for (const id of missing) {
-      const def = userFields.find(f => f.id === id);
-      nextErrs[`cf_${id}`] = `${def?.label || 'This field'} is required.`;
+    const cfErrs = validateCustomFields(userFields, fieldValues);
+    const cfIds = Object.keys(cfErrs);
+    for (const id of cfIds) {
+      nextErrs[`cf_${id}`] = cfErrs[id];
     }
+    const missing = missingRequired(userFields, fieldValues);
 
     if (Object.keys(nextErrs).length > 0) {
       setFieldErrors(nextErrs);
       if (!name.trim() || !password) {
         setError('Name and password are required.');
+      } else if (nextErrs.email) {
+        setError(nextErrs.email);
       } else if (nextErrs.password) {
         setError(nextErrs.password);
       } else if (nextErrs.confirm) {
@@ -150,9 +165,12 @@ export default function Signup() {
       } else if (missing.length) {
         const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
         setError(`Please fill in: ${labels.join(', ')}.`);
+      } else if (cfIds.length) {
+        setError(cfErrs[cfIds[0]]);
       }
-      if (nextErrs.name) nameRef.current?.focus();
-      else if (missing.length) document.getElementById(`signup-field-${missing[0]}`)?.focus();
+      if (nextErrs.email) emailRef.current?.focus();
+      else if (nextErrs.name) nameRef.current?.focus();
+      else if (cfIds.length) document.getElementById(`signup-field-${cfIds[0]}`)?.focus();
       else if (nextErrs.password) passwordRef.current?.focus();
       else if (nextErrs.confirm) confirmRef.current?.focus();
       return;
@@ -191,8 +209,8 @@ export default function Signup() {
   if (!branding) return null;
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
+      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Create your account</CardTitle>
@@ -236,9 +254,22 @@ export default function Signup() {
                 placeholder="your.email@example.com"
                 autoComplete="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                aria-invalid={fieldErrors.email ? true : undefined}
+                aria-describedby={fieldErrors.email ? 'signup-email-error' : undefined}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldErrors.email) setFieldErrors(prev => ({ ...prev, email: '' }));
+                }}
+                onBlur={() => {
+                  if (email || fieldErrors.email) {
+                    setFieldErrors(prev => ({ ...prev, email: validateOptionalEmail(email) }));
+                  }
+                }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); nameRef.current?.focus(); } }}
               />
+              {fieldErrors.email && (
+                <p id="signup-email-error" className="text-xs text-destructive" role="alert">{fieldErrors.email}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="signup-name">Name</Label>
@@ -283,7 +314,16 @@ export default function Signup() {
                 autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); passwordRef.current?.focus(); } }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    if (userFields.length > 0) {
+                      document.getElementById(`signup-field-${userFields[0].id}`)?.focus();
+                    } else {
+                      passwordRef.current?.focus();
+                    }
+                  }
+                }}
               />
             </div>
             {groups.length > 0 && (
@@ -302,7 +342,7 @@ export default function Signup() {
                 </select>
               </div>
             )}
-            {userFields.map(f => (
+            {userFields.map((f, idx) => (
               <CustomFieldInput
                 key={f.id}
                 field={f}
@@ -315,9 +355,21 @@ export default function Signup() {
                   if (fieldErrors[`cf_${f.id}`]) setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: '' }));
                 }}
                 onBlur={() => {
-                  if (f.required && (fieldValues[f.id] !== undefined || fieldErrors[`cf_${f.id}`])) {
-                    const isMissing = missingRequired([f], fieldValues).includes(f.id);
-                    setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: isMissing ? `${f.label} is required.` : '' }));
+                  if (f.required || fieldValues[f.id] || fieldErrors[`cf_${f.id}`]) {
+                    const err = validateCustomField(f, fieldValues[f.id]);
+                    if (f.required && !fieldValues[f.id] && !fieldErrors[`cf_${f.id}`] && fieldValues[f.id] === undefined) return;
+                    setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: err }));
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    const nextField = userFields[idx + 1];
+                    if (nextField) {
+                      document.getElementById(`signup-field-${nextField.id}`)?.focus();
+                    } else {
+                      passwordRef.current?.focus();
+                    }
                   }
                 }}
               />

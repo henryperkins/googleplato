@@ -21,6 +21,9 @@ export default function PasswordField({
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         autoComplete={autoComplete || 'off'}
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         enterKeyHint={enterKeyHint}
         ref={inputRef}
         required={required}
@@ -33,7 +36,7 @@ export default function PasswordField({
         type="button"
         variant="ghost"
         size="xs"
-        className="absolute inset-y-0 right-1 my-auto"
+        className="absolute inset-y-0 right-1 my-auto touch-manipulation"
         aria-label={visible ? 'Hide password' : 'Show password'}
         onClick={() => setVisible(!visible)}
       >

@@ -1,0 +1,6 @@
+{
+  "summary": "Comprehensive Mobile Web UX Audit & Fix Plan for plato's high-traffic routes (Learner Classroom & Lesson Chat, Authentication & Onboarding), aligned with the October 19, 2026 Mobile Web UX Audit Contract. Covers safe code-verified fixes for touch targets, viewport/safe-area clearance, form ergonomics, input survival, and image/layout stability, plus proposed device-dependent diffs and a prioritized 10-entry physical device check script.",
+  "updatedAt": "2026-10-19T15:15:43.156674902Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

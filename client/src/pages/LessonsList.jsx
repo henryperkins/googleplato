@@ -319,6 +319,7 @@ export default function LessonsList() {
           <Button
             variant="outline"
             size="sm"
+            className="touch-manipulation"
             disabled={currentPage <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             aria-label="Previous page"
@@ -331,6 +332,7 @@ export default function LessonsList() {
           <Button
             variant="outline"
             size="sm"
+            className="touch-manipulation"
             disabled={currentPage >= totalPages}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             aria-label="Next page"
@@ -388,7 +390,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
   const statusText = statusAnnouncement(progress);
 
   return (
-    <Card className="h-full transition-shadow hover:shadow-md group gap-0 p-0">
+    <Card className="h-full transition-shadow [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-md group gap-0 p-0">
       <button
         type="button"
         onClick={onOpen}

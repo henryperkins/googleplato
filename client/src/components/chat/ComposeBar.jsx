@@ -258,10 +258,10 @@ export default function ComposeBar({
       <div className={`mx-auto max-w-3xl rounded-lg border border-input bg-background ${elevated ? 'shadow-lg' : ''}`}>
         {images.length > 0 && (
           <div className="m-2 space-y-2">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-3">
               {images.map((img, idx) => (
                 <div key={idx} className="relative inline-block">
-                  <img src={img.dataUrl} alt={img.name} className="h-20 rounded-md object-cover" />
+                  <img src={img.dataUrl} alt={img.name} width="80" height="80" decoding="async" className="h-20 w-20 rounded-md object-cover" />
                   <Button
                     variant="secondary"
                     size="icon-xs"
@@ -285,7 +285,7 @@ export default function ComposeBar({
           </p>
         )}
         {links.length > 0 && (
-          <div className="m-2 flex flex-wrap gap-2">
+          <div className="m-2 flex flex-wrap gap-2.5">
             {links.map((link, idx) => (
               <div key={idx} className="inline-flex max-w-full items-center gap-1 rounded-md border border-input bg-muted py-0.5 pl-2 pr-1 text-xs">
                 <a

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { getMyFields, updateProfile } from '../../js/auth.js';
-import { missingRequired, pickValues } from '../lib/userFields.js';
+import { pickValues, validateCustomField, validateCustomFields } from '../lib/userFields.js';
 import CustomFieldInput from './CustomFieldInput.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -77,18 +77,14 @@ export default function ProfileCompletionGate({ children }) {
 
   // Show the fields that were missing when the gate opened (stable while typing).
   const fields = status.userFields.filter((f) => status.missing.includes(f.id));
-  const stillMissing = missingRequired(fields, values);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (stillMissing.length) {
-      const nextErrs = {};
-      for (const id of stillMissing) {
-        const def = fields.find(f => f.id === id);
-        nextErrs[id] = `${def?.label || 'This field'} is required.`;
-      }
-      setFieldErrors(nextErrs);
-      document.getElementById(`gate-${stillMissing[0]}`)?.focus();
+    const cfErrs = validateCustomFields(fields, values);
+    const cfIds = Object.keys(cfErrs);
+    if (cfIds.length) {
+      setFieldErrors(cfErrs);
+      document.getElementById(`gate-${cfIds[0]}`)?.focus();
       return;
     }
     setFieldErrors({});
@@ -142,9 +138,21 @@ export default function ProfileCompletionGate({ children }) {
                   if (fieldErrors[f.id]) setFieldErrors((prev) => ({ ...prev, [f.id]: '' }));
                 }}
                 onBlur={() => {
-                  if (f.required && (values[f.id] !== undefined || fieldErrors[f.id])) {
-                    const isMissing = missingRequired([f], values).includes(f.id);
-                    setFieldErrors((prev) => ({ ...prev, [f.id]: isMissing ? `${f.label} is required.` : '' }));
+                  if (f.required || values[f.id] || fieldErrors[f.id]) {
+                    if (f.required && !values[f.id] && !fieldErrors[f.id] && values[f.id] === undefined) return;
+                    const err = validateCustomField(f, values[f.id]);
+                    setFieldErrors((prev) => ({ ...prev, [f.id]: err }));
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    const nextField = fields[idx + 1];
+                    if (nextField) {
+                      document.getElementById(`gate-${nextField.id}`)?.focus();
+                    } else {
+                      handleSubmit(e);
+                    }
                   }
                 }}
                 disabled={saving}

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
-import { missingRequired } from '../lib/userFields.js';
+import { missingRequired, validateCustomField, validateCustomFields } from '../lib/userFields.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -61,28 +61,41 @@ export default function Waitlist() {
       .catch(() => {});
   }, []);
 
+  function validateEmail(val) {
+    const trimmed = val.trim();
+    if (!trimmed) return 'Email is required.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return 'Please enter a valid email address.';
+    return '';
+  }
+
   async function handleSubmit(e) {
     if (e) e.preventDefault();
     const nextErrs = {};
     if (!name.trim()) nextErrs.name = 'Name is required.';
-    if (!email.trim()) nextErrs.email = 'Email is required.';
-    const missing = missingRequired(userFields, fieldValues);
-    for (const id of missing) {
-      const def = userFields.find(f => f.id === id);
-      nextErrs[`cf_${id}`] = `${def?.label || 'This field'} is required.`;
+    const emailErr = validateEmail(email);
+    if (emailErr) nextErrs.email = emailErr;
+    const cfErrs = validateCustomFields(userFields, fieldValues);
+    const cfIds = Object.keys(cfErrs);
+    for (const id of cfIds) {
+      nextErrs[`cf_${id}`] = cfErrs[id];
     }
+    const missing = missingRequired(userFields, fieldValues);
 
     if (Object.keys(nextErrs).length > 0) {
       setFieldErrors(nextErrs);
       if (!name.trim() || !email.trim()) {
         setError('Name and email are required.');
+      } else if (nextErrs.email) {
+        setError(nextErrs.email);
       } else if (missing.length) {
         const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
         setError(`Please fill in: ${labels.join(', ')}.`);
+      } else if (cfIds.length) {
+        setError(cfErrs[cfIds[0]]);
       }
       if (nextErrs.name) nameRef.current?.focus();
       else if (nextErrs.email) emailRef.current?.focus();
-      else if (missing.length) document.getElementById(`waitlist-field-${missing[0]}`)?.focus();
+      else if (cfIds.length) document.getElementById(`waitlist-field-${cfIds[0]}`)?.focus();
       return;
     }
 
@@ -184,7 +197,17 @@ export default function Waitlist() {
               }}
               onBlur={() => {
                 if (email || fieldErrors.email) {
-                  setFieldErrors(prev => ({ ...prev, email: email.trim() ? '' : 'Email is required.' }));
+                  setFieldErrors(prev => ({ ...prev, email: validateEmail(email) }));
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  if (userFields.length > 0) {
+                    document.getElementById(`waitlist-field-${userFields[0].id}`)?.focus();
+                  } else {
+                    handleSubmit(e);
+                  }
                 }
               }}
             />
@@ -221,9 +244,21 @@ export default function Waitlist() {
                 if (fieldErrors[`cf_${f.id}`]) setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: '' }));
               }}
               onBlur={() => {
-                if (f.required && (fieldValues[f.id] !== undefined || fieldErrors[`cf_${f.id}`])) {
-                  const isMissing = missingRequired([f], fieldValues).includes(f.id);
-                  setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: isMissing ? `${f.label} is required.` : '' }));
+                if (f.required || fieldValues[f.id] || fieldErrors[`cf_${f.id}`]) {
+                  if (f.required && !fieldValues[f.id] && !fieldErrors[`cf_${f.id}`] && fieldValues[f.id] === undefined) return;
+                  const err = validateCustomField(f, fieldValues[f.id]);
+                  setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: err }));
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  const nextField = userFields[idx + 1];
+                  if (nextField) {
+                    document.getElementById(`waitlist-field-${nextField.id}`)?.focus();
+                  } else {
+                    handleSubmit(e);
+                  }
                 }
               }}
             />
@@ -244,8 +279,8 @@ export default function Waitlist() {
   }
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
+      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Join the wait list</CardTitle>

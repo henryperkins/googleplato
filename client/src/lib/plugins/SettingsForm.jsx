@@ -45,7 +45,7 @@ function PrimitiveField({ pluginId, propKey, schema, value, onChange }) {
           id={id}
           value={value ?? ''}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          className="w-full rounded-md border bg-background px-3 py-2 text-base md:text-sm"
         >
           {schema.enum.map((opt) => (
             <option key={opt} value={opt}>{opt}</option>

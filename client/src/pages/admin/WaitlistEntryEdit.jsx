@@ -64,17 +64,17 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
           </p>
           <div className="space-y-2">
             <Label htmlFor="wl-edit-name">Name</Label>
-            <Input id="wl-edit-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <Input id="wl-edit-name" type="text" autoComplete="name" enterKeyHint="next" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="wl-edit-email">Email</Label>
-            <Input id="wl-edit-email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+            <Input id="wl-edit-email" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="email" enterKeyHint="done" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="wl-edit-group">User Group</Label>
             <select id="wl-edit-group" value={form.userGroup}
               onChange={e => setForm({ ...form, userGroup: e.target.value })}
-              className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm">
+              className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm">
               <option value="">None</option>
               {/* Keep a group that's since been renamed/deleted visible rather than silently blanking it. */}
               {form.userGroup && !groups.includes(form.userGroup) && <option value={form.userGroup}>{form.userGroup} (no longer a group)</option>}

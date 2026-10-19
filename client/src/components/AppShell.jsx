@@ -60,7 +60,7 @@ export default function AppShell({ children }) {
         <div className="px-4 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-xs text-white" style={{ backgroundColor: '#470d99', '--ring': '#ffffff' }}>
           <div className="mx-auto max-w-5xl flex items-center gap-2">
             <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center gap-1.5 opacity-90 hover:opacity-100 whitespace-nowrap shrink-0">
-              <img src="/assets/logo-white.svg" alt="plato" className="h-3 w-auto" />
+              <img src="/assets/logo-white.svg" alt="plato" width="48" height="12" className="h-3 w-auto" />
             </a>
             <div className="flex-1" />
             {!impersonating && (
@@ -119,7 +119,7 @@ export default function AppShell({ children }) {
         <nav className="mx-auto max-w-5xl flex items-center gap-2" aria-label="Main navigation">
           <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="touch-target flex min-w-0 max-w-[60%] items-center rounded-sm" aria-label={`${classroomName} — Lessons`}>
             {classroomLogo ? (
-              <img src={classroomLogo} alt="" className="h-8 max-w-full object-contain" />
+              <img src={classroomLogo} alt="" width="32" height="32" fetchPriority="high" className="h-8 max-w-full object-contain" />
             ) : (
               <span className="text-sm font-semibold truncate">{classroomName}</span>
             )}

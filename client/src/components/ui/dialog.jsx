@@ -237,7 +237,7 @@ function DialogContent({
           ref={bodyScrollRef}
           data-slot="dialog-body"
           className={cn(
-            'flex flex-1 min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
+            'flex flex-1 min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain scroll-pb-24 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
             showCloseButton && '[&>[data-slot=dialog-header]]:pr-10'
           )}
         >

@@ -14,6 +14,7 @@ export default function ResetPassword() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('reset') || '';
@@ -23,6 +24,7 @@ export default function ResetPassword() {
 
   async function handleReset(e) {
     if (e) e.preventDefault();
+    if (submitting) return;
     const nextErrs = {};
     if (!password) nextErrs.password = 'Please enter a new password.';
     else if (password.length < 8) nextErrs.password = 'Password must be at least 8 characters.';
@@ -38,6 +40,7 @@ export default function ResetPassword() {
     }
     setFieldErrors({});
     setError('');
+    setSubmitting(true);
     try {
       const res = await fetch('/v1/auth/reset-password', {
         method: 'POST',
@@ -52,14 +55,16 @@ export default function ResetPassword() {
       setTimeout(() => navigate('/login', { replace: true }), 2000);
     } catch (e) {
       setError(e.message || 'Reset failed');
+    } finally {
+      setSubmitting(false);
     }
   }
 
   if (!branding) return null;
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
+      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Set new password</CardTitle>
@@ -85,6 +90,7 @@ export default function ResetPassword() {
                 enterKeyHint="next"
                 inputRef={passwordRef}
                 value={password}
+                disabled={submitting}
                 aria-invalid={fieldErrors.password ? true : undefined}
                 aria-describedby={fieldErrors.password ? 'reset-password-error' : undefined}
                 onChange={(e) => {
@@ -111,6 +117,7 @@ export default function ResetPassword() {
                 enterKeyHint="done"
                 inputRef={confirmRef}
                 value={confirm}
+                disabled={submitting}
                 aria-invalid={fieldErrors.confirm ? true : undefined}
                 aria-describedby={fieldErrors.confirm ? 'reset-confirm-error' : undefined}
                 onChange={(e) => {
@@ -128,8 +135,8 @@ export default function ResetPassword() {
                 <p id="reset-confirm-error" className="text-xs text-destructive" role="alert">{fieldErrors.confirm}</p>
               )}
             </div>
-            <Button type="submit" className="w-full">
-              Reset password
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? 'Resetting...' : 'Reset password'}
             </Button>
           </form>
         </CardContent>

@@ -37,12 +37,12 @@ export default function CustomFieldInput({
     'aria-describedby': ariaDescribedBy,
     onChange: (e) => onChange(e.target.value),
     onBlur,
-    onKeyDown,
+    onKeyDown: field.type === 'textarea' ? undefined : onKeyDown,
   };
 
   let control;
   if (field.type === 'textarea') {
-    control = <Textarea rows={3} enterKeyHint={enterKeyHint} {...common} />;
+    control = <Textarea rows={3} enterKeyHint="enter" {...common} />;
   } else if (field.type === 'dropdown') {
     const options = field.options || [];
     control = (

@@ -1230,7 +1230,7 @@ export default function AdminUsers() {
                       id="invite-link"
                       readOnly
                       value={`${window.location.origin}/signup?token=${linkInvite.inviteToken}`}
-                      className="font-mono text-sm"
+                      className="font-mono text-base md:text-sm"
                     />
                     <Button onClick={handleCopyLink} variant="outline">
                       {linkCopied ? 'Copied!' : 'Copy'}

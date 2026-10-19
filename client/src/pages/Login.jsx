@@ -10,8 +10,12 @@ import {
   Card, CardHeader, CardTitle, CardContent, CardFooter,
 } from '@/components/ui/card';
 
+const LOGIN_DRAFT_KEY = 'plato_login_draft';
+
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try { return sessionStorage.getItem(LOGIN_DRAFT_KEY) || ''; } catch { return ''; }
+  });
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
@@ -23,6 +27,13 @@ export default function Login() {
   const passwordRef = useRef(null);
   const branding = usePublicBranding('Sign in');
   const [waitlistOpen, setWaitlistOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (email) sessionStorage.setItem(LOGIN_DRAFT_KEY, email);
+      else sessionStorage.removeItem(LOGIN_DRAFT_KEY);
+    } catch { /* ignore storage quota errors */ }
+  }, [email]);
 
   useEffect(() => {
     fetch('/v1/waitlist')
@@ -53,6 +64,7 @@ export default function Login() {
     setError('');
     try {
       await login(email.trim(), password);
+      try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
       navigate('/lessons', { replace: true });
     } catch (e) {
       setError(e.message || 'Login failed');
@@ -66,6 +78,7 @@ export default function Login() {
     setError('');
     try {
       await loginWithGoogle();
+      try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
       navigate('/lessons', { replace: true });
     } catch (e) {
       if (e?.code !== 'auth/popup-closed-by-user') {
@@ -81,9 +94,9 @@ export default function Login() {
   const { primary: headerBg, foreground, logo, classroomName } = branding;
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4" style={{ backgroundColor: headerBg, color: foreground }}>
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: headerBg, color: foreground }}>
       {logo ? (
-        <img src={logo} alt={classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />
+        <img src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />
       ) : (
         <h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</h1>
       )}

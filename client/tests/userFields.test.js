@@ -7,12 +7,15 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   missingRequired, pickValues, customFieldsMatch, matchesFieldFilter, fieldTypeLabel,
+  validateCustomField, validateCustomFields,
 } from '../src/lib/userFields.js';
 
 const ORG = { id: 'fld_org', label: 'Organization', type: 'text', required: true };
 const ROLE = { id: 'fld_role', label: 'Role', type: 'dropdown', required: true, options: ['Teacher', 'Student'] };
 const BIO = { id: 'fld_bio', label: 'Bio', type: 'textarea', required: false };
-const DEFS = [ORG, ROLE, BIO];
+const SITE = { id: 'fld_site', label: 'Website', type: 'link', required: false };
+const PHONE = { id: 'fld_phone', label: 'Phone', type: 'phone', required: false };
+const DEFS = [ORG, ROLE, BIO, SITE, PHONE];
 
 describe('missingRequired', () => {
   it('lists required fields with no value', () => {
@@ -24,6 +27,29 @@ describe('missingRequired', () => {
   });
   it('is empty when all required fields are filled', () => {
     assert.deepEqual(missingRequired(DEFS, { fld_org: 'UIC', fld_role: 'Teacher' }), []);
+  });
+});
+
+describe('validateCustomField and validateCustomFields', () => {
+  it('validates requiredness, http(s) links, phone numbers, and max lengths', () => {
+    assert.equal(validateCustomField(ORG, ''), 'Organization is required.');
+    assert.equal(validateCustomField(ORG, 'UIC'), '');
+    assert.equal(validateCustomField(SITE, ''), '');
+    assert.equal(validateCustomField(SITE, 'not-a-url'), 'Website must be a valid http(s) link.');
+    assert.equal(validateCustomField(SITE, 'https://example.com'), '');
+    assert.equal(validateCustomField(PHONE, '123'), 'Phone must be a valid phone number.');
+    assert.equal(validateCustomField(PHONE, '+1 (312) 555-0199'), '');
+
+    const errs = validateCustomFields(DEFS, {
+      fld_org: 'UIC',
+      fld_role: 'Teacher',
+      fld_site: 'ftp://bad.example',
+      fld_phone: '999',
+    });
+    assert.deepEqual(errs, {
+      fld_site: 'Website must be a valid http(s) link.',
+      fld_phone: 'Phone must be a valid phone number.',
+    });
   });
 });
 

@@ -8,7 +8,7 @@ import {
   saveLearnerProfile, saveLearnerProfileSummary,
 } from '../../js/storage.js';
 import { updateProfile, getMyFields } from '../../js/auth.js';
-import { missingRequired, pickValues } from '../lib/userFields.js';
+import { missingRequired, pickValues, validateCustomField, validateCustomFields } from '../lib/userFields.js';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
 import * as orchestrator from '../../js/orchestrator.js';
 import { syncInBackground } from '../lib/syncDebounce.js';
@@ -25,6 +25,9 @@ import {
   DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 
+const SETTINGS_FIELDS_DRAFT_KEY = 'plato_settings_fields_draft';
+const PROFILE_FEEDBACK_DRAFT_KEY = 'plato_profile_feedback_draft';
+
 export default function Settings() {
   const { state, dispatch } = useApp();
   const { user, refreshUser } = useAuth();
@@ -34,6 +37,7 @@ export default function Settings() {
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordErrors, setPasswordErrors] = useState({});
   const [passwordFeedback, setPasswordFeedback] = useState(null);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const [nameFeedback, setNameFeedback] = useState(null);
@@ -42,7 +46,14 @@ export default function Settings() {
   const [usernameSubmitting, setUsernameSubmitting] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [userFields, setUserFields] = useState([]);
-  const [fieldValues, setFieldValues] = useState({});
+  const [fieldValues, setFieldValues] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(SETTINGS_FIELDS_DRAFT_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   const [fieldErrors, setFieldErrors] = useState({});
   const [fieldsFeedback, setFieldsFeedback] = useState(null);
   const [fieldsSaving, setFieldsSaving] = useState(false);
@@ -57,31 +68,44 @@ export default function Settings() {
     getMyFields()
       .then((data) => {
         setUserFields(data.userFields || []);
-        setFieldValues(data.values || {});
+        let draft = {};
+        try {
+          const raw = sessionStorage.getItem(SETTINGS_FIELDS_DRAFT_KEY);
+          if (raw) draft = JSON.parse(raw);
+        } catch { /* ignore */ }
+        setFieldValues({ ...(data.values || {}), ...draft });
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!userFields.length) return;
+    try {
+      sessionStorage.setItem(SETTINGS_FIELDS_DRAFT_KEY, JSON.stringify(fieldValues));
+    } catch { /* ignore */ }
+  }, [userFields.length, fieldValues]);
 
   const handleSaveFields = async (e) => {
     e.preventDefault();
     if (fieldsSaving) return;
     setFieldsFeedback(null);
-    const missing = missingRequired(userFields, fieldValues);
-    if (missing.length) {
-      const nextErrs = {};
-      for (const id of missing) {
-        const def = userFields.find(f => f.id === id);
-        nextErrs[id] = `${def?.label || 'This field'} is required.`;
-      }
-      setFieldErrors(nextErrs);
-      setFieldsFeedback({ type: 'error', message: 'Fill in all required fields.' });
-      document.getElementById(`settings-field-${missing[0]}`)?.focus();
+    const cfErrs = validateCustomFields(userFields, fieldValues);
+    const cfIds = Object.keys(cfErrs);
+    if (cfIds.length) {
+      setFieldErrors(cfErrs);
+      const missing = missingRequired(userFields, fieldValues);
+      setFieldsFeedback({
+        type: 'error',
+        message: missing.length ? 'Fill in all required fields.' : cfErrs[cfIds[0]],
+      });
+      document.getElementById(`settings-field-${cfIds[0]}`)?.focus();
       return;
     }
     setFieldErrors({});
     setFieldsSaving(true);
     try {
       const data = await updateProfile({ customFields: pickValues(fieldValues, userFields.map((f) => f.id)) });
+      try { sessionStorage.removeItem(SETTINGS_FIELDS_DRAFT_KEY); } catch { /* ignore */ }
       setFieldValues(data.customFields || {});
       setFieldsFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
@@ -139,16 +163,21 @@ export default function Settings() {
     e.preventDefault();
     if (passwordSubmitting) return;
     setPasswordFeedback(null);
+    const nextErrs = {};
     if (!newPassword || newPassword.length < 8) {
-      setPasswordFeedback({ type: 'error', message: 'Password must be at least 8 characters.' });
-      newPasswordRef.current?.focus();
+      nextErrs.newPassword = 'Password must be at least 8 characters.';
+    }
+    if (newPassword && newPassword.length >= 8 && newPassword !== confirmPassword) {
+      nextErrs.confirmPassword = 'Passwords do not match.';
+    }
+    if (Object.keys(nextErrs).length > 0) {
+      setPasswordErrors(nextErrs);
+      setPasswordFeedback({ type: 'error', message: nextErrs.newPassword || nextErrs.confirmPassword });
+      if (nextErrs.newPassword) newPasswordRef.current?.focus();
+      else if (nextErrs.confirmPassword) confirmPasswordRef.current?.focus();
       return;
     }
-    if (newPassword !== confirmPassword) {
-      setPasswordFeedback({ type: 'error', message: 'Passwords do not match.' });
-      confirmPasswordRef.current?.focus();
-      return;
-    }
+    setPasswordErrors({});
     setPasswordSubmitting(true);
     try {
       await updateProfile({ password: newPassword });
@@ -195,6 +224,11 @@ export default function Settings() {
                 aria-invalid={usernameFeedback?.type === 'error' ? true : undefined}
                 aria-describedby="username-feedback"
                 onChange={(e) => { setUsername(e.target.value); setUsernameFeedback(null); }}
+                onBlur={() => {
+                  if (usernameFeedback?.type === 'error' && !username.trim()) {
+                    setUsernameFeedback({ type: 'error', message: 'Username is required' });
+                  }
+                }}
               />
             </div>
             <Button type="submit" disabled={usernameSubmitting} aria-label={usernameSubmitting ? 'Saving username' : 'Save username'}>{usernameSubmitting ? 'Saving...' : 'Save'}</Button>
@@ -233,12 +267,25 @@ export default function Settings() {
                 enterKeyHint="next"
                 inputRef={newPasswordRef}
                 value={newPassword}
-                onChange={(e) => { setNewPassword(e.target.value); setPasswordFeedback(null); }}
+                onChange={(e) => {
+                  setNewPassword(e.target.value);
+                  setPasswordFeedback(null);
+                  if (passwordErrors.newPassword) setPasswordErrors((prev) => ({ ...prev, newPassword: '' }));
+                }}
+                onBlur={() => {
+                  if (newPassword || passwordErrors.newPassword) {
+                    const msg = !newPassword || newPassword.length < 8 ? 'Password must be at least 8 characters.' : '';
+                    setPasswordErrors((prev) => ({ ...prev, newPassword: msg }));
+                  }
+                }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); confirmPasswordRef.current?.focus(); } }}
                 disabled={passwordSubmitting}
-                aria-invalid={passwordFeedback?.type === 'error' ? true : undefined}
-                aria-describedby="password-feedback"
+                aria-invalid={passwordErrors.newPassword || (passwordFeedback?.type === 'error' && !passwordErrors.confirmPassword) ? true : undefined}
+                aria-describedby={passwordErrors.newPassword ? 'new-password-error password-feedback' : 'password-feedback'}
               />
+              {passwordErrors.newPassword && (
+                <p id="new-password-error" className="text-xs text-destructive" role="alert">{passwordErrors.newPassword}</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="confirm-password">Confirm Password</Label>
@@ -248,12 +295,25 @@ export default function Settings() {
                 enterKeyHint="done"
                 inputRef={confirmPasswordRef}
                 value={confirmPassword}
-                onChange={(e) => { setConfirmPassword(e.target.value); setPasswordFeedback(null); }}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  setPasswordFeedback(null);
+                  if (passwordErrors.confirmPassword) setPasswordErrors((prev) => ({ ...prev, confirmPassword: '' }));
+                }}
+                onBlur={() => {
+                  if (confirmPassword || passwordErrors.confirmPassword) {
+                    const msg = newPassword && confirmPassword !== newPassword ? 'Passwords do not match.' : '';
+                    setPasswordErrors((prev) => ({ ...prev, confirmPassword: msg }));
+                  }
+                }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleChangePassword(e); } }}
                 disabled={passwordSubmitting}
-                aria-invalid={passwordFeedback?.type === 'error' ? true : undefined}
-                aria-describedby="password-feedback"
+                aria-invalid={passwordErrors.confirmPassword ? true : undefined}
+                aria-describedby={passwordErrors.confirmPassword ? 'confirm-password-error password-feedback' : 'password-feedback'}
               />
+              {passwordErrors.confirmPassword && (
+                <p id="confirm-password-error" className="text-xs text-destructive" role="alert">{passwordErrors.confirmPassword}</p>
+              )}
             </div>
             <Button type="submit" disabled={passwordSubmitting}>
               {passwordSubmitting ? 'Changing...' : 'Change Password'}
@@ -284,9 +344,21 @@ export default function Settings() {
                     if (fieldErrors[f.id]) setFieldErrors((prev) => ({ ...prev, [f.id]: '' }));
                   }}
                   onBlur={() => {
-                    if (f.required && (fieldValues[f.id] !== undefined || fieldErrors[f.id])) {
-                      const isMissing = missingRequired([f], fieldValues).includes(f.id);
-                      setFieldErrors((prev) => ({ ...prev, [f.id]: isMissing ? `${f.label} is required.` : '' }));
+                    if (f.required || fieldValues[f.id] || fieldErrors[f.id]) {
+                      if (f.required && !fieldValues[f.id] && !fieldErrors[f.id] && fieldValues[f.id] === undefined) return;
+                      const err = validateCustomField(f, fieldValues[f.id]);
+                      setFieldErrors((prev) => ({ ...prev, [f.id]: err }));
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      const nextField = userFields[idx + 1];
+                      if (nextField) {
+                        document.getElementById(`settings-field-${nextField.id}`)?.focus();
+                      } else {
+                        handleSaveFields(e);
+                      }
                     }
                   }}
                   disabled={fieldsSaving}
@@ -338,9 +410,18 @@ function SettingsFeedback({ id, feedback }) {
 }
 
 function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => {
+    try { return sessionStorage.getItem(PROFILE_FEEDBACK_DRAFT_KEY) || ''; } catch { return ''; }
+  });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    try {
+      if (text) sessionStorage.setItem(PROFILE_FEEDBACK_DRAFT_KEY, text);
+      else sessionStorage.removeItem(PROFILE_FEEDBACK_DRAFT_KEY);
+    } catch { /* ignore */ }
+  }, [text]);
 
   const handleSubmit = async () => {
     if (submitting || !text.trim()) return;
@@ -357,6 +438,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
         if (result.summary) await saveLearnerProfileSummary(result.summary);
         syncInBackground('profile', 'profileSummary');
       }
+      try { sessionStorage.removeItem(PROFILE_FEEDBACK_DRAFT_KEY); } catch { /* ignore */ }
       onOpenChange(false);
       setText('');
       if (onDone) onDone();
