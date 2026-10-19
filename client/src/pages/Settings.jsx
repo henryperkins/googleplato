@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import PasswordField from '../components/PasswordField.jsx';
@@ -43,8 +43,12 @@ export default function Settings() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [userFields, setUserFields] = useState([]);
   const [fieldValues, setFieldValues] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [fieldsFeedback, setFieldsFeedback] = useState(null);
   const [fieldsSaving, setFieldsSaving] = useState(false);
+  const usernameRef = useRef(null);
+  const newPasswordRef = useRef(null);
+  const confirmPasswordRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -62,10 +66,19 @@ export default function Settings() {
     e.preventDefault();
     if (fieldsSaving) return;
     setFieldsFeedback(null);
-    if (missingRequired(userFields, fieldValues).length) {
+    const missing = missingRequired(userFields, fieldValues);
+    if (missing.length) {
+      const nextErrs = {};
+      for (const id of missing) {
+        const def = userFields.find(f => f.id === id);
+        nextErrs[id] = `${def?.label || 'This field'} is required.`;
+      }
+      setFieldErrors(nextErrs);
       setFieldsFeedback({ type: 'error', message: 'Fill in all required fields.' });
+      document.getElementById(`settings-field-${missing[0]}`)?.focus();
       return;
     }
+    setFieldErrors({});
     setFieldsSaving(true);
     try {
       const data = await updateProfile({ customFields: pickValues(fieldValues, userFields.map((f) => f.id)) });
@@ -85,6 +98,7 @@ export default function Settings() {
     const trimmed = username.trim();
     if (!trimmed) {
       setUsernameFeedback({ type: 'error', message: 'Username is required' });
+      usernameRef.current?.focus();
       return;
     }
     setUsernameSubmitting(true);
@@ -127,10 +141,12 @@ export default function Settings() {
     setPasswordFeedback(null);
     if (!newPassword || newPassword.length < 8) {
       setPasswordFeedback({ type: 'error', message: 'Password must be at least 8 characters.' });
+      newPasswordRef.current?.focus();
       return;
     }
     if (newPassword !== confirmPassword) {
       setPasswordFeedback({ type: 'error', message: 'Passwords do not match.' });
+      confirmPasswordRef.current?.focus();
       return;
     }
     setPasswordSubmitting(true);
@@ -162,10 +178,24 @@ export default function Settings() {
 
           <Separator />
 
-          <form className="space-y-3" onSubmit={handleSaveUsername}>
+          <form className="space-y-3" onSubmit={handleSaveUsername} noValidate>
             <div className="space-y-1.5">
               <Label htmlFor="account-username">Username</Label>
-              <Input id="account-username" type="text" value={username} disabled={usernameSubmitting} aria-describedby="username-feedback" onChange={(e) => { setUsername(e.target.value); setUsernameFeedback(null); }} />
+              <Input
+                id="account-username"
+                ref={usernameRef}
+                type="text"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="done"
+                value={username}
+                disabled={usernameSubmitting}
+                aria-invalid={usernameFeedback?.type === 'error' ? true : undefined}
+                aria-describedby="username-feedback"
+                onChange={(e) => { setUsername(e.target.value); setUsernameFeedback(null); }}
+              />
             </div>
             <Button type="submit" disabled={usernameSubmitting} aria-label={usernameSubmitting ? 'Saving username' : 'Save username'}>{usernameSubmitting ? 'Saving...' : 'Save'}</Button>
             <SettingsFeedback id="username-feedback" feedback={usernameFeedback} />
@@ -173,10 +203,20 @@ export default function Settings() {
 
           <Separator />
 
-          <form className="space-y-3" onSubmit={handleSaveName}>
+          <form className="space-y-3" onSubmit={handleSaveName} noValidate>
             <div className="space-y-1.5">
               <Label htmlFor="account-name">Name</Label>
-              <Input id="account-name" type="text" value={name} disabled={nameSubmitting} aria-describedby="name-feedback" onChange={(e) => { setName(e.target.value); setNameFeedback(null); }} />
+              <Input
+                id="account-name"
+                type="text"
+                autoComplete="name"
+                enterKeyHint="done"
+                value={name}
+                disabled={nameSubmitting}
+                aria-invalid={nameFeedback?.type === 'error' ? true : undefined}
+                aria-describedby="name-feedback"
+                onChange={(e) => { setName(e.target.value); setNameFeedback(null); }}
+              />
             </div>
             <Button type="submit" disabled={nameSubmitting} aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
             <SettingsFeedback id="name-feedback" feedback={nameFeedback} />
@@ -184,15 +224,19 @@ export default function Settings() {
 
           <Separator />
 
-          <form className="space-y-3" onSubmit={handleChangePassword}>
+          <form className="space-y-3" onSubmit={handleChangePassword} noValidate>
             <div className="space-y-1.5">
               <Label htmlFor="new-password">New Password</Label>
               <PasswordField
                 id="new-password"
                 autoComplete="new-password"
+                enterKeyHint="next"
+                inputRef={newPasswordRef}
                 value={newPassword}
                 onChange={(e) => { setNewPassword(e.target.value); setPasswordFeedback(null); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); confirmPasswordRef.current?.focus(); } }}
                 disabled={passwordSubmitting}
+                aria-invalid={passwordFeedback?.type === 'error' ? true : undefined}
                 aria-describedby="password-feedback"
               />
             </div>
@@ -201,10 +245,13 @@ export default function Settings() {
               <PasswordField
                 id="confirm-password"
                 autoComplete="new-password"
+                enterKeyHint="done"
+                inputRef={confirmPasswordRef}
                 value={confirmPassword}
                 onChange={(e) => { setConfirmPassword(e.target.value); setPasswordFeedback(null); }}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleChangePassword(e); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleChangePassword(e); } }}
                 disabled={passwordSubmitting}
+                aria-invalid={passwordFeedback?.type === 'error' ? true : undefined}
                 aria-describedby="password-feedback"
               />
             </div>
@@ -223,13 +270,25 @@ export default function Settings() {
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={handleSaveFields} noValidate>
-              {userFields.map((f) => (
+              {userFields.map((f, idx) => (
                 <CustomFieldInput
                   key={f.id}
                   field={f}
                   idPrefix="settings-field"
+                  enterKeyHint={idx === userFields.length - 1 ? 'done' : 'next'}
                   value={fieldValues[f.id]}
-                  onChange={(v) => { setFieldValues((prev) => ({ ...prev, [f.id]: v })); setFieldsFeedback(null); }}
+                  error={fieldErrors[f.id]}
+                  onChange={(v) => {
+                    setFieldValues((prev) => ({ ...prev, [f.id]: v }));
+                    setFieldsFeedback(null);
+                    if (fieldErrors[f.id]) setFieldErrors((prev) => ({ ...prev, [f.id]: '' }));
+                  }}
+                  onBlur={() => {
+                    if (f.required && (fieldValues[f.id] !== undefined || fieldErrors[f.id])) {
+                      const isMissing = missingRequired([f], fieldValues).includes(f.id);
+                      setFieldErrors((prev) => ({ ...prev, [f.id]: isMissing ? `${f.label} is required.` : '' }));
+                    }
+                  }}
                   disabled={fieldsSaving}
                   describedBy="fields-feedback"
                 />

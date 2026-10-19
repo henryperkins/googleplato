@@ -16,10 +16,20 @@ import { Button } from '@/components/ui/button';
  * during admin "View as User" (the read-only audit view isn't the admin's
  * own profile). Admin pages (/plato/*) are outside this gate.
  */
+const GATE_DRAFT_KEY = 'plato_profile_gate_draft';
+
 export default function ProfileCompletionGate({ children }) {
   const { impersonatedUser } = useAuth();
   const [status, setStatus] = useState(null); // { userFields, values, missing } | 'ok'
-  const [values, setValues] = useState({});
+  const [values, setValues] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(GATE_DRAFT_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [fieldErrors, setFieldErrors] = useState({});
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const headingRef = useRef(null);
@@ -31,7 +41,12 @@ export default function ProfileCompletionGate({ children }) {
       .then((data) => {
         if (cancelled) return;
         if (!data.missing?.length) { setStatus('ok'); return; }
-        setValues(data.values || {});
+        let draft = {};
+        try {
+          const raw = sessionStorage.getItem(GATE_DRAFT_KEY);
+          if (raw) draft = JSON.parse(raw);
+        } catch { /* ignore */ }
+        setValues({ ...(data.values || {}), ...draft });
         setStatus(data);
       })
       .catch(() => { if (!cancelled) setStatus('ok'); });
@@ -42,6 +57,13 @@ export default function ProfileCompletionGate({ children }) {
   useEffect(() => {
     if (blocking) headingRef.current?.focus();
   }, [blocking]);
+
+  useEffect(() => {
+    if (!blocking) return;
+    try {
+      sessionStorage.setItem(GATE_DRAFT_KEY, JSON.stringify(values));
+    } catch { /* ignore */ }
+  }, [blocking, values]);
 
   if (impersonatedUser || status === 'ok') return children;
   if (status === null) {
@@ -59,7 +81,17 @@ export default function ProfileCompletionGate({ children }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (stillMissing.length) return;
+    if (stillMissing.length) {
+      const nextErrs = {};
+      for (const id of stillMissing) {
+        const def = fields.find(f => f.id === id);
+        nextErrs[id] = `${def?.label || 'This field'} is required.`;
+      }
+      setFieldErrors(nextErrs);
+      document.getElementById(`gate-${stillMissing[0]}`)?.focus();
+      return;
+    }
+    setFieldErrors({});
     setSaving(true);
     setError('');
     try {
@@ -69,6 +101,7 @@ export default function ProfileCompletionGate({ children }) {
         setValues(fresh.values || {});
         setStatus(fresh);
       } else {
+        try { sessionStorage.removeItem(GATE_DRAFT_KEY); } catch { /* ignore */ }
         setStatus('ok');
       }
     } catch (err) {
@@ -96,17 +129,28 @@ export default function ProfileCompletionGate({ children }) {
                 {error}
               </div>
             )}
-            {fields.map((f) => (
+            {fields.map((f, idx) => (
               <CustomFieldInput
                 key={f.id}
                 field={f}
                 idPrefix="gate"
+                enterKeyHint={idx === fields.length - 1 ? 'done' : 'next'}
                 value={values[f.id]}
-                onChange={(v) => setValues((prev) => ({ ...prev, [f.id]: v }))}
+                error={fieldErrors[f.id]}
+                onChange={(v) => {
+                  setValues((prev) => ({ ...prev, [f.id]: v }));
+                  if (fieldErrors[f.id]) setFieldErrors((prev) => ({ ...prev, [f.id]: '' }));
+                }}
+                onBlur={() => {
+                  if (f.required && (values[f.id] !== undefined || fieldErrors[f.id])) {
+                    const isMissing = missingRequired([f], values).includes(f.id);
+                    setFieldErrors((prev) => ({ ...prev, [f.id]: isMissing ? `${f.label} is required.` : '' }));
+                  }
+                }}
                 disabled={saving}
               />
             ))}
-            <Button type="submit" disabled={saving || stillMissing.length > 0}>
+            <Button type="submit" disabled={saving}>
               {saving ? 'Saving...' : 'Continue'}
             </Button>
           </form>

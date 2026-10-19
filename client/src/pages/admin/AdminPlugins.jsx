@@ -299,8 +299,14 @@ function UninstallDialog({ plugin, open, onOpenChange, onConfirm }) {
           </Label>
           <Input
             id={`confirm-${plugin.id}`}
+            type="text"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="done"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && matches && !working && !e.nativeEvent.isComposing) { e.preventDefault(); handleConfirm(); } }}
             autoComplete="off"
             autoFocus
           />

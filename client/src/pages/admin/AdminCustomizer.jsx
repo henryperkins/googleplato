@@ -515,6 +515,7 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
 
             <ComposeBar
               placeholder="Tell me about your program..."
+              storageKey="plato_kb_customizer_draft"
               onSend={handleSend}
               disabled={isBusy}
             />

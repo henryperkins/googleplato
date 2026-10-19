@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import PasswordField from '../components/PasswordField.jsx';
 import { saveAuthTokens, saveAuthUser } from '../../js/storage.js';
 import { loginWithGoogle } from '../../js/auth.js';
@@ -9,19 +9,40 @@ import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from '@/components/ui/card';
 
+const SETUP_DRAFT_KEY = 'plato_setup_draft';
+
 export default function Setup() {
-  const [classroomName, setClassroomName] = useState('');
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
+  const [savedDraft] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(SETUP_DRAFT_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [classroomName, setClassroomName] = useState(savedDraft.classroomName || '');
+  const [email, setEmail] = useState(savedDraft.email || '');
+  const [name, setName] = useState(savedDraft.name || '');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
+  const nameRef = useRef(null);
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
+  const confirmRef = useRef(null);
 
   useEffect(() => {
     document.title = 'Setup — plato';
   }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify({ classroomName, email, name }));
+    } catch { /* ignore */ }
+  }, [classroomName, email, name]);
 
   async function handleGoogleSetup() {
     setGoogleSubmitting(true);
@@ -31,6 +52,7 @@ export default function Setup() {
         classroomName: classroomName.trim() || undefined,
         name: name.trim() || undefined,
       });
+      try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
       window.location.href = '/plato';
     } catch (e) {
       if (e?.code !== 'auth/popup-closed-by-user') {
@@ -41,19 +63,34 @@ export default function Setup() {
     }
   }
 
-  async function handleSetup() {
-    if (!email.trim() || !name.trim() || !password) {
-      setError('All fields are required.');
+  async function handleSetup(e) {
+    if (e) e.preventDefault();
+    const nextErrs = {};
+    if (!name.trim()) nextErrs.name = 'Name is required.';
+    if (!email.trim()) nextErrs.email = 'Email is required.';
+    if (!password) nextErrs.password = 'Password is required.';
+    else if (password.length < 8) nextErrs.password = 'Password must be at least 8 characters.';
+    if (password && password.length >= 8 && password !== confirm) {
+      nextErrs.confirm = 'Passwords do not match.';
+    }
+
+    if (Object.keys(nextErrs).length > 0) {
+      setFieldErrors(nextErrs);
+      if (!email.trim() || !name.trim() || !password) {
+        setError('All fields are required.');
+      } else if (nextErrs.password) {
+        setError(nextErrs.password);
+      } else if (nextErrs.confirm) {
+        setError(nextErrs.confirm);
+      }
+      if (nextErrs.name) nameRef.current?.focus();
+      else if (nextErrs.email) emailRef.current?.focus();
+      else if (nextErrs.password) passwordRef.current?.focus();
+      else if (nextErrs.confirm) confirmRef.current?.focus();
       return;
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
-    }
-    if (password !== confirm) {
-      setError('Passwords do not match.');
-      return;
-    }
+
+    setFieldErrors({});
     setSubmitting(true);
     setError('');
     try {
@@ -64,6 +101,7 @@ export default function Setup() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Setup failed');
+      try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
       await saveAuthTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
       await saveAuthUser(data.user);
       window.location.href = '/plato';
@@ -88,54 +126,154 @@ export default function Setup() {
               {error}
             </div>
           )}
-          <div className="space-y-2">
-            <Label htmlFor="setup-classroom">Classroom Name</Label>
-            <Input id="setup-classroom" type="text" placeholder="e.g. AI Leaders Academy" autoComplete="organization"
-              value={classroomName} onChange={e => setClassroomName(e.target.value)} />
-            <p className="text-xs text-muted-foreground">This appears in the header and on login pages. You can change it later.</p>
-          </div>
-          <hr className="border-border" />
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full gap-2 whitespace-nowrap shrink-0"
-            onClick={handleGoogleSetup}
-            disabled={submitting || googleSubmitting}
-          >
-            <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 15.25 5 12c0-3.25 3.36-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81Z" />
-            </svg>
-            {googleSubmitting ? 'Setting up with Google...' : 'Create admin account with Google'}
-          </Button>
-          <div className="relative flex items-center py-1">
-            <div className="grow border-t border-border" />
-            <span className="mx-3 shrink-0 text-xs text-muted-foreground">or set up with password</span>
-            <div className="grow border-t border-border" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="setup-name">Your Name</Label>
-            <Input id="setup-name" type="text" placeholder="Your name" autoComplete="name"
-              value={name} onChange={e => setName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="setup-email">Email</Label>
-            <Input id="setup-email" type="email" placeholder="admin@example.com" autoComplete="email"
-              value={email} onChange={e => setEmail(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="setup-password">Password</Label>
-            <PasswordField id="setup-password" placeholder="At least 8 characters" autoComplete="new-password"
-              value={password} onChange={e => setPassword(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="setup-confirm">Confirm password</Label>
-            <PasswordField id="setup-confirm" autoComplete="new-password"
-              value={confirm} onChange={e => setConfirm(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSetup(); }} />
-          </div>
-          <Button className="w-full" onClick={handleSetup} disabled={submitting || googleSubmitting}>
-            {submitting ? 'Creating...' : 'Create admin account'}
-          </Button>
+          <form className="space-y-4" onSubmit={handleSetup} noValidate>
+            <div className="space-y-2">
+              <Label htmlFor="setup-classroom">Classroom Name</Label>
+              <Input
+                id="setup-classroom"
+                type="text"
+                enterKeyHint="next"
+                placeholder="e.g. AI Leaders Academy"
+                autoComplete="organization"
+                aria-describedby="setup-classroom-hint"
+                value={classroomName}
+                onChange={e => setClassroomName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); nameRef.current?.focus(); } }}
+              />
+              <p id="setup-classroom-hint" className="text-xs text-muted-foreground">This appears in the header and on login pages. You can change it later.</p>
+            </div>
+            <hr className="border-border" />
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2 whitespace-nowrap shrink-0"
+              onClick={handleGoogleSetup}
+              disabled={submitting || googleSubmitting}
+            >
+              <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 15.25 5 12c0-3.25 3.36-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81Z" />
+              </svg>
+              {googleSubmitting ? 'Setting up with Google...' : 'Create admin account with Google'}
+            </Button>
+            <div className="relative flex items-center py-1">
+              <div className="grow border-t border-border" />
+              <span className="mx-3 shrink-0 text-xs text-muted-foreground">or set up with password</span>
+              <div className="grow border-t border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="setup-name">Your Name</Label>
+              <Input
+                id="setup-name"
+                ref={nameRef}
+                type="text"
+                enterKeyHint="next"
+                placeholder="Your name"
+                autoComplete="name"
+                value={name}
+                aria-invalid={fieldErrors.name ? true : undefined}
+                aria-describedby={fieldErrors.name ? 'setup-name-error' : undefined}
+                onChange={e => {
+                  setName(e.target.value);
+                  if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
+                }}
+                onBlur={() => {
+                  if (name || fieldErrors.name) {
+                    setFieldErrors(prev => ({ ...prev, name: name.trim() ? '' : 'Name is required.' }));
+                  }
+                }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); emailRef.current?.focus(); } }}
+              />
+              {fieldErrors.name && (
+                <p id="setup-name-error" className="text-xs text-destructive" role="alert">{fieldErrors.name}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="setup-email">Email</Label>
+              <Input
+                id="setup-email"
+                ref={emailRef}
+                type="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
+                placeholder="admin@example.com"
+                autoComplete="email"
+                value={email}
+                aria-invalid={fieldErrors.email ? true : undefined}
+                aria-describedby={fieldErrors.email ? 'setup-email-error' : undefined}
+                onChange={e => {
+                  setEmail(e.target.value);
+                  if (fieldErrors.email) setFieldErrors(prev => ({ ...prev, email: '' }));
+                }}
+                onBlur={() => {
+                  if (email || fieldErrors.email) {
+                    setFieldErrors(prev => ({ ...prev, email: email.trim() ? '' : 'Email is required.' }));
+                  }
+                }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); passwordRef.current?.focus(); } }}
+              />
+              {fieldErrors.email && (
+                <p id="setup-email-error" className="text-xs text-destructive" role="alert">{fieldErrors.email}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="setup-password">Password</Label>
+              <PasswordField
+                id="setup-password"
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+                enterKeyHint="next"
+                inputRef={passwordRef}
+                value={password}
+                aria-invalid={fieldErrors.password ? true : undefined}
+                aria-describedby={fieldErrors.password ? 'setup-password-error' : undefined}
+                onChange={e => {
+                  setPassword(e.target.value);
+                  if (fieldErrors.password) setFieldErrors(prev => ({ ...prev, password: '' }));
+                }}
+                onBlur={() => {
+                  if (password || fieldErrors.password) {
+                    const msg = !password ? 'Password is required.' : password.length < 8 ? 'Password must be at least 8 characters.' : '';
+                    setFieldErrors(prev => ({ ...prev, password: msg }));
+                  }
+                }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); confirmRef.current?.focus(); } }}
+              />
+              {fieldErrors.password && (
+                <p id="setup-password-error" className="text-xs text-destructive" role="alert">{fieldErrors.password}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="setup-confirm">Confirm password</Label>
+              <PasswordField
+                id="setup-confirm"
+                autoComplete="new-password"
+                enterKeyHint="go"
+                inputRef={confirmRef}
+                value={confirm}
+                aria-invalid={fieldErrors.confirm ? true : undefined}
+                aria-describedby={fieldErrors.confirm ? 'setup-confirm-error' : undefined}
+                onChange={e => {
+                  setConfirm(e.target.value);
+                  if (fieldErrors.confirm) setFieldErrors(prev => ({ ...prev, confirm: '' }));
+                }}
+                onBlur={() => {
+                  if (confirm || fieldErrors.confirm) {
+                    setFieldErrors(prev => ({ ...prev, confirm: password && confirm !== password ? 'Passwords do not match.' : '' }));
+                  }
+                }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleSetup(e); } }}
+              />
+              {fieldErrors.confirm && (
+                <p id="setup-confirm-error" className="text-xs text-destructive" role="alert">{fieldErrors.confirm}</p>
+              )}
+            </div>
+            <Button type="submit" className="w-full" disabled={submitting || googleSubmitting}>
+              {submitting ? 'Creating...' : 'Create admin account'}
+            </Button>
+          </form>
         </CardContent>
       </Card>
       <p className="mt-4 text-xs text-white" style={{ '--ring': 'currentColor' }}>

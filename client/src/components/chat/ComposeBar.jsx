@@ -29,6 +29,7 @@ export default function ComposeBar({
   allowImages = false,
   allowLinks = false,
   elevated = false,
+  storageKey = null,
   text: textProp,
   onTextChange,
   images: imagesProp,
@@ -36,12 +37,22 @@ export default function ComposeBar({
   links: linksProp,
   onLinksChange,
 }) {
-  const [localText, setLocalText] = useState('');
+  const [localText, setLocalText] = useState(() => {
+    if (!storageKey) return '';
+    try { return sessionStorage.getItem(storageKey) || ''; } catch { return ''; }
+  });
   const [localImages, setLocalImages] = useState([]); // array of { dataUrl, name }
   const [localLinks, setLocalLinks] = useState([]); // array of { url, title, siteName, text }
   const [loadingImages, setLoadingImages] = useState(false);
   const text = textProp !== undefined ? textProp : localText;
   const setText = onTextChange || setLocalText;
+  useEffect(() => {
+    if (!storageKey || textProp !== undefined) return;
+    try {
+      if (localText) sessionStorage.setItem(storageKey, localText);
+      else sessionStorage.removeItem(storageKey);
+    } catch { /* ignore storage quota errors */ }
+  }, [storageKey, localText, textProp]);
   const images = imagesProp !== undefined ? imagesProp : localImages;
   const setImages = onImagesChange || setLocalImages;
   const links = linksProp !== undefined ? linksProp : localLinks;
@@ -283,7 +294,7 @@ export default function ComposeBar({
                   <Button
                     variant="secondary"
                     size="icon-xs"
-                    className="absolute -top-1.5 -right-1.5 rounded-full"
+                    className="compose-chip-remove absolute -top-1.5 -right-1.5 rounded-full shadow-xs"
                     onClick={() => removeImage(idx)}
                     aria-label={`Remove ${img.name}`}
                   >
@@ -300,29 +311,29 @@ export default function ComposeBar({
         {links.length > 0 && (
           <div className="m-2 flex flex-wrap gap-2">
             {links.map((link, idx) => (
-              <div key={idx} className="relative inline-flex max-w-full">
+              <div key={idx} className="inline-flex max-w-full items-center gap-1 rounded-md border border-input bg-muted py-0.5 pl-2 pr-1 text-xs">
                 {/* The chip body is a focusable link so keyboard/SR users can
                     reach it, hear the full URL (aria-label), and open it to
                     verify before deciding whether to remove it — the remove
-                    button alone left the URL inaccessible without a mouse. */}
+                    button sits beside the link so touch targets never overlap. */}
                 <a
                   href={link.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   title={link.url}
                   aria-label={`Attached link: ${link.title} — ${link.url} — opens in a new tab`}
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-input bg-muted py-1 pl-2 pr-6 text-xs hover:bg-muted/70"
+                  className="inline-flex min-w-0 max-w-full items-center gap-1.5 py-0.5 pr-1 hover:underline"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-muted-foreground">
                     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                   </svg>
-                  <span className="truncate max-w-[12rem]" aria-hidden="true">{link.title}</span>
+                  <span className="truncate max-w-[11rem]" aria-hidden="true">{link.title}</span>
                   <span className="text-muted-foreground shrink-0" aria-hidden="true">{hostLabel(link.url)}</span>
                 </a>
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   size="icon-xs"
-                  className="absolute -top-1.5 -right-1.5 rounded-full"
+                  className="compose-chip-remove shrink-0 rounded-full hover:bg-background/80"
                   onClick={() => removeLink(idx)}
                   aria-label={`Remove link ${link.title}`}
                 >
@@ -336,6 +347,7 @@ export default function ComposeBar({
         <textarea
           ref={inputRef}
           id={inputId}
+          enterKeyHint="enter"
           className="w-full min-h-[calc(1lh+1rem)] resize-none rounded-t-xl bg-transparent px-3 py-2 text-base md:text-sm focus-visible:outline-offset-[-3px] placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
           rows={1}
           placeholder={placeholder}
@@ -356,6 +368,10 @@ export default function ComposeBar({
                 id={linkInputId}
                 type="url"
                 inputMode="url"
+                enterKeyHint="done"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 placeholder="Paste a link (https://…)"
                 value={linkValue}
                 onChange={(e) => setLinkValue(e.target.value)}

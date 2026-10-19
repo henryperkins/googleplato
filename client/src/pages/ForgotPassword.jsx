@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { Button } from '@/components/ui/button';
@@ -12,14 +12,20 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [fieldError, setFieldError] = useState('');
   const navigate = useNavigate();
+  const emailRef = useRef(null);
   const branding = usePublicBranding('Reset password');
 
-  async function handleSubmit() {
+  async function handleSubmit(e) {
+    if (e) e.preventDefault();
     if (!email.trim()) {
+      setFieldError('Please enter your email.');
       setError('Please enter your email.');
+      emailRef.current?.focus();
       return;
     }
+    setFieldError('');
     setError('');
     try {
       const res = await fetch('/v1/auth/forgot-password', {
@@ -47,32 +53,53 @@ export default function ForgotPassword() {
           <CardTitle className="text-2xl">Reset password</CardTitle>
           <CardDescription>Enter your email and we&apos;ll send you a reset link.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {error && (
-            <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
-              {error}
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleSubmit} noValidate>
+            {error && (
+              <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
+                {error}
+              </div>
+            )}
+            {message && (
+              <div className="bg-green-50 text-green-700 border border-green-200 rounded-lg p-3 text-sm" role="status">
+                {message}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="forgot-email">Email</Label>
+              <Input
+                id="forgot-email"
+                ref={emailRef}
+                type="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="send"
+                placeholder="you@example.com"
+                autoComplete="email"
+                value={email}
+                aria-invalid={fieldError ? true : undefined}
+                aria-describedby={fieldError ? 'forgot-email-error' : undefined}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldError) setFieldError('');
+                }}
+                onBlur={() => {
+                  if (email || fieldError) {
+                    setFieldError(email.trim() ? '' : 'Please enter your email.');
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleSubmit(e); } }}
+              />
+              {fieldError && (
+                <p id="forgot-email-error" className="text-xs text-destructive" role="alert">{fieldError}</p>
+              )}
             </div>
-          )}
-          {message && (
-            <div className="bg-green-50 text-green-700 border border-green-200 rounded-lg p-3 text-sm" role="status">
-              {message}
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="forgot-email">Email</Label>
-            <Input
-              id="forgot-email"
-              type="email"
-              placeholder="you@example.com"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleSubmit(); }}
-            />
-          </div>
-          <Button className="w-full" onClick={handleSubmit}>
-            Send reset link
-          </Button>
+            <Button type="submit" className="w-full">
+              Send reset link
+            </Button>
+          </form>
         </CardContent>
         <CardFooter className="justify-center">
           <Button variant="link" onClick={() => navigate('/login')}>

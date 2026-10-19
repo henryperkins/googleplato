@@ -680,21 +680,21 @@ export default function AdminUsers() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="edit-name">Name</Label>
-              <Input id="edit-name" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
+              <Input id="edit-name" type="text" enterKeyHint="done" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-email">Email</Label>
-              <Input id="edit-email" type="email" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} />
+              <Input id="edit-email" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-username">Username</Label>
-              <Input id="edit-username" type="text" value={editForm.username} onChange={e => setEditForm({ ...editForm, username: e.target.value })} />
+              <Input id="edit-username" type="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" value={editForm.username} onChange={e => setEditForm({ ...editForm, username: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-group">User Group</Label>
               <select id="edit-group" value={editForm.userGroup}
                 onChange={e => setEditForm({ ...editForm, userGroup: e.target.value })}
-                className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm">
+                className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm">
                 <option value="">None</option>
                 {groups.map(g => <option key={g} value={g}>{g}</option>)}
               </select>
@@ -713,7 +713,7 @@ export default function AdminUsers() {
                 <Label htmlFor="edit-role">Role</Label>
                 <select id="edit-role" value={editForm.role}
                   onChange={e => setEditForm({ ...editForm, role: e.target.value })}
-                  className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm">
+                  className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm">
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
@@ -786,13 +786,19 @@ export default function AdminUsers() {
 
       {/* Search and filters */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-4">
+        <Label htmlFor="users-search" className="sr-only">Search users</Label>
         <Input
-          type="text"
+          id="users-search"
+          type="search"
+          inputMode="search"
+          enterKeyHint="search"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           placeholder={userFields.length ? 'Search by email, username, name, or field...' : 'Search by email, username, or name...'}
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="max-w-xs"
-          aria-label="Search users"
         />
         <div className="flex flex-wrap gap-1" role="group" aria-label="Filter users">
           {filterButtons.map(f => (
@@ -813,7 +819,7 @@ export default function AdminUsers() {
               aria-label="Custom field"
               value={fieldFilter.fieldId}
               onChange={e => setFieldFilter({ fieldId: e.target.value, value: e.target.value ? '__set' : '' })}
-              className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm"
+              className="h-9 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
             >
               <option value="">Any field</option>
               {userFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
@@ -823,7 +829,7 @@ export default function AdminUsers() {
                 aria-label={`${filterField.label} value`}
                 value={fieldFilter.value}
                 onChange={e => setFieldFilter(prev => ({ ...prev, value: e.target.value }))}
-                className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm"
+                className="h-9 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
               >
                 <option value="__set">Has a value</option>
                 <option value="__empty">Empty</option>
@@ -1020,9 +1026,9 @@ export default function AdminUsers() {
               <div className="space-y-2">
                 <Label htmlFor="modal-inv-email">Email(s)</Label>
                 <div className="flex gap-2">
-                  <Input id="modal-inv-email" type="text" placeholder="user@example.com, another@example.com"
+                  <Input id="modal-inv-email" type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" placeholder="user@example.com, another@example.com"
                     value={inviteInput} onChange={e => setInviteInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddEmails(); } }} className="flex-1" />
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleAddEmails(); } }} className="flex-1" />
                   <Button variant="outline" onClick={handleAddEmails}>Add</Button>
                 </div>
               </div>
@@ -1037,12 +1043,12 @@ export default function AdminUsers() {
                   <div className="max-h-40 overflow-y-auto rounded-md border p-2">
                     <div className="flex flex-wrap gap-1.5">
                       {emailQueue.map(email => (
-                        <span key={email} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs">
+                        <span key={email} className="inline-flex items-center gap-1 rounded-full bg-muted pl-2.5 pr-1 py-0.5 text-xs">
                           {email}
                           <button
                             type="button"
                             onClick={() => removeFromQueue(email)}
-                            className="ml-0.5 hover:text-destructive"
+                            className="compose-chip-remove inline-flex items-center justify-center rounded-full hover:text-destructive"
                             aria-label={`Remove ${email}`}
                           >
                             &#10005;
@@ -1069,7 +1075,12 @@ export default function AdminUsers() {
                 <Label htmlFor="slack-user-search">Search Slack users</Label>
                 <Input
                   id="slack-user-search"
-                  type="text"
+                  type="search"
+                  inputMode="search"
+                  enterKeyHint="search"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   placeholder="Search by name or email..."
                   value={slackSearch}
                   onChange={e => handleSlackSearchChange(e.target.value)}
@@ -1100,7 +1111,7 @@ export default function AdminUsers() {
                     id="slack-channel-select"
                     value={slackSelectedChannel}
                     onChange={e => setSlackSelectedChannel(e.target.value)}
-                    className="h-10 flex-1 rounded-lg border border-input bg-transparent px-3 py-2 text-sm"
+                    className="h-10 flex-1 rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm"
                   >
                     <option value="">Select a channel...</option>
                     {slackChannels.map(ch => (
@@ -1119,13 +1130,13 @@ export default function AdminUsers() {
                   <div className="max-h-40 overflow-y-auto rounded-md border p-2">
                     <div className="flex flex-wrap gap-1.5">
                       {slackQueue.map(u => (
-                        <span key={u.slackUserId} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs">
+                        <span key={u.slackUserId} className="inline-flex items-center gap-1 rounded-full bg-muted pl-2.5 pr-1 py-0.5 text-xs">
                           {u.name}
                           {!u.email && <span className="text-destructive" title="No email on Slack profile">&#9888;</span>}
                           <button
                             type="button"
                             onClick={() => removeFromSlackQueue(u.slackUserId)}
-                            className="ml-0.5 hover:text-destructive"
+                            className="compose-chip-remove inline-flex items-center justify-center rounded-full hover:text-destructive"
                             aria-label={`Remove ${u.name}`}
                           >
                             &#10005;
@@ -1242,9 +1253,9 @@ export default function AdminUsers() {
           <div className="space-y-4">
             <div className="flex gap-2">
               <Label htmlFor="new-group-name" className="sr-only">Group name</Label>
-              <Input id="new-group-name" type="text" placeholder="Group name" value={newGroupName}
+              <Input id="new-group-name" type="text" enterKeyHint="done" placeholder="Group name" value={newGroupName}
                 onChange={e => setNewGroupName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addGroup(); }} className="flex-1" />
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addGroup(); }} className="flex-1" />
               <Button onClick={addGroup}>Add</Button>
             </div>
             {groups.length > 0 ? (

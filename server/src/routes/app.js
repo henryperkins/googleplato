@@ -45,11 +45,29 @@ function loadDir(dir, prefix) {
 }
 loadDir(clientDistDir, '/');
 
-const indexHtml = staticFiles['/index.html'];
+function getStaticFile(urlPath) {
+  if (staticFiles[urlPath] && urlPath !== '/index.html') {
+    return staticFiles[urlPath];
+  }
+  const fullPath = join(clientDistDir, urlPath.replace(/^\/+/, ''));
+  try {
+    if (existsSync(fullPath)) {
+      const file = {
+        content: readFileSync(fullPath),
+        type: MIME_TYPES[extname(fullPath)] || 'application/octet-stream',
+      };
+      staticFiles[urlPath] = file;
+      return file;
+    }
+  } catch {
+    // Ignore read errors
+  }
+  return staticFiles[urlPath] || null;
+}
 
 // Serve static assets with long-term caching
 app.get('/assets/*', (c) => {
-  const file = staticFiles[c.req.path];
+  const file = getStaticFile(c.req.path);
   if (!file) return c.notFound();
   c.header('Content-Type', file.type);
   c.header('Cache-Control', 'public, max-age=31536000, immutable');
@@ -100,13 +118,14 @@ app.get('*', (c) => {
   if (c.req.path.startsWith('/v1/')) return c.notFound();
 
   // Try to serve a static file first (for css, js, images, etc.)
-  const file = staticFiles[c.req.path];
+  const file = getStaticFile(c.req.path);
   if (file) {
     c.header('Content-Type', file.type);
     return c.body(file.content);
   }
 
   // SPA fallback: serve index.html for all other routes
+  const indexHtml = getStaticFile('/index.html');
   if (!indexHtml) return c.text('Client not built. Run: cd client && npm run build', 500);
   c.header('Content-Type', indexHtml.type);
   c.header('Cache-Control', 'no-cache');

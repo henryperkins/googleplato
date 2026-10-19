@@ -79,11 +79,18 @@ export default function ViewAsUserModal({ open, onOpenChange, onStarted }) {
           </DialogDescription>
         </DialogHeader>
 
+        <label htmlFor="view-as-user-search" className="sr-only">Search users</label>
         <Input
+          id="view-as-user-search"
+          type="search"
+          inputMode="search"
+          enterKeyHint="search"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           placeholder="Search users..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search users"
         />
 
         <ScrollArea className="h-64 rounded-md border">

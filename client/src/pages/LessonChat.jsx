@@ -5,6 +5,7 @@ import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useStreamedText } from '../hooks/useStreamedText.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
+import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeyboardOffset.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
 import {
@@ -73,30 +74,29 @@ export default function LessonChat() {
   const [confirmModal, setConfirmModal] = useState(null);
   const [showObjectives, setShowObjectives] = useState(false);
   const objectivesTitleRef = useRef(null);
-  const [composePinned, setComposePinned] = useState(true);
-  const composeAnchorRef = useRef(null);
-  const [composeText, setComposeText] = useState('');
+  const keyboardOffset = useVisualViewportKeyboardOffset();
+  const draftStorageKey = lessonGroupId ? `plato_compose_draft:${lessonGroupId}` : null;
+  const [composeText, setComposeText] = useState(() => {
+    if (!draftStorageKey) return '';
+    try { return sessionStorage.getItem(draftStorageKey) || ''; } catch { return ''; }
+  });
   const [composeImages, setComposeImages] = useState([]);
   const [composeLinks, setComposeLinks] = useState([]);
 
-  // Keep the composer visible while its inline position is below the viewport.
+  // Sync draft text when switching between lessons and persist edits to sessionStorage
+  // so mobile background tab discards do not wipe an in-progress reflection.
   useEffect(() => {
-    const anchor = composeAnchorRef.current;
-    if (!anchor) return;
-    const check = () => {
-      setComposePinned(anchor.getBoundingClientRect().bottom > window.innerHeight);
-    };
-    const observer = new ResizeObserver(check);
-    observer.observe(anchor);
-    window.addEventListener('scroll', check, true);
-    window.addEventListener('resize', check);
-    check();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('scroll', check, true);
-      window.removeEventListener('resize', check);
-    };
-  }, [phase]);
+    if (!draftStorageKey) return;
+    try { setComposeText(sessionStorage.getItem(draftStorageKey) || ''); } catch { setComposeText(''); }
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftStorageKey) return;
+    try {
+      if (composeText) sessionStorage.setItem(draftStorageKey, composeText);
+      else sessionStorage.removeItem(draftStorageKey);
+    } catch { /* ignore storage quota errors */ }
+  }, [draftStorageKey, composeText]);
 
   useEffect(() => {
     if (displayText === null && pendingAfterStreamRef.current) {
@@ -381,7 +381,7 @@ export default function LessonChat() {
   };
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-theme(spacing.20))]">
+    <div className="flex flex-col min-h-[calc(100dvh-theme(spacing.20))]">
       {/* One header stays visible and accessible throughout the conversation. */}
       <div id="lesson-header" className="sticky top-0 z-40 border-b border-border bg-background px-4 py-2">
         <div className="mx-auto max-w-5xl flex items-start gap-2">
@@ -458,35 +458,19 @@ export default function LessonChat() {
       )}
       </div>
 
-      {/* Inline compose — always in document flow for layout; invisible when pinned */}
+      {/* Single sticky compose bar — stays mounted across scroll/resize so virtual
+          keyboard focus and open attachment UI are never destroyed mid-typing. */}
       {phase && (
-        <div ref={composeAnchorRef} inert={composePinned || undefined} className={composePinned ? 'invisible' : ''}>
+        <div
+          className="compose-sticky-bar sticky bottom-0 z-30 bg-stone-100/95 dark:bg-stone-900/95 backdrop-blur-xs pb-[env(safe-area-inset-bottom)]"
+          style={keyboardOffset > 0 ? { transform: `translateY(-${keyboardOffset}px)` } : undefined}
+        >
           <ComposeBar
             placeholder={impersonating ? 'Read-only — viewing as another user' : composePlaceholder}
             onSend={handleSend}
             disabled={busy || impersonating}
             allowImages
             allowLinks
-            text={composeText}
-            onTextChange={setComposeText}
-            images={composeImages}
-            onImagesChange={setComposeImages}
-            links={composeLinks}
-            onLinksChange={setComposeLinks}
-          />
-        </div>
-      )}
-
-      {/* Fixed compose overlay — interactive when pinned */}
-      {phase && composePinned && (
-        <div className="fixed bottom-0 left-0 right-0 z-50">
-          <ComposeBar
-            placeholder={impersonating ? 'Read-only — viewing as another user' : composePlaceholder}
-            onSend={handleSend}
-            disabled={busy || impersonating}
-            allowImages
-            allowLinks
-            elevated
             text={composeText}
             onTextChange={setComposeText}
             images={composeImages}

@@ -3,8 +3,9 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
 export default function PasswordField({
-  id, name, value, onChange, onKeyDown, placeholder, autoComplete, inputRef, required, disabled,
+  id, name, value, onChange, onBlur, onKeyDown, placeholder, autoComplete, enterKeyHint, inputRef, required, disabled,
   'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
 }) {
   const [visible, setVisible] = useState(false);
 
@@ -16,13 +17,16 @@ export default function PasswordField({
         type={visible ? 'text' : 'password'}
         value={value}
         onChange={onChange}
+        onBlur={onBlur}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         autoComplete={autoComplete || 'off'}
+        enterKeyHint={enterKeyHint}
         ref={inputRef}
         required={required}
         disabled={disabled}
         aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         className="pr-16"
       />
       <Button

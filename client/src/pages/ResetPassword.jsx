@@ -13,25 +13,30 @@ export default function ResetPassword() {
   const [confirm, setConfirm] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('reset') || '';
+  const passwordRef = useRef(null);
   const confirmRef = useRef(null);
   const branding = usePublicBranding('Set new password');
 
-  async function handleReset() {
-    if (!password) {
-      setError('Please enter a new password.');
+  async function handleReset(e) {
+    if (e) e.preventDefault();
+    const nextErrs = {};
+    if (!password) nextErrs.password = 'Please enter a new password.';
+    else if (password.length < 8) nextErrs.password = 'Password must be at least 8 characters.';
+    if (password && password.length >= 8 && password !== confirm) {
+      nextErrs.confirm = 'Passwords do not match.';
+    }
+    if (Object.keys(nextErrs).length > 0) {
+      setFieldErrors(nextErrs);
+      setError(nextErrs.password || nextErrs.confirm);
+      if (nextErrs.password) passwordRef.current?.focus();
+      else if (nextErrs.confirm) confirmRef.current?.focus();
       return;
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
-    }
-    if (password !== confirm) {
-      setError('Passwords do not match.');
-      return;
-    }
+    setFieldErrors({});
     setError('');
     try {
       const res = await fetch('/v1/auth/reset-password', {
@@ -59,41 +64,74 @@ export default function ResetPassword() {
         <CardHeader>
           <CardTitle className="text-2xl">Set new password</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {error && (
-            <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
-              {error}
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleReset} noValidate>
+            {error && (
+              <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
+                {error}
+              </div>
+            )}
+            {message && (
+              <div className="bg-green-50 text-green-700 border border-green-200 rounded-lg p-3 text-sm" role="status">
+                {message}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="reset-password">New password</Label>
+              <PasswordField
+                id="reset-password"
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+                enterKeyHint="next"
+                inputRef={passwordRef}
+                value={password}
+                aria-invalid={fieldErrors.password ? true : undefined}
+                aria-describedby={fieldErrors.password ? 'reset-password-error' : undefined}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (fieldErrors.password) setFieldErrors(prev => ({ ...prev, password: '' }));
+                }}
+                onBlur={() => {
+                  if (password || fieldErrors.password) {
+                    const msg = !password ? 'Please enter a new password.' : password.length < 8 ? 'Password must be at least 8 characters.' : '';
+                    setFieldErrors(prev => ({ ...prev, password: msg }));
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); confirmRef.current?.focus(); } }}
+              />
+              {fieldErrors.password && (
+                <p id="reset-password-error" className="text-xs text-destructive" role="alert">{fieldErrors.password}</p>
+              )}
             </div>
-          )}
-          {message && (
-            <div className="bg-green-50 text-green-700 border border-green-200 rounded-lg p-3 text-sm" role="status">
-              {message}
+            <div className="space-y-2">
+              <Label htmlFor="reset-confirm">Confirm password</Label>
+              <PasswordField
+                id="reset-confirm"
+                autoComplete="new-password"
+                enterKeyHint="done"
+                inputRef={confirmRef}
+                value={confirm}
+                aria-invalid={fieldErrors.confirm ? true : undefined}
+                aria-describedby={fieldErrors.confirm ? 'reset-confirm-error' : undefined}
+                onChange={(e) => {
+                  setConfirm(e.target.value);
+                  if (fieldErrors.confirm) setFieldErrors(prev => ({ ...prev, confirm: '' }));
+                }}
+                onBlur={() => {
+                  if (confirm || fieldErrors.confirm) {
+                    setFieldErrors(prev => ({ ...prev, confirm: password && confirm !== password ? 'Passwords do not match.' : '' }));
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleReset(e); } }}
+              />
+              {fieldErrors.confirm && (
+                <p id="reset-confirm-error" className="text-xs text-destructive" role="alert">{fieldErrors.confirm}</p>
+              )}
             </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="reset-password">New password</Label>
-            <PasswordField
-              id="reset-password"
-              placeholder="At least 8 characters"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="reset-confirm">Confirm password</Label>
-            <PasswordField
-              id="reset-confirm"
-              autoComplete="new-password"
-              inputRef={confirmRef}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleReset(); }}
-            />
-          </div>
-          <Button className="w-full" onClick={handleReset}>
-            Reset password
-          </Button>
+            <Button type="submit" className="w-full">
+              Reset password
+            </Button>
+          </form>
         </CardContent>
       </Card>
       <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>

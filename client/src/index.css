@@ -196,24 +196,55 @@
   --ring: var(--classroom-ring-dark, var(--primary-text)) !important;
 }
 
+/* Ensure focused inputs clear the sticky bottom compose bar / footer (WCAG 2.4.11). */
+html {
+  scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+}
+
 /* Keep compact desktop controls and expand their actual touch hit area. */
 @media (max-width: 639px), (any-pointer: coarse) {
-  [data-slot="button"],
+  [data-slot="button"]:not(.compose-chip-remove),
   .touch-target {
     min-width: 44px;
     min-height: 44px;
   }
 
+  .compose-chip-remove {
+    min-width: 28px;
+    min-height: 28px;
+  }
+
   .password-field input {
     min-height: 44px;
+  }
+
+  input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="color"]),
+  textarea,
+  select {
+    font-size: max(16px, 1rem);
+  }
+}
+
+/* Short landscape viewports: prevent sticky bars and multi-line compose boxes
+   from colliding with the software keyboard and crushing visible content. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .compose-sticky-bar {
+    position: static;
+  }
+  .compose-sticky-bar textarea {
+    max-height: 4.5rem;
   }
 }
 
 /* Keep desktop density; give touch users real, nonoverlapping hit areas. */
 @media (pointer: coarse) {
-  button, select, [role="menuitem"] {
+  button:not(.compose-chip-remove), select, [role="menuitem"] {
     min-inline-size: 44px;
     min-block-size: 44px;
+  }
+  .compose-chip-remove {
+    min-inline-size: 28px;
+    min-block-size: 28px;
   }
   button:not(.truncate) {
     max-inline-size: 100%;

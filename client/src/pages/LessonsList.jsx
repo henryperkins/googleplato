@@ -234,7 +234,7 @@ export default function LessonsList() {
                 id="course-filter"
                 value={courseFilter}
                 onChange={(e) => setCourseFilter(e.target.value)}
-                className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value={FILTER_ALL}>All courses</option>
                 {courseOptions.named.map((c) => (
@@ -252,7 +252,7 @@ export default function LessonsList() {
               id="status-filter"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value={STATUS_ALL}>All statuses</option>
               <option value={STATUS_NOT_STARTED}>Not started</option>

@@ -62,9 +62,9 @@ export default function AdminLayout() {
 
   return (
     <DialogPrimitive.Root open={menuOpen} onOpenChange={setMenuOpen}>
-    <div className="flex flex-col md:flex-row min-h-screen">
+    <div className="flex flex-col md:flex-row min-h-dvh">
       {/* Mobile: top bar with hamburger */}
-      <header className="md:hidden bg-sidebar text-sidebar-foreground flex items-center justify-between px-4 py-3" style={{ '--ring': 'var(--sidebar-foreground)' }}>
+      <header className="md:hidden bg-sidebar text-sidebar-foreground flex items-center justify-between px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ '--ring': 'var(--sidebar-foreground)' }}>
         <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center rounded-sm">
           <img src="/assets/logo-white.svg" alt="plato" className="h-6 w-auto" />
         </a>
@@ -88,7 +88,7 @@ export default function AdminLayout() {
       {/* Mobile: slide-out drawer */}
       <DialogPrimitive.Portal>
           <DialogPrimitive.Backdrop className="admin-drawer-backdrop fixed inset-0 bg-black/40 z-40" />
-          <DialogPrimitive.Popup className="admin-drawer fixed top-0 left-0 w-64 max-w-[calc(100%-2rem)] h-dvh overflow-y-auto bg-sidebar text-sidebar-foreground z-50 flex flex-col outline-none" style={{ '--ring': 'var(--sidebar-foreground)' }}>
+          <DialogPrimitive.Popup className="admin-drawer fixed top-0 left-0 w-64 max-w-[calc(100%-2rem)] h-dvh overflow-y-auto bg-sidebar text-sidebar-foreground z-50 flex flex-col outline-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]" style={{ '--ring': 'var(--sidebar-foreground)' }}>
             <DialogPrimitive.Title className="sr-only">Admin menu</DialogPrimitive.Title>
             <DialogPrimitive.Description className="sr-only">Choose an admin page or visit the classroom.</DialogPrimitive.Description>
             <div className="flex items-center justify-between px-4 py-3">

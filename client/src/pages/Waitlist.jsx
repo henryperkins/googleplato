@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
@@ -10,22 +10,41 @@ import {
   Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter,
 } from '@/components/ui/card';
 
+const WAITLIST_DRAFT_KEY = 'plato_waitlist_draft';
+
 // Join the wait list (#363). Asks for what signup asks, minus the password;
 // an admin invites the person later from Admin → Users.
 export default function Waitlist() {
+  const [savedDraft] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(WAITLIST_DRAFT_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   const [open, setOpen] = useState(null);
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [group, setGroup] = useState('');
+  const [email, setEmail] = useState(savedDraft.email || '');
+  const [name, setName] = useState(savedDraft.name || '');
+  const [group, setGroup] = useState(savedDraft.group || '');
   const [groups, setGroups] = useState([]);
   const [userFields, setUserFields] = useState([]);
-  const [fieldValues, setFieldValues] = useState({});
+  const [fieldValues, setFieldValues] = useState(savedDraft.fieldValues || {});
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [website, setWebsite] = useState(''); // honeypot — see below
   const navigate = useNavigate();
+  const nameRef = useRef(null);
+  const emailRef = useRef(null);
   const branding = usePublicBranding('Join the wait list');
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(WAITLIST_DRAFT_KEY, JSON.stringify({ email, name, group, fieldValues }));
+    } catch { /* ignore */ }
+  }, [email, name, group, fieldValues]);
 
   useEffect(() => {
     fetch('/v1/waitlist')
@@ -42,17 +61,32 @@ export default function Waitlist() {
       .catch(() => {});
   }, []);
 
-  async function handleSubmit() {
-    if (!name.trim() || !email.trim()) {
-      setError('Name and email are required.');
-      return;
-    }
+  async function handleSubmit(e) {
+    if (e) e.preventDefault();
+    const nextErrs = {};
+    if (!name.trim()) nextErrs.name = 'Name is required.';
+    if (!email.trim()) nextErrs.email = 'Email is required.';
     const missing = missingRequired(userFields, fieldValues);
-    if (missing.length) {
-      const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
-      setError(`Please fill in: ${labels.join(', ')}.`);
+    for (const id of missing) {
+      const def = userFields.find(f => f.id === id);
+      nextErrs[`cf_${id}`] = `${def?.label || 'This field'} is required.`;
+    }
+
+    if (Object.keys(nextErrs).length > 0) {
+      setFieldErrors(nextErrs);
+      if (!name.trim() || !email.trim()) {
+        setError('Name and email are required.');
+      } else if (missing.length) {
+        const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
+        setError(`Please fill in: ${labels.join(', ')}.`);
+      }
+      if (nextErrs.name) nameRef.current?.focus();
+      else if (nextErrs.email) emailRef.current?.focus();
+      else if (missing.length) document.getElementById(`waitlist-field-${missing[0]}`)?.focus();
       return;
     }
+
+    setFieldErrors({});
     setSubmitting(true);
     setError('');
     try {
@@ -69,6 +103,7 @@ export default function Waitlist() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not join the wait list');
+      try { sessionStorage.removeItem(WAITLIST_DRAFT_KEY); } catch { /* ignore */ }
       setDone(true);
     } catch (e) {
       setError(e.message || 'Could not join the wait list');
@@ -94,56 +129,116 @@ export default function Waitlist() {
     );
   } else {
     body = (
-      <CardContent className="space-y-4">
-        {error && (
-          <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
-            {error}
-          </div>
-        )}
-        <div className="space-y-2">
-          <Label htmlFor="waitlist-name">Name</Label>
-          <Input id="waitlist-name" type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="waitlist-email">Email</Label>
-          <Input id="waitlist-email" type="email" autoComplete="email" placeholder="your.email@example.com"
-            value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-        {groups.length > 0 && (
+      <CardContent>
+        <form className="space-y-4" onSubmit={handleSubmit} noValidate>
+          {error && (
+            <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
+              {error}
+            </div>
+          )}
           <div className="space-y-2">
-            <Label htmlFor="waitlist-group">
-              User Group <span className="text-muted-foreground text-xs">(optional)</span>
-            </Label>
-            <select
-              id="waitlist-group"
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              value={group}
-              onChange={(e) => setGroup(e.target.value)}
-            >
-              <option value="">Select group</option>
-              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
-            </select>
+            <Label htmlFor="waitlist-name">Name</Label>
+            <Input
+              id="waitlist-name"
+              ref={nameRef}
+              type="text"
+              enterKeyHint="next"
+              autoComplete="name"
+              value={name}
+              aria-invalid={fieldErrors.name ? true : undefined}
+              aria-describedby={fieldErrors.name ? 'waitlist-name-error' : undefined}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
+              }}
+              onBlur={() => {
+                if (name || fieldErrors.name) {
+                  setFieldErrors(prev => ({ ...prev, name: name.trim() ? '' : 'Name is required.' }));
+                }
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); emailRef.current?.focus(); } }}
+            />
+            {fieldErrors.name && (
+              <p id="waitlist-name-error" className="text-xs text-destructive" role="alert">{fieldErrors.name}</p>
+            )}
           </div>
-        )}
-        {userFields.map(f => (
-          <CustomFieldInput
-            key={f.id}
-            field={f}
-            idPrefix="waitlist-field"
-            value={fieldValues[f.id]}
-            onChange={(v) => setFieldValues(prev => ({ ...prev, [f.id]: v }))}
-          />
-        ))}
-        {/* Honeypot: off-screen, hidden from assistive tech, and out of the tab
-            order, so only bots fill it. The server silently drops those. */}
-        <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
-          <label htmlFor="waitlist-website">Website</label>
-          <input id="waitlist-website" type="text" name="website" tabIndex={-1} autoComplete="off"
-            value={website} onChange={(e) => setWebsite(e.target.value)} />
-        </div>
-        <Button className="w-full" onClick={handleSubmit} disabled={submitting}>
-          {submitting ? 'Sending...' : 'Join the wait list'}
-        </Button>
+          <div className="space-y-2">
+            <Label htmlFor="waitlist-email">Email</Label>
+            <Input
+              id="waitlist-email"
+              ref={emailRef}
+              type="email"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint={userFields.length > 0 ? 'next' : 'done'}
+              autoComplete="email"
+              placeholder="your.email@example.com"
+              value={email}
+              aria-invalid={fieldErrors.email ? true : undefined}
+              aria-describedby={fieldErrors.email ? 'waitlist-email-error' : undefined}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (fieldErrors.email) setFieldErrors(prev => ({ ...prev, email: '' }));
+              }}
+              onBlur={() => {
+                if (email || fieldErrors.email) {
+                  setFieldErrors(prev => ({ ...prev, email: email.trim() ? '' : 'Email is required.' }));
+                }
+              }}
+            />
+            {fieldErrors.email && (
+              <p id="waitlist-email-error" className="text-xs text-destructive" role="alert">{fieldErrors.email}</p>
+            )}
+          </div>
+          {groups.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="waitlist-group">
+                User Group <span className="text-muted-foreground text-xs">(optional)</span>
+              </Label>
+              <select
+                id="waitlist-group"
+                className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={group}
+                onChange={(e) => setGroup(e.target.value)}
+              >
+                <option value="">Select group</option>
+                {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+          )}
+          {userFields.map((f, idx) => (
+            <CustomFieldInput
+              key={f.id}
+              field={f}
+              idPrefix="waitlist-field"
+              enterKeyHint={idx === userFields.length - 1 ? 'done' : 'next'}
+              value={fieldValues[f.id]}
+              error={fieldErrors[`cf_${f.id}`]}
+              onChange={(v) => {
+                setFieldValues(prev => ({ ...prev, [f.id]: v }));
+                if (fieldErrors[`cf_${f.id}`]) setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: '' }));
+              }}
+              onBlur={() => {
+                if (f.required && (fieldValues[f.id] !== undefined || fieldErrors[`cf_${f.id}`])) {
+                  const isMissing = missingRequired([f], fieldValues).includes(f.id);
+                  setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: isMissing ? `${f.label} is required.` : '' }));
+                }
+              }}
+            />
+          ))}
+          {/* Honeypot: off-screen, hidden from assistive tech, and out of the tab
+              order, so only bots fill it. The server silently drops those. */}
+          <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
+            <label htmlFor="waitlist-website">Website</label>
+            <input id="waitlist-website" type="text" name="website" tabIndex={-1} autoComplete="off"
+              value={website} onChange={(e) => setWebsite(e.target.value)} />
+          </div>
+          <Button type="submit" className="w-full" disabled={submitting}>
+            {submitting ? 'Sending...' : 'Join the wait list'}
+          </Button>
+        </form>
       </CardContent>
     );
   }

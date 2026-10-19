@@ -102,11 +102,18 @@ export default function ShareLessonModal({
           </p>
         ) : (
           <>
+            <label htmlFor="share-lesson-search" className="sr-only">Search users</label>
             <Input
+              id="share-lesson-search"
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder="Search users..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search users"
             />
 
             <ScrollArea className="h-64 rounded-md border">

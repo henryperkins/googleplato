@@ -14,10 +14,12 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
+  const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const branding = usePublicBranding('Sign in');
   const [waitlistOpen, setWaitlistOpen] = useState(false);
@@ -29,11 +31,24 @@ export default function Login() {
       .catch(() => {});
   }, []);
 
-  async function handleLogin() {
-    if (!email.trim() || !password) {
+  function validateField(name, val) {
+    if (name === 'email') return val.trim() ? '' : 'Please enter your email or username.';
+    if (name === 'password') return val ? '' : 'Please enter your password.';
+    return '';
+  }
+
+  async function handleLogin(e) {
+    if (e) e.preventDefault();
+    const emailErr = validateField('email', email);
+    const passwordErr = validateField('password', password);
+    if (emailErr || passwordErr) {
+      setFieldErrors({ email: emailErr, password: passwordErr });
       setError('Please enter email/username and password.');
+      if (emailErr) emailRef.current?.focus();
+      else if (passwordErr) passwordRef.current?.focus();
       return;
     }
+    setFieldErrors({});
     setSubmitting(true);
     setError('');
     try {
@@ -99,21 +114,67 @@ export default function Login() {
             <span className="mx-3 shrink-0 text-xs text-muted-foreground">or sign in with password</span>
             <div className="grow border-t border-border" />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="login-email">Email or Username</Label>
-            <Input id="login-email" type="text" placeholder="you@example.com or username" autoComplete="username"
-              value={email} onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) passwordRef.current?.focus(); }} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="login-password">Password</Label>
-            <PasswordField id="login-password" autoComplete="current-password" inputRef={passwordRef}
-              value={password} onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleLogin(); }} />
-          </div>
-          <Button className="w-full" onClick={handleLogin} disabled={submitting || googleSubmitting}>
-            {submitting ? 'Signing in...' : 'Sign in'}
-          </Button>
+          <form className="space-y-4" onSubmit={handleLogin} noValidate>
+            <div className="space-y-2">
+              <Label htmlFor="login-email">Email or Username</Label>
+              <Input
+                id="login-email"
+                ref={emailRef}
+                type="text"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
+                placeholder="you@example.com or username"
+                autoComplete="username webauthn"
+                value={email}
+                aria-invalid={fieldErrors.email ? true : undefined}
+                aria-describedby={fieldErrors.email ? 'login-email-error' : undefined}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldErrors.email) setFieldErrors(prev => ({ ...prev, email: '' }));
+                }}
+                onBlur={() => {
+                  if (email || fieldErrors.email) {
+                    setFieldErrors(prev => ({ ...prev, email: validateField('email', email) }));
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); passwordRef.current?.focus(); } }}
+              />
+              {fieldErrors.email && (
+                <p id="login-email-error" className="text-xs text-destructive" role="alert">{fieldErrors.email}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="login-password">Password</Label>
+              <PasswordField
+                id="login-password"
+                autoComplete="current-password"
+                enterKeyHint="go"
+                inputRef={passwordRef}
+                value={password}
+                aria-invalid={fieldErrors.password ? true : undefined}
+                aria-describedby={fieldErrors.password ? 'login-password-error' : undefined}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (fieldErrors.password) setFieldErrors(prev => ({ ...prev, password: '' }));
+                }}
+                onBlur={() => {
+                  if (password || fieldErrors.password) {
+                    setFieldErrors(prev => ({ ...prev, password: validateField('password', password) }));
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleLogin(e); } }}
+              />
+              {fieldErrors.password && (
+                <p id="login-password-error" className="text-xs text-destructive" role="alert">{fieldErrors.password}</p>
+              )}
+            </div>
+            <Button type="submit" className="w-full" disabled={submitting || googleSubmitting}>
+              {submitting ? 'Signing in...' : 'Sign in'}
+            </Button>
+          </form>
         </CardContent>
         <CardFooter className="flex-col gap-1 justify-center">
           <Button variant="link" onClick={() => navigate('/forgot-password')}>Forgot password?</Button>

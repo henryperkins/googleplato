@@ -13,24 +13,50 @@ import {
 } from '@/components/ui/card';
 
 export default function Signup() {
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [username, setUsername] = useState('');
-  const [group, setGroup] = useState('');
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get('token') || '';
+  const draftKey = `plato_signup_draft:${token || 'default'}`;
+
+  const [savedDraft] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(draftKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [email, setEmail] = useState(savedDraft.email || '');
+  const [name, setName] = useState(savedDraft.name || '');
+  const [username, setUsername] = useState(savedDraft.username || '');
+  const [group, setGroup] = useState(savedDraft.group || '');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [groups, setGroups] = useState([]);
   const [userFields, setUserFields] = useState([]);
-  const [fieldValues, setFieldValues] = useState({});
+  const [fieldValues, setFieldValues] = useState(savedDraft.fieldValues || {});
   const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get('token') || '';
+  const emailRef = useRef(null);
+  const nameRef = useRef(null);
+  const usernameRef = useRef(null);
+  const passwordRef = useRef(null);
   const confirmRef = useRef(null);
   const branding = usePublicBranding('Create account');
+
+  // Persist non-password signup draft across mobile background tab discards
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        draftKey,
+        JSON.stringify({ email, name, username, group, fieldValues })
+      );
+    } catch { /* ignore storage quota errors */ }
+  }, [draftKey, email, name, username, group, fieldValues]);
 
   useEffect(() => {
     fetch('/v1/groups')
@@ -62,8 +88,15 @@ export default function Signup() {
   async function handleGoogleSignup() {
     const missing = missingRequired(userFields, fieldValues);
     if (missing.length) {
+      const nextErrs = {};
+      for (const id of missing) {
+        const def = userFields.find(f => f.id === id);
+        nextErrs[`cf_${id}`] = `${def?.label || 'This field'} is required.`;
+      }
+      setFieldErrors(prev => ({ ...prev, ...nextErrs }));
       const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
       setError(`Please fill in: ${labels.join(', ')}.`);
+      document.getElementById(`signup-field-${missing[0]}`)?.focus();
       return;
     }
     setGoogleSubmitting(true);
@@ -76,6 +109,7 @@ export default function Signup() {
         userGroup: group || undefined,
         customFields: userFields.length ? fieldValues : undefined,
       });
+      try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
       navigate('/lessons', { replace: true });
     } catch (e) {
       if (e?.code !== 'auth/popup-closed-by-user') {
@@ -86,29 +120,45 @@ export default function Signup() {
     }
   }
 
-  async function handleSignup() {
+  async function handleSignup(e) {
+    if (e) e.preventDefault();
     // Email is optional in frontend validation for backwards compatibility:
     // - Email-specific invites: backend uses invite.email if not provided
     // - Link invites: backend will reject with "Email is required" error
     // This prevents breaking in-flight email invite URLs sent before deployment.
-    if (!name.trim() || !password) {
-      setError('Name and password are required.');
-      return;
-    }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
-    }
-    if (password !== confirm) {
-      setError('Passwords do not match.');
-      return;
+    const nextErrs = {};
+    if (!name.trim()) nextErrs.name = 'Name is required.';
+    if (!password) nextErrs.password = 'Password is required.';
+    else if (password.length < 8) nextErrs.password = 'Password must be at least 8 characters.';
+    if (password && password.length >= 8 && password !== confirm) {
+      nextErrs.confirm = 'Passwords do not match.';
     }
     const missing = missingRequired(userFields, fieldValues);
-    if (missing.length) {
-      const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
-      setError(`Please fill in: ${labels.join(', ')}.`);
+    for (const id of missing) {
+      const def = userFields.find(f => f.id === id);
+      nextErrs[`cf_${id}`] = `${def?.label || 'This field'} is required.`;
+    }
+
+    if (Object.keys(nextErrs).length > 0) {
+      setFieldErrors(nextErrs);
+      if (!name.trim() || !password) {
+        setError('Name and password are required.');
+      } else if (nextErrs.password) {
+        setError(nextErrs.password);
+      } else if (nextErrs.confirm) {
+        setError(nextErrs.confirm);
+      } else if (missing.length) {
+        const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
+        setError(`Please fill in: ${labels.join(', ')}.`);
+      }
+      if (nextErrs.name) nameRef.current?.focus();
+      else if (missing.length) document.getElementById(`signup-field-${missing[0]}`)?.focus();
+      else if (nextErrs.password) passwordRef.current?.focus();
+      else if (nextErrs.confirm) confirmRef.current?.focus();
       return;
     }
+
+    setFieldErrors({});
     setSubmitting(true);
     setError('');
     try {
@@ -127,6 +177,7 @@ export default function Signup() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Signup failed');
+      try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
       // Log in with the returned credentials
       await login(data.user?.email || email.trim(), password);
       navigate('/lessons', { replace: true });
@@ -170,90 +221,163 @@ export default function Signup() {
             <span className="mx-3 shrink-0 text-xs text-muted-foreground">or create account with password</span>
             <div className="grow border-t border-border" />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="signup-email">Email</Label>
-            <Input
-              id="signup-email"
-              type="email"
-              placeholder="your.email@example.com"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="signup-name">Name</Label>
-            <Input
-              id="signup-name"
-              type="text"
-              placeholder="Your name"
-              autoComplete="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="signup-username">
-              Username <span className="text-muted-foreground text-xs">(optional)</span>
-            </Label>
-            <Input
-              id="signup-username"
-              type="text"
-              placeholder="Choose a username"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-          {groups.length > 0 && (
+          <form className="space-y-4" onSubmit={handleSignup} noValidate>
             <div className="space-y-2">
-              <Label htmlFor="signup-group">
-                User Group <span className="text-muted-foreground text-xs">(optional)</span>
-              </Label>
-              <select
-                id="signup-group"
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-              >
-                <option value="">Select group</option>
-                {groups.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
+              <Label htmlFor="signup-email">Email</Label>
+              <Input
+                id="signup-email"
+                ref={emailRef}
+                type="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
+                placeholder="your.email@example.com"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); nameRef.current?.focus(); } }}
+              />
             </div>
-          )}
-          {userFields.map(f => (
-            <CustomFieldInput
-              key={f.id}
-              field={f}
-              idPrefix="signup-field"
-              value={fieldValues[f.id]}
-              onChange={(v) => setFieldValues(prev => ({ ...prev, [f.id]: v }))}
-            />
-          ))}
-          <div className="space-y-2">
-            <Label htmlFor="signup-password">Password</Label>
-            <PasswordField
-              id="signup-password"
-              placeholder="At least 8 characters"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="signup-confirm">Confirm password</Label>
-            <PasswordField
-              id="signup-confirm"
-              autoComplete="new-password"
-              inputRef={confirmRef}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleSignup(); }}
-            />
-          </div>
-          <Button className="w-full" onClick={handleSignup} disabled={submitting || googleSubmitting}>
-            {submitting ? 'Creating...' : 'Create account'}
-          </Button>
+            <div className="space-y-2">
+              <Label htmlFor="signup-name">Name</Label>
+              <Input
+                id="signup-name"
+                ref={nameRef}
+                type="text"
+                enterKeyHint="next"
+                placeholder="Your name"
+                autoComplete="name"
+                value={name}
+                aria-invalid={fieldErrors.name ? true : undefined}
+                aria-describedby={fieldErrors.name ? 'signup-name-error' : undefined}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
+                }}
+                onBlur={() => {
+                  if (name || fieldErrors.name) {
+                    setFieldErrors(prev => ({ ...prev, name: name.trim() ? '' : 'Name is required.' }));
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); usernameRef.current?.focus(); } }}
+              />
+              {fieldErrors.name && (
+                <p id="signup-name-error" className="text-xs text-destructive" role="alert">{fieldErrors.name}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="signup-username">
+                Username <span className="text-muted-foreground text-xs">(optional)</span>
+              </Label>
+              <Input
+                id="signup-username"
+                ref={usernameRef}
+                type="text"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
+                placeholder="Choose a username"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); passwordRef.current?.focus(); } }}
+              />
+            </div>
+            {groups.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="signup-group">
+                  User Group <span className="text-muted-foreground text-xs">(optional)</span>
+                </Label>
+                <select
+                  id="signup-group"
+                  className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={group}
+                  onChange={(e) => setGroup(e.target.value)}
+                >
+                  <option value="">Select group</option>
+                  {groups.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+            )}
+            {userFields.map(f => (
+              <CustomFieldInput
+                key={f.id}
+                field={f}
+                idPrefix="signup-field"
+                enterKeyHint="next"
+                value={fieldValues[f.id]}
+                error={fieldErrors[`cf_${f.id}`]}
+                onChange={(v) => {
+                  setFieldValues(prev => ({ ...prev, [f.id]: v }));
+                  if (fieldErrors[`cf_${f.id}`]) setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: '' }));
+                }}
+                onBlur={() => {
+                  if (f.required && (fieldValues[f.id] !== undefined || fieldErrors[`cf_${f.id}`])) {
+                    const isMissing = missingRequired([f], fieldValues).includes(f.id);
+                    setFieldErrors(prev => ({ ...prev, [`cf_${f.id}`]: isMissing ? `${f.label} is required.` : '' }));
+                  }
+                }}
+              />
+            ))}
+            <div className="space-y-2">
+              <Label htmlFor="signup-password">Password</Label>
+              <PasswordField
+                id="signup-password"
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+                enterKeyHint="next"
+                inputRef={passwordRef}
+                value={password}
+                aria-invalid={fieldErrors.password ? true : undefined}
+                aria-describedby={fieldErrors.password ? 'signup-password-error' : undefined}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (fieldErrors.password) setFieldErrors(prev => ({ ...prev, password: '' }));
+                }}
+                onBlur={() => {
+                  if (password || fieldErrors.password) {
+                    const msg = !password ? 'Password is required.' : password.length < 8 ? 'Password must be at least 8 characters.' : '';
+                    setFieldErrors(prev => ({ ...prev, password: msg }));
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); confirmRef.current?.focus(); } }}
+              />
+              {fieldErrors.password && (
+                <p id="signup-password-error" className="text-xs text-destructive" role="alert">{fieldErrors.password}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="signup-confirm">Confirm password</Label>
+              <PasswordField
+                id="signup-confirm"
+                autoComplete="new-password"
+                enterKeyHint="go"
+                inputRef={confirmRef}
+                value={confirm}
+                aria-invalid={fieldErrors.confirm ? true : undefined}
+                aria-describedby={fieldErrors.confirm ? 'signup-confirm-error' : undefined}
+                onChange={(e) => {
+                  setConfirm(e.target.value);
+                  if (fieldErrors.confirm) setFieldErrors(prev => ({ ...prev, confirm: '' }));
+                }}
+                onBlur={() => {
+                  if (confirm || fieldErrors.confirm) {
+                    setFieldErrors(prev => ({ ...prev, confirm: password && confirm !== password ? 'Passwords do not match.' : '' }));
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleSignup(e); } }}
+              />
+              {fieldErrors.confirm && (
+                <p id="signup-confirm-error" className="text-xs text-destructive" role="alert">{fieldErrors.confirm}</p>
+              )}
+            </div>
+            <Button type="submit" className="w-full" disabled={submitting || googleSubmitting}>
+              {submitting ? 'Creating...' : 'Create account'}
+            </Button>
+          </form>
         </CardContent>
         <CardFooter className="justify-center">
           <Button variant="link" onClick={() => navigate('/login')}>

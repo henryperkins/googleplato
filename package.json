@@ -11,13 +11,14 @@
     "build:client": "cd client && npm run build",
     "build:server": "cd server && sam build",
     "build": "npm run build:client",
-    "dev": "npm run build:client && npm run dev:server",
+    "dev": "node -e \"const fs=require('fs'),cp=require('child_process');if(!fs.existsSync('client/dist/index.html'))cp.execSync('npm run build:client',{stdio:'inherit'})\" && npm run dev:server",
     "start": "npm run dev:server",
     "dev:client": "cd client && npm run dev",
     "dev:server": "cd server && npm run dev:sqlite",
     "test:client": "cd client && npm test",
     "test:server": "cd server && npm test",
     "test": "npm run test:client && npm run test:server",
+    "lint": "npm --prefix client run lint && npm --prefix server run lint",
     "deploy": "npm run build:client && npm run build:server && cd server && sam deploy"
   },
   "dependencies": {

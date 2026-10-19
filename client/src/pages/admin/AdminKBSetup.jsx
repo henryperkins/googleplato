@@ -232,6 +232,7 @@ export default function AdminKBSetup() {
 
             <ComposeBar
               placeholder="Tell me about your program..."
+              storageKey="plato_kb_setup_draft"
               onSend={handleSend}
               disabled={isBusy}
             />

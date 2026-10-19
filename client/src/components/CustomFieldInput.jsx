@@ -2,7 +2,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
-const SELECT_CLASS = 'h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm';
+const SELECT_CLASS = 'h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm';
 
 /**
  * One admin-defined custom user field (#364), rendered by type. Used on
@@ -11,20 +11,38 @@ const SELECT_CLASS = 'h-10 w-full rounded-lg border border-input bg-transparent 
  * because aria-required already announces it (avoids "required, required").
  * `describedBy` links the control to a feedback or help element by id.
  */
-export default function CustomFieldInput({ field, value, onChange, idPrefix = 'cf', disabled = false, describedBy }) {
+export default function CustomFieldInput({
+  field,
+  value,
+  onChange,
+  onBlur,
+  onKeyDown,
+  enterKeyHint,
+  inputRef,
+  idPrefix = 'cf',
+  disabled = false,
+  describedBy,
+  error,
+}) {
   const id = `${idPrefix}-${field.id}`;
+  const errorId = `${id}-error`;
+  const ariaDescribedBy = [error ? errorId : null, describedBy].filter(Boolean).join(' ') || undefined;
   const common = {
     id,
+    ref: inputRef,
     value: value ?? '',
     disabled,
     'aria-required': field.required || undefined,
-    'aria-describedby': describedBy,
+    'aria-invalid': error ? true : undefined,
+    'aria-describedby': ariaDescribedBy,
     onChange: (e) => onChange(e.target.value),
+    onBlur,
+    onKeyDown,
   };
 
   let control;
   if (field.type === 'textarea') {
-    control = <Textarea rows={3} {...common} />;
+    control = <Textarea rows={3} enterKeyHint={enterKeyHint} {...common} />;
   } else if (field.type === 'dropdown') {
     const options = field.options || [];
     control = (
@@ -36,11 +54,23 @@ export default function CustomFieldInput({ field, value, onChange, idPrefix = 'c
       </select>
     );
   } else if (field.type === 'link') {
-    control = <Input type="url" inputMode="url" placeholder="https://" {...common} />;
+    control = (
+      <Input
+        type="url"
+        inputMode="url"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        autoComplete="url"
+        enterKeyHint={enterKeyHint}
+        placeholder="https://"
+        {...common}
+      />
+    );
   } else if (field.type === 'phone') {
-    control = <Input type="tel" autoComplete="tel" {...common} />;
+    control = <Input type="tel" inputMode="tel" autoComplete="tel" enterKeyHint={enterKeyHint} {...common} />;
   } else {
-    control = <Input type="text" {...common} />;
+    control = <Input type="text" enterKeyHint={enterKeyHint} {...common} />;
   }
 
   return (
@@ -50,6 +80,11 @@ export default function CustomFieldInput({ field, value, onChange, idPrefix = 'c
         {field.required && <span className="text-muted-foreground text-xs" aria-hidden="true">(required)</span>}
       </Label>
       {control}
+      {error && (
+        <p id={errorId} className="text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

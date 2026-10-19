@@ -648,7 +648,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
           id="lesson-course"
           value={course}
           onChange={(e) => changeCourse(e.target.value)}
-          className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <option value="">No course</option>
           {courses.map((c) => (
@@ -723,6 +723,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
 
             <ComposeBar
               placeholder="Describe what you want to teach..."
+              storageKey={`plato_lesson_editor_draft:${lessonId || 'new'}`}
               onSend={handleSend}
               disabled={isBusy}
             />
