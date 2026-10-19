@@ -56,9 +56,9 @@ function EngagementWidget({ label, valuePct, count, total, targetPct, targetCopy
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <div className="text-sm font-medium">{label}</div>
-            <div className="text-4xl font-bold mt-1">{noData ? '—' : `${valuePct}%`}</div>
+            <div className="text-4xl font-bold tabular-nums mt-1">{noData ? '—' : `${valuePct}%`}</div>
           </div>
-          <span className={`text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded ${badgeClass}`}>
+          <span className={`text-xs uppercase tracking-wide font-semibold px-2 py-0.5 rounded ${badgeClass}`}>
             {badgeText}
           </span>
         </div>
@@ -160,7 +160,7 @@ function PacingSection({ stats }) {
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div>
               <div className="text-sm font-medium">On-Target Rate</div>
-              <div className="text-4xl font-bold mt-1">{rate !== null ? `${rate}%` : '—'}</div>
+              <div className="text-4xl font-bold tabular-nums mt-1">{rate !== null ? `${rate}%` : '—'}</div>
             </div>
             <div className="text-left sm:text-right text-xs text-muted-foreground">
               <div>Target: {exchangeTarget} exchanges (~20 min)</div>
@@ -186,27 +186,27 @@ function PacingSection({ stats }) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 gap-4">
         <Card className={durationWarning ? STATUS_CARD_CLASSES.warning : ''}>
           <CardContent>
-            <div className="text-2xl font-bold">{estimatedDuration != null ? `${estimatedDuration} min` : '—'}</div>
+            <div className="text-2xl font-bold tabular-nums">{estimatedDuration != null ? `${estimatedDuration} min` : '—'}</div>
             <div className="text-sm text-muted-foreground">Est. active time</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent>
-            <div className="text-2xl font-bold">{avgExchangesWithinTarget ?? '—'}</div>
+            <div className="text-2xl font-bold tabular-nums">{avgExchangesWithinTarget ?? '—'}</div>
             <div className="text-sm text-muted-foreground">Avg exchanges (on target)</div>
           </CardContent>
         </Card>
-        <Card className={overTargetWarning ? STATUS_CARD_CLASSES.warning : ''}>
+        <Card className={overTargetWarning ? `${STATUS_CARD_CLASSES.warning} min-[420px]:col-span-2 sm:col-span-1` : ''}>
           <CardContent>
-            <div className="text-2xl font-bold">{avgExchangesOverTarget ?? '—'}</div>
-            <div
-              className="text-sm text-muted-foreground"
-              title={`Average exchanges for the ${overTarget} lesson${overTarget !== 1 ? 's' : ''} that went over target. High values suggest a lesson design mismatch — too many objectives or a poorly-scoped exemplar.`}
-            >
+            <div className="text-2xl font-bold tabular-nums">{avgExchangesOverTarget ?? '—'}</div>
+            <div className="text-sm text-muted-foreground">
               Avg exchanges (over target)
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Average for the {overTarget} lesson{overTarget !== 1 ? 's' : ''} past target.
             </div>
             {overTargetWarning && (
               <div className="text-xs mt-1 text-warning-foreground">
@@ -216,9 +216,9 @@ function PacingSection({ stats }) {
             )}
           </CardContent>
         </Card>
-        <Card className={overTargetFractionHigh ? STATUS_CARD_CLASSES.warning : ''}>
+        <Card className={overTargetFractionHigh ? `${STATUS_CARD_CLASSES.warning} min-[420px]:col-span-2 sm:col-span-1` : ''}>
           <CardContent>
-            <div className="text-2xl font-bold">{overTarget}</div>
+            <div className="text-2xl font-bold tabular-nums">{overTarget}</div>
             <div className="text-sm text-muted-foreground">Went over target</div>
             {hasCompletions && (
               <div className="text-xs mt-1 text-muted-foreground">
@@ -234,13 +234,16 @@ function PacingSection({ stats }) {
         </Card>
         <Card>
           <CardContent>
-            <div className="text-2xl font-bold">{extendedLessons}</div>
-            <div className="text-sm text-muted-foreground" title="Completed lessons that ran past 2× the target. Informational — a signal the lesson design or starting point mismatched, not a failure of the coach.">Extended lessons</div>
+            <div className="text-2xl font-bold tabular-nums">{extendedLessons}</div>
+            <div className="text-sm text-muted-foreground">Extended lessons</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Completed past 2&times; target ({extendedThreshold}+ exchanges)
+            </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent>
-            <div className="text-2xl font-bold">{activeLessons}</div>
+            <div className="text-2xl font-bold tabular-nums">{activeLessons}</div>
             <div className="text-sm text-muted-foreground">Active lessons</div>
           </CardContent>
         </Card>
@@ -250,10 +253,11 @@ function PacingSection({ stats }) {
 }
 
 export default function AdminHome() {
-  const [activeCount, setActiveCount] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [activeCount, setActiveCount] = useState(null);
+  const [pendingCount, setPendingCount] = useState(null);
   const [hasKB, setHasKB] = useState(true);
   const [lessonStats, setLessonStats] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshAnnounce, setRefreshAnnounce] = useState('');
 
@@ -262,20 +266,28 @@ export default function AdminHome() {
     return adminApi('GET', path);
   }, []);
 
-  useEffect(() => {
-    document.title = 'Admin — plato';
-    Promise.all([
-      adminApi('GET', '/v1/admin/users'),
-      adminApi('GET', '/v1/admin/invites'),
-      adminApi('GET', '/v1/admin/knowledge-base'),
-      loadStats(),
-    ]).then(([users, invites, kb, stats]) => {
+  const loadDashboard = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const [users, invites, kb, stats] = await Promise.all([
+        adminApi('GET', '/v1/admin/users'),
+        adminApi('GET', '/v1/admin/invites'),
+        adminApi('GET', '/v1/admin/knowledge-base'),
+        loadStats(),
+      ]);
       setActiveCount(Array.isArray(users) ? users.length : 0);
       setPendingCount(Array.isArray(invites) ? invites.filter(i => i.status === 'pending').length : 0);
       setHasKB(!!kb?.content);
       setLessonStats(stats);
-    }).catch(() => {});
+    } catch (e) {
+      setLoadError(e?.message || 'Failed to load dashboard stats.');
+    }
   }, [loadStats]);
+
+  useEffect(() => {
+    document.title = 'Admin — plato';
+    loadDashboard();
+  }, [loadDashboard]);
 
   // Re-render the "Last updated" string every 30s so it stays accurate without
   // a refetch.
@@ -323,8 +335,15 @@ export default function AdminHome() {
           </Button>
         </div>
       </div>
-      <p className="text-muted-foreground mb-6">Manage users and settings for plato.</p>
+      <p className="text-sm text-muted-foreground mb-6">Manage users and settings for plato.</p>
       <span className="sr-only" role="status" aria-live="polite">{refreshAnnounce}</span>
+
+      {loadError && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-6 text-sm text-danger-foreground" role="alert">
+          <span>{loadError}</span>
+          <Button variant="outline" size="sm" onClick={loadDashboard}>Retry</Button>
+        </div>
+      )}
 
       {!hasKB && (
         <Link to="/plato/setup-kb" className="block no-underline mb-6">
@@ -336,18 +355,18 @@ export default function AdminHome() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Link to="/plato/users" className="no-underline">
-          <Card className="hover:ring-2 hover:ring-primary/30 transition-shadow cursor-pointer">
+        <Link to="/plato/users" className="no-underline touch-manipulation">
+          <Card className="[@media(hover:hover)_and_(pointer:fine)]:hover:ring-2 [@media(hover:hover)_and_(pointer:fine)]:hover:ring-primary/30 active:ring-2 active:ring-primary/30 transition-shadow cursor-pointer">
             <CardContent>
-              <div className="text-3xl font-bold">{activeCount}</div>
+              <div className="text-3xl font-bold tabular-nums">{activeCount ?? '—'}</div>
               <div className="text-sm text-muted-foreground">Active users</div>
             </CardContent>
           </Card>
         </Link>
-        <Link to="/plato/users" className="no-underline">
-          <Card className="hover:ring-2 hover:ring-primary/30 transition-shadow cursor-pointer">
+        <Link to="/plato/users" className="no-underline touch-manipulation">
+          <Card className="[@media(hover:hover)_and_(pointer:fine)]:hover:ring-2 [@media(hover:hover)_and_(pointer:fine)]:hover:ring-primary/30 active:ring-2 active:ring-primary/30 transition-shadow cursor-pointer">
             <CardContent>
-              <div className="text-3xl font-bold">{pendingCount}</div>
+              <div className="text-3xl font-bold tabular-nums">{pendingCount ?? '—'}</div>
               <div className="text-sm text-muted-foreground">Pending invites</div>
             </CardContent>
           </Card>

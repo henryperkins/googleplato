@@ -117,16 +117,28 @@ export function UserFieldsEditor({ fields, onChange }) {
     <>
       <div className="space-y-4">
         {fields.length > 0 ? (
-          <ul className="max-h-[min(14rem,35dvh)] overflow-y-auto overscroll-contain space-y-1 pr-1" aria-label="Custom user fields">
+          <ul className="max-h-[min(14rem,35dvh)] overflow-y-auto overscroll-contain space-y-1.5 pr-1" aria-label="Custom user fields">
             {fields.map((f, idx) => (
-              <li key={f.id} className="flex items-center gap-2 rounded-md px-3 py-2 bg-muted/50">
-                <span className="text-sm flex-1 min-w-0 truncate">{f.label}</span>
-                <Badge variant="outline">{fieldTypeLabel(f.type)}</Badge>
-                {f.required && <Badge variant="secondary">Required</Badge>}
-                <Button variant="ghost" size="icon-xs" title="Move up" aria-label={`Move ${f.label} up`} disabled={saving || idx === 0} onClick={() => handleMove(idx, -1)}>&uarr;</Button>
-                <Button variant="ghost" size="icon-xs" title="Move down" aria-label={`Move ${f.label} down`} disabled={saving || idx === fields.length - 1} onClick={() => handleMove(idx, 1)}>&darr;</Button>
-                <Button variant="ghost" size="icon-xs" title="Edit" aria-label={`Edit field ${f.label}`} aria-pressed={editingId === f.id} disabled={saving} onClick={() => startEdit(f)}>&#9998;</Button>
-                <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete field ${f.label}`} disabled={saving} onClick={() => handleDelete(f)}>&#10005;</Button>
+              <li key={f.id} className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 rounded-md px-3 py-2 bg-muted/50">
+                <div className="flex items-center gap-2 min-w-0 basis-full sm:basis-auto sm:flex-1">
+                  <span className="text-sm font-medium sm:font-normal flex-1 min-w-0 truncate">{f.label}</span>
+                  <Badge variant="outline" className="shrink-0">{fieldTypeLabel(f.type)}</Badge>
+                  {f.required && <Badge variant="secondary" className="shrink-0">Required</Badge>}
+                </div>
+                <div className="flex items-center gap-1 ml-auto shrink-0">
+                  <Button variant="ghost" size="icon-xs" title="Move up" aria-label={`Move ${f.label} up`} disabled={saving || idx === 0} onClick={() => handleMove(idx, -1)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+                  </Button>
+                  <Button variant="ghost" size="icon-xs" title="Move down" aria-label={`Move ${f.label} down`} disabled={saving || idx === fields.length - 1} onClick={() => handleMove(idx, 1)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                  </Button>
+                  <Button variant="ghost" size="icon-xs" title="Edit" aria-label={`Edit field ${f.label}`} aria-pressed={editingId === f.id} disabled={saving} onClick={() => startEdit(f)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                  </Button>
+                  <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete field ${f.label}`} disabled={saving} onClick={() => handleDelete(f)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
@@ -157,9 +169,9 @@ export function UserFieldsEditor({ fields, onChange }) {
             </div>
           )}
           <div className="flex items-center gap-2">
-            <input id="user-field-required" type="checkbox" className="h-4 w-4" checked={form.required}
+            <input id="user-field-required" type="checkbox" className="h-4 w-4 rounded border-input" checked={form.required}
               onChange={(e) => setForm({ ...form, required: e.target.checked })} />
-            <Label htmlFor="user-field-required">Required</Label>
+            <Label htmlFor="user-field-required" className="touch-target flex items-center cursor-pointer select-none">Required</Label>
           </div>
           <div className="flex gap-2">
             <Button type="submit" disabled={saving || !form.label.trim()}>{editingId ? 'Save field' : 'Add field'}</Button>

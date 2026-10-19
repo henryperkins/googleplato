@@ -112,10 +112,13 @@ export default function SlackSettingsPanel({ settings, onSave }) {
           </p>
           <div className="space-y-2">
             <Label htmlFor="slack-token">Bot User OAuth Token</Label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 id="slack-token"
                 type="password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 placeholder="xoxb-..."
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
@@ -137,7 +140,7 @@ export default function SlackSettingsPanel({ settings, onSave }) {
         <span
           role="status"
           aria-live="polite"
-          className={`text-sm ${message.type === 'error' ? 'text-destructive' : 'text-green-700'}`}
+          className={`text-sm ${message.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}
         >
           {message.text}
         </span>

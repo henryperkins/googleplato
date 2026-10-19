@@ -77,7 +77,7 @@ export default function MarkdownPreviewPane({
       {/* Persistent reminder: the preview is not saved. */}
       <p
         role="note"
-        className="text-xs rounded-md bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 mb-3"
+        className="text-xs rounded-md bg-warning text-warning-foreground border border-warning-border px-3 py-2 mb-3"
       >
         This preview is not saved. Click &ldquo;{saveLabel}&rdquo; to save your changes.
       </p>

@@ -251,6 +251,10 @@ html {
   .compose-sticky-bar {
     position: static;
   }
+  .admin-bottom-nav,
+  .admin-sticky-bar {
+    position: static;
+  }
   .compose-sticky-bar textarea {
     max-height: 4.5rem;
   }
@@ -276,10 +280,10 @@ html {
     align-items: center;
     min-block-size: 44px;
   }
-  input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select {
+  input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="color"]), textarea, select {
     font-size: 1rem;
   }
-  input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+  input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="color"]) {
     min-block-size: 44px;
   }
 }

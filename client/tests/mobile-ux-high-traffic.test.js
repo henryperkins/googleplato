@@ -119,4 +119,43 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(listSrc, /\[@media\(hover:hover\)_and_\(pointer:fine\)\]:hover:shadow-md/);
     assert.match(listSrc, /touch-manipulation/);
   });
+
+  it('caps sticky first table column on mobile and makes lesson and invite rows identifiable and accessible', () => {
+    const tableSrc = fs.readFileSync(path.join(SRC_DIR, 'components/ui/table.jsx'), 'utf8');
+    assert.match(tableSrc, /\[&_td:first-child\]:max-w-\[11rem\]/);
+    assert.match(tableSrc, /sm:\[&_td:first-child\]:max-w-none/);
+
+    const lessonsSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminLessons.jsx'), 'utf8');
+    assert.match(lessonsSrc, /onClick=\{\(\) => openLessonEditor\(c\.lessonId\)\}/);
+    assert.match(lessonsSrc, /className="touch-target truncate rounded-sm text-left font-medium underline/);
+
+    const usersSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminUsers.jsx'), 'utf8');
+    assert.match(usersSrc, /item\._type === 'invite'\s*\?\s*\(\s*<TableRow[^>]*>\s*<TableCell className="text-muted-foreground">\s*<span className="block truncate max-w-full" title=\{item\.email\}>\{item\.email\}<\/span>/);
+    assert.match(usersSrc, /plato_admin_edit_user_draft/);
+  });
+
+  it('adapts AdminLayout, AdminHome, AdminKBSetup, UserFieldsDialog, WaitlistDialog, and WaitlistEntryEdit for mobile viewports', () => {
+    const layoutSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminLayout.jsx'), 'utf8');
+    assert.match(layoutSrc, /pb-\[calc\(3\.5rem\+env\(safe-area-inset-bottom\)\)\]/);
+    assert.match(layoutSrc, /admin-bottom-nav/);
+
+    const homeSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminHome.jsx'), 'utf8');
+    assert.equal(/text-\[10px\]/.test(homeSrc), false);
+    assert.equal(/\btitle=/.test(homeSrc), false);
+
+    const kbSetupSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminKBSetup.jsx'), 'utf8');
+    assert.match(kbSetupSrc, /min-h-dvh shrink-0/);
+    assert.match(kbSetupSrc, /safe-area-inset-top/);
+    assert.match(kbSetupSrc, /safe-area-inset-bottom/);
+    assert.match(kbSetupSrc, /\/v1\/admin\/knowledge-base\/conversation/);
+
+    const userFieldsSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/UserFieldsDialog.jsx'), 'utf8');
+    assert.match(userFieldsSrc, /basis-full sm:basis-auto sm:flex-1/);
+
+    const waitlistDialogSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/WaitlistDialog.jsx'), 'utf8');
+    assert.match(waitlistDialogSrc, /<DialogContent variant="sheet">/);
+
+    const waitlistEditSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/WaitlistEntryEdit.jsx'), 'utf8');
+    assert.match(waitlistEditSrc, /flex flex-wrap items-center gap-3 pt-2/);
+  });
 });

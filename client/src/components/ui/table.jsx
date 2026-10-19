@@ -19,7 +19,7 @@ function Table({
         className={cn(
           "w-full caption-bottom text-sm tabular-nums",
           stickyFirstColumn &&
-            "[&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-10 [&_th:first-child]:bg-card [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10 [&_td:first-child]:bg-card [&_tr:hover_td:first-child]:bg-muted",
+            "[&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-10 [&_th:first-child]:bg-card [&_th:first-child]:max-w-[11rem] sm:[&_th:first-child]:max-w-none [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10 [&_td:first-child]:bg-card [&_td:first-child]:max-w-[11rem] sm:[&_td:first-child]:max-w-none [&_tr:hover_td:first-child]:bg-muted",
           className
         )}
         {...props} />

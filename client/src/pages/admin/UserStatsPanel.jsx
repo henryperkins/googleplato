@@ -98,7 +98,7 @@ export default function UserStatsPanel({ userId }) {
             <h3 className="text-sm font-medium mb-2">Completed lessons</h3>
             <ul className="text-sm space-y-1">
               {lessonDurations.slice(0, 20).map((l) => (
-                <li key={l.lessonId + (l.completedAt || '')} className="flex items-baseline justify-between gap-3 border-b last:border-b-0 py-1">
+                <li key={l.lessonId + (l.completedAt || '')} className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-0.5 sm:gap-3 border-b last:border-b-0 py-1.5 sm:py-1">
                   <span className="truncate">{l.lessonName}</span>
                   <span className="text-muted-foreground text-xs whitespace-nowrap">
                     {l.exchanges} ex · {l.minutes} min{l.completedAt ? ` · ${l.completedAt.slice(0, 10)}` : ''}

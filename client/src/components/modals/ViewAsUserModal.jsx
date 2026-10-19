@@ -109,7 +109,7 @@ export default function ViewAsUserModal({ open, onOpenChange, onStarted }) {
                       onClick={() => handlePick(u)}
                       disabled={submitting}
                       aria-label={`View as ${label}${isAdmin ? ' (admin)' : ''}`}
-                      className="w-full flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted text-left text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent border-none outline-none focus:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                      className="touch-target w-full flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted text-left text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent border-none outline-none focus:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span className="flex-1 min-w-0">
                         <span className="font-medium truncate block">{label}</span>

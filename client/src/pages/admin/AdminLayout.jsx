@@ -11,6 +11,16 @@ import {
   DialogTrigger,
   DialogClose,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 
 const NAV_LINKS = [
   { to: '/plato', label: 'Home', end: true },
@@ -46,6 +56,7 @@ export default function AdminLayout() {
   const location = useLocation();
   const [version, setVersion] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
 
   useEffect(() => {
     fetch('/v1/version').then(r => r.json()).then(d => setVersion(d.version)).catch(() => {});
@@ -62,21 +73,23 @@ export default function AdminLayout() {
   }, []);
 
   const handleSignOut = async () => {
+    setSignOutOpen(false);
     setMenuOpen(false);
     await logout();
     navigate('/login', { replace: true });
   };
 
   return (
+    <>
     <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
-      <div className="flex flex-col md:flex-row min-h-dvh pb-14 md:pb-0">
+      <div className="flex flex-col md:flex-row min-h-dvh pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
         {/* Mobile: compact top bar with brand, classroom shortcut, and drawer trigger */}
         <header
-          className="md:hidden bg-sidebar text-sidebar-foreground flex items-center justify-between gap-2 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]"
+          className="md:hidden sticky top-0 z-30 bg-sidebar text-sidebar-foreground flex items-center justify-between gap-2 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]"
           style={{ '--ring': 'var(--sidebar-foreground)' }}
         >
           <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center rounded-sm shrink-0">
-            <img src="/assets/logo-white.svg" alt="plato" className="h-5 w-auto" />
+            <img src="/assets/logo-white.svg" alt="plato" width="50" height="20" className="h-5 w-auto" />
           </a>
           <div className="flex items-center gap-1">
             <Button
@@ -108,7 +121,7 @@ export default function AdminLayout() {
           <DialogTitle className="sr-only">Admin menu</DialogTitle>
           <DialogDescription className="sr-only">Choose an admin page or visit the classroom.</DialogDescription>
           <div className="flex items-center justify-between px-4 py-3">
-            <img src="/assets/logo-white.svg" alt="plato" className="h-6 w-auto" />
+            <img src="/assets/logo-white.svg" alt="plato" width="60" height="24" className="h-6 w-auto" />
             <DialogClose
               className="touch-target flex items-center justify-center rounded-sm bg-transparent border-none cursor-pointer text-primary-foreground p-1"
               aria-label="Close menu"
@@ -137,7 +150,7 @@ export default function AdminLayout() {
               variant="link"
               size="sm"
               className="justify-start p-0 h-auto text-primary-foreground hover:text-primary-foreground focus-visible:ring-primary-foreground"
-              onClick={handleSignOut}
+              onClick={() => { setMenuOpen(false); setSignOutOpen(true); }}
             >
               Sign Out
             </Button>
@@ -148,7 +161,7 @@ export default function AdminLayout() {
                   href="https://github.com/1111philo/plato"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs opacity-60 hover:opacity-100 transition-opacity"
+                  className="touch-target flex items-center text-xs opacity-60 hover:opacity-100 transition-opacity"
                 >
                   plato {version}
                 </a>
@@ -164,7 +177,7 @@ export default function AdminLayout() {
           style={{ '--ring': 'var(--sidebar-foreground)' }}
         >
           <div className="px-4 py-4">
-            <img src="/assets/logo-white.svg" alt="plato" className="h-6 w-auto" />
+            <img src="/assets/logo-white.svg" alt="plato" width="60" height="24" className="h-6 w-auto" />
           </div>
 
           <nav className="flex flex-col flex-1 gap-0.5 px-2" aria-label="Admin navigation">
@@ -185,7 +198,7 @@ export default function AdminLayout() {
               variant="link"
               size="sm"
               className="justify-start p-0 h-auto text-primary-foreground/80 hover:text-primary-foreground"
-              onClick={handleSignOut}
+              onClick={() => setSignOutOpen(true)}
             >
               Sign Out
             </Button>
@@ -205,7 +218,7 @@ export default function AdminLayout() {
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 p-4 sm:p-6 md:ml-56">
+        <main className="min-w-0 flex-1 p-4 sm:p-6 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] md:ml-56">
           <div className="min-w-0 max-w-4xl pb-4">
             <Outlet />
           </div>
@@ -213,7 +226,7 @@ export default function AdminLayout() {
 
         {/* Mobile bottom tab bar: exposes the 5 primary admin destinations directly without requiring the drawer */}
         <nav
-          className="md:hidden fixed bottom-0 inset-x-0 z-30 flex items-center justify-around border-t bg-background/95 backdrop-blur-xs px-1 pb-[env(safe-area-inset-bottom)]"
+          className="admin-bottom-nav md:hidden fixed bottom-0 inset-x-0 z-30 flex items-center justify-around border-t bg-background/95 backdrop-blur-xs pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
           aria-label="Admin primary navigation"
         >
           {NAV_LINKS.map(({ to, label, end }) => (
@@ -222,7 +235,7 @@ export default function AdminLayout() {
               to={to}
               end={end}
               className={({ isActive }) =>
-                `touch-target flex flex-1 items-center justify-center px-1.5 py-2 text-xs whitespace-nowrap transition-colors ${
+                `touch-target flex flex-auto min-w-0 items-center justify-center px-1.5 py-2 text-xs whitespace-nowrap transition-colors ${
                   isActive
                     ? 'font-semibold text-primary-text border-t-2 border-primary'
                     : 'text-muted-foreground hover:text-foreground'
@@ -235,5 +248,26 @@ export default function AdminLayout() {
         </nav>
       </div>
     </Dialog>
+
+    <AlertDialog open={signOutOpen} onOpenChange={setSignOutOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Sign Out?</AlertDialogTitle>
+          <AlertDialogDescription>
+            You&apos;ll need to sign in again to access the admin dashboard.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+            onClick={handleSignOut}
+          >
+            Sign Out
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

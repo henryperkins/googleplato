@@ -133,7 +133,7 @@ export default function CoursesModal({ open, onOpenChange, onMutated }) {
 
           <div className="space-y-4">
             <form
-              className="flex gap-2"
+              className="flex flex-wrap gap-2"
               onSubmit={(e) => { e.preventDefault(); saveCourse(); }}
               aria-label={editingId ? 'Edit course' : 'Add course'}
             >
@@ -146,7 +146,7 @@ export default function CoursesModal({ open, onOpenChange, onMutated }) {
                 maxLength={NAME_MAX}
                 onChange={(e) => setFormName(e.target.value)}
                 required
-                className="flex-1"
+                className="min-w-[10rem] flex-1"
               />
               {editingId && (
                 <Button type="button" variant="ghost" onClick={resetForm}>Cancel</Button>
@@ -168,13 +168,17 @@ export default function CoursesModal({ open, onOpenChange, onMutated }) {
                     key={c.courseId}
                     className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 ${editingId === c.courseId ? 'bg-primary/10' : 'bg-muted/50'}`}
                   >
-                    <span className="text-sm flex-1 truncate">
-                      {c.name}
-                      <span className="text-xs text-muted-foreground ml-2 tabular-nums">({c.lessonCount} lesson{c.lessonCount === 1 ? '' : 's'})</span>
-                    </span>
+                    <div className="flex items-baseline gap-2 min-w-0 flex-1">
+                      <span className="text-sm truncate">{c.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0 tabular-nums">({c.lessonCount} lesson{c.lessonCount === 1 ? '' : 's'})</span>
+                    </div>
                     <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon-xs" title="Rename" aria-label={`Rename course ${c.name}`} onClick={() => startEdit(c)}>&#9998;</Button>
-                      <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete course ${c.name}`} onClick={() => deleteCourse(c)}>&#10005;</Button>
+                      <Button variant="ghost" size="icon-xs" title="Rename" aria-label={`Rename course ${c.name}`} onClick={() => startEdit(c)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                      </Button>
+                      <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete course ${c.name}`} onClick={() => deleteCourse(c)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </Button>
                     </div>
                   </li>
                 ))}

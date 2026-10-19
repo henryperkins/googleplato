@@ -23,16 +23,16 @@ function PrimitiveField({ pluginId, propKey, schema, value, onChange }) {
 
   if (schema.type === 'boolean') {
     return (
-      <div className="flex items-center gap-3 py-2">
+      <div className="flex flex-wrap items-center gap-3 py-2">
         <input
           id={id}
           type="checkbox"
           checked={!!value}
           onChange={(e) => onChange(e.target.checked)}
-          className="h-4 w-4"
+          className="h-4 w-4 rounded border-input"
         />
-        <Label htmlFor={id} className="cursor-pointer">{label}</Label>
-        {desc && <span className="text-xs text-muted-foreground">{desc}</span>}
+        <Label htmlFor={id} className="touch-target flex items-center cursor-pointer select-none">{label}</Label>
+        {desc && <span className="text-xs text-muted-foreground basis-full sm:basis-auto">{desc}</span>}
       </div>
     );
   }
@@ -138,7 +138,7 @@ export default function SettingsForm({ pluginId, schema, settings, onSave }) {
           <span
             role="status"
             aria-live="polite"
-            className={`text-sm ${message.type === 'error' ? 'text-destructive' : 'text-green-700'}`}
+            className={`text-sm ${message.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}
           >
             {message.text}
           </span>

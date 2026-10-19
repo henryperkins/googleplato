@@ -112,7 +112,7 @@ export default function ProfileField({ user }) {
   return (
     <section className="space-y-4" aria-label="Teacher comments">
       <Separator />
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-baseline justify-between gap-1">
         <h2 className="text-base font-semibold">Teacher comments</h2>
         <span className="text-xs text-muted-foreground">
           Private — visible only to admins
@@ -130,8 +130,8 @@ export default function ProfileField({ user }) {
           maxLength={4000}
           aria-label="New comment"
         />
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
+        <div className="flex items-center justify-end sm:justify-between">
+          <span className="hidden sm:inline text-xs text-muted-foreground">
             ⌘/Ctrl + Enter to post
           </span>
           <Button onClick={postComment} disabled={posting || !draft.trim()} size="sm">
@@ -175,7 +175,7 @@ export default function ProfileField({ user }) {
                 <p className="whitespace-pre-wrap text-sm">{c.text}</p>
                 <div>
                   {confirmingDelete === c.id ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs text-muted-foreground">Delete this comment?</span>
                       <Button size="sm" variant="destructive" onClick={() => deleteComment(c.id)}>
                         Delete

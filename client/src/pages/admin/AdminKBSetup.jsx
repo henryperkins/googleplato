@@ -41,6 +41,15 @@ export default function AdminKBSetup() {
     document.title = 'Set Up Knowledge Base — plato';
   }, []);
 
+  // Auto-save KB conversation after each exchange
+  const readinessRef = useRef(readiness);
+  useEffect(() => { readinessRef.current = readiness; }, [readiness]);
+  useEffect(() => {
+    if (chatMessages.length === 0) return;
+    const conversation = chatMessages.map(m => ({ role: m.role, content: m.content, msgType: m.msgType }));
+    adminApi('PUT', '/v1/admin/knowledge-base/conversation', { conversation, readiness: readinessRef.current }).catch(() => {});
+  }, [chatMessages]);
+
   useEffect(() => {
     if (displayText === null && pendingRef.current) {
       const { msgs, r } = pendingRef.current;
@@ -166,8 +175,8 @@ export default function AdminKBSetup() {
   };
 
   return (
-    <main className="max-w-5xl mx-auto p-6" aria-label="Knowledge base setup">
-      <div className="flex items-center justify-between mb-2">
+    <main className="min-h-dvh shrink-0 w-full max-w-5xl mx-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" aria-label="Knowledge base setup">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <h1 className="text-2xl font-bold">Set Up Your Knowledge Base</h1>
         <Button variant="ghost" size="sm" onClick={() => navigate('/plato')}>Skip for now</Button>
       </div>
@@ -177,16 +186,16 @@ export default function AdminKBSetup() {
       </p>
 
       {error && (
-        <div className="flex items-center justify-between rounded-lg bg-destructive/10 text-destructive px-4 py-3 mb-4 text-sm" role="alert" aria-live="assertive">
+        <div className="flex items-center justify-between rounded-lg border border-danger-border bg-danger text-danger-foreground px-4 py-3 mb-4 text-sm" role="alert" aria-live="assertive">
           <span>{error}</span>
-          <button onClick={() => setError('')} aria-label="Dismiss error" className="ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+          <button onClick={() => setError('')} aria-label="Dismiss error" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
         </div>
       )}
 
       {(chatMessages.length > 0 || displayText != null) && (
-        <div className="flex items-end gap-4 mb-4">
+        <div className="admin-sticky-bar sticky top-0 z-20 -mx-1 px-1 py-2 bg-background/95 backdrop-blur-xs flex items-end gap-4 mb-4">
           <div
-            className="flex-1"
+            className="flex-1 min-w-0"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={10}
@@ -207,7 +216,7 @@ export default function AdminKBSetup() {
               />
             </div>
           </div>
-          <Button onClick={handleSaveKB} disabled={isBusy || readiness < 3} size="sm"
+          <Button onClick={handleSaveKB} disabled={isBusy || readiness < 3} size="sm" className="shrink-0"
             title={readiness < 3 ? 'Tell the editor about your classroom goal, learners, and teachers first' : undefined}>
             {busy === 'creating' ? 'Saving...' : 'Save Knowledge Base'}
           </Button>
@@ -217,7 +226,7 @@ export default function AdminKBSetup() {
       {/* Chat (left) + markdown preview (right). Stacks vertically below `lg`. */}
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="lg:w-3/5 min-w-0">
-          <div className="rounded-2xl bg-muted/40 border border-border p-4">
+          <div className="rounded-2xl bg-muted/40 border border-border p-2 sm:p-4">
             <div className="mb-3">
               <ChatArea announcement={srAnnouncement}>
                 {chatMessages.map(renderMessage)}

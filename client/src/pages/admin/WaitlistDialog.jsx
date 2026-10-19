@@ -70,7 +70,7 @@ export default function WaitlistDialog({ open, onOpenChange, settings, onChange 
   return (
     <>
       <Dialog open={open} onOpenChange={(v) => { if (!v) { setNewKey(''); setError(''); } onOpenChange(v); }}>
-        <DialogContent>
+        <DialogContent variant="sheet">
           <DialogHeader>
             <DialogTitle>Wait List</DialogTitle>
             <DialogDescription>
@@ -78,22 +78,24 @@ export default function WaitlistDialog({ open, onOpenChange, settings, onChange 
             </DialogDescription>
           </DialogHeader>
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <input
               id="waitlist-open"
               type="checkbox"
-              className="h-4 w-4"
+              className="h-4 w-4 shrink-0 rounded border-input"
               checked={!!settings.open}
               disabled={saving}
               onChange={(e) => toggleOpen(e.target.checked)}
             />
-            <Label htmlFor="waitlist-open">Show &quot;Join the wait list&quot; on the sign-in page</Label>
+            <Label htmlFor="waitlist-open" className="touch-target flex items-center cursor-pointer select-none leading-snug">
+              Show &quot;Join the wait list&quot; on the sign-in page
+            </Label>
           </div>
           <div className="space-y-2 border-t pt-4">
             <h3 className="text-sm font-semibold">API key</h3>
             <p className="text-sm text-muted-foreground">
               An outside form can add people by sending <code>POST /v1/waitlist</code> with the header{' '}
-              <code>Authorization: Bearer &lt;key&gt;</code>. This works even when the wait list is closed.
+              <code className="break-words">Authorization: Bearer &lt;key&gt;</code>. This works even when the wait list is closed.
               Send it from a server, not from a web page, so the key stays private.{' '}
               <a href="https://github.com/1111philo/plato/blob/main/docs/WAITLIST_API.md" target="_blank" rel="noopener noreferrer" className="underline">
                 API guide<span className="sr-only"> (opens in a new tab)</span>
@@ -108,7 +110,7 @@ export default function WaitlistDialog({ open, onOpenChange, settings, onChange 
                 </div>
               </div>
             )}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={makeKey} disabled={saving}>
                 {settings.hasApiKey ? 'Make a new key' : 'Make a key'}
               </Button>

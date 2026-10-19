@@ -80,7 +80,7 @@ export default function ShareLessonModal({
             type="button"
             role="radio"
             aria-checked={isPublic}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${isPublic ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
+            className={`touch-target flex-1 px-4 py-2 text-sm font-medium transition-colors ${isPublic ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
             onClick={() => setStatus('public')}
           >
             Public
@@ -89,7 +89,7 @@ export default function ShareLessonModal({
             type="button"
             role="radio"
             aria-checked={!isPublic}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${!isPublic ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
+            className={`touch-target flex-1 px-4 py-2 text-sm font-medium transition-colors ${!isPublic ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
             onClick={() => setStatus('private')}
           >
             Private
@@ -126,7 +126,7 @@ export default function ShareLessonModal({
                   {filtered.map(u => (
                     <label
                       key={u.userId}
-                      className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted cursor-pointer text-sm"
+                      className="touch-target flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted cursor-pointer text-sm"
                     >
                       <input
                         type="checkbox"

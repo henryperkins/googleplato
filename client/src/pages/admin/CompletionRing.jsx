@@ -8,9 +8,9 @@
 
 function colorForPercent(p) {
   if (p == null) return { stroke: 'text-muted-foreground', text: 'text-muted-foreground' };
-  if (p >= 90) return { stroke: 'text-green-500', text: 'text-green-700' };
-  if (p >= 35) return { stroke: 'text-yellow-500', text: 'text-yellow-700' };
-  return { stroke: 'text-red-500', text: 'text-red-700' };
+  if (p >= 90) return { stroke: 'text-green-500', text: 'text-green-700 dark:text-green-400' };
+  if (p >= 35) return { stroke: 'text-yellow-500', text: 'text-yellow-700 dark:text-yellow-400' };
+  return { stroke: 'text-red-500', text: 'text-red-700 dark:text-red-400' };
 }
 
 export default function CompletionRing({

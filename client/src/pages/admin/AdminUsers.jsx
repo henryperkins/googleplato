@@ -62,7 +62,7 @@ function SortHeader({ sortKey, sortBy, onSort, align = 'left', children }) {
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        className={`inline-flex items-center gap-1 font-medium hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 ${btnAlign}`}
+        className={`touch-target inline-flex items-center gap-1 font-medium hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 ${btnAlign}`}
       >
         {children}
         <span aria-hidden="true" className={`text-xs ${active ? '' : 'opacity-30'}`}>
@@ -269,7 +269,7 @@ export default function AdminUsers() {
     try {
       const data = await adminApi('POST', '/v1/admin/invites/bulk', { emails: emailQueue });
       const parts = [];
-      if (data.sent > 0) parts.push(`${data.sent} invite(s) sent`);
+      if (data.sent > 0) parts.push(`${data.sent} ${data.sent === 1 ? 'invite' : 'invites'} sent`);
       if (data.skipped > 0) parts.push(`${data.skipped} skipped`);
       setMessage({ text: parts.join('. ') + '.', type: data.sent > 0 ? 'success' : 'error' });
       setEmailQueue([]);
@@ -366,7 +366,7 @@ export default function AdminUsers() {
     try {
       const data = await adminApi('POST', '/v1/plugins/slack/admin/invites', { users: slackQueue });
       const parts = [];
-      if (data.sent > 0) parts.push(`${data.sent} Slack invite(s) sent`);
+      if (data.sent > 0) parts.push(`${data.sent} Slack ${data.sent === 1 ? 'invite' : 'invites'} sent`);
       if (data.skipped > 0) parts.push(`${data.skipped} skipped`);
       setMessage({ text: parts.join('. ') + '.', type: data.sent > 0 ? 'success' : 'error' });
       setSlackQueue([]);
@@ -476,8 +476,22 @@ export default function AdminUsers() {
     if (waitlistToken && !loading && !editEntry) navigate('/plato/users', { replace: true });
   }, [waitlistToken, loading, editEntry, navigate]);
 
-  async function revokeInvite(token) {
-    try { await adminApi('DELETE', `/v1/admin/invites/${token}`); loadData(); } catch { /* ignore */ }
+  function revokeInvite(token, email) {
+    setConfirmModal({
+      title: 'Revoke Invite?',
+      message: `Revoke the pending invite for ${email}? The invite link in their email will stop working.`,
+      confirmLabel: 'Revoke Invite',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await adminApi('DELETE', `/v1/admin/invites/${token}`);
+          setMessage({ text: `Invite for ${email} revoked.`, type: 'success' });
+          loadData();
+        } catch (e) {
+          setMessage({ text: e.message || 'Failed to revoke invite.', type: 'error' });
+        }
+      },
+    });
   }
 
   function deleteUser(userId, name, onDeleted) {
@@ -539,16 +553,23 @@ export default function AdminUsers() {
   // browser refresh / back-button preserve the selection. openEditUser only
   // navigates; the effect below populates state from the URL param + users list.
 
+  const seededUserIdRef = useRef(null);
+
   function openEditUser(u) {
     navigate(`/plato/users/${u.userId}`);
   }
 
   function closeEditUser() {
+    if (paramUserId) {
+      try { sessionStorage.removeItem(`plato_admin_edit_user_draft:${paramUserId}`); } catch { /* ignore */ }
+    }
+    seededUserIdRef.current = null;
     navigate('/plato/users');
   }
 
   useEffect(() => {
     if (!paramUserId) {
+      seededUserIdRef.current = null;
       setEditUser(null);
       return;
     }
@@ -561,8 +582,30 @@ export default function AdminUsers() {
       return;
     }
     setEditUser(u);
-    setEditForm({ name: u.name || '', email: u.email || '', username: u.username || '', userGroup: u.userGroup || '', role: u.role || 'user', customFields: { ...(u.customFields || {}) } });
+    if (seededUserIdRef.current !== paramUserId) {
+      seededUserIdRef.current = paramUserId;
+      let savedDraft = null;
+      try {
+        const raw = sessionStorage.getItem(`plato_admin_edit_user_draft:${paramUserId}`);
+        if (raw) savedDraft = JSON.parse(raw);
+      } catch { /* ignore */ }
+      setEditForm(savedDraft || {
+        name: u.name || '',
+        email: u.email || '',
+        username: u.username || '',
+        userGroup: u.userGroup || '',
+        role: u.role || 'user',
+        customFields: { ...(u.customFields || {}) },
+      });
+    }
   }, [paramUserId, users, navigate]);
+
+  useEffect(() => {
+    if (!paramUserId || seededUserIdRef.current !== paramUserId) return;
+    try {
+      sessionStorage.setItem(`plato_admin_edit_user_draft:${paramUserId}`, JSON.stringify(editForm));
+    } catch { /* ignore */ }
+  }, [paramUserId, editForm]);
 
   async function saveEditUser() {
     if (!editUser) return;
@@ -734,7 +777,7 @@ export default function AdminUsers() {
           <h1 className="text-2xl font-bold">Edit User</h1>
         </div>
         {message && (
-          <div className={`rounded-lg px-4 py-3 mb-4 text-sm ${message.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-green-50 text-green-800'}`} role="alert">
+          <div className={`rounded-lg border px-4 py-3 mb-4 text-sm ${message.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'}`} role="alert">
             {message.text}
           </div>
         )}
@@ -785,14 +828,14 @@ export default function AdminUsers() {
               <Button onClick={saveEditUser}>Save</Button>
               <Button variant="outline" onClick={closeEditUser}>Cancel</Button>
               {!isSelf && (
-                <>
-                  <Button variant="outline" className="ml-auto" onClick={() => resetUserPassword(editUser.userId, editUser.email)}>
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto">
+                  <Button variant="outline" onClick={() => resetUserPassword(editUser.userId, editUser.email)}>
                     Reset Password
                   </Button>
                   <Button variant="destructive" onClick={() => deleteUser(editUser.userId, editUser.name || editUser.email, closeEditUser)}>
                     Delete User
                   </Button>
-                </>
+                </div>
               )}
             </div>
             <PluginSlot name="adminProfileFields" context={{ user: editUser }} />
@@ -816,7 +859,7 @@ export default function AdminUsers() {
 
   return (
     <div>
-      <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-4">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-5">
         <h1 className="text-2xl font-bold">Users</h1>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => setInviteOpen(true)}>
@@ -839,11 +882,11 @@ export default function AdminUsers() {
       </div>
 
       {message && (
-        <div className={`flex items-center justify-between rounded-lg px-4 py-3 mb-4 text-sm ${
-          message.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-green-50 text-green-800'
+        <div className={`flex items-center justify-between rounded-lg border px-4 py-3 mb-4 text-sm ${
+          message.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'
         }`} role="alert">
           <span>{message.text}</span>
-          <button onClick={() => setMessage(null)} aria-label="Dismiss" className="ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+          <button onClick={() => setMessage(null)} aria-label="Dismiss" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
         </div>
       )}
 
@@ -861,28 +904,28 @@ export default function AdminUsers() {
           placeholder={userFields.length ? 'Search by email, username, name, or field...' : 'Search by email, username, or name...'}
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="max-w-xs"
+          className="w-full sm:max-w-xs"
         />
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Filter users">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter users">
           {filterButtons.map(f => (
             <Button
               key={f.key}
               variant={filter === f.key ? 'default' : 'outline'}
-              size="default"
+              size="sm"
               onClick={() => setFilter(f.key)}
               aria-pressed={filter === f.key}
             >
-              {f.label} <span className="ml-1 opacity-60">{filterCounts[f.key]}</span>
+              {f.label} <span className="ml-1 opacity-60 tabular-nums">{filterCounts[f.key]}</span>
             </Button>
           ))}
         </div>
         {userFields.length > 0 && (
-          <div className="flex flex-wrap gap-2 min-w-0" role="group" aria-label="Filter by custom field">
+          <div className="flex flex-wrap gap-2 min-w-0 max-w-full" role="group" aria-label="Filter by custom field">
             <select
               aria-label="Custom field"
               value={fieldFilter.fieldId}
               onChange={e => setFieldFilter({ fieldId: e.target.value, value: e.target.value ? '__set' : '' })}
-              className="h-9 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
+              className="h-9 min-w-0 max-w-full truncate rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
             >
               <option value="">Any field</option>
               {userFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
@@ -892,7 +935,7 @@ export default function AdminUsers() {
                 aria-label={`${filterField.label} value`}
                 value={fieldFilter.value}
                 onChange={e => setFieldFilter(prev => ({ ...prev, value: e.target.value }))}
-                className="h-9 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
+                className="h-9 min-w-0 max-w-full truncate rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
               >
                 <option value="__set">Has a value</option>
                 <option value="__empty">Empty</option>
@@ -930,7 +973,7 @@ export default function AdminUsers() {
                 {pageItems.map(item => item._type === 'waitlist' ? (
                   <TableRow key={item._key} className="hover:bg-muted/50">
                     <TableCell>
-                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
+                      <button type="button" className="touch-target truncate max-w-full rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
                         {item.name || item.email}
                       </button>
                     </TableCell>
@@ -950,13 +993,17 @@ export default function AdminUsers() {
                     <TableCell>
                       <div className="flex gap-1">
                         <Button variant="outline" size="xs" aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>Invite</Button>
-                        <Button variant="ghost" size="icon-xs" title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>&#10005;</Button>
+                        <Button variant="ghost" size="icon-xs" title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : item._type === 'invite' ? (
                   <TableRow key={item._key}>
-                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <span className="block truncate max-w-full" title={item.email}>{item.email}</span>
+                    </TableCell>
                     <TableCell>{item.email}</TableCell>
                     <TableCell className="text-muted-foreground">&mdash;</TableCell>
                     <TableCell>&mdash;</TableCell>
@@ -968,15 +1015,19 @@ export default function AdminUsers() {
                     {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon-xs" title="Resend" aria-label={`Resend invite to ${item.email}`} onClick={() => resendInvite(item.email)}>&#8635;</Button>
-                        <Button variant="ghost" size="icon-xs" title="Revoke" aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._invite.inviteToken)}>&#10005;</Button>
+                        <Button variant="ghost" size="icon-xs" title="Resend" aria-label={`Resend invite to ${item.email}`} onClick={() => resendInvite(item.email)}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        </Button>
+                        <Button variant="ghost" size="icon-xs" title="Revoke" aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._invite.inviteToken, item.email)}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : (
                   <TableRow key={item._key} className="hover:bg-muted/50">
                     <TableCell>
-                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={() => openEditUser(item._user)}>
+                      <button type="button" className="touch-target truncate max-w-full rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={() => openEditUser(item._user)}>
                         {item.name || item.email}
                       </button>
                     </TableCell>
@@ -1029,7 +1080,9 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}>
                         <PluginSlot name="adminUserRowAction" context={{ user: item._user }} />
                         {item._user.userId !== currentUser?.userId && (
-                          <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); deleteUser(item._user.userId, item.name || item.email); }}>&#128465;</Button>
+                          <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); deleteUser(item._user.userId, item.name || item.email); }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                          </Button>
                         )}
                       </div>
                     </TableCell>
@@ -1073,7 +1126,7 @@ export default function AdminUsers() {
           </DialogHeader>
 
           {inviteNotice && (
-            <p className="text-sm text-amber-600" role="status">{inviteNotice}</p>
+            <p className="text-sm text-warning-foreground" role="status">{inviteNotice}</p>
           )}
 
           <Tabs defaultValue="email" value={inviteTab} onValueChange={(v) => { setInviteTab(v); setInviteNotice(null); if (v === 'slack' && slackChannels.length === 0) loadSlackChannels(); }}>
@@ -1104,14 +1157,14 @@ export default function AdminUsers() {
                 <div className="space-y-2">
                   <Label>Emails to invite ({emailQueue.length})</Label>
                   <div className="max-h-40 overflow-y-auto overscroll-contain rounded-md border p-2">
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-3">
                       {emailQueue.map(email => (
-                        <span key={email} className="inline-flex items-center gap-1 rounded-full bg-muted pl-2.5 pr-1 py-0.5 text-xs">
-                          {email}
+                        <span key={email} className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted pl-2.5 pr-1 py-0.5 text-xs">
+                          <span className="truncate">{email}</span>
                           <button
                             type="button"
                             onClick={() => removeFromQueue(email)}
-                            className="compose-chip-remove inline-flex items-center justify-center rounded-full hover:text-destructive"
+                            className="compose-chip-remove shrink-0 inline-flex items-center justify-center rounded-full hover:text-destructive"
                             aria-label={`Remove ${email}`}
                           >
                             &#10005;
@@ -1125,7 +1178,7 @@ export default function AdminUsers() {
 
               <DialogFooter>
                 <Button onClick={sendInvites} disabled={emailQueue.length === 0 || inviteSending}>
-                  {inviteSending ? 'Sending...' : `Send ${emailQueue.length} invite(s)`}
+                  {inviteSending ? 'Sending...' : `Send ${emailQueue.length} ${emailQueue.length === 1 ? 'invite' : 'invites'}`}
                 </Button>
               </DialogFooter>
             </div>
@@ -1155,12 +1208,12 @@ export default function AdminUsers() {
                       <button
                         key={u.slackUserId}
                         type="button"
-                        className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors"
+                        className="touch-target flex items-center gap-2 min-w-0 w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors"
                         onClick={() => addToSlackQueue(u)}
                       >
-                        {u.avatar && <img src={u.avatar} alt="" className="w-6 h-6 rounded" />}
-                        <span className="font-medium">{u.name}</span>
-                        {u.email && <span className="text-muted-foreground text-xs ml-auto">{u.email}</span>}
+                        {u.avatar && <img src={u.avatar} alt="" width="24" height="24" className="w-6 h-6 shrink-0 rounded" />}
+                        <span className="font-medium truncate">{u.name}</span>
+                        {u.email && <span className="text-muted-foreground text-xs ml-auto truncate min-w-0">{u.email}</span>}
                       </button>
                     ))}
                   </div>
@@ -1174,7 +1227,7 @@ export default function AdminUsers() {
                     id="slack-channel-select"
                     value={slackSelectedChannel}
                     onChange={e => setSlackSelectedChannel(e.target.value)}
-                    className="h-10 flex-1 rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm"
+                    className="h-10 min-w-0 flex-1 truncate rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm"
                   >
                     <option value="">Select a channel...</option>
                     {slackChannels.map(ch => (
@@ -1191,15 +1244,15 @@ export default function AdminUsers() {
                 <div className="space-y-2">
                   <Label>Slack users to invite ({slackQueue.length})</Label>
                   <div className="max-h-40 overflow-y-auto overscroll-contain rounded-md border p-2">
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-3">
                       {slackQueue.map(u => (
-                        <span key={u.slackUserId} className="inline-flex items-center gap-1 rounded-full bg-muted pl-2.5 pr-1 py-0.5 text-xs">
-                          {u.name}
-                          {!u.email && <span className="text-destructive" title="No email on Slack profile">&#9888;</span>}
+                        <span key={u.slackUserId} className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted pl-2.5 pr-1 py-0.5 text-xs">
+                          <span className="truncate">{u.name}</span>
+                          {!u.email && <span className="text-destructive shrink-0" title="No email on Slack profile">&#9888;</span>}
                           <button
                             type="button"
                             onClick={() => removeFromSlackQueue(u.slackUserId)}
-                            className="compose-chip-remove inline-flex items-center justify-center rounded-full hover:text-destructive"
+                            className="compose-chip-remove shrink-0 inline-flex items-center justify-center rounded-full hover:text-destructive"
                             aria-label={`Remove ${u.name}`}
                           >
                             &#10005;
@@ -1213,7 +1266,7 @@ export default function AdminUsers() {
 
               <DialogFooter>
                 <Button onClick={sendSlackInvites} disabled={slackQueue.length === 0 || slackSending}>
-                  {slackSending ? 'Sending...' : `Send ${slackQueue.length} Slack invite(s)`}
+                  {slackSending ? 'Sending...' : `Send ${slackQueue.length} Slack ${slackQueue.length === 1 ? 'invite' : 'invites'}`}
                 </Button>
               </DialogFooter>
             </div>
@@ -1244,8 +1297,8 @@ export default function AdminUsers() {
                   <p>Expires: {new Date(linkInvite.ttl * 1000).toLocaleDateString()}</p>
                 </div>
 
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <p className="text-sm text-amber-900">
+                <div className="rounded-lg border border-warning-border bg-warning p-3">
+                  <p className="text-sm text-warning-foreground">
                     <strong>Security note:</strong> Anyone with this link can create an account.
                     Only share it in trusted channels. Regenerate to revoke the old link.
                   </p>
@@ -1267,8 +1320,8 @@ export default function AdminUsers() {
                   The link expires after 7 days and can be regenerated anytime.
                 </p>
 
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <p className="text-sm text-amber-900">
+                <div className="rounded-lg border border-warning-border bg-warning p-3">
+                  <p className="text-sm text-warning-foreground">
                     <strong>Security note:</strong> Anyone with this link can create an account.
                     Only share it in trusted channels.
                   </p>
@@ -1324,9 +1377,11 @@ export default function AdminUsers() {
             {groups.length > 0 ? (
               <ul className="max-h-[45dvh] overflow-y-auto overscroll-contain space-y-1 pr-1">
                 {groups.map(g => (
-                  <li key={g} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/50">
-                    <span className="text-sm">{g}</span>
-                    <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete group ${g}`} onClick={() => deleteGroup(g)}>&#10005;</Button>
+                  <li key={g} className="flex items-center justify-between gap-2 rounded-md px-3 py-2 bg-muted/50">
+                    <span className="text-sm flex-1 min-w-0 truncate">{g}</span>
+                    <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete group ${g}`} onClick={() => deleteGroup(g)}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </Button>
                   </li>
                 ))}
               </ul>

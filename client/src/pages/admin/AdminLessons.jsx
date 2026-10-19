@@ -259,15 +259,15 @@ export default function AdminLessons() {
 
       {message && (
         <div
-          className={`flex items-center justify-between rounded-lg px-4 py-3 mb-4 text-sm ${
+          className={`flex items-center justify-between rounded-lg border px-4 py-3 mb-4 text-sm ${
             message.type === 'error'
-              ? 'bg-destructive/10 text-destructive'
-              : 'bg-green-50 text-green-800'
+              ? 'border-danger-border bg-danger text-danger-foreground'
+              : 'border-success-border bg-success text-success-foreground'
           }`}
           role="alert"
         >
           <span>{message.text}</span>
-          <button onClick={() => setMessage(null)} aria-label="Dismiss" className="ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+          <button onClick={() => setMessage(null)} aria-label="Dismiss" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
         </div>
       )}
 
@@ -291,15 +291,22 @@ export default function AdminLessons() {
               return (
                 <TableRow key={c.lessonId}>
                   <TableCell>
-                    <span className="flex items-center gap-2">
-                      {c.name || c.lessonId}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => openLessonEditor(c.lessonId)}
+                        aria-label={isDraft ? `Resume draft ${c.name || c.lessonId}` : `Edit ${c.name || c.lessonId}`}
+                        className="touch-target truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link"
+                      >
+                        {c.name || c.lessonId}
+                      </button>
                       {isDraft
-                        ? <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-800">Draft</Badge>
+                        ? <Badge variant="outline" className="shrink-0 text-xs border-warning-border bg-warning text-warning-foreground">Draft</Badge>
                         : isPublic
-                          ? <Badge variant="outline" className="text-xs">Public</Badge>
-                          : <Badge variant="outline" className="text-xs border-violet-300 bg-violet-50 text-violet-800">Private{c.sharedWith?.length ? ` (${c.sharedWith.length})` : ''}</Badge>
+                          ? <Badge variant="outline" className="shrink-0 text-xs">Public</Badge>
+                          : <Badge variant="outline" className="shrink-0 text-xs border-primary/30 bg-primary/10 text-primary-text">Private{c.sharedWith?.length ? ` (${c.sharedWith.length})` : ''}</Badge>
                       }
-                    </span>
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{courseName || '\u2014'}</TableCell>
                   <TableCell className="text-muted-foreground">{c.createdByName || '\u2014'}</TableCell>
@@ -312,7 +319,9 @@ export default function AdminLessons() {
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon-xs" title={isDraft ? 'Resume draft' : 'Edit'} onClick={() => openLessonEditor(c.lessonId)} aria-label={isDraft ? `Resume draft ${c.name}` : `Edit ${c.name}`}>&#9998;</Button>
+                      <Button variant="ghost" size="icon-xs" title={isDraft ? 'Resume draft' : 'Edit'} onClick={() => openLessonEditor(c.lessonId)} aria-label={isDraft ? `Resume draft ${c.name}` : `Edit ${c.name}`}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                      </Button>
                       <Button variant="ghost" size="icon-xs" title="Delete" onClick={() => deleteLesson(c.lessonId)} aria-label={`Delete ${c.name}`}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                       </Button>
@@ -323,7 +332,7 @@ export default function AdminLessons() {
             })}
             {lessons.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">No lessons yet.</TableCell>
+                <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">No lessons yet. Click &ldquo;Add Lesson&rdquo; to create your first lesson.</TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -634,21 +643,21 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
       </div>
 
       {error && (
-        <div className="flex items-center justify-between rounded-lg bg-destructive/10 text-destructive px-4 py-3 mb-4 text-sm" role="alert">
+        <div className="flex items-center justify-between rounded-lg border border-danger-border bg-danger text-danger-foreground px-4 py-3 mb-4 text-sm" role="alert">
           <span>{error}</span>
-          <button onClick={() => setError('')} aria-label="Dismiss error" className="ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+          <button onClick={() => setError('')} aria-label="Dismiss error" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
         </div>
       )}
 
       {/* Lesson metadata — course assignment.
           Visible during creation and editing; admins can re-assign at any time. */}
-      <div className="flex items-center gap-3 mb-4">
-        <label htmlFor="lesson-course" className="text-sm text-muted-foreground">Course</label>
+      <div className="flex items-center gap-3 min-w-0 mb-4">
+        <label htmlFor="lesson-course" className="text-sm text-muted-foreground shrink-0">Course</label>
         <select
           id="lesson-course"
           value={course}
           onChange={(e) => changeCourse(e.target.value)}
-          className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex h-9 min-w-0 max-w-full flex-1 sm:flex-initial truncate rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <option value="">No course</option>
           {courses.map((c) => (
@@ -659,9 +668,9 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
 
       {/* Readiness bar + Create Lesson button */}
       {(chatMessages.length > 0 || displayText != null) && (
-        <div className="flex items-end gap-4 mb-4">
+        <div className="admin-sticky-bar sticky top-12 md:top-0 z-20 -mx-1 px-1 py-2 bg-background/95 backdrop-blur-xs flex items-end gap-4 mb-4">
           <div
-            className="flex-1"
+            className="flex-1 min-w-0"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={10}
@@ -691,7 +700,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
               aria-label="Start over"
               title="Start over"
             >
-              &#8635;
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
             </Button>
             <Button
               onClick={handleCreate}
@@ -708,7 +717,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="lg:w-3/5 min-w-0">
           {/* Chat + compose in a single container */}
-          <div className="rounded-2xl bg-muted/40 border border-border p-4">
+          <div className="rounded-2xl bg-muted/40 border border-border p-2 sm:p-4">
             <div className="mb-3">
               <ChatArea announcement={srAnnouncement}>
                 {chatMessages.map(renderMessage)}

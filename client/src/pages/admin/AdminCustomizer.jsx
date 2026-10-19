@@ -81,7 +81,7 @@ export default function AdminCustomizer() {
     setStyleMessage(null);
     try {
       await adminApi('PUT', '/v1/admin/theme', { theme: { primary, accent }, logoBase64, classroomName });
-      setStyleMessage({ text: 'Saved! Click "Visit Classroom" to see changes.', type: 'success' });
+      setStyleMessage({ text: 'Saved! Open the Classroom to see your changes.', type: 'success' });
     } catch (e) { setStyleMessage({ text: e.message, type: 'error' }); }
     finally { setSaving(false); }
   }
@@ -141,19 +141,43 @@ export default function AdminCustomizer() {
               <p className="text-sm text-muted-foreground">Set two colors — contrast is derived automatically.</p>
               <div className="flex flex-wrap gap-6">
                 <div className="flex items-center gap-3">
-                  <input type="color" value={primary} onChange={e => setPrimary(e.target.value)}
-                    className="w-12 h-12 rounded-lg border border-border cursor-pointer p-0.5" aria-label="Primary color" />
-                  <div>
-                    <Label>Primary</Label>
+                  <input id="theme-primary" type="color" value={primary} onChange={e => setPrimary(e.target.value)}
+                    className="w-12 h-12 shrink-0 rounded-lg border border-border cursor-pointer p-0.5" aria-label="Primary color" />
+                  <div className="space-y-1">
+                    <Label htmlFor="theme-primary">Primary</Label>
                     <p className="text-xs text-muted-foreground">Header, buttons, badges</p>
+                    <Input
+                      type="text"
+                      inputMode="text"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={7}
+                      value={primary}
+                      onChange={e => setPrimary(e.target.value)}
+                      aria-label="Primary color hex code"
+                      className="h-8 w-28 font-mono text-xs"
+                    />
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <input type="color" value={accent} onChange={e => setAccent(e.target.value)}
-                    className="w-12 h-12 rounded-lg border border-border cursor-pointer p-0.5" aria-label="Accent color" />
-                  <div>
-                    <Label>Accent</Label>
+                  <input id="theme-accent" type="color" value={accent} onChange={e => setAccent(e.target.value)}
+                    className="w-12 h-12 shrink-0 rounded-lg border border-border cursor-pointer p-0.5" aria-label="Accent color" />
+                  <div className="space-y-1">
+                    <Label htmlFor="theme-accent">Accent</Label>
                     <p className="text-xs text-muted-foreground">Links, focus rings</p>
+                    <Input
+                      type="text"
+                      inputMode="text"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={7}
+                      value={accent}
+                      onChange={e => setAccent(e.target.value)}
+                      aria-label="Accent color hex code"
+                      className="h-8 w-28 font-mono text-xs"
+                    />
                   </div>
                 </div>
               </div>
@@ -190,7 +214,7 @@ export default function AdminCustomizer() {
               </div>
               <div className="p-4 rounded-lg text-center" style={{ backgroundColor: primary, color: contrastText(primary) }}>
                 {logoBase64 ? (
-                  <img src={logoBase64} alt={classroomName || 'Logo preview'} className="max-h-12 inline-block" />
+                  <img src={logoBase64} alt={classroomName || 'Logo preview'} width="48" height="48" className="max-h-12 w-auto inline-block object-contain" />
                 ) : (
                   <span className="text-lg font-semibold">{classroomName || 'Your Classroom'}</span>
                 )}
@@ -201,9 +225,9 @@ export default function AdminCustomizer() {
             </CardContent>
           </Card>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button onClick={saveStyle} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
-            {styleMessage && <span role="status" aria-live="polite" className={`text-sm ${styleMessage.type === 'error' ? 'text-destructive' : 'text-green-700'}`}>{styleMessage.text}</span>}
+            {styleMessage && <span role="status" aria-live="polite" className={`text-sm ${styleMessage.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}>{styleMessage.text}</span>}
           </div>
         </TabsContent>
 
@@ -249,8 +273,8 @@ export default function AdminCustomizer() {
 function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div className="min-w-0">
           <p className="text-sm text-muted-foreground">
             The knowledge base provides context to the Coach and Lesson Creator agents about your program.
           </p>
@@ -260,7 +284,7 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
             </p>
           )}
         </div>
-        <Button onClick={onEdit}>{content ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</Button>
+        <Button className="shrink-0" onClick={onEdit}>{content ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</Button>
       </div>
 
       {content ? (
@@ -456,16 +480,16 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
       </div>
 
       {error && (
-        <div className="flex items-center justify-between rounded-lg bg-destructive/10 text-destructive px-4 py-3 mb-4 text-sm" role="alert" aria-live="assertive">
+        <div className="flex items-center justify-between rounded-lg border border-danger-border bg-danger text-danger-foreground px-4 py-3 mb-4 text-sm" role="alert" aria-live="assertive">
           <span>{error}</span>
-          <button onClick={() => setError('')} aria-label="Dismiss error" className="ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+          <button onClick={() => setError('')} aria-label="Dismiss error" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
         </div>
       )}
 
       {(chatMessages.length > 0 || displayText != null) && (
-        <div className="flex items-end gap-4 mb-4">
+        <div className="admin-sticky-bar sticky top-12 md:top-0 z-20 -mx-1 px-1 py-2 bg-background/95 backdrop-blur-xs flex items-end gap-4 mb-4">
           <div
-            className="flex-1"
+            className="flex-1 min-w-0"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={10}
@@ -490,6 +514,7 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
             onClick={handleSaveKB}
             disabled={isBusy || readiness < 3}
             size="sm"
+            className="shrink-0"
             title={readiness < 3 ? 'Tell the editor about your classroom goal, learners, and teachers first' : undefined}
           >
             {busy === 'creating' ? 'Saving...' : (isEditing ? 'Update Knowledge Base' : 'Save Knowledge Base')}
@@ -500,7 +525,7 @@ function KBEditor({ initialContent, onSave, onCancel, initialConversation, initi
       {/* Chat (left) + markdown preview (right). Stacks vertically below `lg`. */}
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="lg:w-3/5 min-w-0">
-          <div className="rounded-2xl bg-muted/40 border border-border p-4">
+          <div className="rounded-2xl bg-muted/40 border border-border p-2 sm:p-4">
             <div className="mb-3">
               <ChatArea announcement={srAnnouncement}>
                 {chatMessages.map(renderMessage)}

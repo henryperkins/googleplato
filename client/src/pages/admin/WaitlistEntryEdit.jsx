@@ -53,7 +53,7 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
         <h1 className="text-2xl font-bold">Edit Wait List Entry</h1>
       </div>
       {message && (
-        <div className={`rounded-lg px-4 py-3 mb-4 text-sm ${message.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-green-50 text-green-800'}`} role="alert">
+        <div className={`rounded-lg border px-4 py-3 mb-4 text-sm ${message.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'}`} role="alert">
           {message.text}
         </div>
       )}
@@ -91,11 +91,13 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
               disabled={saving}
             />
           ))}
-          <div className="flex items-center gap-3 pt-2">
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <Button onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
             <Button variant="outline" onClick={onBack}>Cancel</Button>
-            <Button variant="outline" className="ml-auto" onClick={() => onInvite(entry)} disabled={saving}>Invite</Button>
-            <Button variant="destructive" onClick={() => onRemove(entry)} disabled={saving}>Remove</Button>
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto">
+              <Button variant="outline" onClick={() => onInvite(entry)} disabled={saving}>Invite</Button>
+              <Button variant="destructive" onClick={() => onRemove(entry)} disabled={saving}>Remove</Button>
+            </div>
           </div>
         </CardContent>
       </Card>

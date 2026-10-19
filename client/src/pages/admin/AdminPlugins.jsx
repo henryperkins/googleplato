@@ -202,7 +202,7 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
       {Array.isArray(plugin.capabilities) && plugin.capabilities.length > 0 && (
         <CardContent className="pt-0">
           <details className="group">
-            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground select-none">
+            <summary className="touch-target inline-flex items-center cursor-pointer text-xs text-muted-foreground hover:text-foreground select-none">
               <span className="group-open:hidden">Show {plugin.capabilities.length} permission{plugin.capabilities.length === 1 ? '' : 's'}</span>
               <span className="hidden group-open:inline">Hide permissions</span>
             </summary>
@@ -218,7 +218,7 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
       {canUninstall && (
         <CardContent className="pt-0">
           <Separator className="mb-3" />
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-start sm:flex-row sm:items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
               Permanently remove every record this plugin has stored. The plugin code stays installed.
             </p>
@@ -308,7 +308,6 @@ function UninstallDialog({ plugin, open, onOpenChange, onConfirm }) {
             onChange={(e) => setConfirm(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && matches && !working && !e.nativeEvent.isComposing) { e.preventDefault(); handleConfirm(); } }}
             autoComplete="off"
-            autoFocus
           />
         </div>
         {error && (

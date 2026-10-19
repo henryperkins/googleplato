@@ -58,7 +58,7 @@ export default function AppShell({ children }) {
       {/* Admin bar — plato branding, quick links to dashboard */}
       {isAdmin && (
         <div className="px-4 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-xs text-white" style={{ backgroundColor: '#470d99', '--ring': '#ffffff' }}>
-          <div className="mx-auto max-w-5xl flex items-center gap-2">
+          <div className="mx-auto max-w-5xl flex flex-wrap items-center gap-2">
             <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center gap-1.5 opacity-90 hover:opacity-100 whitespace-nowrap shrink-0">
               <img src="/assets/logo-white.svg" alt="plato" width="48" height="12" className="h-3 w-auto" />
             </a>
@@ -85,8 +85,7 @@ export default function AppShell({ children }) {
           underneath the purple admin bar so it's the first thing the admin sees. */}
       {impersonating && (
         <div
-          className="px-4 py-1.5 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-sm flex items-center gap-3 border-b"
-          style={{ backgroundColor: '#fef3c7', color: '#78350f', borderColor: '#fde68a' }}
+          className="px-4 py-1.5 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-sm flex items-center gap-3 border-b border-warning-border bg-warning text-warning-foreground"
           role="status"
           aria-live="polite"
         >
@@ -98,7 +97,7 @@ export default function AppShell({ children }) {
               type="button"
               onClick={handleStopImpersonation}
               aria-label={`Exit viewing as ${impersonatedLabel}`}
-              className="touch-target rounded border border-yellow-700/40 px-2.5 py-1 text-xs font-medium hover:bg-yellow-700/10 cursor-pointer bg-transparent transition-colors whitespace-nowrap shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-yellow-700"
+              className="touch-target rounded border border-warning-border px-2.5 py-1 text-xs font-medium hover:bg-warning-foreground/10 cursor-pointer bg-transparent transition-colors whitespace-nowrap shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-foreground"
             >
               Exit
             </button>
