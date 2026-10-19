@@ -51,6 +51,7 @@ export default function Login() {
 
   async function handleLogin(e) {
     if (e) e.preventDefault();
+    if (submitting || googleSubmitting) return;
     const emailErr = validateField('email', email);
     const passwordErr = validateField('password', password);
     if (emailErr || passwordErr) {
@@ -208,8 +209,14 @@ export default function Login() {
                 <p id="login-password-error" className="text-xs text-destructive" role="alert">{fieldErrors.password}</p>
               )}
             </div>
-            <Button type="submit" className="w-full" disabled={submitting || googleSubmitting}>
-              {submitting ? 'Signing in...' : 'Sign in'}
+            <Button
+              type="submit"
+              className="w-full gap-2 whitespace-nowrap shrink-0"
+              disabled={submitting || googleSubmitting}
+              aria-busy={submitting ? 'true' : undefined}
+            >
+              {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
+              <span>{submitting ? 'Signing in...' : 'Sign in'}</span>
             </Button>
           </form>
         </CardContent>

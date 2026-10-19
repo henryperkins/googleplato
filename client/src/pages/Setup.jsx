@@ -74,6 +74,7 @@ export default function Setup() {
 
   async function handleSetup(e) {
     if (e) e.preventDefault();
+    if (submitting || googleSubmitting) return;
     const nextErrs = {};
     if (!name.trim()) nextErrs.name = 'Name is required.';
     const emailErr = validateEmail(email);
@@ -287,8 +288,14 @@ export default function Setup() {
                 <p id="setup-confirm-error" className="text-xs text-destructive" role="alert">{fieldErrors.confirm}</p>
               )}
             </div>
-            <Button type="submit" className="w-full" disabled={submitting || googleSubmitting}>
-              {submitting ? 'Creating...' : 'Create admin account'}
+            <Button
+              type="submit"
+              className="w-full gap-2 whitespace-nowrap shrink-0"
+              disabled={submitting || googleSubmitting}
+              aria-busy={submitting ? 'true' : undefined}
+            >
+              {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
+              <span>{submitting ? 'Creating admin account...' : 'Create admin account'}</span>
             </Button>
           </form>
         </CardContent>

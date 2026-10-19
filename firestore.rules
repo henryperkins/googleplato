@@ -34,8 +34,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isVerified() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == "allthesecrushes@gmail.com"
+        request.auth.token.email == "allthesecrushes@gmail.com" ||
+        request.auth.token.email == "henry@lakefrontdigital.io" ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
@@ -90,7 +91,7 @@ service cloud.firestore {
     // Public User Profiles (Non-PII)
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
 
       allow create: if isVerified()
         && isValidId(userId)
@@ -170,7 +171,13 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/users/$(userId));
 
         allow list: if isSignedIn()
-          && (resource.data.uid == request.auth.uid || isAdmin());
+          && (
+            isOwner(userId) ||
+            (isVerified() && (
+              request.auth.token.email == "allthesecrushes@gmail.com" ||
+              request.auth.token.email == "henry@lakefrontdigital.io"
+            ))
+          );
 
         allow create: if isVerified()
           && isValidId(userId)

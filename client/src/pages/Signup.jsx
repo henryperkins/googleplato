@@ -143,6 +143,7 @@ export default function Signup() {
 
   async function handleSignup(e) {
     if (e) e.preventDefault();
+    if (submitting || googleSubmitting) return;
     // Email is optional in frontend validation for backwards compatibility:
     // - Email-specific invites: backend uses invite.email if not provided
     // - Link invites: backend will reject with "Email is required" error
@@ -442,8 +443,14 @@ export default function Signup() {
                 <p id="signup-confirm-error" className="text-xs text-destructive" role="alert">{fieldErrors.confirm}</p>
               )}
             </div>
-            <Button type="submit" className="w-full" disabled={submitting || googleSubmitting}>
-              {submitting ? 'Creating...' : 'Create account'}
+            <Button
+              type="submit"
+              className="w-full gap-2 whitespace-nowrap shrink-0"
+              disabled={submitting || googleSubmitting}
+              aria-busy={submitting ? 'true' : undefined}
+            >
+              {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
+              <span>{submitting ? 'Creating account...' : 'Create account'}</span>
             </Button>
           </form>
         </CardContent>

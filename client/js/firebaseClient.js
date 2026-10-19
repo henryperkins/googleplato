@@ -161,7 +161,7 @@ export async function ensureFirestoreUserProfile(platoUser) {
     // If the user is an admin and doesn't match the runtime bootstrap email,
     // role in Firestore defaults to 'user' unless they have an /admins/{uid} record.
     let firestoreRole = 'user';
-    if (safeRole === 'admin' && currentUser.email === 'allthesecrushes@gmail.com') {
+    if (safeRole === 'admin' && (currentUser.email === 'allthesecrushes@gmail.com' || currentUser.email === 'henry@lakefrontdigital.io')) {
       firestoreRole = 'admin';
     }
     const payload = {
@@ -312,9 +312,9 @@ export async function loadAllSyncDataFromFirestore() {
 
   const uid = currentUser.uid;
   const path = `users/${uid}/syncData`;
-  const q = query(collection(db, 'users', uid, 'syncData'), where('uid', '==', uid));
+  const colRef = collection(db, 'users', uid, 'syncData');
   try {
-    const snap = await getDocs(q);
+    const snap = await getDocs(colRef);
     const results = [];
     snap.forEach((docSnap) => {
       const d = docSnap.data();
@@ -349,10 +349,10 @@ export function subscribeToFirestoreSync(onRecordChange) {
 
   const uid = currentUser.uid;
   const path = `users/${uid}/syncData`;
-  const q = query(collection(db, 'users', uid, 'syncData'), where('uid', '==', uid));
+  const colRef = collection(db, 'users', uid, 'syncData');
 
   return onSnapshot(
-    q,
+    colRef,
     (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added' || change.type === 'modified') {
