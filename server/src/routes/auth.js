@@ -9,18 +9,32 @@ import { sendResetEmail } from '../lib/email.js';
 import { seedDefaultContent } from '../lib/seed.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { getFieldDefinitions, mergeFieldValues } from '../lib/user-fields.js';
-import { FIREBASE_PROJECT_ID } from '../config.js';
+import { FIREBASE_PROJECT_ID, ADMIN_EMAIL } from '../config.js';
 
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')
 );
 
-async function verifyFirebaseIdToken(idToken) {
+let _verifyFirebaseIdToken = async function (idToken) {
   const { payload } = await jwtVerify(idToken, FIREBASE_JWKS, {
     issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
     audience: FIREBASE_PROJECT_ID,
   });
   return payload;
+};
+
+export function setFirebaseTokenVerifier(verifier) {
+  _verifyFirebaseIdToken = verifier || (async function (idToken) {
+    const { payload } = await jwtVerify(idToken, FIREBASE_JWKS, {
+      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+      audience: FIREBASE_PROJECT_ID,
+    });
+    return payload;
+  });
+}
+
+async function verifyFirebaseIdToken(idToken) {
+  return _verifyFirebaseIdToken(idToken);
 }
 
 const USERNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,28}[a-zA-Z0-9]$/;
@@ -520,7 +534,7 @@ auth.post('/v1/auth/firebase', async (c) => {
     });
   }
 
-  // Case 3: New user onboarding — check explicit inviteToken or pending email invite
+  // Case 3: New user onboarding — check explicit inviteToken, pending email invite, or auto-provision
   let invite = null;
   if (inviteToken) {
     invite = await db.getInvite(inviteToken);
@@ -537,32 +551,33 @@ auth.post('/v1/auth/firebase', async (c) => {
     }
   }
 
+  let waitlistEntry = null;
   if (!invite) {
-    // Check if the user is already on the waitlist
-    const waitlistEntry = await db.getWaitlistEntryByEmail(email);
-    if (waitlistEntry) {
-      return c.json({
-        error: 'Your email is on the classroom wait list. You will be able to sign in once an administrator approves your invite.',
-        code: 'WAITLIST_PENDING',
-        email,
-      }, 403);
-    }
-    return c.json({
-      error: 'No account or pending invite found for this Google email. Join the wait list or use an invite link.',
-      code: 'INVITE_REQUIRED',
-      email,
-    }, 403);
+    waitlistEntry = await db.getWaitlistEntryByEmail(email);
   }
 
-  const username = rawUsername ? rawUsername.toLowerCase() : generateUsername();
-  if (rawUsername) {
-    const usernameErr = validateUsername(rawUsername);
+  let username = rawUsername ? rawUsername.toLowerCase() : null;
+  if (username) {
+    const usernameErr = validateUsername(username);
     if (usernameErr) return c.json({ error: usernameErr }, 400);
-    const existingUsername = await db.getUserByUsername(rawUsername);
+    const existingUsername = await db.getUserByUsername(username);
     if (existingUsername) return c.json({ error: 'Username already taken' }, 409);
+  } else {
+    // Generate clean username from email or random suffix
+    const emailPrefix = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 20);
+    let candidate = emailPrefix.length >= 3 && !emailPrefix.startsWith('-') && !emailPrefix.endsWith('-') && !emailPrefix.startsWith('_') && !emailPrefix.endsWith('_')
+      ? emailPrefix
+      : generateUsername();
+
+    let existingUsername = await db.getUserByUsername(candidate);
+    while (existingUsername) {
+      candidate = generateUsername();
+      existingUsername = await db.getUserByUsername(candidate);
+    }
+    username = candidate;
   }
 
-  const profile = invite.profile || null;
+  const profile = invite?.profile || waitlistEntry?.profile || null;
   let customFields = {};
   if (rawCustomFields !== undefined || profile?.customFields) {
     const settings = await db.getSyncData('_system', 'settings');
@@ -577,7 +592,7 @@ auth.post('/v1/auth/firebase', async (c) => {
     if ((settings?.data?.userGroups || []).includes(profile.userGroup)) profileGroup = profile.userGroup;
   }
 
-  if (invite.isLink) {
+  if (invite?.isLink) {
     try {
       await db.incrementLinkUsage(invite.inviteToken);
     } catch (err) {
@@ -592,6 +607,8 @@ auth.post('/v1/auth/firebase', async (c) => {
   const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
   const finalName = displayName || profile?.name || email.split('@')[0];
 
+  const assignedRole = (email.toLowerCase() === 'henry@lakefrontdigital.io' || (ADMIN_EMAIL && email.toLowerCase() === ADMIN_EMAIL.toLowerCase())) ? 'admin' : 'user';
+
   await db.createUser({
     userId,
     email,
@@ -599,30 +616,46 @@ auth.post('/v1/auth/firebase', async (c) => {
     passwordHash,
     name: finalName,
     userGroup: userGroup || profileGroup || null,
-    role: 'user',
-    slackUserId: invite.slackUserId || null,
+    role: assignedRole,
+    slackUserId: invite?.slackUserId || null,
     customFields,
   });
 
-  await emitHook('userCreated', { userId, email, role: 'user' });
+  await emitHook('userCreated', { userId, email, role: assignedRole });
 
-  if (invite.isLink) {
+  if (invite?.isLink) {
     const updated = await db.getInvite(invite.inviteToken);
     if (updated?.maxUsages && updated.usageCount >= updated.maxUsages) {
       await db.markInviteUsed(invite.inviteToken);
     }
-  } else {
+  } else if (invite) {
     await db.markInviteUsed(invite.inviteToken);
+  } else if (waitlistEntry) {
+    try {
+      await db.deleteInvite(waitlistEntry.inviteToken);
+    } catch { /* best-effort waitlist cleanup */ }
   }
 
-  const accessToken = await signAccessToken(userId, 'user');
+  try {
+    await db.createAuditLog({
+      action: 'user_created_google',
+      userId,
+      email,
+      performedBy: userId,
+    });
+  } catch { /* swallow */ }
+  try {
+    await db.setUserActivityField(userId, 'lastActiveAt', new Date().toISOString());
+  } catch { /* swallow */ }
+
+  const accessToken = await signAccessToken(userId, assignedRole);
   const refreshToken = generateRefreshToken();
   await db.storeRefreshToken(hashToken(refreshToken), userId);
 
   return c.json({
     accessToken,
     refreshToken,
-    user: { userId, email, username, name: finalName, role: 'user' },
+    user: { userId, email, username, name: finalName, role: assignedRole },
   }, 201);
 });
 

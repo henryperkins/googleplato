@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import auth from '../../src/routes/auth.js';
+import auth, { setFirebaseTokenVerifier } from '../../src/routes/auth.js';
 import db from '../../src/lib/db.js';
 
 function req(app, method, path, body) {
@@ -324,5 +324,93 @@ describe('POST /v1/auth/logout', () => {
     const res = await req(app, 'POST', '/v1/auth/logout', { refreshToken: 'rt_test' });
     assert.equal(res.status, 200);
     assert.ok(deleted);
+  });
+});
+
+describe('POST /v1/auth/firebase', () => {
+  let createdUsers = [];
+
+  beforeEach(() => {
+    createdUsers = [];
+    db.countUsers = async () => 1; // existing classroom setup
+    db.getUserByEmail = async () => null;
+    db.getUserByUsername = async () => null;
+    db.getInvite = async () => null;
+    db.getInviteByEmail = async () => null;
+    db.getWaitlistEntryByEmail = async () => null;
+    db.createUser = async (u) => { createdUsers.push(u); };
+    db.storeRefreshToken = async () => {};
+    db.createAuditLog = async () => {};
+    db.setUserActivityField = async () => {};
+    db.getSyncData = async () => null;
+    setFirebaseTokenVerifier(null);
+  });
+
+  it('rejects request with missing idToken', async () => {
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/firebase', {});
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.equal(data.error, 'Firebase ID token is required');
+  });
+
+  it('rejects invalid or expired idToken', async () => {
+    setFirebaseTokenVerifier(async () => { throw new Error('JWT verification failed'); });
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'invalid_token' });
+    assert.equal(res.status, 401);
+    const data = await res.json();
+    assert.equal(data.error, 'Invalid or expired Google sign-in token');
+  });
+
+  it('rejects unverified Google email', async () => {
+    setFirebaseTokenVerifier(async () => ({ email: 'unverified@example.com', email_verified: false }));
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'test_token' });
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.equal(data.error, 'A verified Google email address is required');
+  });
+
+  it('logs in existing user matching verified Google email', async () => {
+    setFirebaseTokenVerifier(async () => ({ email: 'existing@example.com', email_verified: true, name: 'Existing User' }));
+    db.getUserByEmail = async (email) => {
+      if (email === 'existing@example.com') {
+        return { userId: 'usr_existing', email, username: 'existinguser', name: 'Existing User', role: 'user' };
+      }
+      return null;
+    };
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'valid_token' });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(data.accessToken);
+    assert.ok(data.refreshToken);
+    assert.equal(data.user.email, 'existing@example.com');
+    assert.equal(data.user.userId, 'usr_existing');
+  });
+
+  it('auto-provisions new verified Google user without prior invite', async () => {
+    setFirebaseTokenVerifier(async () => ({
+      email: 'newlearner@example.com',
+      email_verified: true,
+      name: 'New Learner',
+    }));
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'valid_token' });
+    assert.equal(res.status, 201);
+    const data = await res.json();
+    assert.ok(data.accessToken);
+    assert.ok(data.refreshToken);
+    assert.equal(data.user.email, 'newlearner@example.com');
+    assert.equal(data.user.name, 'New Learner');
+    assert.equal(data.user.role, 'user');
+    assert.equal(createdUsers.length, 1);
+    assert.equal(createdUsers[0].email, 'newlearner@example.com');
   });
 });

@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from '@/components/ui/card';
+import { Loader2 } from 'lucide-react';
 
 const SETUP_DRAFT_KEY = 'plato_setup_draft';
 
@@ -45,6 +46,7 @@ export default function Setup() {
   }, [classroomName, email, name]);
 
   async function handleGoogleSetup() {
+    if (googleSubmitting || submitting) return;
     setGoogleSubmitting(true);
     setError('');
     try {
@@ -159,11 +161,16 @@ export default function Setup() {
               className="w-full gap-2 whitespace-nowrap shrink-0"
               onClick={handleGoogleSetup}
               disabled={submitting || googleSubmitting}
+              aria-busy={googleSubmitting ? 'true' : undefined}
             >
-              <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 15.25 5 12c0-3.25 3.36-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81Z" />
-              </svg>
-              {googleSubmitting ? 'Setting up with Google...' : 'Create admin account with Google'}
+              {googleSubmitting ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+              ) : (
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 15.25 5 12c0-3.25 3.36-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81Z" />
+                </svg>
+              )}
+              <span>{googleSubmitting ? 'Setting up with Google...' : 'Create admin account with Google'}</span>
             </Button>
             <div className="relative flex items-center py-1">
               <div className="grow border-t border-border" />
