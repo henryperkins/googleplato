@@ -1,0 +1,116 @@
+import { Hono } from 'hono';
+import { readFileSync, readdirSync, existsSync } from 'fs';
+import { join, dirname, extname } from 'path';
+import { fileURLToPath } from 'url';
+
+const app = new Hono();
+
+// ── Serve React client from built files ──
+
+const MIME_TYPES = {
+  '.html': 'text/html; charset=UTF-8',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+  '.wasm': 'application/wasm',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
+
+// Load built client files into memory at startup
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// In Lambda, client-dist is a sibling. In local dev, it's at ../../client/dist.
+const clientDistDir = existsSync(join(__dirname, '../../client-dist'))
+  ? join(__dirname, '../../client-dist')
+  : join(__dirname, '../../../client/dist');
+const staticFiles = {};
+function loadDir(dir, prefix) {
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = join(dir, entry.name);
+      const urlPath = prefix + entry.name;
+      if (entry.isDirectory()) {
+        loadDir(fullPath, urlPath + '/');
+      } else {
+        staticFiles[urlPath] = {
+          content: readFileSync(fullPath),
+          type: MIME_TYPES[extname(entry.name)] || 'application/octet-stream',
+        };
+      }
+    }
+  } catch { /* dist dir may not exist in tests */ }
+}
+loadDir(clientDistDir, '/');
+
+const indexHtml = staticFiles['/index.html'];
+
+// Serve static assets with long-term caching
+app.get('/assets/*', (c) => {
+  const file = staticFiles[c.req.path];
+  if (!file) return c.notFound();
+  c.header('Content-Type', file.type);
+  c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  return c.body(file.content);
+});
+
+// ── API endpoints (public, no auth) ──
+
+app.get('/v1/groups', async (c) => {
+  const db = (await import('../lib/db.js')).default;
+  const item = await db.getSyncData('_system', 'settings');
+  return c.json({ userGroups: item?.data?.userGroups || [] });
+});
+
+// Custom user field definitions (#364) — public so the signup form can render
+// them. Definitions only (labels/types/options); values are never exposed here.
+app.get('/v1/user-fields', async (c) => {
+  const db = (await import('../lib/db.js')).default;
+  const { getFieldDefinitions } = await import('../lib/user-fields.js');
+  const item = await db.getSyncData('_system', 'settings');
+  return c.json({ userFields: getFieldDefinitions(item?.data) });
+});
+
+app.get('/v1/invite-example.csv', (c) => {
+  const csv = 'email\njane@example.com\ncarlos@example.com\naisha@example.com\n';
+  c.header('Content-Type', 'text/csv');
+  c.header('Content-Disposition', 'attachment; filename="invite-example.csv"');
+  return c.body(csv);
+});
+
+// ── Marketing redirects ──
+// These paths belong to the ai-leaders.org marketing site, not the app. They're
+// registered before the SPA fallback below, which would otherwise swallow them
+// and render the app shell. 302 (not 301) so the mapping stays changeable —
+// a cached 301 would be near-impossible to walk back in learners' browsers.
+const MARKETING_REDIRECTS = {
+  '/employers': 'https://ai-leaders.org/employers',
+  '/edu-partners': 'https://ai-leaders.org/edu-partners',
+};
+
+for (const [path, target] of Object.entries(MARKETING_REDIRECTS)) {
+  app.get(path, (c) => c.redirect(target, 302));
+}
+
+// SPA fallback — serve index.html for all non-API routes
+app.get('*', (c) => {
+  // Don't intercept API routes
+  if (c.req.path.startsWith('/v1/')) return c.notFound();
+
+  // Try to serve a static file first (for css, js, images, etc.)
+  const file = staticFiles[c.req.path];
+  if (file) {
+    c.header('Content-Type', file.type);
+    return c.body(file.content);
+  }
+
+  // SPA fallback: serve index.html for all other routes
+  if (!indexHtml) return c.text('Client not built. Run: cd client && npm run build', 500);
+  c.header('Content-Type', indexHtml.type);
+  c.header('Cache-Control', 'no-cache');
+  return c.body(indexHtml.content);
+});
+
+export default app;

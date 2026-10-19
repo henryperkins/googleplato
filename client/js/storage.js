@@ -1,0 +1,425 @@
+/**
+ * Storage layer backed by server API (via sync endpoints).
+ * All data is server-side. An in-memory cache avoids redundant fetches within a session.
+ * Auth tokens use localStorage. Pasted images are stored one-per-record
+ * as `screenshot:*` sync data, referenced by key from conversation messages.
+ */
+
+import { authenticatedFetch } from './auth.js';
+
+// -- In-memory cache ----------------------------------------------------------
+
+const _cache = new Map();
+const _versions = new Map();
+
+export function clearCache() {
+  _cache.clear();
+  _versions.clear();
+}
+
+/** Used by sync.js loadAll() to bulk-populate the cache from server data. */
+export function _populateCache(syncKey, data, version) {
+  _cache.set(syncKey, data);
+  _versions.set(syncKey, version);
+}
+
+async function fetchSyncData(syncKey) {
+  if (_cache.has(syncKey)) return _cache.get(syncKey);
+  try {
+    const res = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`);
+    if (!res.ok) return null;
+    const item = await res.json();
+    _cache.set(syncKey, item.data);
+    _versions.set(syncKey, item.version);
+    return item.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write data to the server with optimistic locking. Also exported for
+ * syncDebounce. Returns `true` if the write reached the server durably,
+ * `false` otherwise — callers that need durability (e.g. the legacy-image
+ * migration) check this rather than assuming the cache write stuck.
+ */
+export async function putSyncData(syncKey, data) {
+  _cache.set(syncKey, data);
+  const version = _versions.get(syncKey) || 0;
+  try {
+    const res = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data, version }),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      _versions.set(syncKey, result.version);
+      if (typeof window !== 'undefined') {
+        import('./firebaseClient.js')
+          .then(({ mirrorSyncDataToFirestore }) => mirrorSyncDataToFirestore(syncKey, data))
+          .catch(() => {});
+      }
+      return true;
+    } else if (res.status === 409) {
+      // Version conflict — fetch latest version and retry once
+      const current = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`);
+      if (current.ok) {
+        const item = await current.json();
+        _versions.set(syncKey, item.version);
+        const retry = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data, version: item.version }),
+        });
+        if (retry.ok) {
+          const retryResult = await retry.json();
+          _versions.set(syncKey, retryResult.version);
+          if (typeof window !== 'undefined') {
+            import('./firebaseClient.js')
+              .then(({ mirrorSyncDataToFirestore }) => mirrorSyncDataToFirestore(syncKey, data))
+              .catch(() => {});
+          }
+          return true;
+        }
+      }
+      console.error(`[storage] sync write conflict unresolved for "${syncKey}"`);
+      return false;
+    } else {
+      // A non-OK, non-conflict response means the server rejected the write
+      // (e.g. an oversized item). The cache still holds the data for this
+      // session, but it is NOT durable — surface it instead of losing it
+      // silently, which is how conversation loss went undiagnosed (#193).
+      console.error(`[storage] sync write rejected for "${syncKey}": HTTP ${res.status}`);
+      return false;
+    }
+  } catch (err) {
+    // Network failure — cache is still updated for this session but the
+    // write did not reach the server. Log so the loss isn't invisible.
+    console.error('[storage] sync write failed for %s:', syncKey, err);
+    return false;
+  }
+}
+
+async function deleteSyncData(syncKey) {
+  _cache.delete(syncKey);
+  _versions.delete(syncKey);
+  try {
+    await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, { method: 'DELETE' });
+    if (typeof window !== 'undefined') {
+      import('./firebaseClient.js')
+        .then(({ deleteSyncDataFromFirestore }) => deleteSyncDataFromFirestore(syncKey))
+        .catch(() => {});
+    }
+  } catch { /* best effort */ }
+}
+
+// -- Preferences --------------------------------------------------------------
+
+export async function getPreferences() {
+  const data = await fetchSyncData('preferences');
+  return data || { name: '' };
+}
+
+export async function savePreferences(prefs) {
+  await putSyncData('preferences', prefs);
+}
+
+// -- Learner profile ----------------------------------------------------------
+
+export async function getLearnerProfile() {
+  return fetchSyncData('profile');
+}
+
+export async function saveLearnerProfile(profile) {
+  await putSyncData('profile', profile);
+}
+
+export async function getLearnerProfileSummary() {
+  const data = await fetchSyncData('profileSummary');
+  return data || '';
+}
+
+export async function saveLearnerProfileSummary(summary) {
+  await putSyncData('profileSummary', summary);
+}
+
+// -- Lesson KB ----------------------------------------------------------------
+
+export async function getLessonKB(lessonId) {
+  return fetchSyncData(`lessonKB:${lessonId}`);
+}
+
+export async function saveLessonKB(lessonId, kb) {
+  await putSyncData(`lessonKB:${lessonId}`, kb);
+}
+
+export async function deleteLessonKB(lessonId) {
+  await deleteSyncData(`lessonKB:${lessonId}`);
+}
+
+// -- Course progress ----------------------------------------------------------
+// Per-learner, per-course distilled summary of progress across a course's
+// lessons. Regenerated in the background on each completion; injected into the
+// coach context for every other lesson in the course. See courseProgressQueue.
+
+export async function getCourseProgress(courseId) {
+  return fetchSyncData(`courseProgress:${courseId}`);
+}
+
+export async function saveCourseProgress(courseId, progress) {
+  await putSyncData(`courseProgress:${courseId}`, progress);
+}
+
+// -- Activity KB --------------------------------------------------------------
+
+export async function getActivityKB(activityId) {
+  // Activity KBs are stored as part of the lesson's activityKBs collection.
+  // Individual lookups scan the cache.
+  for (const [key, data] of _cache.entries()) {
+    if (!key.startsWith('activityKBs:')) continue;
+    if (Array.isArray(data)) {
+      const found = data.find(kb => kb.activityId === activityId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+export async function saveActivityKB(activityId, lessonId, kb) {
+  const key = `activityKBs:${lessonId}`;
+  let all = await fetchSyncData(key);
+  if (!Array.isArray(all)) all = [];
+  const idx = all.findIndex(k => k.activityId === activityId);
+  const entry = { activityId, lessonId, ...kb };
+  if (idx >= 0) all[idx] = entry; else all.push(entry);
+  await putSyncData(key, all);
+}
+
+export async function getActivityKBsForLesson(lessonId) {
+  const data = await fetchSyncData(`activityKBs:${lessonId}`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function deleteActivityKBsForLesson(lessonId) {
+  await deleteSyncData(`activityKBs:${lessonId}`);
+}
+
+// -- Activities ---------------------------------------------------------------
+
+export async function getActivities(lessonId) {
+  const data = await fetchSyncData(`activities:${lessonId}`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function saveActivity(activity) {
+  const lessonId = activity.lessonId;
+  const key = `activities:${lessonId}`;
+  let all = await fetchSyncData(key);
+  if (!Array.isArray(all)) all = [];
+  const idx = all.findIndex(a => a.id === activity.id);
+  if (idx >= 0) all[idx] = activity; else all.push(activity);
+  await putSyncData(key, all);
+}
+
+export async function deleteActivitiesForLesson(lessonId) {
+  await deleteSyncData(`activities:${lessonId}`);
+}
+
+// -- Drafts -------------------------------------------------------------------
+
+export async function getDrafts(lessonId) {
+  const data = await fetchSyncData(`drafts:${lessonId}`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getDraftsForActivity(activityId) {
+  // Scan all draft collections in cache
+  for (const [key, data] of _cache.entries()) {
+    if (!key.startsWith('drafts:')) continue;
+    if (Array.isArray(data)) {
+      const matched = data.filter(d => d.activityId === activityId);
+      if (matched.length > 0) return matched;
+    }
+  }
+  return [];
+}
+
+export async function saveDraft(draft) {
+  const lessonId = draft.lessonId;
+  const key = `drafts:${lessonId}`;
+  let all = await fetchSyncData(key);
+  if (!Array.isArray(all)) all = [];
+  const idx = all.findIndex(d => d.id === draft.id);
+  if (idx >= 0) all[idx] = draft; else all.push(draft);
+  await putSyncData(key, all);
+}
+
+export async function deleteDraftsForLesson(lessonId) {
+  await deleteSyncData(`drafts:${lessonId}`);
+}
+
+// -- Lesson messages (unified conversation per lesson) ------------------------
+
+export async function getLessonMessages(lessonId) {
+  const data = await fetchSyncData(`messages:${lessonId}`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function saveLessonMessages(lessonId, msgs) {
+  const key = `messages:${lessonId}`;
+  let all = _cache.get(key);
+  if (!Array.isArray(all)) all = await getLessonMessages(lessonId);
+  const withTimestamps = msgs.map(m => ({ ...m, timestamp: m.timestamp || Date.now() }));
+  all = [...all, ...withTimestamps];
+  _cache.set(key, all);
+  await putSyncData(key, all);
+}
+
+/**
+ * Overwrite the full conversation record. Unlike saveLessonMessages (which
+ * appends), this replaces — used by the legacy-image migration in
+ * lessonEngine to rewrite a record with images extracted into their own
+ * `screenshot:*` records. Returns putSyncData's durability boolean.
+ */
+export async function replaceLessonMessages(lessonId, msgs) {
+  return putSyncData(`messages:${lessonId}`, msgs);
+}
+
+export async function clearLessonMessages(lessonId) {
+  await deleteSyncData(`messages:${lessonId}`);
+}
+
+// -- User-created lessons -----------------------------------------------------
+
+export async function saveUserLesson(lessonId, markdown) {
+  await putSyncData(`lessons:${lessonId}`, { lessonId, markdown, createdAt: Date.now() });
+}
+
+export async function getUserLessons() {
+  const lessons = [];
+  for (const [key, data] of _cache.entries()) {
+    if (key.startsWith('lessons:') && data) {
+      lessons.push(data);
+    }
+  }
+  return lessons;
+}
+
+export async function getUserLessonMarkdown(lessonId) {
+  const data = await fetchSyncData(`lessons:${lessonId}`);
+  return data?.markdown || null;
+}
+
+export async function deleteUserLesson(lessonId) {
+  await deleteSyncData(`lessons:${lessonId}`);
+}
+
+// -- Auth tokens (localStorage) -----------------------------------------------
+
+const AUTH_STORAGE_KEY = 'plato_auth';
+
+export async function getAuthTokens() {
+  try {
+    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    return parsed.accessToken ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAuthTokens({ accessToken, refreshToken }) {
+  try {
+    const existing = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}');
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+      ...existing, accessToken, refreshToken,
+    }));
+  } catch { /* storage full or disabled */ }
+}
+
+export async function clearAuth() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  clearCache();
+}
+
+export async function getAuthUser() {
+  try {
+    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!stored) return null;
+    return JSON.parse(stored).user || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAuthUser(user) {
+  try {
+    const existing = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}');
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...existing, user }));
+  } catch { /* storage full or disabled */ }
+}
+
+// -- Onboarding ---------------------------------------------------------------
+
+export async function getOnboardingComplete() {
+  // With login required, onboarding is always considered complete
+  return true;
+}
+
+export async function saveOnboardingComplete() {
+  // No-op — login replaces onboarding
+}
+
+// -- Delete functions (used by sync.js and lesson reset) ----------------------
+
+export async function deleteProfile() {
+  await deleteSyncData('profile');
+}
+
+export async function deleteProfileSummary() {
+  await deleteSyncData('profileSummary');
+}
+
+export async function deletePreferences() {
+  await deleteSyncData('preferences');
+}
+
+export async function deleteLessonProgress(lessonId) {
+  // Pasted images live in their own `screenshot:*` records, referenced by key
+  // from the conversation's messages. Delete them too so a lesson reset
+  // doesn't orphan image records in sync-data.
+  try {
+    const msgs = await getLessonMessages(lessonId);
+    const keys = msgs.flatMap((m) =>
+      Array.isArray(m.metadata?.imageKeys) ? m.metadata.imageKeys : []);
+    await Promise.all([...new Set(keys)].map((k) => deleteScreenshot(k)));
+  } catch { /* best effort — orphaned screenshot records are harmless */ }
+  await deleteDraftsForLesson(lessonId);
+  await deleteActivitiesForLesson(lessonId);
+  await deleteActivityKBsForLesson(lessonId);
+  await deleteLessonKB(lessonId);
+  await clearLessonMessages(lessonId);
+}
+
+// -- Screenshots --------------------------------------------------------------
+//
+// Each pasted image is its own `screenshot:<key>` sync-data record. They are
+// deliberately NOT embedded in the `messages:<lessonId>` record: a single
+// base64 screenshot can be hundreds of KB, and inlining them blew the
+// conversation record past DynamoDB's 400 KB item limit — the write then
+// failed silently and the learner's conversation vanished on the next sync
+// (issues #191, #193). One image per record keeps every record small.
+
+export async function saveScreenshot(key, dataUrl) {
+  return putSyncData(`screenshot:${key}`, dataUrl);
+}
+
+export async function getScreenshot(key) {
+  return fetchSyncData(`screenshot:${key}`);
+}
+
+export async function deleteScreenshot(key) {
+  await deleteSyncData(`screenshot:${key}`);
+}

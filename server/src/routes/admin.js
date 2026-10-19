@@ -1,0 +1,1562 @@
+import { Hono } from 'hono';
+import db from '../lib/db.js';
+import { authenticate } from '../middleware/authenticate.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
+import { generateInviteToken, generateResetToken, hashToken } from '../lib/crypto.js';
+import { sendInviteEmail, sendResetEmail } from '../lib/email.js';
+import { validateUsername } from './auth.js';
+import { MIN_OBJECTIVES, MAX_OBJECTIVES, MAX_EXCHANGES, MINS_PER_EXCHANGE } from '../lib/lesson-limits.js';
+import { logger } from '../lib/logger.js';
+import { fetchCloudWatchLogs } from '../lib/cloudwatch-logs.js';
+import { pluginRegistry } from '../lib/plugins/registry.js';
+import { emit as emitHook } from '../lib/plugins/hooks.js';
+import { classifyCache, kickoffAsyncRefresh } from '../lib/lesson-stats-cache.js';
+import { normalizeStatus, publicLessonIds } from '../lib/lesson-visibility.js';
+import {
+  readWaitlistConfig, writeWaitlistConfig, generateWaitlistApiKey, validateWaitlistEntry,
+} from '../lib/waitlist.js';
+import {
+  getFieldDefinitions, validateFieldDefinition, mergeFieldValues, visibleFieldValues, validateValue, MAX_FIELDS,
+} from '../lib/user-fields.js';
+
+const admin = new Hono();
+
+/** Validate lesson markdown for microlearning constraints. Returns error string or null. */
+function validateLessonMarkdown(markdown) {
+  const objSection = markdown.split(/^## Learning Objectives$/m)[1];
+  if (!objSection) return 'Lesson must have a "## Learning Objectives" section.';
+  const lines = objSection.split('\n');
+  const objectives = [];
+  for (const line of lines) {
+    if (/^## /.test(line)) break;
+    if (/^- Can .+/.test(line)) objectives.push(line);
+  }
+  if (objectives.length < MIN_OBJECTIVES) return `Too few objectives (${objectives.length}). Lessons need at least ${MIN_OBJECTIVES}.`;
+  if (objectives.length > MAX_OBJECTIVES) return `Too many objectives (${objectives.length}). Microlearning lessons need ${MIN_OBJECTIVES}-${MAX_OBJECTIVES} objectives.`;
+  return null;
+}
+
+// Dashboard stats count ONLY published (public) lessons — drafts, privates
+// (even when shared to a learner), and user-created custom lessons are excluded
+// from every KPI (numerator AND denominator). `normalizeStatus` /
+// `publicLessonIds` are the single source of that rule (lesson-visibility.js).
+
+admin.use('/v1/admin/*', authenticate, requireAdmin);
+
+// GET /v1/admin/users
+// Pass `?include=stats` to enrich each row with `lessonsCompleted`,
+// `lessonsAvailable`, and `lastActiveAt`. `lessonsCompleted` counts only
+// completed PUBLIC lessons (drafts/privates/custom excluded). The sync-route
+// hook keeps a best-effort denormalized counter, but visibility can't be
+// derived from it alone (a lesson may go public→private after completion), so
+// this endpoint recomputes from sync-data against the current public-lesson
+// set and heals the stored counter when it drifts. `lastActiveAt` is read
+// from the user record (lazily backfilled if never set).
+admin.get('/v1/admin/users', async (c) => {
+  const url = new URL(c.req.url);
+  const includeStats = (url.searchParams.get('include') || '').split(',').includes('stats');
+  const users = await db.listAllUsers();
+  const fieldDefs = getFieldDefinitions((await db.getSyncData('_system', 'settings'))?.data);
+  const baseRow = (p) => ({
+    userId: p.userId,
+    email: p.email,
+    username: p.username,
+    name: p.name,
+    userGroup: p.userGroup,
+    role: p.role,
+    slackUserId: p.slackUserId || null,
+    customFields: visibleFieldValues(fieldDefs, p.customFields),
+    createdAt: p.createdAt,
+  });
+  if (!includeStats) {
+    return c.json(users.map(baseRow));
+  }
+  const systemItems = await db.getAllSyncData('_system');
+  const publicIds = publicLessonIds(systemItems);
+  const lessonsAvailable = publicIds.size;
+  const enriched = await Promise.all(users.map(async (p) => {
+    // Recompute completed public lessons from sync-data. This also heals the
+    // denormalized counter: legacy values (pre-#136) and any inflated values
+    // (private/draft/custom completions counted before this filter existed)
+    // converge to the correct public-only count on the next admin read. Read
+    // ONLY the `lessonKB:*` records (sort-key prefix query) — never the large
+    // screenshot:*/messages:* payloads — so this stays cheap across hundreds
+    // of users.
+    const kbItems = await db.getSyncDataByPrefix(p.userId, 'lessonKB:');
+    let counted = 0;
+    for (const item of kbItems) {
+      if (item.data?.status === 'completed' && publicIds.has(item.dataKey.slice('lessonKB:'.length))) counted++;
+    }
+    if (counted !== p.lessonsCompleted) {
+      await db.setUserActivityField(p.userId, 'lessonsCompleted', counted).catch(() => {});
+    }
+    // lastActiveAt is normally maintained on login/refresh; only legacy users
+    // (never set) need a backfill, and only then do we pay to read messages.
+    let lastActiveAt = p.lastActiveAt || null;
+    if (lastActiveAt === null) {
+      let lastActiveMs = 0;
+      const msgItems = await db.getSyncDataByPrefix(p.userId, 'messages:');
+      for (const item of msgItems) {
+        if (!Array.isArray(item.data)) continue;
+        for (const m of item.data) {
+          const t = typeof m?.timestamp === 'number' ? m.timestamp
+            : typeof m?.timestamp === 'string' ? Date.parse(m.timestamp)
+            : NaN;
+          if (Number.isFinite(t) && t > lastActiveMs) lastActiveMs = t;
+        }
+      }
+      if (lastActiveMs > 0) {
+        lastActiveAt = new Date(lastActiveMs).toISOString();
+        await db.setUserActivityField(p.userId, 'lastActiveAt', lastActiveAt).catch(() => {});
+      }
+    }
+    return {
+      ...baseRow(p),
+      lessonsCompleted: counted,
+      lessonsAvailable,
+      lastActiveAt,
+    };
+  }));
+  return c.json(enriched);
+});
+
+// GET /v1/admin/users/:userId
+admin.get('/v1/admin/users/:userId', async (c) => {
+  const user = await db.getUserById(c.req.param('userId'));
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+  const settings = await db.getSyncData('_system', 'settings');
+  return c.json({
+    userId: user.userId,
+    email: user.email,
+    name: user.name,
+    userGroup: user.userGroup,
+    role: user.role,
+    customFields: visibleFieldValues(getFieldDefinitions(settings?.data), user.customFields),
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  });
+});
+
+// POST /v1/admin/impersonation/start — admin "View as User" entry point.
+// Verifies the target exists, brackets the session in audit_log so cross-user
+// reads downstream (`?asUserId=` on /v1/sync, /v1/lessons, etc.) are
+// accountable, and returns the target's display profile for the banner UI.
+// Per-read audit entries would spam the log; bracket entries are sufficient
+// at the same granularity as `user_deleted`.
+admin.post('/v1/admin/impersonation/start', async (c) => {
+  const { targetUserId } = await c.req.json();
+  if (!targetUserId) {
+    return c.json({ error: 'targetUserId is required' }, 400);
+  }
+  const target = await db.getUserById(targetUserId);
+  if (!target) {
+    return c.json({ error: 'Target user not found' }, 404);
+  }
+  const adminUser = c.get('user');
+  await db.createAuditLog({
+    action: 'admin_view_as_user_started',
+    userId: target.userId,
+    email: target.email,
+    performedBy: adminUser.userId,
+    details: { targetUsername: target.username, targetName: target.name },
+  });
+  return c.json({
+    userId: target.userId,
+    email: target.email,
+    username: target.username,
+    name: target.name,
+  });
+});
+
+// POST /v1/admin/impersonation/end — closes the audit-log bracket. Best-effort:
+// if the admin closes the tab without calling this, the session simply lacks
+// an end entry; the start entry is the source of truth for "an admin looked".
+admin.post('/v1/admin/impersonation/end', async (c) => {
+  const { targetUserId } = await c.req.json().catch(() => ({}));
+  const adminUser = c.get('user');
+  let target = null;
+  if (targetUserId) {
+    target = await db.getUserById(targetUserId);
+  }
+  await db.createAuditLog({
+    action: 'admin_view_as_user_ended',
+    userId: target?.userId || targetUserId || null,
+    email: target?.email || null,
+    performedBy: adminUser.userId,
+    details: target ? { targetUsername: target.username, targetName: target.name } : null,
+  });
+  return c.json({ ok: true });
+});
+
+// POST /v1/admin/invites — create invite and send email
+admin.post('/v1/admin/invites', async (c) => {
+  const { email } = await c.req.json();
+  if (!email) {
+    return c.json({ error: 'Email is required' }, 400);
+  }
+
+  const existing = await db.getUserByEmail(email);
+  if (existing) {
+    return c.json({ error: 'User with this email already exists' }, 409);
+  }
+
+  const pendingInvite = await db.getInviteByEmail(email);
+  if (pendingInvite) {
+    return c.json({ error: 'A pending invite already exists for this email' }, 409);
+  }
+
+  const adminUser = c.get('user');
+  const inviteToken = generateInviteToken();
+
+  await db.createInvite({
+    inviteToken,
+    email,
+    invitedBy: adminUser.userId,
+  });
+
+  const result = await sendInviteEmail(email, inviteToken, adminUser.name);
+
+  return c.json({ inviteToken, email, ...result }, 201);
+});
+
+// POST /v1/admin/invites/bulk — invite multiple users from a list of emails
+admin.post('/v1/admin/invites/bulk', async (c) => {
+  const { emails } = await c.req.json();
+  if (!Array.isArray(emails) || emails.length === 0) {
+    return c.json({ error: 'emails array is required' }, 400);
+  }
+  if (emails.length > 200) {
+    return c.json({ error: 'Maximum 200 invites per batch' }, 400);
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const adminUser = c.get('user');
+  const results = [];
+
+  for (const email of emails) {
+    const trimmed = (email || '').trim().toLowerCase();
+    if (!trimmed) continue;
+
+    if (!emailRegex.test(trimmed)) {
+      results.push({ email: trimmed, status: 'invalid', reason: 'Invalid email format' });
+      continue;
+    }
+
+    const existing = await db.getUserByEmail(trimmed);
+    if (existing) {
+      results.push({ email: trimmed, status: 'skipped', reason: 'User already exists' });
+      continue;
+    }
+
+    const pendingInvite = await db.getInviteByEmail(trimmed);
+    if (pendingInvite) {
+      results.push({ email: trimmed, status: 'skipped', reason: 'Pending invite already exists' });
+      continue;
+    }
+
+    try {
+      const inviteToken = generateInviteToken();
+      await db.createInvite({
+        inviteToken,
+        email: trimmed,
+        invitedBy: adminUser.userId,
+      });
+      const emailResult = await sendInviteEmail(trimmed, inviteToken, adminUser.name);
+      results.push({ email: trimmed, status: 'sent', ...emailResult });
+    } catch (err) {
+      results.push({ email: trimmed, status: 'error', reason: err.message });
+    }
+  }
+
+  const sent = results.filter(r => r.status === 'sent').length;
+  const skipped = results.filter(r => r.status !== 'sent').length;
+  return c.json({ sent, skipped, total: results.length, results }, 201);
+});
+
+// GET /v1/admin/invites
+admin.get('/v1/admin/invites', async (c) => {
+  const invites = await db.listInvites();
+  return c.json(invites.map((inv) => ({
+    inviteToken: inv.inviteToken,
+    email: inv.email,
+    status: inv.status,
+    isLink: !!inv.isLink,
+    createdAt: inv.createdAt,
+  })));
+});
+
+// POST /v1/admin/invites/resend — resend invite to an email with a pending invite
+admin.post('/v1/admin/invites/resend', async (c) => {
+  const { email } = await c.req.json();
+  if (!email) return c.json({ error: 'Email is required' }, 400);
+
+  const pendingInvite = await db.getInviteByEmail(email.toLowerCase());
+  if (!pendingInvite) {
+    return c.json({ error: 'No pending invite found for this email' }, 404);
+  }
+
+  // Delete old invite and create a fresh one
+  await db.deleteInvite(pendingInvite.inviteToken);
+  const adminUser = c.get('user');
+  const inviteToken = generateInviteToken();
+  await db.createInvite({
+    inviteToken,
+    email: email.toLowerCase(),
+    invitedBy: adminUser.userId,
+    profile: pendingInvite.profile || null, // keep a wait-list entry's details
+  });
+
+  const result = await sendInviteEmail(email.toLowerCase(), inviteToken, adminUser.name);
+  return c.json({ inviteToken, email: email.toLowerCase(), ...result }, 201);
+});
+
+// DELETE /v1/admin/invites/:token
+admin.delete('/v1/admin/invites/:token', async (c) => {
+  const token = c.req.param('token');
+  const invite = await db.getInvite(token);
+  if (!invite) {
+    return c.json({ error: 'Invite not found' }, 404);
+  }
+  await db.deleteInvite(token);
+  return c.json({ ok: true });
+});
+
+// GET /v1/admin/invites/link — get current invite link
+admin.get('/v1/admin/invites/link', async (c) => {
+  const linkInvite = await db.getInviteLinkToken();
+  if (!linkInvite) {
+    return c.json(null);
+  }
+  return c.json({
+    inviteToken: linkInvite.inviteToken,
+    createdAt: linkInvite.createdAt,
+    usageCount: linkInvite.usageCount || 0,
+    maxUsages: linkInvite.maxUsages || null,
+    createdBy: linkInvite.invitedBy,
+    ttl: linkInvite.ttl,
+  });
+});
+
+// POST /v1/admin/invites/link — create or regenerate invite link
+admin.post('/v1/admin/invites/link', async (c) => {
+  const adminUser = c.get('user');
+
+  // Delete any existing link invite
+  const existingLink = await db.getInviteLinkToken();
+  if (existingLink) {
+    await db.deleteInvite(existingLink.inviteToken);
+    await db.createAuditLog({
+      action: 'invite_link_regenerated',
+      userId: null,
+      performedBy: adminUser.userId,
+      details: JSON.stringify({ oldToken: existingLink.inviteToken }),
+    });
+  } else {
+    await db.createAuditLog({
+      action: 'invite_link_created',
+      userId: null,
+      performedBy: adminUser.userId,
+    });
+  }
+
+  // Create new link invite
+  const inviteToken = generateInviteToken();
+  await db.createInvite({
+    inviteToken,
+    email: null,
+    invitedBy: adminUser.userId,
+    isLink: true,
+    usageCount: 0,
+    maxUsages: null,
+  });
+
+  const newLink = await db.getInvite(inviteToken);
+  return c.json({
+    inviteToken: newLink.inviteToken,
+    createdAt: newLink.createdAt,
+    usageCount: 0,
+    maxUsages: null,
+    ttl: newLink.ttl,
+  }, 201);
+});
+
+// DELETE /v1/admin/invites/link — delete current invite link
+admin.delete('/v1/admin/invites/link', async (c) => {
+  const adminUser = c.get('user');
+  const linkInvite = await db.getInviteLinkToken();
+  if (!linkInvite) {
+    return c.json({ error: 'No invite link found' }, 404);
+  }
+  await db.deleteInvite(linkInvite.inviteToken);
+  await db.createAuditLog({
+    action: 'invite_link_deleted',
+    userId: null,
+    performedBy: adminUser.userId,
+    details: JSON.stringify({ token: linkInvite.inviteToken }),
+  });
+  return c.json({ ok: true });
+});
+
+// ── Wait list (#363) ──
+// Entries are invites rows with status 'waitlist'; see lib/waitlist.js.
+
+// GET /v1/admin/waitlist — entries, plus whether the form is open and a key exists
+admin.get('/v1/admin/waitlist', async (c) => {
+  const [invites, { config }, settings] = await Promise.all([
+    db.listInvites(), readWaitlistConfig(), db.getSyncData('_system', 'settings'),
+  ]);
+  const fieldDefs = getFieldDefinitions(settings?.data);
+  const entries = invites
+    .filter((inv) => inv.status === 'waitlist')
+    .map((inv) => ({
+      inviteToken: inv.inviteToken,
+      email: inv.email,
+      name: inv.profile?.name || null,
+      userGroup: inv.profile?.userGroup || null,
+      customFields: visibleFieldValues(fieldDefs, inv.profile?.customFields),
+      createdAt: inv.createdAt,
+    }));
+  return c.json({ entries, open: !!config.open, hasApiKey: !!config.apiKeyHash });
+});
+
+// PUT /v1/admin/waitlist/settings — body `{ open: boolean }`
+admin.put('/v1/admin/waitlist/settings', async (c) => {
+  const { open } = await c.req.json();
+  if (typeof open !== 'boolean') return c.json({ error: 'open must be true or false' }, 400);
+  const { item, config } = await readWaitlistConfig();
+  await writeWaitlistConfig(item, { ...config, open });
+  return c.json({ open });
+});
+
+// POST /v1/admin/waitlist/key — make a new API key; replaces any old one.
+// The key is shown once; only its hash is stored.
+admin.post('/v1/admin/waitlist/key', async (c) => {
+  const apiKey = generateWaitlistApiKey();
+  const { item, config } = await readWaitlistConfig();
+  await writeWaitlistConfig(item, { ...config, apiKeyHash: hashToken(apiKey) });
+  await db.createAuditLog({ action: 'waitlist_key_created', userId: null, performedBy: c.get('user').userId });
+  return c.json({ apiKey }, 201);
+});
+
+// DELETE /v1/admin/waitlist/key — revoke the API key
+admin.delete('/v1/admin/waitlist/key', async (c) => {
+  const { item, config } = await readWaitlistConfig();
+  await writeWaitlistConfig(item, { ...config, apiKeyHash: null });
+  await db.createAuditLog({ action: 'waitlist_key_revoked', userId: null, performedBy: c.get('user').userId });
+  return c.json({ ok: true });
+});
+
+// POST /v1/admin/waitlist/:token/invite — send the invite email. The new invite
+// carries the entry's name, group and fields so signup can fill them in.
+admin.post('/v1/admin/waitlist/:token/invite', async (c) => {
+  const entry = await db.getInvite(c.req.param('token'));
+  if (!entry || entry.status !== 'waitlist') return c.json({ error: 'Wait-list entry not found' }, 404);
+
+  if (await db.getUserByEmail(entry.email)) {
+    return c.json({ error: 'User with this email already exists' }, 409);
+  }
+  if (await db.getInviteByEmail(entry.email)) {
+    return c.json({ error: 'A pending invite already exists for this email' }, 409);
+  }
+
+  const adminUser = c.get('user');
+  const inviteToken = generateInviteToken();
+  await db.createInvite({ inviteToken, email: entry.email, invitedBy: adminUser.userId, profile: entry.profile || null });
+  await db.deleteInvite(entry.inviteToken);
+
+  const result = await sendInviteEmail(entry.email, inviteToken, adminUser.name);
+  return c.json({ inviteToken, email: entry.email, ...result }, 201);
+});
+
+// PUT /v1/admin/waitlist/:token — edit an entry's name, email, group, and
+// custom fields. Same validation as joining (required fields included). A new
+// email must not already belong to a user, a pending invite, or another entry.
+admin.put('/v1/admin/waitlist/:token', async (c) => {
+  const entry = await db.getInvite(c.req.param('token'));
+  if (!entry || entry.status !== 'waitlist') return c.json({ error: 'Wait-list entry not found' }, 404);
+  const body = await c.req.json();
+  const settings = await db.getSyncData('_system', 'settings');
+  const result = validateWaitlistEntry(body, settings?.data || {});
+  if (result.error) return c.json({ error: result.error }, 400);
+
+  if (result.email !== entry.email) {
+    if (await db.getUserByEmail(result.email)) return c.json({ error: 'A user with this email already exists' }, 409);
+    if (await db.getInviteByEmail(result.email)) return c.json({ error: 'A pending invite already exists for this email' }, 409);
+    const other = await db.getWaitlistEntryByEmail(result.email);
+    if (other && other.inviteToken !== entry.inviteToken) return c.json({ error: 'This email is already on the wait list' }, 409);
+  }
+
+  try {
+    await db.updateWaitlistEntry(entry.inviteToken, { email: result.email, profile: result.profile });
+  } catch (err) {
+    // Invited or removed between the read above and this write.
+    if (err.name === 'ConditionalCheckFailedException') return c.json({ error: 'Wait-list entry not found' }, 404);
+    throw err;
+  }
+  return c.json({
+    inviteToken: entry.inviteToken,
+    email: result.email,
+    name: result.profile.name,
+    userGroup: result.profile.userGroup,
+    customFields: visibleFieldValues(getFieldDefinitions(settings?.data), result.profile.customFields),
+    createdAt: entry.createdAt,
+  });
+});
+
+// DELETE /v1/admin/waitlist/:token — remove an entry
+admin.delete('/v1/admin/waitlist/:token', async (c) => {
+  const entry = await db.getInvite(c.req.param('token'));
+  if (!entry || entry.status !== 'waitlist') return c.json({ error: 'Wait-list entry not found' }, 404);
+  await db.deleteInvite(entry.inviteToken);
+  return c.json({ ok: true });
+});
+
+// PATCH /v1/admin/users/:userId — update user fields
+admin.patch('/v1/admin/users/:userId', async (c) => {
+  const userId = c.req.param('userId');
+  const user = await db.getUserById(userId);
+  if (!user) return c.json({ error: 'User not found' }, 404);
+  const body = await c.req.json();
+  const updates = {};
+  if (body.name !== undefined) updates.name = body.name;
+  if (body.email !== undefined) updates.email = body.email.toLowerCase();
+  if (body.username !== undefined) {
+    const usernameErr = validateUsername(body.username);
+    if (usernameErr) return c.json({ error: usernameErr }, 400);
+    const existing = await db.getUserByUsername(body.username);
+    if (existing && existing.userId !== userId) {
+      return c.json({ error: 'Username already taken' }, 409);
+    }
+    updates.username = body.username.toLowerCase();
+  }
+  if (body.userGroup !== undefined) updates.userGroup = body.userGroup;
+  if (body.customFields !== undefined) {
+    // Same rule as learner self-edits: the result must have every required
+    // field filled. (Users who simply haven't been edited yet are prompted by
+    // ProfileCompletionGate on their next classroom visit.)
+    const settings = await db.getSyncData('_system', 'settings');
+    const merged = mergeFieldValues(getFieldDefinitions(settings?.data), user.customFields, body.customFields, { enforceRequired: true });
+    if (merged.error) return c.json({ error: merged.error }, 400);
+    updates.customFields = merged.values;
+  }
+  if (Object.keys(updates).length === 0) return c.json({ error: 'No valid fields' }, 400);
+  await db.updateUser(userId, updates);
+  return c.json({ ok: true });
+});
+
+// PUT /v1/admin/users/:userId/role
+admin.put('/v1/admin/users/:userId/role', async (c) => {
+  const userId = c.req.param('userId');
+  const adminUser = c.get('user');
+  if (userId === adminUser.userId) {
+    return c.json({ error: 'Cannot change your own role' }, 400);
+  }
+  const user = await db.getUserById(userId);
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+  const { role } = await c.req.json();
+  if (role !== 'admin' && role !== 'user') {
+    return c.json({ error: 'Role must be admin or user' }, 400);
+  }
+  await db.updateUser(userId, { role });
+  return c.json({ ok: true, role });
+});
+
+// POST /v1/admin/users/:userId/reset-password
+// Admin initiates password reset for a user by sending them a reset email.
+admin.post('/v1/admin/users/:userId/reset-password', async (c) => {
+  const userId = c.req.param('userId');
+  const user = await db.getUserById(userId);
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+  const token = generateResetToken();
+  await db.storeResetToken(hashToken(token), user.userId);
+  await sendResetEmail(user.email, token);
+  return c.json({ ok: true });
+});
+
+// GET /v1/admin/settings
+admin.get('/v1/admin/settings', async (c) => {
+  const item = await db.getSyncData('_system', 'settings');
+  return c.json(item?.data || {});
+});
+
+// PUT /v1/admin/settings
+admin.put('/v1/admin/settings', async (c) => {
+  const body = await c.req.json();
+  const current = await db.getSyncData('_system', 'settings');
+  const merged = { ...(current?.data || {}), ...body };
+  await db.putSyncData('_system', 'settings', merged, current?.version || 0);
+  return c.json(merged);
+});
+
+// PUT /v1/admin/groups — add or rename an group
+admin.put('/v1/admin/groups', async (c) => {
+  const { name, oldName } = await c.req.json();
+  if (!name || !name.trim()) {
+    return c.json({ error: 'Group name is required' }, 400);
+  }
+  const trimmed = name.trim();
+  const current = await db.getSyncData('_system', 'settings');
+  const settings = current?.data || {};
+  const groups = settings.userGroups || [];
+
+  if (oldName) {
+    // Rename
+    const idx = groups.indexOf(oldName);
+    if (idx === -1) return c.json({ error: 'Group not found' }, 404);
+    groups[idx] = trimmed;
+    // Update all users with the old group
+    const users = await db.listAllUsers();
+    await Promise.all(
+      users.filter((u) => u.userGroup === oldName)
+        .map((u) => db.updateUser(u.userId, { userGroup: trimmed }))
+    );
+  } else {
+    // Add
+    if (groups.includes(trimmed)) {
+      return c.json({ error: 'Group already exists' }, 409);
+    }
+    groups.push(trimmed);
+  }
+
+  settings.userGroups = groups;
+  await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+  return c.json({ userGroups: groups });
+});
+
+// DELETE /v1/admin/groups/:name — remove an group and clear from all users
+admin.delete('/v1/admin/groups/:name', async (c) => {
+  const name = decodeURIComponent(c.req.param('name'));
+  const current = await db.getSyncData('_system', 'settings');
+  const settings = current?.data || {};
+  const groups = settings.userGroups || [];
+  const idx = groups.indexOf(name);
+  if (idx === -1) return c.json({ error: 'Group not found' }, 404);
+
+  groups.splice(idx, 1);
+  settings.userGroups = groups;
+  await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+
+  // Clear group from all users who had it
+  const users = await db.listAllUsers();
+  await Promise.all(
+    users.filter((u) => u.userGroup === name)
+      .map((u) => db.updateUser(u.userId, { userGroup: null }))
+  );
+
+  return c.json({ userGroups: groups });
+});
+
+// ── Custom user fields (#364) ──
+// Definitions are an ordered array in `_system:settings.userFields`; values
+// live on each user record's `customFields`. Validation lives in
+// lib/user-fields.js. Responses use `{ userFields: [...] }` (mirrors
+// `{ userGroups }`).
+
+async function readUserFieldSettings() {
+  const current = await db.getSyncData('_system', 'settings');
+  const settings = current?.data || {};
+  return { current, settings, fields: getFieldDefinitions(settings) };
+}
+
+async function writeUserFields(current, settings, fields) {
+  settings.userFields = fields;
+  await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+}
+
+// GET /v1/admin/user-fields
+admin.get('/v1/admin/user-fields', async (c) => {
+  const { fields } = await readUserFieldSettings();
+  return c.json({ userFields: fields });
+});
+
+// POST /v1/admin/user-fields — add a field (appended to the end)
+admin.post('/v1/admin/user-fields', async (c) => {
+  const body = await c.req.json();
+  const { current, settings, fields } = await readUserFieldSettings();
+  if (fields.length >= MAX_FIELDS) return c.json({ error: `At most ${MAX_FIELDS} custom fields` }, 400);
+  const { field, error } = validateFieldDefinition(body);
+  if (error) return c.json({ error }, 400);
+  if (fields.some((f) => f.label.toLowerCase() === field.label.toLowerCase())) {
+    return c.json({ error: 'A field with that label already exists' }, 409);
+  }
+  fields.push(field);
+  await writeUserFields(current, settings, fields);
+  return c.json({ userFields: fields }, 201);
+});
+
+// PUT /v1/admin/user-fields/order — reorder; body `{ ids: [...] }` must be a
+// permutation of the existing ids.
+admin.put('/v1/admin/user-fields/order', async (c) => {
+  const { ids } = await c.req.json();
+  const { current, settings, fields } = await readUserFieldSettings();
+  if (!Array.isArray(ids) || ids.length !== fields.length || new Set(ids).size !== ids.length
+    || !ids.every((id) => fields.some((f) => f.id === id))) {
+    return c.json({ error: 'ids must list every field exactly once' }, 400);
+  }
+  const reordered = ids.map((id) => fields.find((f) => f.id === id));
+  await writeUserFields(current, settings, reordered);
+  return c.json({ userFields: reordered });
+});
+
+// Every stored answer to field `id`: on user records, and on the profiles of
+// wait-list entries and the invites made from them (#363).
+async function storedFieldValues(id) {
+  const [users, invites] = await Promise.all([db.listAllUsers(), db.listInvites()]);
+  return [
+    ...users.map((u) => u.customFields?.[id]),
+    ...invites.map((inv) => inv.profile?.customFields?.[id]),
+  ].filter((v) => typeof v === 'string' && v.trim());
+}
+
+// PUT /v1/admin/user-fields/:id — edit a field: label, required, dropdown
+// options, and type. Changing the type (or a dropdown's options) can leave
+// stored answers that no longer pass validation; if so, reply 409 with
+// `invalidCount` unless the body has `confirmInvalid: true`. Confirmed,
+// those answers are kept as-is — every later save through any route
+// re-validates, so they must be fixed the next time they're edited.
+admin.put('/v1/admin/user-fields/:id', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const { current, settings, fields } = await readUserFieldSettings();
+  const idx = fields.findIndex((f) => f.id === id);
+  if (idx === -1) return c.json({ error: 'Field not found' }, 404);
+  const { field, error } = validateFieldDefinition({ ...body, type: body.type ?? fields[idx].type }, fields[idx]);
+  if (error) return c.json({ error }, 400);
+  if (fields.some((f, i) => i !== idx && f.label.toLowerCase() === field.label.toLowerCase())) {
+    return c.json({ error: 'A field with that label already exists' }, 409);
+  }
+  const prev = fields[idx];
+  const rulesChanged = field.type !== prev.type
+    || (field.type === 'dropdown' && JSON.stringify(field.options) !== JSON.stringify(prev.options));
+  if (rulesChanged && body.confirmInvalid !== true) {
+    const invalidCount = (await storedFieldValues(id)).filter((v) => validateValue(field, v.trim())).length;
+    if (invalidCount > 0) {
+      return c.json({
+        error: `${invalidCount} existing ${invalidCount === 1 ? 'answer doesn\'t' : 'answers don\'t'} fit the new rules for ${field.label}`,
+        invalidCount,
+      }, 409);
+    }
+  }
+  fields[idx] = field;
+  await writeUserFields(current, settings, fields);
+  return c.json({ userFields: fields });
+});
+
+// DELETE /v1/admin/user-fields/:id — remove a field and erase its values
+// from every user (same cascade as deleting a user group).
+admin.delete('/v1/admin/user-fields/:id', async (c) => {
+  const id = c.req.param('id');
+  const { current, settings, fields } = await readUserFieldSettings();
+  const idx = fields.findIndex((f) => f.id === id);
+  if (idx === -1) return c.json({ error: 'Field not found' }, 404);
+  fields.splice(idx, 1);
+  await writeUserFields(current, settings, fields);
+
+  const users = await db.listAllUsers();
+  await Promise.all(
+    users.filter((u) => u.customFields && Object.hasOwn(u.customFields, id))
+      .map((u) => db.removeUserCustomField(u.userId, id))
+  );
+  // Wait-list entries and the invites made from them (#363) carry answers too.
+  const invites = await db.listInvites();
+  await Promise.all(
+    invites.filter((inv) => inv.profile?.customFields && Object.hasOwn(inv.profile.customFields, id))
+      .map((inv) => {
+        const { [id]: _removed, ...rest } = inv.profile.customFields;
+        return db.setInviteProfile(inv.inviteToken, { ...inv.profile, customFields: rest });
+      })
+  );
+
+  return c.json({ userFields: fields });
+});
+
+// DELETE /v1/admin/users/:userId
+admin.delete('/v1/admin/users/:userId', async (c) => {
+  const userId = c.req.param('userId');
+  const adminUser = c.get('user');
+  if (userId === adminUser.userId) {
+    return c.json({ error: 'Cannot delete yourself' }, 400);
+  }
+  const user = await db.getUserById(userId);
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+  // Log deletion before destroying data
+  await db.createAuditLog({
+    action: 'user_deleted',
+    userId,
+    email: user.email,
+    performedBy: adminUser.userId,
+    details: { name: user.name, userGroup: user.userGroup, role: user.role, selfDelete: false },
+  });
+
+  // Emit userDeleted BEFORE the cascade — plugins can react with the user's data
+  // still in place. Hook errors are caught by emit() and don't block deletion.
+  await emitHook('userDeleted', { userId, email: user.email, role: user.role });
+
+  // Delete all sync data for this user (cascades plugin userMeta:* records too)
+  const syncItems = await db.getAllSyncData(userId);
+  await Promise.all(syncItems.map((item) => db.deleteSyncData(userId, item.dataKey)));
+  await db.deleteUser(userId);
+  return c.json({ ok: true });
+});
+
+// ── Content management (prompts, lessons, knowledge base, theme) ──
+
+// GET /v1/admin/prompts — list all prompts
+admin.get('/v1/admin/prompts', async (c) => {
+  const items = await db.getAllSyncData('_system');
+  const prompts = items
+    .filter(i => i.dataKey.startsWith('prompt:'))
+    .map(i => ({
+      name: i.dataKey.slice('prompt:'.length),
+      updatedAt: i.updatedAt,
+      updatedBy: i.data.updatedBy || null,
+    }));
+  return c.json(prompts);
+});
+
+// GET /v1/admin/prompts/:name
+admin.get('/v1/admin/prompts/:name', async (c) => {
+  const name = c.req.param('name');
+  const item = await db.getSyncData('_system', `prompt:${name}`);
+  if (!item) return c.json({ error: 'Prompt not found' }, 404);
+  return c.json({ name, content: item.data.content, updatedAt: item.updatedAt });
+});
+
+// PUT /v1/admin/prompts/:name
+admin.put('/v1/admin/prompts/:name', async (c) => {
+  const name = c.req.param('name');
+  const { content } = await c.req.json();
+  if (content === undefined) return c.json({ error: 'content is required' }, 400);
+  const adminUser = c.get('user');
+  const current = await db.getSyncData('_system', `prompt:${name}`);
+  await db.putSyncData('_system', `prompt:${name}`, {
+    content,
+    updatedBy: adminUser.userId,
+  }, current?.version || 0);
+  return c.json({ name, ok: true });
+});
+
+// GET /v1/admin/lessons — list all lessons
+admin.get('/v1/admin/lessons', async (c) => {
+  const items = await db.getAllSyncData('_system');
+  const lessons = items
+    .filter(i => i.dataKey.startsWith('lesson:'))
+    .map(i => ({
+      lessonId: i.dataKey.slice('lesson:'.length),
+      name: i.data.name || i.dataKey.slice('lesson:'.length),
+      isBuiltIn: i.data.isBuiltIn || false,
+      status: normalizeStatus(i.data.status, !!i.data.markdown),
+      sharedWith: i.data.sharedWith || [],
+      course: i.data.course || null,
+      createdByName: i.data.createdByName || null,
+      updatedByName: i.data.updatedByName || null,
+      updatedAt: i.updatedAt,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  return c.json(lessons);
+});
+
+// GET /v1/admin/lessons/:lessonId
+admin.get('/v1/admin/lessons/:lessonId', async (c) => {
+  const lessonId = c.req.param('lessonId');
+  const item = await db.getSyncData('_system', `lesson:${lessonId}`);
+  if (!item) return c.json({ error: 'Lesson not found' }, 404);
+  return c.json({ lessonId, ...item.data, updatedAt: item.updatedAt });
+});
+
+// PUT /v1/admin/lessons/:lessonId
+admin.put('/v1/admin/lessons/:lessonId', async (c) => {
+  const lessonId = c.req.param('lessonId');
+  const body = await c.req.json();
+  const adminUser = c.get('user');
+  const current = await db.getSyncData('_system', `lesson:${lessonId}`);
+  const markdownToValidate = body.markdown || current?.data?.markdown;
+  const hasMarkdown = !!markdownToValidate;
+  const newStatus = normalizeStatus(body.status || current?.data?.status, hasMarkdown);
+  const currentStatus = normalizeStatus(current?.data?.status, !!current?.data?.markdown);
+  // Drafts are allowed without markdown (they hold a mid-creation conversation).
+  // Any non-draft lesson must have markdown.
+  if (newStatus !== 'draft' && !hasMarkdown) {
+    return c.json({ error: 'markdown is required' }, 400);
+  }
+  const isGoingPublic = newStatus === 'public' && currentStatus !== 'public';
+  const isLeavingDraft = currentStatus === 'draft' && newStatus !== 'draft';
+  const markdownChanged = body.markdown && body.markdown !== current?.data?.markdown;
+  if ((markdownChanged || isGoingPublic || isLeavingDraft) && hasMarkdown) {
+    const mdError = validateLessonMarkdown(markdownToValidate);
+    if (mdError) return c.json({ error: mdError }, 400);
+  }
+  // sharedWith is independent of status — validate format if provided
+  const sharedWith = body.sharedWith !== undefined ? body.sharedWith : (current?.data?.sharedWith || []);
+  if (sharedWith.length > 0 && (!Array.isArray(sharedWith) || !sharedWith.every(id => typeof id === 'string'))) {
+    return c.json({ error: 'sharedWith must be an array of user ID strings' }, 400);
+  }
+  // course is an optional string courseId or null. Don't validate that the
+  // courseId points to an existing course — DELETE on a course cascades to
+  // clear it from lessons, but we tolerate transient drift.
+  let course = body.course !== undefined ? body.course : (current?.data?.course ?? null);
+  if (course !== null && course !== undefined && typeof course !== 'string') {
+    return c.json({ error: 'course must be a string courseId or null' }, 400);
+  }
+  if (course === '') course = null;
+  const data = {
+    markdown: markdownToValidate || '',
+    name: body.name || current?.data?.name || lessonId,
+    isBuiltIn: body.isBuiltIn || false,
+    status: newStatus,
+    sharedWith,
+    course,
+    conversation: body.conversation !== undefined ? body.conversation : (current?.data?.conversation || null),
+    readiness: body.readiness !== undefined ? body.readiness : (current?.data?.readiness ?? null),
+    updatedBy: adminUser.userId,
+    updatedByName: adminUser.username || adminUser.email,
+    createdBy: current?.data?.createdBy || adminUser.userId,
+    createdByName: current?.data?.createdByName || adminUser.username || adminUser.email,
+    createdAt: current?.data?.createdAt || new Date().toISOString(),
+  };
+  await db.putSyncData('_system', `lesson:${lessonId}`, data, current?.version || 0);
+  return c.json({ lessonId, ok: true });
+});
+
+// PUT /v1/admin/lessons/:lessonId/conversation — auto-save conversation without requiring markdown
+admin.put('/v1/admin/lessons/:lessonId/conversation', async (c) => {
+  const lessonId = c.req.param('lessonId');
+  const body = await c.req.json();
+  const current = await db.getSyncData('_system', `lesson:${lessonId}`);
+  if (!current) return c.json({ error: 'Lesson not found' }, 404);
+  const data = { ...current.data };
+  data.conversation = body.conversation || null;
+  if (body.readiness !== undefined) data.readiness = body.readiness;
+  await db.putSyncData('_system', `lesson:${lessonId}`, data, current.version);
+  return c.json({ ok: true });
+});
+
+// DELETE /v1/admin/lessons/:lessonId
+admin.delete('/v1/admin/lessons/:lessonId', async (c) => {
+  const lessonId = c.req.param('lessonId');
+  const item = await db.getSyncData('_system', `lesson:${lessonId}`);
+  if (!item) return c.json({ error: 'Lesson not found' }, 404);
+  await db.deleteSyncData('_system', `lesson:${lessonId}`);
+  return c.json({ ok: true });
+});
+
+// ── Courses ──
+//
+// Courses are an optional taxonomy for grouping lessons. Each course is a first-class
+// _system:course:<id> sync-data record with { name }. Each lesson optionally carries
+// a `course` field (the course's id). Courses are pure organization — they don't carry
+// their own visibility/ACL; lesson visibility (public/private/draft + sharedWith) is
+// unchanged. Coach receives course { name } in its context JSON when a lesson belongs
+// to one.
+
+const COURSE_NAME_MAX = 80;
+
+function validateCourseBody(body) {
+  if (!body || typeof body !== 'object') return 'Request body is required';
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!name) return 'Course name is required';
+  if (name.length > COURSE_NAME_MAX) return `Course name must be ${COURSE_NAME_MAX} characters or fewer`;
+  return null;
+}
+
+// GET /v1/admin/courses — list all courses with a per-course lesson count
+admin.get('/v1/admin/courses', async (c) => {
+  const items = await db.getAllSyncData('_system');
+  const lessonCounts = new Map();
+  for (const i of items) {
+    if (!i.dataKey.startsWith('lesson:')) continue;
+    const cid = i.data?.course;
+    if (cid) lessonCounts.set(cid, (lessonCounts.get(cid) || 0) + 1);
+  }
+  const courses = items
+    .filter(i => i.dataKey.startsWith('course:'))
+    .map(i => {
+      const courseId = i.dataKey.slice('course:'.length);
+      return {
+        courseId,
+        name: i.data.name || courseId,
+        createdByName: i.data.createdByName || null,
+        updatedByName: i.data.updatedByName || null,
+        updatedAt: i.updatedAt,
+        lessonCount: lessonCounts.get(courseId) || 0,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  return c.json(courses);
+});
+
+// GET /v1/admin/courses/:courseId
+admin.get('/v1/admin/courses/:courseId', async (c) => {
+  const courseId = c.req.param('courseId');
+  const item = await db.getSyncData('_system', `course:${courseId}`);
+  if (!item) return c.json({ error: 'Course not found' }, 404);
+  return c.json({ courseId, ...item.data, updatedAt: item.updatedAt });
+});
+
+// PUT /v1/admin/courses/:courseId — create or update
+admin.put('/v1/admin/courses/:courseId', async (c) => {
+  const courseId = c.req.param('courseId');
+  const body = await c.req.json();
+  const adminUser = c.get('user');
+  const err = validateCourseBody(body);
+  if (err) return c.json({ error: err }, 400);
+  const trimmedName = body.name.trim();
+
+  // Reject duplicate names (case-insensitive) across other courses. Lookups are
+  // cheap — we already iterate _system syncdata for the list endpoint and
+  // there's typically only a handful of courses.
+  const items = await db.getAllSyncData('_system');
+  for (const i of items) {
+    if (!i.dataKey.startsWith('course:')) continue;
+    const otherId = i.dataKey.slice('course:'.length);
+    if (otherId === courseId) continue;
+    if ((i.data?.name || '').trim().toLowerCase() === trimmedName.toLowerCase()) {
+      return c.json({ error: 'A course with that name already exists' }, 409);
+    }
+  }
+
+  const current = await db.getSyncData('_system', `course:${courseId}`);
+  const now = new Date().toISOString();
+  const data = {
+    name: trimmedName,
+    createdBy: current?.data?.createdBy || adminUser.userId,
+    createdByName: current?.data?.createdByName || adminUser.username || adminUser.email,
+    createdAt: current?.data?.createdAt || now,
+    updatedBy: adminUser.userId,
+    updatedByName: adminUser.username || adminUser.email,
+  };
+  await db.putSyncData('_system', `course:${courseId}`, data, current?.version || 0);
+  return c.json({ courseId, ok: true });
+});
+
+// DELETE /v1/admin/courses/:courseId — delete + cascade-clear `course` on lessons
+admin.delete('/v1/admin/courses/:courseId', async (c) => {
+  const courseId = c.req.param('courseId');
+  const item = await db.getSyncData('_system', `course:${courseId}`);
+  if (!item) return c.json({ error: 'Course not found' }, 404);
+
+  // Snapshot the affected lesson keys *before* the delete, so a concurrent
+  // /v1/lessons fetch in the gap can't see stale course refs without the
+  // course record existing — the inlining logic on the read path tolerates
+  // a missing course (returns course: null) but it still helps to keep the
+  // happy path tight.
+  const items = await db.getAllSyncData('_system');
+  const affectedKeys = items
+    .filter(i => i.dataKey.startsWith('lesson:') && i.data?.course === courseId)
+    .map(i => i.dataKey);
+
+  await db.deleteSyncData('_system', `course:${courseId}`);
+
+  // Cascade with per-lesson re-read so a concurrent admin edit on one of
+  // these lessons doesn't trigger a ConditionalCheckFailedException — we
+  // pick up the latest version and any new field values, then override
+  // just `course`. Skip the PUT if the lesson no longer references this
+  // course (another admin already moved it), so we don't clobber an
+  // intentional re-assignment.
+  for (const dataKey of affectedKeys) {
+    const fresh = await db.getSyncData('_system', dataKey);
+    if (!fresh) continue;
+    if (fresh.data?.course !== courseId) continue;
+    await db.putSyncData('_system', dataKey, { ...fresh.data, course: null }, fresh.version || 0);
+  }
+
+  return c.json({ ok: true });
+});
+
+// GET /v1/admin/knowledge-base
+admin.get('/v1/admin/knowledge-base', async (c) => {
+  const item = await db.getSyncData('_system', 'knowledgeBase');
+  const data = item?.data || {};
+  let updatedByName = null;
+  if (data.updatedBy && data.updatedBy !== 'setup') {
+    const user = await db.getUserById(data.updatedBy);
+    updatedByName = user?.name || user?.username || user?.email || null;
+  }
+  return c.json({
+    content: data.content || '',
+    conversation: data.conversation || null,
+    readiness: data.readiness ?? null,
+    updatedAt: item?.updatedAt || null,
+    updatedByName,
+  });
+});
+
+// PUT /v1/admin/knowledge-base
+admin.put('/v1/admin/knowledge-base', async (c) => {
+  const body = await c.req.json();
+  if (body.content === undefined) return c.json({ error: 'content is required' }, 400);
+  const current = await db.getSyncData('_system', 'knowledgeBase');
+  const adminUser = c.get('user');
+  await db.putSyncData('_system', 'knowledgeBase', {
+    content: body.content,
+    conversation: body.conversation !== undefined ? body.conversation : (current?.data?.conversation || null),
+    readiness: body.readiness !== undefined ? body.readiness : (current?.data?.readiness ?? null),
+    updatedBy: adminUser.userId,
+  }, current?.version || 0);
+  return c.json({ ok: true });
+});
+
+// PUT /v1/admin/knowledge-base/conversation — auto-save KB editor conversation
+admin.put('/v1/admin/knowledge-base/conversation', async (c) => {
+  const body = await c.req.json();
+  const current = await db.getSyncData('_system', 'knowledgeBase');
+  const adminUser = c.get('user');
+  await db.putSyncData('_system', 'knowledgeBase', {
+    content: current?.data?.content || '',
+    conversation: body.conversation || null,
+    readiness: body.readiness !== undefined ? body.readiness : (current?.data?.readiness ?? null),
+    updatedBy: adminUser.userId,
+  }, current?.version || 0);
+  return c.json({ ok: true });
+});
+
+// GET /v1/admin/theme
+admin.get('/v1/admin/theme', async (c) => {
+  const item = await db.getSyncData('_system', 'settings');
+  const settings = item?.data || {};
+  return c.json({
+    theme: settings.theme || {},
+    logoBase64: settings.logoBase64 || null,
+    classroomName: settings.classroomName || settings.logoAlt || '',
+  });
+});
+
+// PUT /v1/admin/theme
+admin.put('/v1/admin/theme', async (c) => {
+  const body = await c.req.json();
+  const current = await db.getSyncData('_system', 'settings');
+  const settings = { ...(current?.data || {}) };
+  if (body.theme !== undefined) settings.theme = body.theme;
+  if (body.logoBase64 !== undefined) settings.logoBase64 = body.logoBase64;
+  if (body.classroomName !== undefined) {
+    settings.classroomName = body.classroomName;
+    settings.logoAlt = body.classroomName; // backward compat
+  }
+  await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+  return c.json({ ok: true });
+});
+
+
+// ── Slack integration moved to plugins/slack/ ──
+// Slack endpoints now live at /v1/plugins/slack/admin/* via the plugin registry.
+// A backwards-compat shim in server/src/index.js re-routes /v1/admin/slack/* for
+// one release. See plugins/slack/server/index.js.
+
+// ── Plugin admin endpoints ──
+
+// GET /v1/admin/plugins — list all known plugins, including disabled and load-failed.
+// writeOnly settings (e.g. Slack's bot token) are stripped from responses; the host
+// is the source of truth for those values, the client never needs them back.
+admin.get('/v1/admin/plugins', (c) => {
+  return c.json(pluginRegistry.list().map((e) => {
+    const view = pluginRegistry.publicView(e);
+    return { ...view, settings: pluginRegistry.sanitizeSettings(e) };
+  }));
+});
+
+// PUT /v1/admin/plugins/:id/activation — enable/disable a plugin.
+admin.put('/v1/admin/plugins/:id/activation', async (c) => {
+  const id = c.req.param('id');
+  let body;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'JSON body required' }, 400);
+  }
+  if (typeof body?.enabled !== 'boolean') {
+    return c.json({ error: 'enabled (boolean) is required' }, 400);
+  }
+  const { enabled } = body;
+  try {
+    const entry = await pluginRegistry.setEnabled(id, enabled);
+    return c.json(pluginRegistry.publicView(entry));
+  } catch (err) {
+    return c.json({ error: err.message }, 400);
+  }
+});
+
+// POST /v1/admin/plugins/:id/uninstall-data — run the plugin's onUninstall
+// hook and clear its activation/settings entry. Plugin must be disabled first
+// (registry refuses otherwise). Body: { confirm: '<plugin id>' } — the admin
+// must type the plugin id to confirm, mirroring GitHub's repo-deletion gate.
+// Audit-logged.
+admin.post('/v1/admin/plugins/:id/uninstall-data', async (c) => {
+  const id = c.req.param('id');
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'JSON body required' }, 400); }
+  if (body?.confirm !== id) {
+    return c.json({ error: `Type the plugin id (${id}) in "confirm" to proceed` }, 400);
+  }
+  const adminUser = c.get('user');
+  try {
+    await pluginRegistry.uninstallData(id);
+  } catch (err) {
+    logger.error('plugin_uninstall_failed', { pluginId: id, error: err.message });
+    return c.json({ error: err.message }, 400);
+  }
+  await db.createAuditLog({
+    action: 'plugin_data_uninstalled',
+    userId: adminUser.userId,
+    email: adminUser.email,
+    performedBy: adminUser.userId,
+    details: { pluginId: id },
+  });
+  return c.json({ ok: true });
+});
+
+// PUT /v1/admin/plugins/:id/settings — update plugin settings.
+admin.put('/v1/admin/plugins/:id/settings', async (c) => {
+  const id = c.req.param('id');
+  let body;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'JSON body required' }, 400);
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return c.json({ error: 'settings object required' }, 400);
+  }
+  try {
+    const entry = await pluginRegistry.updateSettings(id, body);
+    return c.json({ ...pluginRegistry.publicView(entry), settings: pluginRegistry.sanitizeSettings(entry) });
+  } catch (err) {
+    return c.json({ error: err.message }, 400);
+  }
+});
+
+// GET /v1/admin/stats/lessons — lesson pacing + learner engagement KPIs
+//
+// Powers the admin dashboard at `/plato`. Two families of metrics:
+//   - Pacing: how on-target completed lessons are (on-target rate, over-target
+//     count, extended-lesson count). MAX_EXCHANGES is a design target, never a
+//     cutoff. `extendedThreshold` (2x target) is informational only — a lesson
+//     that runs that long signals a lesson-design mismatch, not a coach
+//     failure.
+//   - Engagement: `pctStarted` (target >90%) and `pctCompletedHalf` (target
+//     >50%). Denominator is non-admin users; "started" = ≥1 lessonKB:* of any
+//     status; "completed half" = lessonsCompleted / lessonsAvailable > 0.5
+//     (strict — exactly 50% does not count).
+//
+// Response shape: a flat object with all metric fields plus a `computedAt`
+// ISO timestamp (server-generated). The dashboard renders this directly.
+//
+// Caching: stale-while-revalidate (see server/src/lib/lesson-stats-cache.js).
+// Fresh window 10 min; stale window 10 min – 24 h serves cached + fires an
+// async Lambda self-invoke for refresh; older than 24 h or missing recomputes
+// synchronously. The fan-in (every user × every sync-data item) means the
+// recompute should never be on the hot path.
+//
+// `?refresh=1` bypasses the cache and recomputes synchronously — the dashboard's
+// Refresh button uses it. Admin-gated like everything under /v1/admin.
+
+// Pure aggregation — no Hono, no cache, no auth. Exported so the async-refresh
+// path (server/src/index.js handler dispatching a self-invoke) can call it
+// directly without going through the HTTP layer.
+export async function computeLessonStats() {
+  const extendedThreshold = MAX_EXCHANGES * 2;
+  const users = await db.listAllUsers();
+  const systemItems = await db.getAllSyncData('_system');
+  // Only published (public) lessons feed any KPI. A learner's completion
+  // counts iff its lesson id maps to a public `_system:lesson:*` record —
+  // drafts, privates (even when shared), and custom lessons are all excluded.
+  const publicIds = publicLessonIds(systemItems);
+  const lessonsAvailable = publicIds.size; // same denominator for every learner
+
+  // Pacing aggregates
+  let withinTarget = 0;
+  let overTarget = 0;
+  let extendedLessons = 0; // completed lessons that ran past 2× target
+  let totalExchangesWithin = 0;
+  let totalExchangesOver = 0;
+  let activeLessons = 0;
+  const durations = []; // in minutes
+
+  // Engagement aggregates (#TARGET_STARTED_PCT / #TARGET_COMPLETED_HALF_PCT)
+  let activeLearners = 0;       // non-admin users
+  let learnersStarted = 0;      // ≥1 lessonKB:* record of any status
+  let learnersCompletedHalf = 0; // completed > 50% of lessons available to them
+
+  for (const user of users) {
+    const isLearner = user.role !== 'admin';
+    // Only `lessonKB:*` (counts/pacing) and `messages:*` (duration fallback for
+    // legacy KBs without startedAt/completedAt) are needed — skip the large
+    // screenshot:* records entirely.
+    const kbItems = await db.getSyncDataByPrefix(user.userId, 'lessonKB:');
+    const msgItems = await db.getSyncDataByPrefix(user.userId, 'messages:');
+    const syncItems = kbItems.concat(msgItems);
+    let userHasStarted = false;
+    let userCompleted = 0;
+
+    for (const item of kbItems) {
+      if (!publicIds.has(item.dataKey.slice('lessonKB:'.length))) continue;
+      const kb = item.data;
+      if (!kb) continue;
+      userHasStarted = true;
+      if (kb.status === 'completed') {
+        userCompleted++;
+        const exchanges = kb.activitiesCompleted || 0;
+        if (exchanges <= MAX_EXCHANGES) {
+          withinTarget++;
+          totalExchangesWithin += exchanges;
+        } else {
+          overTarget++;
+          totalExchangesOver += exchanges;
+          if (exchanges >= extendedThreshold) extendedLessons++;
+        }
+        if (kb.startedAt && kb.completedAt) {
+          durations.push((kb.completedAt - kb.startedAt) / 60000);
+        } else {
+          const lessonId = item.dataKey.replace('lessonKB:', '');
+          const msgItem = syncItems.find(s => s.dataKey === `messages:${lessonId}`);
+          const msgs = msgItem?.data;
+          if (Array.isArray(msgs) && msgs.length >= 2) {
+            const first = msgs[0]?.timestamp;
+            const last = msgs[msgs.length - 1]?.timestamp;
+            if (first && last) durations.push((last - first) / 60000);
+          }
+        }
+      } else {
+        activeLessons++;
+      }
+    }
+
+    if (isLearner) {
+      activeLearners++;
+      if (userHasStarted) learnersStarted++;
+      if (lessonsAvailable > 0 && userCompleted / lessonsAvailable > 0.5) learnersCompletedHalf++;
+    }
+  }
+
+  const totalCompletions = withinTarget + overTarget;
+  const avgDurationMinutes = durations.length
+    ? +(durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1)
+    : null;
+
+  return {
+    totalCompletions,
+    withinTarget,
+    overTarget,
+    extendedLessons, // subset of overTarget that ran past 2× target — informational
+    exchangeTarget: MAX_EXCHANGES,
+    extendedThreshold,
+    avgExchangesPerCompletion: totalCompletions ? +((totalExchangesWithin + totalExchangesOver) / totalCompletions).toFixed(1) : null,
+    avgExchangesWithinTarget: withinTarget ? +(totalExchangesWithin / withinTarget).toFixed(1) : null,
+    avgExchangesOverTarget: overTarget ? +(totalExchangesOver / overTarget).toFixed(1) : null,
+    avgDurationMinutes,
+    activeLessons,
+    // Engagement KPIs
+    activeLearners,
+    learnersStarted,
+    learnersCompletedHalf,
+    pctStarted: activeLearners > 0 ? +((learnersStarted / activeLearners) * 100).toFixed(1) : null,
+    pctCompletedHalf: activeLearners > 0 ? +((learnersCompletedHalf / activeLearners) * 100).toFixed(1) : null,
+    targetStartedPct: 90,
+    targetCompletedHalfPct: 50,
+  };
+}
+
+export async function recomputeAndCacheLessonStats() {
+  const stats = await computeLessonStats();
+  const computedAt = new Date().toISOString();
+  await db.putSyncData('_system', 'stats:lessons', { computedAt, stats });
+  return { computedAt, stats };
+}
+
+admin.get('/v1/admin/stats/lessons', async (c) => {
+  const force = new URL(c.req.url).searchParams.get('refresh') === '1';
+  if (!force) {
+    const cached = await db.getSyncData('_system', 'stats:lessons');
+    const status = classifyCache(cached);
+    if (status === 'fresh') {
+      return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
+    }
+    if (status === 'stale') {
+      kickoffAsyncRefresh(); // fire and forget
+      return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
+    }
+  }
+  const { computedAt, stats } = await recomputeAndCacheLessonStats();
+  return c.json({ ...stats, computedAt });
+});
+
+// GET /v1/admin/users/:userId/stats — per-user activity metrics for the
+// admin user-detail panel (issue #136). Computed on demand from sync-data;
+// no precomputation. Window is the last `days` calendar days (default 30) in UTC.
+//
+// Duration is exchange-based (activitiesCompleted × MINS_PER_EXCHANGE) to
+// match `/v1/admin/stats/lessons` and AdminHome — wall-clock minutes inflate
+// from multi-session lessons. `lastActiveAt` is the user's most recent
+// activity timestamp (updated on login + refresh, per the denormalization policy).
+admin.get('/v1/admin/users/:userId/stats', async (c) => {
+  const userId = c.req.param('userId');
+  const user = await db.getUserById(userId);
+  if (!user) return c.json({ error: 'User not found' }, 404);
+
+  const url = new URL(c.req.url);
+  const daysParam = parseInt(url.searchParams.get('days') || '30', 10);
+  const days = Number.isFinite(daysParam) && daysParam > 0 && daysParam <= 365 ? daysParam : 30;
+
+  // Lesson name lookup
+  const systemItems = await db.getAllSyncData('_system');
+  const publicIds = publicLessonIds(systemItems);
+  const lessonNames = new Map();
+  for (const item of systemItems) {
+    if (item.dataKey?.startsWith('lesson:')) {
+      const id = item.dataKey.slice('lesson:'.length);
+      lessonNames.set(id, item.data?.name || id);
+    }
+  }
+
+  const syncItems = await db.getSyncDataByPrefix(userId, 'lessonKB:');
+  let lessonsCompleted = 0;
+  const lessonDurations = []; // { lessonId, lessonName, exchanges, minutes, completedAt }
+
+  for (const item of syncItems) {
+    const lessonId = item.dataKey.slice('lessonKB:'.length);
+    if (!publicIds.has(lessonId)) continue; // only published lessons count
+    const kb = item.data;
+    if (!kb || kb.status !== 'completed') continue;
+    lessonsCompleted++;
+    const exchanges = kb.activitiesCompleted || 0;
+    const minutes = +(exchanges * MINS_PER_EXCHANGE).toFixed(1);
+    const completedAtMs = typeof kb.completedAt === 'number' ? kb.completedAt
+      : typeof kb.completedAt === 'string' ? Date.parse(kb.completedAt)
+      : null;
+    lessonDurations.push({
+      lessonId,
+      lessonName: lessonNames.get(lessonId) || lessonId,
+      exchanges, minutes,
+      completedAt: completedAtMs ? new Date(completedAtMs).toISOString() : null,
+    });
+  }
+
+  // Percentiles over all completed lessons (career stats, not window-scoped)
+  const sorted = lessonDurations.map((l) => l.minutes).sort((a, b) => a - b);
+  const pct = (p) => {
+    if (sorted.length === 0) return null;
+    const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+    return sorted[idx];
+  };
+
+  lessonDurations.sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+
+  return c.json({
+    userId,
+    windowDays: days,
+    lessonsCompleted,
+    lessonsAvailable: publicIds.size,
+    lastActiveAt: user.lastActiveAt || null,
+    completionMinutesP50: pct(50),
+    completionMinutesP90: pct(90),
+    lessonDurations,
+  });
+});
+
+// GET /v1/admin/logs — recent server errors/warnings for the pilot agent.
+// Merges in-process ring buffer with CloudWatch (default on). Failures from
+// CloudWatch populate `cloudwatch.error` rather than silently returning empty.
+admin.get('/v1/admin/logs', async (c) => {
+  const url = new URL(c.req.url);
+  const rawSince = url.searchParams.get('since');
+  const levelParam = url.searchParams.get('level');
+  const limitParam = parseInt(url.searchParams.get('limit') || '200', 10);
+  const cloudwatchParam = url.searchParams.get('cloudwatch');
+  const view = url.searchParams.get('view') || 'both';
+
+  const level = levelParam === 'error' || levelParam === 'warn' ? levelParam : undefined;
+  const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 200, 1), 1000);
+  const includeCloudWatch = cloudwatchParam !== '0';
+
+  let since;
+  if (rawSince) {
+    const t = new Date(rawSince).getTime();
+    if (!Number.isFinite(t)) return c.json({ error: 'Invalid since parameter' }, 400);
+    since = new Date(t).toISOString();
+  } else {
+    since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  const bufferEntries = logger.recent({ since, level, limit: logger._bufferSize() }).map((e) => ({ ...e, source: 'buffer' }));
+
+  let cloudwatch = { logGroups: [], error: null };
+  let cwEntries = [];
+  if (includeCloudWatch) {
+    const cw = await fetchCloudWatchLogs({ since });
+    cloudwatch = { logGroups: cw.logGroups, error: cw.error };
+    cwEntries = (cw.entries || []).filter((e) => !level || e.level === level);
+  }
+
+  // Merge, dedupe by logId (logger emits logId to stdout so events appearing
+  // in both the buffer and CloudWatch share an ID). Track per-logId sources
+  // so groups can report "buffer", "cloudwatch", or both accurately.
+  const byLogId = new Map();
+  const sourcesByLogId = new Map();
+  function recordSource(logId, source) {
+    let set = sourcesByLogId.get(logId);
+    if (!set) { set = new Set(); sourcesByLogId.set(logId, set); }
+    set.add(source);
+  }
+  for (const e of bufferEntries) {
+    byLogId.set(e.logId, e); // buffer wins on meta
+    recordSource(e.logId, 'buffer');
+  }
+  for (const e of cwEntries) {
+    if (!byLogId.has(e.logId)) byLogId.set(e.logId, e);
+    recordSource(e.logId, 'cloudwatch');
+  }
+  const entries = [...byLogId.values()]
+    .map((e) => ({ ...e, source: [...sourcesByLogId.get(e.logId)].join('+') }))
+    .sort((a, b) => b.ts.localeCompare(a.ts));
+
+  // Build groups across both sources.
+  const groups = new Map();
+  for (const e of entries) {
+    const srcSet = sourcesByLogId.get(e.logId);
+    const g = groups.get(e.code);
+    if (!g) {
+      groups.set(e.code, {
+        code: e.code,
+        level: e.level,
+        count: 1,
+        firstSeen: e.ts,
+        lastSeen: e.ts,
+        sources: [...srcSet],
+        sample: e,
+      });
+    } else {
+      g.count++;
+      if (e.ts < g.firstSeen) g.firstSeen = e.ts;
+      if (e.ts > g.lastSeen) { g.lastSeen = e.ts; g.sample = e; }
+      for (const s of srcSet) if (!g.sources.includes(s)) g.sources.push(s);
+    }
+  }
+  const groupsList = [...groups.values()].sort((a, b) => b.count - a.count);
+
+  const counts = { error: 0, warn: 0 };
+  for (const e of entries) {
+    if (e.level === 'error' || e.level === 'warn') counts[e.level]++;
+  }
+
+  const windowMs = Date.now() - new Date(since).getTime();
+  const response = {
+    windowHours: +(windowMs / 3600000).toFixed(2),
+    since,
+    counts,
+    buffer: { size: logger._bufferSize(), used: bufferEntries.length },
+    cloudwatch,
+  };
+  if (view !== 'entries') response.groups = groupsList;
+  if (view !== 'groups') response.entries = entries.slice(0, limit);
+
+  return c.json(response);
+});
+
+export default admin;

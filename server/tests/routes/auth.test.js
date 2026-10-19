@@ -1,0 +1,328 @@
+import { describe, it, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { Hono } from 'hono';
+import auth from '../../src/routes/auth.js';
+import db from '../../src/lib/db.js';
+
+function req(app, method, path, body) {
+  return app.request(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+describe('POST /v1/auth/signup', () => {
+  beforeEach(() => {
+    db.getInvite = async () => ({
+      inviteToken: 'inv_test',
+      email: 'test@example.com',
+      status: 'pending',
+      ttl: Math.floor(Date.now() / 1000) + 86400,
+    });
+    db.getUserByEmail = async () => null;
+    db.getUserByUsername = async () => null;
+    db.createUser = async () => {};
+    db.markInviteUsed = async () => {};
+    db.storeRefreshToken = async () => {};
+  });
+
+  it('creates user with valid invite', async () => {
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'password123',
+    });
+    assert.equal(res.status, 201);
+    const data = await res.json();
+    assert.ok(data.accessToken);
+    assert.ok(data.refreshToken);
+    assert.equal(data.user.email, 'test@example.com');
+    assert.equal(data.user.role, 'user');
+    assert.ok(data.user.username); // auto-generated when not provided
+  });
+
+  it('creates user with custom username', async () => {
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'password123', username: 'testuser',
+    });
+    assert.equal(res.status, 201);
+    const data = await res.json();
+    assert.equal(data.user.username, 'testuser');
+  });
+
+  it('rejects invalid username format', async () => {
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'password123', username: '-bad',
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('rejects expired invite', async () => {
+    db.getInvite = async () => ({
+      inviteToken: 'inv_test', email: 'test@example.com', status: 'pending',
+      ttl: Math.floor(Date.now() / 1000) - 1000,
+    });
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'password123',
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('rejects short password', async () => {
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'short',
+    });
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.ok(data.error.includes('8 characters'));
+  });
+
+  it('rejects used invite', async () => {
+    db.getInvite = async () => ({ inviteToken: 'inv_test', email: 'test@example.com', status: 'used' });
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'password123',
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+describe('POST /v1/auth/signup — custom user fields (#364)', () => {
+  const FIELDS = [
+    { id: 'fld_org', label: 'Organization', type: 'text', required: true },
+    { id: 'fld_site', label: 'Website', type: 'link', required: false },
+  ];
+  let created;
+
+  beforeEach(() => {
+    created = null;
+    db.getInvite = async () => ({
+      inviteToken: 'inv_test', email: 'test@example.com', status: 'pending',
+      ttl: Math.floor(Date.now() / 1000) + 86400,
+    });
+    db.getUserByEmail = async () => null;
+    db.getUserByUsername = async () => null;
+    db.createUser = async (u) => { created = u; };
+    db.markInviteUsed = async () => {};
+    db.storeRefreshToken = async () => {};
+    db.getSyncData = async () => ({ data: { userFields: FIELDS } });
+  });
+
+  it('stores validated custom field values on the new user', async () => {
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'password123',
+      customFields: { fld_org: 'UIC', fld_unknown: 'dropped' },
+    });
+    assert.equal(res.status, 201);
+    assert.deepEqual(created.customFields, { fld_org: 'UIC' });
+  });
+
+  it('does not enforce required fields at signup (the gate collects them)', async () => {
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'password123',
+    });
+    assert.equal(res.status, 201);
+    assert.deepEqual(created.customFields, {});
+  });
+
+  it('rejects malformed values', async () => {
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/signup', {
+      inviteToken: 'inv_test', name: 'Test', password: 'password123',
+      customFields: { fld_site: 'ftp://nope' },
+    });
+    assert.equal(res.status, 400);
+    assert.equal(created, null);
+  });
+});
+
+describe('POST /v1/auth/login', () => {
+  beforeEach(() => {
+    db.storeRefreshToken = async () => {};
+    db.getUserByUsername = async () => null;
+    db.createAuditLog = async () => {};
+    db.setUserActivityField = async () => {};
+  });
+
+  it('logs in with correct credentials', async () => {
+    const { hashPassword } = await import('../../src/lib/password.js');
+    const hash = await hashPassword('password123');
+    db.getUserByEmail = async () => ({
+      userId: 'usr_test', email: 'test@example.com', username: 'testuser', name: 'Test',
+      role: 'user', passwordHash: hash,
+    });
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/login', { email: 'test@example.com', password: 'password123' });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(data.accessToken);
+    assert.ok(data.refreshToken);
+    assert.equal(data.user.username, 'testuser');
+  });
+
+  it('login updates lastActiveAt on the user record', async () => {
+    const { hashPassword } = await import('../../src/lib/password.js');
+    const hash = await hashPassword('password123');
+    db.getUserByEmail = async () => ({
+      userId: 'usr_test', email: 'test@example.com', username: 'testuser', name: 'Test',
+      role: 'user', passwordHash: hash,
+    });
+    const writes = [];
+    db.setUserActivityField = async (userId, field, value) => { writes.push({ userId, field, value }); };
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/login', { email: 'test@example.com', password: 'password123' });
+    assert.equal(res.status, 200);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].field, 'lastActiveAt');
+    assert.ok(new Date(writes[0].value).getTime() > 0);
+  });
+
+  it('login still succeeds when the lastActiveAt write throws', async () => {
+    const { hashPassword } = await import('../../src/lib/password.js');
+    const hash = await hashPassword('password123');
+    db.getUserByEmail = async () => ({
+      userId: 'usr_test', email: 'test@example.com', username: 'testuser', name: 'Test',
+      role: 'user', passwordHash: hash,
+    });
+    db.setUserActivityField = async () => { throw new Error('throttled'); };
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/login', { email: 'test@example.com', password: 'password123' });
+    assert.equal(res.status, 200, 'login must not fail if lastActiveAt write fails');
+  });
+
+  it('login still succeeds when the audit-log write throws', async () => {
+    const { hashPassword } = await import('../../src/lib/password.js');
+    const hash = await hashPassword('password123');
+    db.getUserByEmail = async () => ({
+      userId: 'usr_test', email: 'test@example.com', username: 'testuser', name: 'Test',
+      role: 'user', passwordHash: hash,
+    });
+    db.createAuditLog = async () => { throw new Error('audit-log throttled'); };
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/login', { email: 'test@example.com', password: 'password123' });
+    assert.equal(res.status, 200, 'login must not fail if audit-log write fails');
+    const data = await res.json();
+    assert.ok(data.accessToken);
+    assert.ok(data.refreshToken);
+  });
+
+  it('logs in with username', async () => {
+    const { hashPassword } = await import('../../src/lib/password.js');
+    const hash = await hashPassword('password123');
+    db.getUserByEmail = async () => null;
+    db.getUserByUsername = async () => ({
+      userId: 'usr_test', email: 'test@example.com', username: 'testuser', name: 'Test',
+      role: 'user', passwordHash: hash,
+    });
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/login', { email: 'testuser', password: 'password123' });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.user.username, 'testuser');
+  });
+
+  it('rejects wrong password', async () => {
+    const { hashPassword } = await import('../../src/lib/password.js');
+    const hash = await hashPassword('correctpass');
+    db.getUserByEmail = async () => ({
+      userId: 'usr_test', email: 'test@example.com', name: 'Test',
+      role: 'user', passwordHash: hash,
+    });
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/login', { email: 'test@example.com', password: 'wrongpassword' });
+    assert.equal(res.status, 401);
+  });
+
+  it('rejects unknown email', async () => {
+    db.getUserByEmail = async () => null;
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/login', { email: 'nobody@example.com', password: 'password123' });
+    assert.equal(res.status, 401);
+  });
+});
+
+describe('POST /v1/auth/refresh', () => {
+  it('rotates refresh tokens', async () => {
+    db.getRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
+    db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
+    db.deleteRefreshToken = async () => {};
+    db.storeRefreshToken = async () => {};
+    db.setUserActivityField = async () => {};
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/refresh', { refreshToken: 'rt_test' });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(data.accessToken);
+    assert.ok(data.refreshToken);
+  });
+
+  it('refresh updates lastActiveAt (heartbeat without per-message amplification)', async () => {
+    db.getRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
+    db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
+    db.deleteRefreshToken = async () => {};
+    db.storeRefreshToken = async () => {};
+    const writes = [];
+    db.setUserActivityField = async (userId, field, value) => { writes.push({ userId, field, value }); };
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/refresh', { refreshToken: 'rt_test' });
+    assert.equal(res.status, 200);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].field, 'lastActiveAt');
+  });
+
+  it('refresh succeeds even if lastActiveAt write throws', async () => {
+    db.getRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
+    db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
+    db.deleteRefreshToken = async () => {};
+    db.storeRefreshToken = async () => {};
+    db.setUserActivityField = async () => { throw new Error('throttled'); };
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/refresh', { refreshToken: 'rt_test' });
+    assert.equal(res.status, 200, 'refresh must not fail if lastActiveAt write fails');
+  });
+
+  it('rejects invalid refresh token', async () => {
+    db.getRefreshToken = async () => null;
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/refresh', { refreshToken: 'rt_invalid' });
+    assert.equal(res.status, 401);
+  });
+});
+
+describe('POST /v1/auth/logout', () => {
+  it('deletes refresh token', async () => {
+    let deleted = false;
+    db.deleteRefreshToken = async () => { deleted = true; };
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/logout', { refreshToken: 'rt_test' });
+    assert.equal(res.status, 200);
+    assert.ok(deleted);
+  });
+});

@@ -1,0 +1,126 @@
+import { Hono } from 'hono';
+import { handle, streamHandle } from 'hono/aws-lambda';
+import { cors } from 'hono/cors';
+import health from './routes/health.js';
+import auth from './routes/auth.js';
+import me from './routes/me.js';
+import admin, { recomputeAndCacheLessonStats } from './routes/admin.js';
+import sync from './routes/sync.js';
+import ai from './routes/ai.js';
+import content from './routes/content.js';
+import links from './routes/links.js';
+import waitlist from './routes/waitlist.js';
+import app from './routes/app.js';
+import db from './lib/db.js';
+import { generateUserId } from './lib/crypto.js';
+import { hashPassword } from './lib/password.js';
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from './config.js';
+import { seedDefaultContent } from './lib/seed.js';
+import { logger } from './lib/logger.js';
+import { pluginRegistry } from './lib/plugins/registry.js';
+import { makePluginDispatcher, makeSlackLegacyShim } from './lib/plugins/dispatcher.js';
+import { isSelfInvokeEvent } from './lib/lesson-stats-cache.js';
+
+const server = new Hono();
+
+server.use('*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+}));
+
+// First-request initialization: admin bootstrap, content seeding
+let initChecked = false;
+server.use('*', async (c, next) => {
+  if (!initChecked) {
+    initChecked = true;
+    // Admin bootstrap
+    if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+      try {
+        const count = await db.countUsers();
+        if (count === 0) {
+          const userId = generateUserId();
+          const passwordHash = await hashPassword(ADMIN_PASSWORD);
+          await db.createUser({
+            userId,
+            email: ADMIN_EMAIL.toLowerCase(),
+            passwordHash,
+            name: 'Admin',
+            role: 'admin',
+          });
+          console.log(`Admin bootstrapped: ${ADMIN_EMAIL}`);
+        }
+      } catch (err) {
+        console.error('Admin bootstrap failed:', err.message);
+      }
+    }
+    // Seed/update prompts and lessons
+    try {
+      const seeded = await seedDefaultContent();
+      if (seeded > 0) console.log(`Seeded ${seeded} content item(s)`);
+    } catch (err) {
+      console.error('Seed failed (non-fatal):', err.message);
+    }
+    // Plugin registry: discover and activate plugins. Routes are NOT mounted here —
+    // Hono throws "Can not add a route since the matcher is already built" if you
+    // call server.route() mid-request. Instead we register a static catch-all (below)
+    // that dispatches via the registry once it's booted.
+    try {
+      await pluginRegistry.boot();
+    } catch (err) {
+      logger.error('plugin_registry_boot_failed', { error: err?.message, stack: err?.stack });
+    }
+  }
+  await next();
+});
+
+server.route('/', health);
+server.route('/', auth);
+server.route('/', me);
+server.route('/', admin);
+server.route('/', sync);
+server.route('/', ai);
+server.route('/', content);
+server.route('/', links);
+server.route('/', waitlist);
+
+// Plugin catch-all + legacy shim. See server/src/lib/plugins/dispatcher.js for
+// the handler logic. Registered BEFORE `app` because app.js has a global SPA
+// fallback (`app.get('*')`) that would otherwise swallow plugin GETs.
+server.all('/v1/plugins/:pluginId/*', makePluginDispatcher(pluginRegistry));
+server.all('/v1/admin/slack/*', makeSlackLegacyShim(pluginRegistry));
+
+// SPA fallback last.
+server.route('/', app);
+
+server.notFound((c) => c.json({ error: 'Not found' }, 404));
+
+server.onError((err, c) => {
+  logger.error('unhandled_error', {
+    path: c.req.path,
+    method: c.req.method,
+    error: err?.message || String(err),
+    stack: err?.stack,
+  });
+  return c.json({ error: 'Internal server error' }, 500);
+});
+
+// API Gateway handler (buffered — used by admin dashboard).
+// Wrapped to also handle self-invoke events for async dashboard-stats refresh.
+const _httpHandler = handle(server);
+export const handler = async (event, context) => {
+  if (isSelfInvokeEvent(event)) {
+    try {
+      await recomputeAndCacheLessonStats();
+      logger.warn('stats_async_refresh_completed');
+      return { ok: true };
+    } catch (err) {
+      logger.error('stats_async_refresh_failed', { error: err?.message || String(err) });
+      throw err;
+    }
+  }
+  return _httpHandler(event, context);
+};
+
+// Function URL handler (streaming SSE responses)
+export const streamHandler = streamHandle(server);

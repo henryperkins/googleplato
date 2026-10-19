@@ -1,0 +1,260 @@
+# Contributing to plato
+
+Thank you for your interest in contributing to plato. This project is maintained by [11:11 Philosopher's Group](https://github.com/1111philo).
+
+## The fastest way to contribute: file an issue
+
+plato runs an automated pilot agent (`plato-pilot`) on a daily schedule. It reads open `ready-for-pilot` issues, picks one, and opens a focused PR that addresses it. **Most contributions to plato start as a clear issue, not a PR.** That includes bug reports, copy changes, small feature requests, and accessibility fixes.
+
+When you open an issue:
+
+1. The intake agent (`.github/workflows/issue-intake.yml`) reads it and labels it `ready-for-pilot` (enough detail to act on), `needs-info` (asks up to 3 clarifying questions), or closes it as off-topic with an explanation.
+2. If labeled `ready-for-pilot`, the next pilot run picks it up. plato-pilot follows a strict picking order: **community-authored issues first** (anyone who isn't the bot itself), then self-filed maintenance tickets, then KPI/log signals as a last resort. Within each group, picks are tier-ranked by impact — coaching behavior, accessibility, and admin UX move first. Volume isn't a tie-breaker against authored issues: a one-line concrete report from a contributor beats a 50-instance log error.
+3. The pilot opens a PR that references the issue with `Fixes #N`. When that PR merges, **the issue author is credited as a co-author** on the merge commit (via `Co-Authored-By:` trailer), so they appear as a repository contributor.
+
+To make your issue actionable:
+
+- Name something concrete: an exact string/copy change, a specific error message or screenshot, or a named component plus observed-vs-expected behavior. Vague reports ("make X better", "headings need updating") get routed to `needs-info`.
+- For UI bugs: include the URL/page, what you did, what you expected, what happened, browser, role (learner/admin), and a screenshot if visible.
+- For copy or content fixes: include the exact current text and the exact replacement.
+
+You don't need a fork, a dev environment, or any code knowledge to file an issue.
+
+## When to skip the issue and write a PR yourself
+
+You're a regular contributor or have direct collaborator access, AND:
+
+- You're building a plugin (lighter review bar — see below).
+- You're addressing an issue you opened that's been triaged but not picked up yet.
+- The change is so specific (e.g. fixing an obvious typo in a doc) that the issue + pilot detour adds friction.
+
+Otherwise, file an issue first — the pilot is faster than the round trip of a PR review for small changes, and you still get credit.
+
+> **Are you building a plugin?** Plugins live in `plugins/<id>/` and have a lighter review bar than core changes. Read [docs/plugins/AUTHORING.md](docs/plugins/AUTHORING.md) (humans) or [docs/plugins/AGENTS.md](docs/plugins/AGENTS.md) (AI agents) — you don't need to read the full core-contribution guide. Run `node scripts/create-plato-plugin.js my-plugin` to scaffold one.
+
+## Plugin vs. core changes
+
+Plato has two contribution surfaces with different review bars:
+
+| Change type | Where | Review bar |
+|---|---|---|
+| Plugin (new or modify) | `plugins/<id>/` | Manifest validates? No core invariants violated? Has its own tests? Ship. |
+| Core | Everything else | Architectural review, public-contract impact, more thorough review. |
+
+Use a branch naming convention to make this clear:
+
+- Plugin work: `plugin/<id>/<feature>` (e.g. `plugin/slack/channel-filtering`)
+- Core work: `feat/<area>` or `fix/<area>` (e.g. `feat/lesson-pacing-banner`)
+
+### Adding a new extension point
+
+If a plugin you're building genuinely cannot use existing extension points, **don't patch core from inside the plugin folder**. Instead:
+
+1. File an `extension-point-request` issue (template in `.github/ISSUE_TEMPLATE/`).
+2. Wait for maintainer triage — extension points are part of the public plugin contract.
+3. Once approved, the bar for adding the extension point is:
+   - One real plugin must use it (no speculative slots/hooks)
+   - Update [docs/plugins/EXTENSION_REFERENCE.md](docs/plugins/EXTENSION_REFERENCE.md) atomically
+   - Update the capability enum in [docs/plugins/plugin.schema.json](docs/plugins/plugin.schema.json)
+   - Update the type in `packages/plugin-sdk/index.d.ts`
+   - Add a test in `server/tests/lib/plugins/registry.test.js` proving the new capability gates correctly
+   - Bump `PLUGIN_API_VERSION` per [docs/plugins/API_VERSIONING.md](docs/plugins/API_VERSIONING.md)
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 20+
+- npm
+
+### Setup
+
+1. Fork and clone the repository.
+2. Install dependencies:
+   ```bash
+   cd client && npm install
+   cd ../server && npm install
+   ```
+3. Build the client (the server serves the built files):
+   ```bash
+   cd client && npm run build
+   ```
+4. Set up your environment:
+   ```bash
+   cd server && cp .env.example .env
+   # Edit .env — see the "AI provider" section of the README for AWS/Bedrock setup
+   ```
+5. Start the dev server:
+   ```bash
+   node dev-sqlite.js
+   ```
+6. Open [http://localhost:3000](http://localhost:3000). On first visit you'll create an admin account. Content is seeded automatically.
+
+No Docker or external services needed for local development — data lives in SQLite. AI features do need AWS credentials with Bedrock access (plato runs one open source model, Qwen3-VL 235B (Apache-2.0); see the README's [AI provider](README.md#ai-provider) section). Without them the app is fully navigable, but you can't start lesson conversations.
+
+The client uses **Tailwind CSS v4** and **shadcn/ui** for styling. UI components are in `src/components/ui/`.
+
+## Project structure
+
+```
+plato/
+  client/                 React 19 + Vite SPA
+    src/
+      pages/              Route-level components
+      pages/admin/        Admin dashboard (lazy-loaded)
+      components/         Shared UI components
+      contexts/           React contexts (auth, app state, modals)
+      lib/                Engines and utilities (incl. lib/plugins/ — client plugin host)
+    js/                   Service modules (storage, orchestrator, auth, API)
+  server/
+    src/lib/plugins/      Server plugin host (registry, manifest, hooks, sdk)
+  plugins/                Built-in and community plugins (one folder per plugin)
+    slack/                The Slack invite plugin — also serves as a worked example
+  packages/plugin-sdk/    TypeScript types for plugin authors (no runtime)
+  docs/plugins/           Plugin authoring docs + JSON Schema + templates
+  server/                 Node.js + Hono API
+    src/
+      routes/             API route handlers
+      middleware/         Auth and admin guards
+      lib/                Database, crypto, email, AI proxy
+    scripts/              Database setup and content seeding
+```
+
+## Development workflow
+
+- **Client:** `cd client && npm run dev` starts Vite's dev server with HMR. For production builds: `npm run build`.
+- **Server:** `cd server && node dev-sqlite.js` starts the API with a local SQLite database. Changes require restarting the server.
+- **Tests:** `npm test` in either `client/` or `server/` runs that package's tests. Run both with `npm test` from the root.
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `client/js/storage.js` | Data layer — all reads/writes go through here (API-backed with in-memory cache) |
+| `client/js/orchestrator.js` | AI agent orchestration — loads prompts, assembles context, streams responses |
+| `client/js/lessonOwner.js` | Lesson loading and markdown parsing |
+| `client/src/lib/lessonEngine.js` | The learning loop state machine (phases, messages, KB updates) |
+| `server/src/routes/sync.js` | Data sync endpoints (per-user key-value store with optimistic locking) |
+| `server/src/routes/admin.js` | Admin API (users, invites, content management) |
+| `server/src/routes/content.js` | Content API (prompts, lessons, knowledge base, branding) |
+| `server/src/routes/waitlist.js` | Public wait-list API (#363); admin wait-list routes are in `admin.js` |
+
+### Content management
+
+Prompts are bundled in `client/prompts/` and upserted to the database on every server startup — admins cannot edit them directly. Lessons and the knowledge base are created by admins through the lesson creation tools and KB Editor agent in the Customizer.
+
+## Activity constraints
+
+Activities generated by the coach must:
+
+- Be completable entirely in the browser
+- Lead to one visible result on one page
+- End with "Upload an image of your work." or "Hit Submit to submit your response."
+- Not reference desktop apps, terminals, or file system operations
+- Not use platform-specific keyboard shortcuts or DevTools
+- Take 5 minutes or less
+
+## Adding a new lesson
+
+plato is a [microlearning](https://philosophers.group/platos-microlearning/) platform. Lessons are designed to be completable in ~11 exchanges (~20 minutes). This means:
+
+- **One exemplar** — a single, concrete outcome the learner produces
+- **2-4 learning objectives** — each starting with "Can", assessable by an AI coach
+- The system enforces these limits at creation time (client and server validation)
+
+Limits are defined in `client/src/lib/constants.js` (`MAX_EXCHANGES`, `MIN_OBJECTIVES`, `MAX_OBJECTIVES`).
+
+1. Create a markdown file following the format:
+   ```markdown
+   # Lesson Title
+
+   Brief description of what the learner will achieve.
+
+   ## Exemplar
+
+   The mastery-level work product the learner is working toward.
+
+   ## Learning Objectives
+
+   - Can first objective
+   - Can second objective
+   - Can third objective
+   ```
+2. Add it via the admin dashboard at `/plato/lessons` (the conversational lesson creation tool).
+
+## Guidelines
+
+- **Accessibility is required.** Every interactive element must be keyboard-operable and have an accessible name.
+- **Keep it minimal.** No heavy frameworks, unnecessary abstractions, or speculative features.
+- **No telemetry.** No analytics, tracking, or data collection beyond what's needed for the app to function.
+- **Update docs.** If your change affects architecture, add/remove features, or change the development workflow, update the relevant documentation.
+- **Test prompts.** When editing system prompts, test with a real AI connection to verify the agent returns valid output.
+
+## Running tests
+
+```bash
+# Client tests
+cd client && npm test
+
+# Server tests
+cd server && npm test
+
+# Both
+cd /path/to/plato && npm test
+```
+
+Tests use Node's built-in test runner. All tests must pass before merging.
+
+## Submitting changes
+
+The `main` branch is protected — direct pushes are not allowed. All changes go through pull requests. Merging requires one approving review and a passing `review` status check.
+
+1. Create a branch from `main`.
+2. Make focused, well-described commits.
+3. Run tests — they must pass.
+4. **Open the pull request as a Draft** while you iterate (see below).
+5. When the PR is genuinely ready, mark it as Ready for review.
+
+### Open PRs as Draft while iterating
+
+If you're working interactively — testing in a browser, getting feedback from a reviewer, tweaking UX — open the PR as **Draft** (`gh pr create --draft`, or use the dropdown when creating in the GitHub UI). Push commits as you iterate without re-running the full review pipeline on every micro-change.
+
+Mark the PR as Ready (`gh pr ready <n>`, or "Ready for review" in the UI) only when you actually want a review. The automated `claude[bot]` reviewer skips draft PRs and runs once you flip the PR to Ready.
+
+If a Ready PR is already open and you discover more iteration is needed, convert it back to Draft (`gh pr ready <n> --undo`).
+
+### Automated review
+
+When you mark a PR as Ready (or push to a PR that's already Ready), the Code Review workflow (`.github/workflows/code-review.yml`) runs an automated reviewer (`claude[bot]`) that reads the diff, runs the server test suite, and posts a single `gh pr review` call. The workflow is per-commit idempotent: each HEAD sha is reviewed at most once, and re-runs on the same sha are no-ops. Pushing new commits to a Ready PR produces fresh reviews. Draft PRs are skipped — the workflow exits before invoking the reviewer.
+
+The `review` status check must pass before merging.
+
+One caveat: if your PR modifies `.github/workflows/code-review.yml` itself, the action's own security check will fail the `review` status because the workflow file on the branch differs from the one on `main`. That failure is expected on workflow-editing PRs and requires maintainer bypass to merge.
+
+### Automated PRs (plato-pilot)
+
+You may see PRs opened by a scheduled agent called "plato-pilot" (branch prefix `pilot/`, label `plato-pilot`). These are autonomous small fixes proposed from KPI and log analysis or from `ready-for-pilot` issues. plato-pilot PRs are opened as Ready for review by design — they're standalone proposals, not collaborative iteration loops. If the auto-review requests changes, a companion workflow (`revise.yml`) tags the PR with `plato-pilot-revised` to prevent re-runs and then makes a one-shot fixup commit addressing the feedback — any further changes require human review.
+
+When a pilot PR addresses an issue (`Fixes #N` in the body), the commit message includes a `Co-Authored-By:` trailer crediting the issue author so they appear as a contributor on the repository when the PR merges.
+
+### Automated issue intake
+
+When you open a new issue, the intake agent (`.github/workflows/issue-intake.yml`) reads it and picks one of three outcomes:
+
+- **Enough detail** — adds the `ready-for-pilot` label and a short acknowledgement. plato-pilot or a human will pick it up.
+- **Needs more info** — adds the `needs-info` label and posts up to 3 focused clarifying questions. Reply inline when you can.
+- **Spam, off-topic, or abusive** — closes the issue with a polite comment explaining why and inviting you to reopen if we got it wrong. Vague or low-effort issues are *not* treated as spam — those go to `needs-info`.
+
+If you reopen a closed issue, or reopen an issue after adding the details we asked for, the intake agent re-runs and re-classifies.
+
+To file the most useful bug reports up front: include the URL / page, what you did, what you expected, what happened, any error message or screenshot, and your browser + role (learner / admin). The intake agent only asks for things you (the reporter) can provide — it won't ask you to inspect code.
+
+### After merge
+
+When a PR is merged to `main`, a new `Beta-RC-N` git tag and GitHub release are created automatically. Version is tag-based — `version.json` is not tracked in git.
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+Copyright (C) 2026 [11:11 Philosopher's Group](https://github.com/1111philo)

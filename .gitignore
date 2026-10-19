@@ -1,0 +1,44 @@
+node_modules/
+.aws-sam/
+.env
+dist/
+data/*.db*
+client/data/*.db*
+server/data/*.db*
+*.zip
+server/samconfig.toml
+server/client-dist/
+server/client-content/
+.github/workflows/deploy.yml
+.github/workflows/deploy-playground.yml
+.DS_Store
+.claude-pr/
+
+# Generated at deploy time from the latest Beta-RC-* tag.
+# See .github/workflows/version-bump.yml (tag creation) and the private
+# deploy fork's deploy.yml (version.json generation).
+version.json
+
+# impeccable-ignore-start
+# Ephemeral output, runtime state, and per-dev overrides.
+# The **/ prefix covers .impeccable at the repo root or in a nested workspace.
+# Shared artifacts stay tracked: config.json, live/config.json,
+# design.json, surfaces/*.md, critique/*.md.
+**/.impeccable/config.local.json
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+**/.impeccable/*.png
+**/.impeccable/review/
+**/.impeccable/questions/
+**/.impeccable/live/server.json
+**/.impeccable/live/sessions/
+**/.impeccable/live/previews/
+**/.impeccable/live/annotations/
+**/.impeccable/live/cache/
+**/.impeccable/live/manual-edit-apply-transaction.json
+**/.impeccable/live/manual-edit-events.jsonl
+**/.impeccable/live/manual-edit-evidence/
+**/.impeccable/live/pending-manual-edits.json
+**/.impeccable/live/deferred-svelte-component-accepts.json
+**/.impeccable/live/*.png
+# impeccable-ignore-end

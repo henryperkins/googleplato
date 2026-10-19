@@ -1,0 +1,630 @@
+import { Hono } from 'hono';
+import { randomBytes } from 'node:crypto';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+import db from '../lib/db.js';
+import { generateUserId, generateRefreshToken, generateResetToken, hashToken } from '../lib/crypto.js';
+import { hashPassword, comparePassword } from '../lib/password.js';
+import { signAccessToken } from '../lib/jwt.js';
+import { sendResetEmail } from '../lib/email.js';
+import { seedDefaultContent } from '../lib/seed.js';
+import { emit as emitHook } from '../lib/plugins/hooks.js';
+import { getFieldDefinitions, mergeFieldValues } from '../lib/user-fields.js';
+import { FIREBASE_PROJECT_ID } from '../config.js';
+
+const FIREBASE_JWKS = createRemoteJWKSet(
+  new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')
+);
+
+async function verifyFirebaseIdToken(idToken) {
+  const { payload } = await jwtVerify(idToken, FIREBASE_JWKS, {
+    issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+    audience: FIREBASE_PROJECT_ID,
+  });
+  return payload;
+}
+
+const USERNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,28}[a-zA-Z0-9]$/;
+
+function validateUsername(username) {
+  if (!username || typeof username !== 'string') return 'Username is required';
+  if (username.length < 3 || username.length > 30) return 'Username must be 3-30 characters';
+  if (!USERNAME_RE.test(username)) return 'Username must be alphanumeric with hyphens or underscores, and cannot start/end with them';
+  if (username.includes('@')) return 'Username cannot contain @';
+  return null;
+}
+
+function generateUsername() {
+  return 'user-' + randomBytes(3).toString('hex');
+}
+
+const auth = new Hono();
+
+// GET /v1/auth/setup-status — check if initial setup is needed
+auth.get('/v1/auth/setup-status', async (c) => {
+  const count = await db.countUsers();
+  return c.json({ needsSetup: count === 0 });
+});
+
+// POST /v1/auth/setup — create the first admin account (only works when no users exist)
+auth.post('/v1/auth/setup', async (c) => {
+  const count = await db.countUsers();
+  if (count > 0) {
+    return c.json({ error: 'Setup already completed' }, 400);
+  }
+
+  const { email, name, password, username: rawUsername, classroomName } = await c.req.json();
+  if (!email || !name || !password) {
+    return c.json({ error: 'email, name, and password are required' }, 400);
+  }
+  if (password.length < 8) {
+    return c.json({ error: 'Password must be at least 8 characters' }, 400);
+  }
+
+  const username = rawUsername ? rawUsername.toLowerCase() : generateUsername();
+  if (rawUsername) {
+    const usernameErr = validateUsername(rawUsername);
+    if (usernameErr) return c.json({ error: usernameErr }, 400);
+    const existingUsername = await db.getUserByUsername(rawUsername);
+    if (existingUsername) return c.json({ error: 'Username already taken' }, 409);
+  }
+
+  const userId = generateUserId();
+  const passwordHash = await hashPassword(password);
+
+  await db.createUser({
+    userId,
+    email: email.toLowerCase(),
+    username,
+    passwordHash,
+    name,
+    role: 'admin',
+  });
+
+  // Emit userCreated so plugins can react. Errors in handlers are caught and
+  // logged inside emit() — never bubble up to the user-facing request.
+  await emitHook('userCreated', { userId, email: email.toLowerCase(), role: 'admin' });
+
+  // Seed default prompts and lessons
+  try { await seedDefaultContent(); } catch (e) {
+    console.error('Content seed failed (non-fatal):', e.message);
+  }
+
+  // Save classroom name if provided
+  if (classroomName?.trim()) {
+    try {
+      const current = await db.getSyncData('_system', 'settings');
+      const settings = { ...(current?.data || {}), classroomName: classroomName.trim(), logoAlt: classroomName.trim() };
+      if (!settings.theme) settings.theme = { primary: '#8b1a1a', accent: '#dc2626' };
+      await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+    } catch (e) {
+      console.error('Classroom name save failed (non-fatal):', e.message);
+    }
+  }
+
+  const accessToken = await signAccessToken(userId, 'admin');
+  const refreshToken = generateRefreshToken();
+  await db.storeRefreshToken(hashToken(refreshToken), userId);
+
+  return c.json({
+    accessToken,
+    refreshToken,
+    user: { userId, email: email.toLowerCase(), username, name, role: 'admin' },
+  }, 201);
+});
+
+// GET /v1/auth/invite/:token — what the signup form can fill in for an email
+// invite: the email, and for a wait-list invite (#363) the person's answers.
+auth.get('/v1/auth/invite/:token', async (c) => {
+  const invite = await db.getInvite(c.req.param('token'));
+  if (!invite || invite.status !== 'pending' || !invite.email
+    || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
+    return c.json({ error: 'Invalid or expired invite' }, 404);
+  }
+  const profile = invite.profile || {};
+  return c.json({
+    email: invite.email,
+    name: profile.name || null,
+    userGroup: profile.userGroup || null,
+    customFields: profile.customFields || {},
+  });
+});
+
+// POST /v1/auth/signup — sign up with invite token
+auth.post('/v1/auth/signup', async (c) => {
+  const { inviteToken, name, password, username: rawUsername, userGroup, email: providedEmail, customFields: rawCustomFields } = await c.req.json();
+
+  if (!inviteToken || !name || !password) {
+    return c.json({ error: 'inviteToken, name, and password are required' }, 400);
+  }
+  if (password.length < 8) {
+    return c.json({ error: 'Password must be at least 8 characters' }, 400);
+  }
+
+  const invite = await db.getInvite(inviteToken);
+  if (!invite || invite.status !== 'pending') {
+    return c.json({ error: 'Invalid or expired invite' }, 400);
+  }
+
+  // Check TTL hasn't passed (DynamoDB TTL deletion is async)
+  if (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000)) {
+    return c.json({ error: 'Invalid or expired invite' }, 400);
+  }
+
+  // Determine the email based on invite type
+  let userEmail;
+  if (invite.email) {
+    // Email-specific invite: email must match if provided (for backwards compat, providedEmail is optional)
+    if (providedEmail && providedEmail.toLowerCase() !== invite.email.toLowerCase()) {
+      return c.json({ error: 'This invite is for a different email address' }, 400);
+    }
+    userEmail = invite.email;
+  } else if (invite.isLink) {
+    // Link invite: any email allowed, but email is required
+    if (!providedEmail) {
+      return c.json({ error: 'Email is required' }, 400);
+    }
+    userEmail = providedEmail.toLowerCase();
+    // NOTE: Usage limit check is done atomically in incrementLinkUsage() to prevent race conditions.
+    // The check-then-increment here would allow concurrent signups to exceed the limit.
+  } else {
+    return c.json({ error: 'Invalid invite type' }, 400);
+  }
+
+  const existing = await db.getUserByEmail(userEmail);
+  if (existing) {
+    return c.json({ error: 'Account already exists for this email' }, 409);
+  }
+
+  const username = rawUsername ? rawUsername.toLowerCase() : generateUsername();
+  if (rawUsername) {
+    const usernameErr = validateUsername(rawUsername);
+    if (usernameErr) return c.json({ error: usernameErr }, 400);
+    const existingUsername = await db.getUserByUsername(rawUsername);
+    if (existingUsername) return c.json({ error: 'Username already taken' }, 409);
+  }
+
+  // Custom user fields (#364): format-validated here, but required-ness is NOT
+  // enforced at signup — a stale cached signup form shouldn't hard-fail. Any
+  // missing required field is collected by ProfileCompletionGate on first visit.
+  // A wait-list invite (#363) carries the person's answers; the form's values
+  // win over them.
+  const profile = invite.profile || null;
+  let customFields = {};
+  if (rawCustomFields !== undefined || profile?.customFields) {
+    const settings = await db.getSyncData('_system', 'settings');
+    const merged = mergeFieldValues(getFieldDefinitions(settings?.data), profile?.customFields || {}, rawCustomFields);
+    if (merged.error) return c.json({ error: merged.error }, 400);
+    customFields = merged.values;
+  }
+
+  // A wait-list group may have been renamed or deleted since the person joined.
+  let profileGroup = null;
+  if (profile?.userGroup) {
+    const settings = await db.getSyncData('_system', 'settings');
+    if ((settings?.data?.userGroups || []).includes(profile.userGroup)) profileGroup = profile.userGroup;
+  }
+
+  // For link invites, increment usage count BEFORE creating the user.
+  // The atomic operation must gate account creation to prevent orphaned accounts
+  // when the usage limit is reached during concurrent signups.
+  if (invite.isLink) {
+    try {
+      await db.incrementLinkUsage(inviteToken);
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') {
+        // Usage limit reached - this is the authoritative check (atomic, race-free)
+        return c.json({ error: 'This invite link has reached its usage limit' }, 400);
+      }
+      throw err;
+    }
+  }
+
+  const userId = generateUserId();
+  const passwordHash = await hashPassword(password);
+
+  await db.createUser({
+    userId,
+    email: userEmail,
+    username,
+    passwordHash,
+    name,
+    userGroup: userGroup || profileGroup || null,
+    role: 'user',
+    slackUserId: invite.slackUserId || null,
+    customFields,
+  });
+
+  await emitHook('userCreated', { userId, email: userEmail, role: 'user' });
+
+  // Mark invite as used after successful user creation
+  if (invite.isLink) {
+    // Check if we should mark the invite as used (maxUsages reached)
+    const updated = await db.getInvite(inviteToken);
+    if (updated.maxUsages && updated.usageCount >= updated.maxUsages) {
+      await db.markInviteUsed(inviteToken);
+    }
+  } else {
+    // Email-specific invites are marked as used immediately
+    await db.markInviteUsed(inviteToken);
+  }
+
+  const accessToken = await signAccessToken(userId, 'user');
+  const refreshToken = generateRefreshToken();
+  await db.storeRefreshToken(hashToken(refreshToken), userId);
+
+  return c.json({
+    accessToken,
+    refreshToken,
+    user: { userId, email: userEmail, username, name, role: 'user' },
+  }, 201);
+});
+
+// POST /v1/auth/login
+auth.post('/v1/auth/login', async (c) => {
+  const { email, password } = await c.req.json();
+
+  if (!email || !password) {
+    return c.json({ error: 'Email/username and password are required' }, 400);
+  }
+
+  // If the identifier contains @, look up by email; otherwise by username
+  const user = email.includes('@')
+    ? await db.getUserByEmail(email)
+    : await db.getUserByUsername(email);
+  if (!user) {
+    return c.json({ error: 'Invalid credentials' }, 401);
+  }
+
+  const valid = await comparePassword(password, user.passwordHash);
+  if (!valid) {
+    return c.json({ error: 'Invalid credentials' }, 401);
+  }
+
+  const accessToken = await signAccessToken(user.userId, user.role);
+  const refreshToken = generateRefreshToken();
+  await db.storeRefreshToken(hashToken(refreshToken), user.userId);
+
+  // Activity-tracking writes are best-effort: login must succeed even if
+  // audit-log / user-record writes are throttled or unavailable. The login
+  // itself is what users feel; missing activity data just degrades admin
+  // stats for this user.
+  try {
+    await db.createAuditLog({
+      action: 'user_login',
+      userId: user.userId,
+      email: user.email,
+      performedBy: user.userId,
+    });
+  } catch { /* swallow */ }
+  try {
+    await db.setUserActivityField(user.userId, 'lastActiveAt', new Date().toISOString());
+  } catch { /* swallow */ }
+
+  return c.json({
+    accessToken,
+    refreshToken,
+    user: { userId: user.userId, email: user.email, username: user.username, name: user.name, role: user.role },
+  });
+});
+
+// POST /v1/auth/refresh
+auth.post('/v1/auth/refresh', async (c) => {
+  const { refreshToken } = await c.req.json();
+  if (!refreshToken) {
+    return c.json({ error: 'refreshToken is required' }, 400);
+  }
+
+  const tokenHash = hashToken(refreshToken);
+  const stored = await db.getRefreshToken(tokenHash);
+  if (!stored) {
+    return c.json({ error: 'Invalid refresh token' }, 401);
+  }
+
+  const user = await db.getUserById(stored.userId);
+  if (!user) {
+    await db.deleteRefreshToken(tokenHash);
+    return c.json({ error: 'User not found' }, 401);
+  }
+
+  // Rotate: delete old, issue new
+  await db.deleteRefreshToken(tokenHash);
+  const newRefreshToken = generateRefreshToken();
+  await db.storeRefreshToken(hashToken(newRefreshToken), user.userId);
+
+  const accessToken = await signAccessToken(user.userId, user.role);
+
+  // Best-effort: a token refresh fires every ~15 min while a learner is
+  // active, so this gives `lastActiveAt` a heartbeat without per-message
+  // write amplification on the user record.
+  try {
+    await db.setUserActivityField(user.userId, 'lastActiveAt', new Date().toISOString());
+  } catch { /* swallow */ }
+
+  return c.json({ accessToken, refreshToken: newRefreshToken });
+});
+
+// POST /v1/auth/logout
+auth.post('/v1/auth/logout', async (c) => {
+  const { refreshToken } = await c.req.json();
+  if (refreshToken) {
+    await db.deleteRefreshToken(hashToken(refreshToken));
+  }
+  return c.json({ ok: true });
+});
+
+// POST /v1/auth/forgot-password
+auth.post('/v1/auth/forgot-password', async (c) => {
+  const { email } = await c.req.json();
+  if (!email) {
+    return c.json({ error: 'Email is required' }, 400);
+  }
+
+  const user = await db.getUserByEmail(email);
+  // Always return ok to avoid leaking whether an email exists
+  if (!user) {
+    return c.json({ ok: true });
+  }
+
+  const token = generateResetToken();
+  await db.storeResetToken(hashToken(token), user.userId);
+  await sendResetEmail(user.email, token);
+
+  return c.json({ ok: true });
+});
+
+// POST /v1/auth/reset-password
+auth.post('/v1/auth/reset-password', async (c) => {
+  const { resetToken, password } = await c.req.json();
+  if (!resetToken || !password) {
+    return c.json({ error: 'resetToken and password are required' }, 400);
+  }
+  if (password.length < 8) {
+    return c.json({ error: 'Password must be at least 8 characters' }, 400);
+  }
+
+  const tokenHash = hashToken(resetToken);
+  const stored = await db.getResetToken(tokenHash);
+  if (!stored) {
+    return c.json({ error: 'Invalid or expired reset link' }, 400);
+  }
+
+  const user = await db.getUserById(stored.userId);
+  if (!user) {
+    await db.deleteResetToken(tokenHash);
+    return c.json({ error: 'User not found' }, 400);
+  }
+
+  const passwordHash = await hashPassword(password);
+  await db.updateUser(user.userId, { passwordHash });
+  await db.deleteResetToken(tokenHash);
+
+  return c.json({ ok: true });
+});
+
+// POST /v1/auth/firebase — sign in or onboard with a verified Firebase Google ID token
+auth.post('/v1/auth/firebase', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const {
+    idToken,
+    inviteToken,
+    classroomName,
+    username: rawUsername,
+    userGroup,
+    customFields: rawCustomFields,
+  } = body;
+
+  if (!idToken || typeof idToken !== 'string') {
+    return c.json({ error: 'Firebase ID token is required' }, 400);
+  }
+
+  let claims;
+  try {
+    claims = await verifyFirebaseIdToken(idToken);
+  } catch {
+    return c.json({ error: 'Invalid or expired Google sign-in token' }, 401);
+  }
+
+  const email = typeof claims.email === 'string' ? claims.email.toLowerCase().trim() : '';
+  const emailVerified = claims.email_verified === true;
+  if (!email || !emailVerified) {
+    return c.json({ error: 'A verified Google email address is required' }, 400);
+  }
+
+  const displayName = (typeof body.name === 'string' && body.name.trim())
+    || (typeof claims.name === 'string' && claims.name.trim())
+    || email.split('@')[0];
+
+  // Case 1: Initial classroom setup (0 users exist)
+  const count = await db.countUsers();
+  if (count === 0) {
+    const username = rawUsername ? rawUsername.toLowerCase() : generateUsername();
+    if (rawUsername) {
+      const usernameErr = validateUsername(rawUsername);
+      if (usernameErr) return c.json({ error: usernameErr }, 400);
+    }
+
+    const userId = generateUserId();
+    const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
+
+    await db.createUser({
+      userId,
+      email,
+      username,
+      passwordHash,
+      name: displayName,
+      role: 'admin',
+    });
+
+    await emitHook('userCreated', { userId, email, role: 'admin' });
+
+    try { await seedDefaultContent(); } catch (e) {
+      console.error('Content seed failed (non-fatal):', e.message);
+    }
+
+    if (classroomName?.trim()) {
+      try {
+        const current = await db.getSyncData('_system', 'settings');
+        const settings = {
+          ...(current?.data || {}),
+          classroomName: classroomName.trim(),
+          logoAlt: classroomName.trim(),
+        };
+        if (!settings.theme) settings.theme = { primary: '#8b1a1a', accent: '#dc2626' };
+        await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+      } catch (e) {
+        console.error('Classroom name save failed (non-fatal):', e.message);
+      }
+    }
+
+    const accessToken = await signAccessToken(userId, 'admin');
+    const refreshToken = generateRefreshToken();
+    await db.storeRefreshToken(hashToken(refreshToken), userId);
+
+    return c.json({
+      accessToken,
+      refreshToken,
+      user: { userId, email, username, name: displayName, role: 'admin' },
+      isNewSetup: true,
+    }, 201);
+  }
+
+  // Case 2: Existing plato user matches this verified Google email
+  const existingUser = await db.getUserByEmail(email);
+  if (existingUser) {
+    const accessToken = await signAccessToken(existingUser.userId, existingUser.role);
+    const refreshToken = generateRefreshToken();
+    await db.storeRefreshToken(hashToken(refreshToken), existingUser.userId);
+
+    try {
+      await db.createAuditLog({
+        action: 'user_login_google',
+        userId: existingUser.userId,
+        email: existingUser.email,
+        performedBy: existingUser.userId,
+      });
+    } catch { /* swallow */ }
+    try {
+      await db.setUserActivityField(existingUser.userId, 'lastActiveAt', new Date().toISOString());
+    } catch { /* swallow */ }
+
+    return c.json({
+      accessToken,
+      refreshToken,
+      user: {
+        userId: existingUser.userId,
+        email: existingUser.email,
+        username: existingUser.username,
+        name: existingUser.name,
+        role: existingUser.role,
+      },
+    });
+  }
+
+  // Case 3: New user onboarding — check explicit inviteToken or pending email invite
+  let invite = null;
+  if (inviteToken) {
+    invite = await db.getInvite(inviteToken);
+    if (!invite || invite.status !== 'pending' || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
+      return c.json({ error: 'Invalid or expired invite' }, 400);
+    }
+    if (invite.email && invite.email.toLowerCase() !== email) {
+      return c.json({ error: 'This invite is for a different email address' }, 400);
+    }
+  } else {
+    const byEmail = await db.getInviteByEmail(email);
+    if (byEmail && byEmail.status === 'pending' && (!byEmail.ttl || byEmail.ttl >= Math.floor(Date.now() / 1000))) {
+      invite = byEmail;
+    }
+  }
+
+  if (!invite) {
+    // Check if the user is already on the waitlist
+    const waitlistEntry = await db.getWaitlistEntryByEmail(email);
+    if (waitlistEntry) {
+      return c.json({
+        error: 'Your email is on the classroom wait list. You will be able to sign in once an administrator approves your invite.',
+        code: 'WAITLIST_PENDING',
+        email,
+      }, 403);
+    }
+    return c.json({
+      error: 'No account or pending invite found for this Google email. Join the wait list or use an invite link.',
+      code: 'INVITE_REQUIRED',
+      email,
+    }, 403);
+  }
+
+  const username = rawUsername ? rawUsername.toLowerCase() : generateUsername();
+  if (rawUsername) {
+    const usernameErr = validateUsername(rawUsername);
+    if (usernameErr) return c.json({ error: usernameErr }, 400);
+    const existingUsername = await db.getUserByUsername(rawUsername);
+    if (existingUsername) return c.json({ error: 'Username already taken' }, 409);
+  }
+
+  const profile = invite.profile || null;
+  let customFields = {};
+  if (rawCustomFields !== undefined || profile?.customFields) {
+    const settings = await db.getSyncData('_system', 'settings');
+    const merged = mergeFieldValues(getFieldDefinitions(settings?.data), profile?.customFields || {}, rawCustomFields);
+    if (merged.error) return c.json({ error: merged.error }, 400);
+    customFields = merged.values;
+  }
+
+  let profileGroup = null;
+  if (profile?.userGroup) {
+    const settings = await db.getSyncData('_system', 'settings');
+    if ((settings?.data?.userGroups || []).includes(profile.userGroup)) profileGroup = profile.userGroup;
+  }
+
+  if (invite.isLink) {
+    try {
+      await db.incrementLinkUsage(invite.inviteToken);
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') {
+        return c.json({ error: 'This invite link has reached its usage limit' }, 400);
+      }
+      throw err;
+    }
+  }
+
+  const userId = generateUserId();
+  const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
+  const finalName = displayName || profile?.name || email.split('@')[0];
+
+  await db.createUser({
+    userId,
+    email,
+    username,
+    passwordHash,
+    name: finalName,
+    userGroup: userGroup || profileGroup || null,
+    role: 'user',
+    slackUserId: invite.slackUserId || null,
+    customFields,
+  });
+
+  await emitHook('userCreated', { userId, email, role: 'user' });
+
+  if (invite.isLink) {
+    const updated = await db.getInvite(invite.inviteToken);
+    if (updated?.maxUsages && updated.usageCount >= updated.maxUsages) {
+      await db.markInviteUsed(invite.inviteToken);
+    }
+  } else {
+    await db.markInviteUsed(invite.inviteToken);
+  }
+
+  const accessToken = await signAccessToken(userId, 'user');
+  const refreshToken = generateRefreshToken();
+  await db.storeRefreshToken(hashToken(refreshToken), userId);
+
+  return c.json({
+    accessToken,
+    refreshToken,
+    user: { userId, email, username, name: finalName, role: 'user' },
+  }, 201);
+});
+
+export default auth;
+export { validateUsername, generateUsername };

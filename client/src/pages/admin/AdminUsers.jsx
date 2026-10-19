@@ -1,0 +1,1267 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { adminApi } from './adminApi.js';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+} from '@/components/ui/table';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { PluginSlot } from '@/lib/plugins/Slot.jsx';
+import UserStatsPanel from './UserStatsPanel.jsx';
+import CompletionRing from './CompletionRing.jsx';
+import UserFieldsDialog from './UserFieldsDialog.jsx';
+import WaitlistDialog from './WaitlistDialog.jsx';
+import WaitlistEntryEdit from './WaitlistEntryEdit.jsx';
+import CustomFieldInput from '../../components/CustomFieldInput.jsx';
+import { customFieldsMatch, matchesFieldFilter, missingRequired } from '../../lib/userFields.js';
+
+const PAGE_SIZE = 20;
+
+const SORT_LABELS = {
+  name: 'name', email: 'email', username: 'username',
+  group: 'group', role: 'role', completed: 'completion',
+  lastActive: 'last active', date: 'join date',
+};
+
+// Module-level so the function references are stable across renders, which
+// lets sortedList's useMemo cache correctly (and gets rid of the
+// eslint-disable on exhaustive-deps). Items are the wrapper rows from
+// combinedList — see _user for the underlying user record.
+const SORT_KEY_FNS = {
+  name: (i) => i.name || i.email || '',
+  email: (i) => i.email || '',
+  username: (i) => i.username || '',
+  group: (i) => i.userGroup || '',
+  role: (i) => i.role || '',
+  completed: (i) => {
+    const c = i._user?.lessonsCompleted;
+    const a = i._user?.lessonsAvailable;
+    if (typeof c !== 'number' || typeof a !== 'number' || a <= 0) return null;
+    return c / a;
+  },
+  lastActive: (i) => i._user?.lastActiveAt || null,
+  date: (i) => i.createdAt || '',
+};
+
+function SortHeader({ sortKey, sortBy, onSort, align = 'left', children }) {
+  const active = sortBy.key === sortKey;
+  const aria = !active ? 'none' : sortBy.dir === 'asc' ? 'ascending' : 'descending';
+  const cellAlign = align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : '';
+  const btnAlign = align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center w-full' : '';
+  return (
+    <TableHead aria-sort={aria} className={cellAlign}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 font-medium hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 ${btnAlign}`}
+      >
+        {children}
+        <span aria-hidden="true" className={`text-xs ${active ? '' : 'opacity-30'}`}>
+          {active ? (sortBy.dir === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </button>
+    </TableHead>
+  );
+}
+
+function parseCsvEmails(text) {
+  const lines = text.split(/\r?\n/);
+  const emails = [];
+  const headerLine = lines[0] || '';
+  const headers = headerLine.split(',').map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+  const emailCol = headers.indexOf('email');
+  for (let i = emailCol >= 0 ? 1 : 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let value;
+    if (emailCol >= 0) {
+      const cols = line.split(',');
+      value = (cols[emailCol] || '').trim().replace(/^["']|["']$/g, '');
+    } else {
+      value = line.replace(/^["']|["']$/g, '').trim();
+    }
+    if (value) emails.push(value.toLowerCase());
+  }
+  return emails;
+}
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export default function AdminUsers() {
+  const navigate = useNavigate();
+  const { userId: paramUserId, waitlistToken } = useParams();
+  const { user: currentUser } = useAuth();
+  const [users, setUsers] = useState([]);
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const [waitlistEntries, setWaitlistEntries] = useState([]);
+  const [waitlistSettings, setWaitlistSettings] = useState({ open: false, hasApiKey: false });
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState(null);
+
+  // Modal states
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [groupsOpen, setGroupsOpen] = useState(false);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
+  const [userFields, setUserFields] = useState([]);
+  const [editUser, setEditUser] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', email: '', username: '', userGroup: '', role: '', customFields: {} });
+
+  // Invite modal state
+  const [inviteInput, setInviteInput] = useState('');
+  const [emailQueue, setEmailQueue] = useState([]);
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteNotice, setInviteNotice] = useState(null);
+  const csvRef = useRef(null);
+
+  // Search, filter, pagination
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
+  // Custom-field filter (#364): { fieldId, value } — value is '__set', '__empty', or a dropdown option.
+  const [fieldFilter, setFieldFilter] = useState({ fieldId: '', value: '' });
+  const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState({ key: 'name', dir: 'asc' });
+  const [sortAnnouncement, setSortAnnouncement] = useState('');
+
+  // Groups form
+  const [newGroupName, setNewGroupName] = useState('');
+
+  // Slack integration state
+  const [slackConnected, setSlackConnected] = useState(false);
+  const [inviteTab, setInviteTab] = useState('email');
+  const [slackSearch, setSlackSearch] = useState('');
+  const [slackSearchResults, setSlackSearchResults] = useState([]);
+  const [slackSearching, setSlackSearching] = useState(false);
+  const [slackChannels, setSlackChannels] = useState([]);
+  const [slackSelectedChannel, setSlackSelectedChannel] = useState('');
+  const [slackQueue, setSlackQueue] = useState([]);
+  const [slackSending, setSlackSending] = useState(false);
+
+  // Link invite state
+  const [linkInvite, setLinkInvite] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [linkGenerating, setLinkGenerating] = useState(false);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [usersRes, invitesRes, settingsRes, pluginsRes, linkRes, waitlistRes] = await Promise.all([
+        adminApi('GET', '/v1/admin/users?include=stats'),
+        adminApi('GET', '/v1/admin/invites'),
+        adminApi('GET', '/v1/admin/settings'),
+        adminApi('GET', '/v1/admin/plugins').catch(() => []),
+        adminApi('GET', '/v1/admin/invites/link').catch(() => null),
+        adminApi('GET', '/v1/admin/waitlist').catch(() => null),
+      ]);
+      setUsers(Array.isArray(usersRes) ? usersRes : []);
+      setPendingInvites(Array.isArray(invitesRes) ? invitesRes.filter(x => x.status === 'pending') : []);
+      setGroups(settingsRes.userGroups || []);
+      setUserFields(Array.isArray(settingsRes.userFields) ? settingsRes.userFields : []);
+      setLinkInvite(linkRes);
+      setWaitlistEntries(Array.isArray(waitlistRes?.entries) ? waitlistRes.entries : []);
+      setWaitlistSettings({ open: !!waitlistRes?.open, hasApiKey: !!waitlistRes?.hasApiKey });
+      // Slack connection status comes from the plugin's settings, not legacy _system:settings.slack.
+      // The Slack tab is hidden when the plugin is disabled OR not connected.
+      const slack = Array.isArray(pluginsRes) ? pluginsRes.find((entry) => entry.id === 'slack') : null;
+      setSlackConnected(!!(slack?.enabled && slack?.settings?.connected));
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    document.title = 'Users — plato';
+    loadData();
+  }, [loadData]);
+
+  // -- Invite modal logic --
+
+  const existingEmails = useMemo(() => {
+    const set = new Set();
+    for (const u of users) set.add(u.email.toLowerCase());
+    for (const inv of pendingInvites) {
+      if (inv.email) set.add(inv.email.toLowerCase()); // Skip link invites (email is null)
+    }
+    return set;
+  }, [users, pendingInvites]);
+
+  function addEmailsToQueue(raw) {
+    const parts = raw.split(/[,\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+    const toAdd = [];
+    let skipped = 0;
+
+    setEmailQueue(prev => {
+      const existing = new Set(prev);
+      const next = [...prev];
+      for (const email of parts) {
+        if (!emailRegex.test(email) || existing.has(email) || existingEmails.has(email)) {
+          continue;
+        }
+        existing.add(email);
+        next.push(email);
+        toAdd.push(email);
+      }
+      return next;
+    });
+
+    skipped = parts.length - toAdd.length;
+    return { skipped, total: parts.length };
+  }
+
+  function handleAddEmails() {
+    if (!inviteInput.trim()) return;
+    setInviteNotice(null);
+    const parts = inviteInput.split(/[,\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+    // Check against current queue + existing users before setState
+    const skipped = parts.filter(email =>
+      !emailRegex.test(email) || existingEmails.has(email) || emailQueue.includes(email)
+    ).length;
+
+    setEmailQueue(prev => {
+      const existing = new Set(prev);
+      const next = [...prev];
+      for (const email of parts) {
+        if (!emailRegex.test(email) || existing.has(email) || existingEmails.has(email)) continue;
+        existing.add(email);
+        next.push(email);
+      }
+      return next;
+    });
+
+    if (skipped > 0) {
+      const msg = parts.length === 1
+        ? 'This user already exists or has a pending invite.'
+        : `${skipped} of ${parts.length} skipped (already exist or have pending invites).`;
+      setInviteNotice(msg);
+    }
+    setInviteInput('');
+  }
+
+  function handleCsvFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const emails = parseCsvEmails(ev.target.result);
+      addEmailsToQueue(emails.join(','));
+      if (csvRef.current) csvRef.current.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  function removeFromQueue(email) {
+    setEmailQueue(prev => prev.filter(e => e !== email));
+  }
+
+  async function sendInvites() {
+    if (emailQueue.length === 0) return;
+    setInviteSending(true);
+    try {
+      const data = await adminApi('POST', '/v1/admin/invites/bulk', { emails: emailQueue });
+      const parts = [];
+      if (data.sent > 0) parts.push(`${data.sent} invite(s) sent`);
+      if (data.skipped > 0) parts.push(`${data.skipped} skipped`);
+      setMessage({ text: parts.join('. ') + '.', type: data.sent > 0 ? 'success' : 'error' });
+      setEmailQueue([]);
+      setInviteOpen(false);
+      loadData();
+    } catch (e) {
+      setMessage({ text: e.message, type: 'error' });
+    } finally {
+      setInviteSending(false);
+    }
+  }
+
+  function handleInviteClose(open) {
+    if (!open) {
+      setEmailQueue([]);
+      setInviteInput('');
+      if (csvRef.current) csvRef.current.value = '';
+      setSlackQueue([]);
+      setSlackSearch('');
+      setSlackSearchResults([]);
+      setInviteTab('email');
+      setInviteNotice(null);
+    }
+    setInviteOpen(open);
+  }
+
+  // -- Slack invite logic --
+
+  const slackSearchTimeout = useRef(null);
+
+  function handleSlackSearchChange(value) {
+    setSlackSearch(value);
+    clearTimeout(slackSearchTimeout.current);
+    if (!value.trim()) { setSlackSearchResults([]); return; }
+    slackSearchTimeout.current = setTimeout(async () => {
+      setSlackSearching(true);
+      try {
+        const results = await adminApi('GET', `/v1/plugins/slack/admin/users?q=${encodeURIComponent(value)}`);
+        setSlackSearchResults(Array.isArray(results) ? results : []);
+      } catch { setSlackSearchResults([]); }
+      setSlackSearching(false);
+    }, 300);
+  }
+
+  async function loadSlackChannels() {
+    try {
+      const channels = await adminApi('GET', '/v1/plugins/slack/admin/channels');
+      setSlackChannels(Array.isArray(channels) ? channels : []);
+    } catch { setSlackChannels([]); }
+  }
+
+  async function loadChannelMembers(channelId) {
+    if (!channelId) return;
+    setSlackSearching(true);
+    try {
+      const members = await adminApi('GET', `/v1/plugins/slack/admin/channels/${channelId}/members`);
+      // Add all members to queue at once
+      if (Array.isArray(members)) {
+        setSlackQueue(prev => {
+          const existingIds = new Set(prev.map(u => u.slackUserId));
+          const newMembers = members.filter(m => !existingIds.has(m.slackUserId) && m.email && !existingEmails.has(m.email.toLowerCase()));
+          return [...prev, ...newMembers];
+        });
+      }
+    } catch { /* ignore */ }
+    setSlackSearching(false);
+    setSlackSelectedChannel('');
+  }
+
+  function addToSlackQueue(user) {
+    setInviteNotice(null);
+    setSlackQueue(prev => {
+      if (prev.some(u => u.slackUserId === user.slackUserId)) {
+        setInviteNotice(`${user.name} is already in the queue.`);
+        return prev;
+      }
+      if (user.email && existingEmails.has(user.email.toLowerCase())) {
+        setInviteNotice(`${user.name} already exists or has a pending invite.`);
+        return prev;
+      }
+      return [...prev, user];
+    });
+    setSlackSearch('');
+    setSlackSearchResults([]);
+  }
+
+  function removeFromSlackQueue(slackUserId) {
+    setSlackQueue(prev => prev.filter(u => u.slackUserId !== slackUserId));
+  }
+
+  async function sendSlackInvites() {
+    if (slackQueue.length === 0) return;
+    setSlackSending(true);
+    try {
+      const data = await adminApi('POST', '/v1/plugins/slack/admin/invites', { users: slackQueue });
+      const parts = [];
+      if (data.sent > 0) parts.push(`${data.sent} Slack invite(s) sent`);
+      if (data.skipped > 0) parts.push(`${data.skipped} skipped`);
+      setMessage({ text: parts.join('. ') + '.', type: data.sent > 0 ? 'success' : 'error' });
+      setSlackQueue([]);
+      setInviteOpen(false);
+      loadData();
+    } catch (e) {
+      setMessage({ text: e.message, type: 'error' });
+    } finally {
+      setSlackSending(false);
+    }
+  }
+
+  // -- Link invite handlers --
+
+  async function handleGenerateLink() {
+    setLinkGenerating(true);
+    try {
+      const data = await adminApi('POST', '/v1/admin/invites/link');
+      setLinkInvite(data);
+      setMessage({ text: 'Invite link generated', type: 'success' });
+    } catch (e) {
+      setMessage({ text: e.message, type: 'error' });
+    } finally {
+      setLinkGenerating(false);
+    }
+  }
+
+  async function handleRegenerateLink() {
+    if (!confirm('Regenerate invite link? The old link will stop working.')) return;
+    await handleGenerateLink();
+  }
+
+  async function handleDeleteLink() {
+    if (!confirm('Delete invite link? This cannot be undone.')) return;
+    try {
+      await adminApi('DELETE', '/v1/admin/invites/link');
+      setLinkInvite(null);
+      setMessage({ text: 'Invite link deleted', type: 'success' });
+    } catch (e) {
+      setMessage({ text: e.message, type: 'error' });
+    }
+  }
+
+  function handleCopyLink() {
+    const url = `${window.location.origin}/signup?token=${linkInvite.inviteToken}`;
+    navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
+  // -- User actions --
+
+  async function resendInvite(email) {
+    try {
+      await adminApi('POST', '/v1/admin/invites/resend', { email });
+      setMessage({ text: `Invite resent to ${email}.`, type: 'success' });
+      loadData();
+    } catch (e) { setMessage({ text: e.message, type: 'error' }); }
+  }
+
+  async function inviteFromWaitlist(token, email) {
+    try {
+      await adminApi('POST', `/v1/admin/waitlist/${token}/invite`);
+      setMessage({ text: `Invite sent to ${email}.`, type: 'success' });
+      loadData();
+      return true;
+    } catch (e) { setMessage({ text: e.message, type: 'error' }); return false; }
+  }
+
+  async function removeFromWaitlist(token, email) {
+    if (!confirm(`Remove ${email} from the wait list?`)) return false;
+    try { await adminApi('DELETE', `/v1/admin/waitlist/${token}`); loadData(); return true; }
+    catch (e) { setMessage({ text: e.message, type: 'error' }); return false; }
+  }
+
+  // -- Edit a wait-list entry (#363) --
+  // Driven by the URL (/plato/users/waitlist/:token), like Edit User.
+  const editEntry = waitlistToken ? waitlistEntries.find((w) => w.inviteToken === waitlistToken) || null : null;
+  useEffect(() => {
+    // Stale link (invited/removed since): back to the list once data is in.
+    if (waitlistToken && !loading && !editEntry) navigate('/plato/users', { replace: true });
+  }, [waitlistToken, loading, editEntry, navigate]);
+
+  async function revokeInvite(token) {
+    try { await adminApi('DELETE', `/v1/admin/invites/${token}`); loadData(); } catch { /* ignore */ }
+  }
+
+  async function deleteUser(userId, name) {
+    if (!confirm(`Delete ${name} and all their data? This cannot be undone.`)) return;
+    try { await adminApi('DELETE', `/v1/admin/users/${userId}`); loadData(); }
+    catch (e) { setMessage({ text: e.message, type: 'error' }); }
+  }
+
+  async function resetUserPassword(userId, email) {
+    if (!confirm(`Send a password reset email to ${email}?`)) return;
+    try {
+      await adminApi('POST', `/v1/admin/users/${userId}/reset-password`);
+      setMessage({ text: `Password reset email sent to ${email}.`, type: 'success' });
+    } catch (e) {
+      setMessage({ text: e.message, type: 'error' });
+    }
+  }
+
+  // -- Groups --
+
+  async function addGroup() {
+    const name = newGroupName.trim();
+    if (!name) return;
+    try {
+      const data = await adminApi('PUT', '/v1/admin/groups', { name });
+      setGroups(data.userGroups || []);
+      setNewGroupName('');
+    } catch (e) { setMessage({ text: e.message, type: 'error' }); }
+  }
+
+  async function deleteGroup(name) {
+    try {
+      const data = await adminApi('DELETE', `/v1/admin/groups/${encodeURIComponent(name)}`);
+      setGroups(data.userGroups || []);
+    } catch (e) { setMessage({ text: e.message, type: 'error' }); }
+  }
+
+  // -- Edit user --
+  // editUser is driven by the URL (/plato/users/:userId) so deep-linking and
+  // browser refresh / back-button preserve the selection. openEditUser only
+  // navigates; the effect below populates state from the URL param + users list.
+
+  function openEditUser(u) {
+    navigate(`/plato/users/${u.userId}`);
+  }
+
+  function closeEditUser() {
+    navigate('/plato/users');
+  }
+
+  useEffect(() => {
+    if (!paramUserId) {
+      setEditUser(null);
+      return;
+    }
+    // Wait until users have loaded; if userId doesn't resolve to a known user,
+    // route back to the list (e.g. stale URL pointing at a deleted user).
+    if (users.length === 0) return;
+    const u = users.find((x) => x.userId === paramUserId);
+    if (!u) {
+      navigate('/plato/users', { replace: true });
+      return;
+    }
+    setEditUser(u);
+    setEditForm({ name: u.name || '', email: u.email || '', username: u.username || '', userGroup: u.userGroup || '', role: u.role || 'user', customFields: { ...(u.customFields || {}) } });
+  }, [paramUserId, users, navigate]);
+
+  async function saveEditUser() {
+    if (!editUser) return;
+    const missing = missingRequired(userFields, editForm.customFields);
+    if (missing.length) {
+      const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
+      setMessage({ text: `Fill in required ${labels.length === 1 ? 'field' : 'fields'}: ${labels.join(', ')}.`, type: 'error' });
+      return;
+    }
+    try {
+      await adminApi('PATCH', `/v1/admin/users/${editUser.userId}`, {
+        name: editForm.name,
+        email: editForm.email,
+        username: editForm.username,
+        userGroup: editForm.userGroup || null,
+        // Send every defined field so cleared inputs clear the stored value.
+        customFields: Object.fromEntries(userFields.map((f) => [f.id, editForm.customFields[f.id] ?? ''])),
+      });
+      if (editForm.role !== editUser.role) {
+        await adminApi('PUT', `/v1/admin/users/${editUser.userId}/role`, { role: editForm.role });
+      }
+      setMessage({ text: 'User updated.', type: 'success' });
+      closeEditUser();
+      loadData();
+    } catch (e) { setMessage({ text: e.message, type: 'error' }); }
+  }
+
+  // -- Filtering, search, pagination --
+
+  const combinedList = useMemo(() => {
+    // Build unified list: invites first, then users
+    // Filter out link invites (shown in the Link tab, not the user list)
+    const items = [];
+    for (const inv of pendingInvites) {
+      if (!inv.isLink) {
+        items.push({ _type: 'invite', _key: inv.inviteToken, email: inv.email, name: null, username: null, userGroup: null, role: null, customFields: null, createdAt: inv.createdAt, _invite: inv });
+      }
+    }
+    for (const w of waitlistEntries) {
+      items.push({ _type: 'waitlist', _key: w.inviteToken, email: w.email, name: w.name, username: null, userGroup: w.userGroup, role: null, customFields: w.customFields || {}, createdAt: w.createdAt, _entry: w });
+    }
+    for (const u of users) {
+      items.push({ _type: 'user', _key: u.userId, email: u.email, name: u.name, username: u.username, userGroup: u.userGroup, role: u.role, customFields: u.customFields || {}, createdAt: u.createdAt, _user: u });
+    }
+    return items;
+  }, [users, pendingInvites, waitlistEntries]);
+
+  const filterCounts = useMemo(() => ({
+    all: combinedList.length,
+    active: combinedList.filter(i => i._type === 'user' && i.role === 'user').length,
+    admins: combinedList.filter(i => i._type === 'user' && i.role === 'admin').length,
+    invited: combinedList.filter(i => i._type === 'invite').length,
+    waitlist: combinedList.filter(i => i._type === 'waitlist').length,
+  }), [combinedList]);
+
+  const filteredList = useMemo(() => {
+    let list = combinedList;
+
+    // Apply filter
+    if (filter === 'active') list = list.filter(i => i._type === 'user' && i.role === 'user');
+    else if (filter === 'admins') list = list.filter(i => i._type === 'user' && i.role === 'admin');
+    else if (filter === 'invited') list = list.filter(i => i._type === 'invite');
+    else if (filter === 'waitlist') list = list.filter(i => i._type === 'waitlist');
+
+    // Apply custom-field filter (invites have no field values, so they drop out)
+    const filterDef = userFields.find(f => f.id === fieldFilter.fieldId);
+    if (filterDef && fieldFilter.value) {
+      list = list.filter(i => i._type !== 'invite' && matchesFieldFilter(i.customFields, filterDef, fieldFilter.value));
+    }
+
+    // Apply search (custom field values are searchable too)
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(i =>
+        (i.email && i.email.toLowerCase().includes(q)) ||
+        (i.name && i.name.toLowerCase().includes(q)) ||
+        (i.username && i.username.toLowerCase().includes(q)) ||
+        customFieldsMatch(i.customFields, q)
+      );
+    }
+
+    return list;
+  }, [combinedList, filter, search, userFields, fieldFilter]);
+
+  const filterField = userFields.find(f => f.id === fieldFilter.fieldId) || null;
+
+  // Sort comparators live at module level (SORT_KEY_FNS) so their references
+  // are stable; nullish values always sort last regardless of direction so
+  // invites (which lack user-stat fields) cluster predictably rather than
+  // ping-ponging between top and bottom on direction flip.
+  const sortedList = useMemo(() => {
+    const keyFn = SORT_KEY_FNS[sortBy.key] || SORT_KEY_FNS.name;
+    const mult = sortBy.dir === 'desc' ? -1 : 1;
+    return [...filteredList].sort((a, b) => {
+      const va = keyFn(a);
+      const vb = keyFn(b);
+      const aNull = va == null || va === '';
+      const bNull = vb == null || vb === '';
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;   // nullish always last
+      if (bNull) return -1;
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mult;
+      return va.toString().localeCompare(vb.toString(), undefined, { numeric: true, sensitivity: 'base' }) * mult;
+    });
+  }, [filteredList, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedList.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = sortedList.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  function handleSort(key) {
+    setSortBy((prev) => {
+      const next = prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: 'asc' };
+      // Announcement goes via setState so SRs hear it from the live region.
+      // We update it from the same click handler (not an effect) so the
+      // message is in sync with the visible sort and we don't cascade re-renders.
+      const label = SORT_LABELS[next.key] || next.key;
+      setSortAnnouncement(`Sorted by ${label}, ${next.dir === 'asc' ? 'ascending' : 'descending'}.`);
+      return next;
+    });
+  }
+
+
+  // Reset page when filter/search/sort changes
+  useEffect(() => { setPage(1); }, [filter, search, sortBy, fieldFilter]);
+
+  if (loading) return <div className="flex items-center justify-center py-12 text-muted-foreground" role="status" aria-live="polite">Loading...</div>;
+
+  if (editEntry) {
+    const back = () => navigate('/plato/users');
+    return (
+      <WaitlistEntryEdit
+        key={editEntry.inviteToken}
+        entry={editEntry}
+        groups={groups}
+        userFields={userFields}
+        onBack={back}
+        onSaved={(text) => { setMessage({ text, type: 'success' }); back(); loadData(); }}
+        onInvite={async (e) => { if (await inviteFromWaitlist(e.inviteToken, e.email)) back(); }}
+        onRemove={async (e) => { if (await removeFromWaitlist(e.inviteToken, e.email)) back(); }}
+      />
+    );
+  }
+
+  // Edit user view
+  if (editUser) {
+    const isSelf = editUser.userId === currentUser?.userId;
+    return (
+      <div>
+        <div className="flex items-center gap-3 mb-4">
+          <Button variant="ghost" size="sm" onClick={closeEditUser} aria-label="Back to users">&larr; Back</Button>
+          <h1 className="text-2xl font-bold">Edit User</h1>
+        </div>
+        {message && (
+          <div className={`rounded-lg px-4 py-3 mb-4 text-sm ${message.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-green-50 text-green-800'}`} role="alert">
+            {message.text}
+          </div>
+        )}
+        <Card>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">Name</Label>
+              <Input id="edit-name" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-email">Email</Label>
+              <Input id="edit-email" type="email" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-username">Username</Label>
+              <Input id="edit-username" type="text" value={editForm.username} onChange={e => setEditForm({ ...editForm, username: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-group">User Group</Label>
+              <select id="edit-group" value={editForm.userGroup}
+                onChange={e => setEditForm({ ...editForm, userGroup: e.target.value })}
+                className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm">
+                <option value="">None</option>
+                {groups.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            {userFields.map(f => (
+              <CustomFieldInput
+                key={f.id}
+                field={f}
+                idPrefix="edit-field"
+                value={editForm.customFields[f.id]}
+                onChange={(v) => setEditForm(prev => ({ ...prev, customFields: { ...prev.customFields, [f.id]: v } }))}
+              />
+            ))}
+            {!isSelf && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-role">Role</Label>
+                <select id="edit-role" value={editForm.role}
+                  onChange={e => setEditForm({ ...editForm, role: e.target.value })}
+                  className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm">
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            )}
+            <div className="flex items-center gap-3 pt-2">
+              <Button onClick={saveEditUser}>Save</Button>
+              <Button variant="outline" onClick={closeEditUser}>Cancel</Button>
+              {!isSelf && (
+                <>
+                  <Button variant="outline" className="ml-auto" onClick={() => resetUserPassword(editUser.userId, editUser.email)}>
+                    Reset Password
+                  </Button>
+                  <Button variant="destructive" onClick={() => { closeEditUser(); deleteUser(editUser.userId, editUser.name || editUser.email); }}>
+                    Delete User
+                  </Button>
+                </>
+              )}
+            </div>
+            <PluginSlot name="adminProfileFields" context={{ user: editUser }} />
+          </CardContent>
+        </Card>
+        <div className="mt-4">
+          <UserStatsPanel key={editUser.userId} userId={editUser.userId} />
+        </div>
+      </div>
+    );
+  }
+
+  const filterButtons = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'admins', label: 'Admins' },
+    { key: 'invited', label: 'Invited' },
+    { key: 'waitlist', label: 'Wait List' },
+  ];
+
+  return (
+    <div>
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-4">
+        <h1 className="text-2xl font-bold">Users</h1>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setInviteOpen(true)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Invite Users
+          </Button>
+          <Button variant="outline" onClick={() => setGroupsOpen(true)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            User Groups
+          </Button>
+          <Button variant="outline" onClick={() => setFieldsOpen(true)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            User Fields
+          </Button>
+          <Button variant="outline" onClick={() => setWaitlistOpen(true)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Wait List
+          </Button>
+        </div>
+      </div>
+
+      {message && (
+        <div className={`flex items-center justify-between rounded-lg px-4 py-3 mb-4 text-sm ${
+          message.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-green-50 text-green-800'
+        }`} role="alert">
+          <span>{message.text}</span>
+          <button onClick={() => setMessage(null)} aria-label="Dismiss" className="ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+        </div>
+      )}
+
+      {/* Search and filters */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-4">
+        <Input
+          type="text"
+          placeholder={userFields.length ? 'Search by email, username, name, or field...' : 'Search by email, username, or name...'}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="max-w-xs"
+          aria-label="Search users"
+        />
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Filter users">
+          {filterButtons.map(f => (
+            <Button
+              key={f.key}
+              variant={filter === f.key ? 'default' : 'outline'}
+              size="default"
+              onClick={() => setFilter(f.key)}
+              aria-pressed={filter === f.key}
+            >
+              {f.label} <span className="ml-1 opacity-60">{filterCounts[f.key]}</span>
+            </Button>
+          ))}
+        </div>
+        {userFields.length > 0 && (
+          <div className="flex flex-wrap gap-2 min-w-0" role="group" aria-label="Filter by custom field">
+            <select
+              aria-label="Custom field"
+              value={fieldFilter.fieldId}
+              onChange={e => setFieldFilter({ fieldId: e.target.value, value: e.target.value ? '__set' : '' })}
+              className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="">Any field</option>
+              {userFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+            {filterField && (
+              <select
+                aria-label={`${filterField.label} value`}
+                value={fieldFilter.value}
+                onChange={e => setFieldFilter(prev => ({ ...prev, value: e.target.value }))}
+                className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="__set">Has a value</option>
+                <option value="__empty">Empty</option>
+                {filterField.type === 'dropdown' && (filterField.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Polite live region announces sort changes for screen-reader users
+          (aria-sort attribute changes aren't reliably announced by NVDA/JAWS). */}
+      <div role="status" aria-live="polite" className="sr-only">{sortAnnouncement}</div>
+
+      {filteredList.length > 0 ? (
+        <>
+          <div className="rounded-lg border overflow-hidden">
+            <Table aria-label="Users and invites">
+              <TableHeader>
+                <TableRow>
+                  <SortHeader sortKey="name" sortBy={sortBy} onSort={handleSort}>Name</SortHeader>
+                  <SortHeader sortKey="email" sortBy={sortBy} onSort={handleSort}>Email</SortHeader>
+                  <SortHeader sortKey="username" sortBy={sortBy} onSort={handleSort}>Username</SortHeader>
+                  <SortHeader sortKey="group" sortBy={sortBy} onSort={handleSort}>Group</SortHeader>
+                  <SortHeader sortKey="role" sortBy={sortBy} onSort={handleSort}>Role</SortHeader>
+                  <SortHeader sortKey="completed" sortBy={sortBy} onSort={handleSort} align="center">Completed</SortHeader>
+                  <SortHeader sortKey="lastActive" sortBy={sortBy} onSort={handleSort}>Last active</SortHeader>
+                  <SortHeader sortKey="date" sortBy={sortBy} onSort={handleSort}>Date added</SortHeader>
+                  {filterField && <TableHead>{filterField.label}</TableHead>}
+                  {slackConnected && <TableHead>Slack</TableHead>}
+                  <TableHead><span className="sr-only">Actions</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pageItems.map(item => item._type === 'waitlist' ? (
+                  <TableRow key={item._key} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
+                    <TableCell>
+                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); navigate(`/plato/users/waitlist/${item._key}`); }}>
+                        {item.name || <span className="text-muted-foreground">&mdash;</span>}
+                      </button>
+                    </TableCell>
+                    <TableCell>{item.email}</TableCell>
+                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
+                    <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
+                    <TableCell><Badge variant="outline">Wait List</Badge></TableCell>
+                    <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
+                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
+                    <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
+                    {filterField && (
+                      <TableCell className="max-w-48 truncate">
+                        {item.customFields[filterField.id] || <span className="text-muted-foreground">&mdash;</span>}
+                      </TableCell>
+                    )}
+                    {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button variant="outline" size="xs" aria-label={`Invite ${item.email}`} onClick={(e) => { e.stopPropagation(); inviteFromWaitlist(item._key, item.email); }}>Invite</Button>
+                        <Button variant="ghost" size="icon-xs" title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={(e) => { e.stopPropagation(); removeFromWaitlist(item._key, item.email); }}>&#10005;</Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : item._type === 'invite' ? (
+                  <TableRow key={item._key}>
+                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
+                    <TableCell>{item.email}</TableCell>
+                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
+                    <TableCell>&mdash;</TableCell>
+                    <TableCell><Badge variant="outline">Invited</Badge></TableCell>
+                    <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
+                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
+                    <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
+                    {filterField && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
+                    {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon-xs" title="Resend" aria-label={`Resend invite to ${item.email}`} onClick={() => resendInvite(item.email)}>&#8635;</Button>
+                        <Button variant="ghost" size="icon-xs" title="Revoke" aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._invite.inviteToken)}>&#10005;</Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <TableRow key={item._key} className="cursor-pointer hover:bg-muted/50" onClick={() => openEditUser(item._user)}>
+                    <TableCell>
+                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); openEditUser(item._user); }}>
+                        {item.name || <span className="text-muted-foreground">&mdash;</span>}
+                      </button>
+                    </TableCell>
+                    <TableCell>{item.email}</TableCell>
+                    <TableCell>{item.username || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
+                    <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
+                    <TableCell>
+                      <Badge variant={item.role === 'admin' ? 'default' : 'secondary'}>
+                        {item.role === 'admin' ? 'Admin' : 'User'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {typeof item._user.lessonsCompleted === 'number' ? (
+                        <div className="inline-flex">
+                          <CompletionRing
+                            completed={item._user.lessonsCompleted}
+                            available={item._user.lessonsAvailable}
+                            size={40}
+                            strokeWidth={5}
+                            compact
+                          />
+                        </div>
+                      ) : <span className="text-muted-foreground">&mdash;</span>}
+                    </TableCell>
+                    <TableCell>
+                      {item._user.lastActiveAt
+                        ? new Date(item._user.lastActiveAt).toLocaleDateString()
+                        : <span className="text-muted-foreground">&mdash;</span>}
+                    </TableCell>
+                    <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
+                    {filterField && (
+                      <TableCell className="max-w-48 truncate">
+                        {item.customFields[filterField.id] || <span className="text-muted-foreground">&mdash;</span>}
+                      </TableCell>
+                    )}
+                    {slackConnected && (
+                      <TableCell>
+                        {item._user.slackUserId ? (
+                          <span title={item._user.slackUserId} className="text-xs">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="inline-block mr-1 text-muted-foreground" aria-label="Slack linked">
+                              <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.27 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.163 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.163 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.163 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.27a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.315A2.528 2.528 0 0 1 24 15.163a2.528 2.528 0 0 1-2.522 2.523h-6.315z" fill="currentColor"/>
+                            </svg>
+                            Linked
+                          </span>
+                        ) : <span className="text-muted-foreground">&mdash;</span>}
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      {/* Keep clicks and Enter/Space on these buttons from also activating the row. */}
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}>
+                        <PluginSlot name="adminUserRowAction" context={{ user: item._user }} />
+                        {item._user.userId !== currentUser?.userId && (
+                          <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); deleteUser(item._user.userId, item.name || item.email); }}>&#128465;</Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <nav className="flex items-center justify-center gap-3 mt-4" aria-label="Pagination">
+              <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage(p => p - 1)} aria-label="Previous page">
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground" aria-current="page">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setPage(p => p + 1)} aria-label="Next page">
+                Next
+              </Button>
+            </nav>
+          )}
+        </>
+      ) : (
+        <p className="text-muted-foreground py-8 text-center">
+          {search || filter !== 'all' ? 'No matching users.' : 'No users yet. Click "Invite Users" to get started.'}
+        </p>
+      )}
+
+      {/* Invite Users Modal */}
+      <Dialog open={inviteOpen} onOpenChange={handleInviteClose}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite Users</DialogTitle>
+            <DialogDescription>
+              {slackConnected
+                ? 'Invite users via email or Slack DM.'
+                : 'Add emails to invite. You can type multiple separated by commas or upload a CSV.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {inviteNotice && (
+            <p className="text-sm text-amber-600" role="status">{inviteNotice}</p>
+          )}
+
+          <Tabs defaultValue="email" value={inviteTab} onValueChange={(v) => { setInviteTab(v); setInviteNotice(null); if (v === 'slack' && slackChannels.length === 0) loadSlackChannels(); }}>
+            <TabsList className="mb-4" aria-label="Invite method">
+              <TabsTrigger value="email" aria-label="Invite via email">Email</TabsTrigger>
+              {slackConnected && <TabsTrigger value="slack" aria-label="Invite via Slack">Slack</TabsTrigger>}
+              <TabsTrigger value="link" aria-label="Invite via shareable link">Link</TabsTrigger>
+            </TabsList>
+
+          {/* Email tab */}
+          <TabsContent value="email">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="modal-inv-email">Email(s)</Label>
+                <div className="flex gap-2">
+                  <Input id="modal-inv-email" type="text" placeholder="user@example.com, another@example.com"
+                    value={inviteInput} onChange={e => setInviteInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddEmails(); } }} className="flex-1" />
+                  <Button variant="outline" onClick={handleAddEmails}>Add</Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="modal-csv">Or upload CSV</Label>
+                <Input id="modal-csv" type="file" accept=".csv,text/csv" ref={csvRef} onChange={handleCsvFile} />
+              </div>
+
+              {emailQueue.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Emails to invite ({emailQueue.length})</Label>
+                  <div className="max-h-40 overflow-y-auto rounded-md border p-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {emailQueue.map(email => (
+                        <span key={email} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs">
+                          {email}
+                          <button
+                            type="button"
+                            onClick={() => removeFromQueue(email)}
+                            className="ml-0.5 hover:text-destructive"
+                            aria-label={`Remove ${email}`}
+                          >
+                            &#10005;
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button onClick={sendInvites} disabled={emailQueue.length === 0 || inviteSending}>
+                  {inviteSending ? 'Sending...' : `Send ${emailQueue.length} invite(s)`}
+                </Button>
+              </DialogFooter>
+            </div>
+          </TabsContent>
+
+          {/* Slack tab */}
+          <TabsContent value="slack">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="slack-user-search">Search Slack users</Label>
+                <Input
+                  id="slack-user-search"
+                  type="text"
+                  placeholder="Search by name or email..."
+                  value={slackSearch}
+                  onChange={e => handleSlackSearchChange(e.target.value)}
+                />
+                {slackSearching && <p className="text-xs text-muted-foreground">Searching...</p>}
+                {slackSearchResults.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto rounded-md border">
+                    {slackSearchResults.map(u => (
+                      <button
+                        key={u.slackUserId}
+                        type="button"
+                        className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors"
+                        onClick={() => addToSlackQueue(u)}
+                      >
+                        {u.avatar && <img src={u.avatar} alt="" className="w-6 h-6 rounded" />}
+                        <span className="font-medium">{u.name}</span>
+                        {u.email && <span className="text-muted-foreground text-xs ml-auto">{u.email}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="slack-channel-select">Or add from a channel</Label>
+                <div className="flex gap-2">
+                  <select
+                    id="slack-channel-select"
+                    value={slackSelectedChannel}
+                    onChange={e => setSlackSelectedChannel(e.target.value)}
+                    className="h-10 flex-1 rounded-lg border border-input bg-transparent px-3 py-2 text-sm"
+                  >
+                    <option value="">Select a channel...</option>
+                    {slackChannels.map(ch => (
+                      <option key={ch.id} value={ch.id}>#{ch.name} ({ch.memberCount} members)</option>
+                    ))}
+                  </select>
+                  <Button variant="outline" onClick={() => loadChannelMembers(slackSelectedChannel)} disabled={!slackSelectedChannel || slackSearching}>
+                    {slackSearching ? 'Loading...' : 'Add All'}
+                  </Button>
+                </div>
+              </div>
+
+              {slackQueue.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Slack users to invite ({slackQueue.length})</Label>
+                  <div className="max-h-40 overflow-y-auto rounded-md border p-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {slackQueue.map(u => (
+                        <span key={u.slackUserId} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs">
+                          {u.name}
+                          {!u.email && <span className="text-destructive" title="No email on Slack profile">&#9888;</span>}
+                          <button
+                            type="button"
+                            onClick={() => removeFromSlackQueue(u.slackUserId)}
+                            className="ml-0.5 hover:text-destructive"
+                            aria-label={`Remove ${u.name}`}
+                          >
+                            &#10005;
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button onClick={sendSlackInvites} disabled={slackQueue.length === 0 || slackSending}>
+                  {slackSending ? 'Sending...' : `Send ${slackQueue.length} Slack invite(s)`}
+                </Button>
+              </DialogFooter>
+            </div>
+          </TabsContent>
+
+          {/* Link tab */}
+          <TabsContent value="link">
+            {linkInvite ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border p-4 bg-muted/50">
+                  <Label htmlFor="invite-link">Shareable Invite Link</Label>
+                  <div className="flex gap-2 mt-2">
+                    <Input
+                      id="invite-link"
+                      readOnly
+                      value={`${window.location.origin}/signup?token=${linkInvite.inviteToken}`}
+                      className="font-mono text-sm"
+                    />
+                    <Button onClick={handleCopyLink} variant="outline">
+                      {linkCopied ? 'Copied!' : 'Copy'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>Created: {new Date(linkInvite.createdAt).toLocaleDateString()}</p>
+                  <p>Used by: {linkInvite.usageCount || 0} {(linkInvite.usageCount || 0) === 1 ? 'person' : 'people'}</p>
+                  <p>Expires: {new Date(linkInvite.ttl * 1000).toLocaleDateString()}</p>
+                </div>
+
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm text-amber-900">
+                    <strong>Security note:</strong> Anyone with this link can create an account.
+                    Only share it in trusted channels. Regenerate to revoke the old link.
+                  </p>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={handleDeleteLink}>
+                    Delete Link
+                  </Button>
+                  <Button onClick={handleRegenerateLink} disabled={linkGenerating}>
+                    {linkGenerating ? 'Regenerating...' : 'Regenerate Link'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Create a shareable invite link that anyone can use to sign up.
+                  The link expires after 7 days and can be regenerated anytime.
+                </p>
+
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm text-amber-900">
+                    <strong>Security note:</strong> Anyone with this link can create an account.
+                    Only share it in trusted channels.
+                  </p>
+                </div>
+
+                <DialogFooter>
+                  <Button onClick={handleGenerateLink} disabled={linkGenerating}>
+                    {linkGenerating ? 'Generating...' : 'Generate Invite Link'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {/* User Groups Modal */}
+      <UserFieldsDialog
+        open={fieldsOpen}
+        onOpenChange={setFieldsOpen}
+        fields={userFields}
+        onChange={(next) => {
+          setUserFields(next);
+          // Reset a filter pointing at a deleted field.
+          if (fieldFilter.fieldId && !next.some(f => f.id === fieldFilter.fieldId)) setFieldFilter({ fieldId: '', value: '' });
+          // Values for deleted fields were erased server-side; refresh rows.
+          if (next.length < userFields.length) loadData();
+        }}
+      />
+
+      <WaitlistDialog
+        open={waitlistOpen}
+        onOpenChange={setWaitlistOpen}
+        settings={waitlistSettings}
+        onChange={setWaitlistSettings}
+      />
+
+      <Dialog open={groupsOpen} onOpenChange={setGroupsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>User Groups</DialogTitle>
+            <DialogDescription>Groups are available for users to select during signup.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Label htmlFor="new-group-name" className="sr-only">Group name</Label>
+              <Input id="new-group-name" type="text" placeholder="Group name" value={newGroupName}
+                onChange={e => setNewGroupName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addGroup(); }} className="flex-1" />
+              <Button onClick={addGroup}>Add</Button>
+            </div>
+            {groups.length > 0 ? (
+              <ul className="space-y-1">
+                {groups.map(g => (
+                  <li key={g} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/50">
+                    <span className="text-sm">{g}</span>
+                    <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete group ${g}`} onClick={() => deleteGroup(g)}>&#10005;</Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No user groups yet.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

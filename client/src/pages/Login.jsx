@@ -1,0 +1,132 @@
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext.jsx';
+import usePublicBranding from '../hooks/usePublicBranding.js';
+import PasswordField from '../components/PasswordField.jsx';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Card, CardHeader, CardTitle, CardContent, CardFooter,
+} from '@/components/ui/card';
+
+export default function Login() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
+  const { login, loginWithGoogle } = useAuth();
+  const navigate = useNavigate();
+  const passwordRef = useRef(null);
+  const branding = usePublicBranding('Sign in');
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
+
+  useEffect(() => {
+    fetch('/v1/waitlist')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setWaitlistOpen(!!d?.open))
+      .catch(() => {});
+  }, []);
+
+  async function handleLogin() {
+    if (!email.trim() || !password) {
+      setError('Please enter email/username and password.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      await login(email.trim(), password);
+      navigate('/lessons', { replace: true });
+    } catch (e) {
+      setError(e.message || 'Login failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setGoogleSubmitting(true);
+    setError('');
+    try {
+      await loginWithGoogle();
+      navigate('/lessons', { replace: true });
+    } catch (e) {
+      if (e?.code !== 'auth/popup-closed-by-user') {
+        setError(e.message || 'Google sign-in failed');
+      }
+    } finally {
+      setGoogleSubmitting(false);
+    }
+  }
+
+  if (!branding) return null;
+
+  const { primary: headerBg, foreground, logo, classroomName } = branding;
+
+  return (
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4" style={{ backgroundColor: headerBg, color: foreground }}>
+      {logo ? (
+        <img src={logo} alt={classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />
+      ) : (
+        <h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</h1>
+      )}
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="text-2xl">Sign in</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {error && (
+            <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
+              {error}
+            </div>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full gap-2 whitespace-nowrap shrink-0"
+            onClick={handleGoogleLogin}
+            disabled={submitting || googleSubmitting}
+          >
+            <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 15.25 5 12c0-3.25 3.36-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81Z" />
+            </svg>
+            {googleSubmitting ? 'Signing in with Google...' : 'Continue with Google'}
+          </Button>
+          <div className="relative flex items-center py-1">
+            <div className="grow border-t border-border" />
+            <span className="mx-3 shrink-0 text-xs text-muted-foreground">or sign in with password</span>
+            <div className="grow border-t border-border" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="login-email">Email or Username</Label>
+            <Input id="login-email" type="text" placeholder="you@example.com or username" autoComplete="username"
+              value={email} onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) passwordRef.current?.focus(); }} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="login-password">Password</Label>
+            <PasswordField id="login-password" autoComplete="current-password" inputRef={passwordRef}
+              value={password} onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleLogin(); }} />
+          </div>
+          <Button className="w-full" onClick={handleLogin} disabled={submitting || googleSubmitting}>
+            {submitting ? 'Signing in...' : 'Sign in'}
+          </Button>
+        </CardContent>
+        <CardFooter className="flex-col gap-1 justify-center">
+          <Button variant="link" onClick={() => navigate('/forgot-password')}>Forgot password?</Button>
+          {waitlistOpen && (
+            <Button variant="link" onClick={() => navigate('/waitlist')}>No account? Join the wait list</Button>
+          )}
+        </CardFooter>
+      </Card>
+      <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>
+        <a href="/privacy" onClick={e => { e.preventDefault(); navigate('/privacy'); }} className="underline hover:no-underline">Privacy</a>
+        {' · '}
+        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
+      </p>
+    </main>
+  );
+}
