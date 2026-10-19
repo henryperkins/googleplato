@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import PasswordField from '../components/PasswordField.jsx';
+import GoogleIcon from '../components/GoogleIcon.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -141,9 +142,7 @@ export default function Login() {
             {googleSubmitting ? (
               <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
             ) : (
-              <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 15.25 5 12c0-3.25 3.36-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81Z" />
-              </svg>
+              <GoogleIcon className="h-4 w-4 shrink-0" />
             )}
             <span>{googleSubmitting ? 'Signing in with Google...' : 'Continue with Google'}</span>
           </Button>
@@ -185,7 +184,19 @@ export default function Login() {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="login-password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="login-password">Password</Label>
+                <a
+                  href="/forgot-password"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate('/forgot-password', { state: { email: email.trim() } });
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                >
+                  Forgot Password?
+                </a>
+              </div>
               <PasswordField
                 id="login-password"
                 autoComplete="current-password"
@@ -221,7 +232,12 @@ export default function Login() {
           </form>
         </CardContent>
         <CardFooter className="flex-col gap-1 justify-center">
-          <Button variant="link" onClick={() => navigate('/forgot-password')}>Forgot password?</Button>
+          <Button
+            variant="link"
+            onClick={() => navigate('/forgot-password', { state: { email: email.trim() } })}
+          >
+            Forgot Password?
+          </Button>
           {waitlistOpen && (
             <Button variant="link" onClick={() => navigate('/waitlist')}>No account? Join the wait list</Button>
           )}

@@ -16,6 +16,7 @@ import {
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -28,11 +29,9 @@ import {
   updateDoc,
   deleteDoc,
   onSnapshot,
-  query,
-  where,
   serverTimestamp,
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfig from '../../firebase-applet-config.json' with { type: 'json' };
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -127,6 +126,23 @@ export async function signOutFirebase() {
   } catch {
     // Non-fatal on logout
   }
+}
+
+/**
+ * Initiates the Firebase sendPasswordResetEmail flow to help users recover access.
+ *
+ * @param {string} email - The email address to send the password reset email to.
+ * @returns {Promise<{ success: boolean }>}
+ */
+export async function sendFirebasePasswordReset(email) {
+  if (!email || typeof email !== 'string') {
+    const err = new Error('Please enter your email.');
+    err.code = 'auth/missing-email';
+    throw err;
+  }
+  const cleanEmail = email.trim();
+  await sendPasswordResetEmail(auth, cleanEmail);
+  return { success: true };
 }
 
 /**

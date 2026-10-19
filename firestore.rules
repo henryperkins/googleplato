@@ -21,7 +21,7 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
     function incoming() {
@@ -46,10 +46,10 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'platoUserId', 'name', 'username', 'role', 'createdAt', 'updatedAt'])
         && data.keys().hasOnly(['uid', 'platoUserId', 'name', 'username', 'role', 'userGroup', 'createdAt', 'updatedAt'])
         && data.uid == request.auth.uid
-        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
-        && data.platoUserId is string && data.platoUserId.size() >= 1 && data.platoUserId.size() <= 128 && data.platoUserId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_-]+$')
+        && data.platoUserId is string && data.platoUserId.size() >= 1 && data.platoUserId.size() <= 128 && data.platoUserId.matches('^[a-zA-Z0-9_-]+$')
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
-        && data.username is string && data.username.size() >= 3 && data.username.size() <= 30 && data.username.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.username is string && data.username.size() >= 3 && data.username.size() <= 30 && data.username.matches('^[a-zA-Z0-9_-]+$')
         && data.role is string && data.role.size() >= 4 && data.role.size() <= 10 && (data.role == 'user' || data.role == 'admin')
         && (!('userGroup' in data) || (data.userGroup is string && data.userGroup.size() <= 100))
         && data.createdAt is timestamp
@@ -60,7 +60,7 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
         && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
         && data.uid == request.auth.uid
-        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_-]+$')
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -70,7 +70,7 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'dataKey', 'payload', 'version', 'createdAt', 'updatedAt'])
         && data.keys().hasOnly(['uid', 'dataKey', 'payload', 'version', 'createdAt', 'updatedAt'])
         && data.uid == request.auth.uid
-        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_-]+$')
         && data.dataKey is string && data.dataKey.size() >= 1 && data.dataKey.size() <= 128
         && data.payload is string && data.payload.size() >= 1 && data.payload.size() <= 389120
         && data.version is int && data.version >= 1
@@ -82,7 +82,7 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'createdAt'])
         && data.keys().hasOnly(['uid', 'createdAt'])
         && data.uid == request.auth.uid
-        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_-]+$')
         && data.createdAt is timestamp;
     }
 

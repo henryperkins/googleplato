@@ -240,18 +240,38 @@ export async function authenticatedFetch(path, options = {}) {
 
 
 /**
- * Request a password reset email.
+ * Request a password reset email via Firebase Auth and server.
  */
 export async function forgotPassword(email) {
-  const res = await fetch(`${SERVICE_URL}/v1/auth/forgot-password`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'Request failed');
+  const cleanEmail = String(email || '').trim();
+  let firebaseAttempted = false;
+  let firebaseErr = null;
+
+  try {
+    const { sendFirebasePasswordReset } = await import('./firebaseClient.js');
+    await sendFirebasePasswordReset(cleanEmail);
+    firebaseAttempted = true;
+  } catch (err) {
+    firebaseErr = err;
   }
+
+  try {
+    const res = await fetch(`${SERVICE_URL}/v1/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail }),
+    });
+    if (!res.ok && !firebaseAttempted) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || firebaseErr?.message || 'Request failed');
+    }
+  } catch (serverErr) {
+    if (!firebaseAttempted) {
+      throw firebaseErr || serverErr;
+    }
+  }
+
+  return { success: true };
 }
 
 /**

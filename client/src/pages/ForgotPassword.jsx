@@ -1,17 +1,21 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
+import { sendFirebasePasswordReset } from '../../js/firebaseClient.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter,
 } from '@/components/ui/card';
+import { Loader2 } from 'lucide-react';
 
 const FORGOT_DRAFT_KEY = 'plato_forgot_password_draft';
 
 export default function ForgotPassword() {
+  const location = useLocation();
   const [email, setEmail] = useState(() => {
+    if (location.state?.email) return location.state.email;
     try { return sessionStorage.getItem(FORGOT_DRAFT_KEY) || ''; } catch { return ''; }
   });
   const [message, setMessage] = useState('');
@@ -36,6 +40,16 @@ export default function ForgotPassword() {
     return '';
   }
 
+  function formatFirebaseResetError(err) {
+    if (!err) return 'Password reset request failed. Please try again.';
+    const code = err.code || '';
+    if (code === 'auth/invalid-email') return 'Please enter a valid email address.';
+    if (code === 'auth/missing-email') return 'Please enter your email address.';
+    if (code === 'auth/too-many-requests') return 'Too many attempts. Please wait a few minutes before trying again.';
+    if (code === 'auth/network-request-failed') return 'Network error connecting to Firebase. Please check your internet connection.';
+    return err.message || 'Failed to send password reset email. Please try again.';
+  }
+
   async function handleSubmit(e) {
     if (e) e.preventDefault();
     if (submitting) return;
@@ -48,21 +62,46 @@ export default function ForgotPassword() {
     }
     setFieldError('');
     setError('');
+    setMessage('');
     setSubmitting(true);
+    const cleanEmail = email.trim();
+
     try {
-      const res = await fetch('/v1/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Request failed');
+      let firebaseError = null;
+      try {
+        await sendFirebasePasswordReset(cleanEmail);
+      } catch (fbErr) {
+        // If user not found in Firebase Auth, proceed to backend or display generic success
+        // to conform to email enumeration protection standards
+        if (fbErr.code === 'auth/user-not-found') {
+          // Treated as non-fatal to avoid leaking account existence
+        } else {
+          firebaseError = fbErr;
+        }
       }
+
+      // Also invoke server forgot-password endpoint for dual-mode SQLite/DynamoDB accounts
+      let serverSucceeded = false;
+      try {
+        const res = await fetch('/v1/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail }),
+        });
+        if (res.ok) serverSucceeded = true;
+      } catch {
+        // Best effort server notification
+      }
+
+      // If Firebase failed with an actionable error and server didn't succeed, surface the error
+      if (firebaseError && !serverSucceeded) {
+        throw firebaseError;
+      }
+
       try { sessionStorage.removeItem(FORGOT_DRAFT_KEY); } catch { /* ignore */ }
-      setMessage('If that email exists, a reset link has been sent. Check your inbox.');
+      setMessage('Password reset email sent! If an account exists for this email, you will receive instructions to reset your password. Please check your inbox and spam folder.');
     } catch (e) {
-      setError(e.message || 'Request failed');
+      setError(formatFirebaseResetError(e));
     } finally {
       setSubmitting(false);
     }
@@ -122,8 +161,14 @@ export default function ForgotPassword() {
                 <p id="forgot-email-error" className="text-xs text-destructive" role="alert">{fieldError}</p>
               )}
             </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? 'Sending...' : 'Send reset link'}
+            <Button
+              type="submit"
+              className="w-full gap-2 whitespace-nowrap shrink-0"
+              disabled={submitting}
+              aria-busy={submitting ? 'true' : undefined}
+            >
+              {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
+              <span>{submitting ? 'Sending reset link...' : 'Send reset link'}</span>
             </Button>
           </form>
         </CardContent>
