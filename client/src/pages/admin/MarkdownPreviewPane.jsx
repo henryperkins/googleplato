@@ -87,7 +87,7 @@ export default function MarkdownPreviewPane({
         {announcement}
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 max-h-[70dvh] overflow-auto overscroll-contain">
         {error ? (
           <div
             role="alert"

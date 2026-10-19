@@ -119,7 +119,7 @@ export default function CoursesModal({ open, onOpenChange, onMutated }) {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent>
+        <DialogContent variant="sheet">
           <DialogHeader>
             <DialogTitle>Courses</DialogTitle>
             <DialogDescription>
@@ -162,7 +162,7 @@ export default function CoursesModal({ open, onOpenChange, onMutated }) {
             ) : courses.length === 0 ? (
               <p className="text-sm text-muted-foreground">No courses yet.</p>
             ) : (
-              <ul className="space-y-1" aria-label="Course list">
+              <ul className="max-h-[min(18rem,45dvh)] overflow-y-auto overscroll-contain space-y-1 pr-1" aria-label="Course list">
                 {courses.map((c) => (
                   <li
                     key={c.courseId}
@@ -170,7 +170,7 @@ export default function CoursesModal({ open, onOpenChange, onMutated }) {
                   >
                     <span className="text-sm flex-1 truncate">
                       {c.name}
-                      <span className="text-xs text-muted-foreground ml-2">({c.lessonCount} lesson{c.lessonCount === 1 ? '' : 's'})</span>
+                      <span className="text-xs text-muted-foreground ml-2 tabular-nums">({c.lessonCount} lesson{c.lessonCount === 1 ? '' : 's'})</span>
                     </span>
                     <div className="flex gap-1 shrink-0">
                       <Button variant="ghost" size="icon-xs" title="Rename" aria-label={`Rename course ${c.name}`} onClick={() => startEdit(c)}>&#9998;</Button>

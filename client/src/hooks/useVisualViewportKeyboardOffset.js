@@ -55,16 +55,17 @@ export function useVisualViewportKeyboardOffset() {
       });
     }
 
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    window.addEventListener('orientationchange', update);
+    const passiveOption = { passive: true };
+    vv.addEventListener('resize', update, passiveOption);
+    vv.addEventListener('scroll', update, passiveOption);
+    window.addEventListener('orientationchange', update, passiveOption);
     document.addEventListener('focusin', update);
     document.addEventListener('focusout', handleFocusOut);
 
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-      window.removeEventListener('orientationchange', update);
+      vv.removeEventListener('resize', update, passiveOption);
+      vv.removeEventListener('scroll', update, passiveOption);
+      window.removeEventListener('orientationchange', update, passiveOption);
       document.removeEventListener('focusin', update);
       document.removeEventListener('focusout', handleFocusOut);
     };

@@ -21,6 +21,7 @@ import UserFieldsDialog from './UserFieldsDialog.jsx';
 import WaitlistDialog from './WaitlistDialog.jsx';
 import WaitlistEntryEdit from './WaitlistEntryEdit.jsx';
 import CustomFieldInput from '../../components/CustomFieldInput.jsx';
+import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
 import { customFieldsMatch, matchesFieldFilter, missingRequired } from '../../lib/userFields.js';
 
 const PAGE_SIZE = 20;
@@ -112,6 +113,7 @@ export default function AdminUsers() {
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [waitlistOpen, setWaitlistOpen] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
   const [userFields, setUserFields] = useState([]);
   const [editUser, setEditUser] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', username: '', userGroup: '', role: '', customFields: {} });
@@ -392,20 +394,34 @@ export default function AdminUsers() {
     }
   }
 
-  async function handleRegenerateLink() {
-    if (!confirm('Regenerate invite link? The old link will stop working.')) return;
-    await handleGenerateLink();
+  function handleRegenerateLink() {
+    setConfirmModal({
+      title: 'Regenerate Invite Link?',
+      message: 'Regenerate the shareable invite link? The old link will immediately stop working.',
+      confirmLabel: 'Regenerate Link',
+      variant: 'default',
+      onConfirm: async () => {
+        await handleGenerateLink();
+      },
+    });
   }
 
-  async function handleDeleteLink() {
-    if (!confirm('Delete invite link? This cannot be undone.')) return;
-    try {
-      await adminApi('DELETE', '/v1/admin/invites/link');
-      setLinkInvite(null);
-      setMessage({ text: 'Invite link deleted', type: 'success' });
-    } catch (e) {
-      setMessage({ text: e.message, type: 'error' });
-    }
+  function handleDeleteLink() {
+    setConfirmModal({
+      title: 'Delete Invite Link?',
+      message: 'Delete the shareable invite link? This cannot be undone.',
+      confirmLabel: 'Delete Link',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await adminApi('DELETE', '/v1/admin/invites/link');
+          setLinkInvite(null);
+          setMessage({ text: 'Invite link deleted', type: 'success' });
+        } catch (e) {
+          setMessage({ text: e.message, type: 'error' });
+        }
+      },
+    });
   }
 
   function handleCopyLink() {
@@ -434,10 +450,22 @@ export default function AdminUsers() {
     } catch (e) { setMessage({ text: e.message, type: 'error' }); return false; }
   }
 
-  async function removeFromWaitlist(token, email) {
-    if (!confirm(`Remove ${email} from the wait list?`)) return false;
-    try { await adminApi('DELETE', `/v1/admin/waitlist/${token}`); loadData(); return true; }
-    catch (e) { setMessage({ text: e.message, type: 'error' }); return false; }
+  function removeFromWaitlist(token, email, onRemoved) {
+    setConfirmModal({
+      title: 'Remove from Wait List?',
+      message: `Remove ${email} from the wait list?`,
+      confirmLabel: 'Remove',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await adminApi('DELETE', `/v1/admin/waitlist/${token}`);
+          loadData();
+          if (onRemoved) onRemoved();
+        } catch (e) {
+          setMessage({ text: e.message, type: 'error' });
+        }
+      },
+    });
   }
 
   // -- Edit a wait-list entry (#363) --
@@ -452,20 +480,39 @@ export default function AdminUsers() {
     try { await adminApi('DELETE', `/v1/admin/invites/${token}`); loadData(); } catch { /* ignore */ }
   }
 
-  async function deleteUser(userId, name) {
-    if (!confirm(`Delete ${name} and all their data? This cannot be undone.`)) return;
-    try { await adminApi('DELETE', `/v1/admin/users/${userId}`); loadData(); }
-    catch (e) { setMessage({ text: e.message, type: 'error' }); }
+  function deleteUser(userId, name, onDeleted) {
+    setConfirmModal({
+      title: 'Delete User?',
+      message: `Delete ${name} and all their data? This cannot be undone.`,
+      confirmLabel: 'Delete User',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await adminApi('DELETE', `/v1/admin/users/${userId}`);
+          if (onDeleted) onDeleted();
+          loadData();
+        } catch (e) {
+          setMessage({ text: e.message, type: 'error' });
+        }
+      },
+    });
   }
 
-  async function resetUserPassword(userId, email) {
-    if (!confirm(`Send a password reset email to ${email}?`)) return;
-    try {
-      await adminApi('POST', `/v1/admin/users/${userId}/reset-password`);
-      setMessage({ text: `Password reset email sent to ${email}.`, type: 'success' });
-    } catch (e) {
-      setMessage({ text: e.message, type: 'error' });
-    }
+  function resetUserPassword(userId, email) {
+    setConfirmModal({
+      title: 'Send Password Reset?',
+      message: `Send a password reset email to ${email}?`,
+      confirmLabel: 'Send Reset Email',
+      variant: 'default',
+      onConfirm: async () => {
+        try {
+          await adminApi('POST', `/v1/admin/users/${userId}/reset-password`);
+          setMessage({ text: `Password reset email sent to ${email}.`, type: 'success' });
+        } catch (e) {
+          setMessage({ text: e.message, type: 'error' });
+        }
+      },
+    });
   }
 
   // -- Groups --
@@ -646,19 +693,34 @@ export default function AdminUsers() {
 
   if (loading) return <div className="flex items-center justify-center py-12 text-muted-foreground" role="status" aria-live="polite">Loading...</div>;
 
+  const confirmModalElement = confirmModal ? (
+    <ConfirmModal
+      open={!!confirmModal}
+      onOpenChange={(nextOpen) => { if (!nextOpen) setConfirmModal(null); }}
+      title={confirmModal.title}
+      message={confirmModal.message}
+      confirmLabel={confirmModal.confirmLabel}
+      variant={confirmModal.variant}
+      onConfirm={confirmModal.onConfirm}
+    />
+  ) : null;
+
   if (editEntry) {
     const back = () => navigate('/plato/users');
     return (
-      <WaitlistEntryEdit
-        key={editEntry.inviteToken}
-        entry={editEntry}
-        groups={groups}
-        userFields={userFields}
-        onBack={back}
-        onSaved={(text) => { setMessage({ text, type: 'success' }); back(); loadData(); }}
-        onInvite={async (e) => { if (await inviteFromWaitlist(e.inviteToken, e.email)) back(); }}
-        onRemove={async (e) => { if (await removeFromWaitlist(e.inviteToken, e.email)) back(); }}
-      />
+      <>
+        <WaitlistEntryEdit
+          key={editEntry.inviteToken}
+          entry={editEntry}
+          groups={groups}
+          userFields={userFields}
+          onBack={back}
+          onSaved={(text) => { setMessage({ text, type: 'success' }); back(); loadData(); }}
+          onInvite={async (e) => { if (await inviteFromWaitlist(e.inviteToken, e.email)) back(); }}
+          onRemove={(e) => { removeFromWaitlist(e.inviteToken, e.email, back); }}
+        />
+        {confirmModalElement}
+      </>
     );
   }
 
@@ -719,7 +781,7 @@ export default function AdminUsers() {
                 </select>
               </div>
             )}
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex flex-wrap items-center gap-3 pt-2">
               <Button onClick={saveEditUser}>Save</Button>
               <Button variant="outline" onClick={closeEditUser}>Cancel</Button>
               {!isSelf && (
@@ -727,7 +789,7 @@ export default function AdminUsers() {
                   <Button variant="outline" className="ml-auto" onClick={() => resetUserPassword(editUser.userId, editUser.email)}>
                     Reset Password
                   </Button>
-                  <Button variant="destructive" onClick={() => { closeEditUser(); deleteUser(editUser.userId, editUser.name || editUser.email); }}>
+                  <Button variant="destructive" onClick={() => deleteUser(editUser.userId, editUser.name || editUser.email, closeEditUser)}>
                     Delete User
                   </Button>
                 </>
@@ -739,6 +801,7 @@ export default function AdminUsers() {
         <div className="mt-4">
           <UserStatsPanel key={editUser.userId} userId={editUser.userId} />
         </div>
+        {confirmModalElement}
       </div>
     );
   }
@@ -865,10 +928,10 @@ export default function AdminUsers() {
               </TableHeader>
               <TableBody>
                 {pageItems.map(item => item._type === 'waitlist' ? (
-                  <TableRow key={item._key} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
+                  <TableRow key={item._key} className="hover:bg-muted/50">
                     <TableCell>
-                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); navigate(`/plato/users/waitlist/${item._key}`); }}>
-                        {item.name || <span className="text-muted-foreground">&mdash;</span>}
+                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
+                        {item.name || item.email}
                       </button>
                     </TableCell>
                     <TableCell>{item.email}</TableCell>
@@ -886,8 +949,8 @@ export default function AdminUsers() {
                     {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button variant="outline" size="xs" aria-label={`Invite ${item.email}`} onClick={(e) => { e.stopPropagation(); inviteFromWaitlist(item._key, item.email); }}>Invite</Button>
-                        <Button variant="ghost" size="icon-xs" title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={(e) => { e.stopPropagation(); removeFromWaitlist(item._key, item.email); }}>&#10005;</Button>
+                        <Button variant="outline" size="xs" aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>Invite</Button>
+                        <Button variant="ghost" size="icon-xs" title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>&#10005;</Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -911,10 +974,10 @@ export default function AdminUsers() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  <TableRow key={item._key} className="cursor-pointer hover:bg-muted/50" onClick={() => openEditUser(item._user)}>
+                  <TableRow key={item._key} className="hover:bg-muted/50">
                     <TableCell>
-                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); openEditUser(item._user); }}>
-                        {item.name || <span className="text-muted-foreground">&mdash;</span>}
+                      <button type="button" className="touch-target rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={() => openEditUser(item._user)}>
+                        {item.name || item.email}
                       </button>
                     </TableCell>
                     <TableCell>{item.email}</TableCell>
@@ -999,7 +1062,7 @@ export default function AdminUsers() {
 
       {/* Invite Users Modal */}
       <Dialog open={inviteOpen} onOpenChange={handleInviteClose}>
-        <DialogContent>
+        <DialogContent variant="sheet">
           <DialogHeader>
             <DialogTitle>Invite Users</DialogTitle>
             <DialogDescription>
@@ -1040,7 +1103,7 @@ export default function AdminUsers() {
               {emailQueue.length > 0 && (
                 <div className="space-y-2">
                   <Label>Emails to invite ({emailQueue.length})</Label>
-                  <div className="max-h-40 overflow-y-auto rounded-md border p-2">
+                  <div className="max-h-40 overflow-y-auto overscroll-contain rounded-md border p-2">
                     <div className="flex flex-wrap gap-1.5">
                       {emailQueue.map(email => (
                         <span key={email} className="inline-flex items-center gap-1 rounded-full bg-muted pl-2.5 pr-1 py-0.5 text-xs">
@@ -1087,7 +1150,7 @@ export default function AdminUsers() {
                 />
                 {slackSearching && <p className="text-xs text-muted-foreground">Searching...</p>}
                 {slackSearchResults.length > 0 && (
-                  <div className="max-h-40 overflow-y-auto rounded-md border">
+                  <div className="max-h-40 overflow-y-auto overscroll-contain rounded-md border">
                     {slackSearchResults.map(u => (
                       <button
                         key={u.slackUserId}
@@ -1127,7 +1190,7 @@ export default function AdminUsers() {
               {slackQueue.length > 0 && (
                 <div className="space-y-2">
                   <Label>Slack users to invite ({slackQueue.length})</Label>
-                  <div className="max-h-40 overflow-y-auto rounded-md border p-2">
+                  <div className="max-h-40 overflow-y-auto overscroll-contain rounded-md border p-2">
                     <div className="flex flex-wrap gap-1.5">
                       {slackQueue.map(u => (
                         <span key={u.slackUserId} className="inline-flex items-center gap-1 rounded-full bg-muted pl-2.5 pr-1 py-0.5 text-xs">
@@ -1223,7 +1286,7 @@ export default function AdminUsers() {
         </DialogContent>
       </Dialog>
 
-      {/* User Groups Modal */}
+      {/* User Fields Modal */}
       <UserFieldsDialog
         open={fieldsOpen}
         onOpenChange={setFieldsOpen}
@@ -1245,7 +1308,7 @@ export default function AdminUsers() {
       />
 
       <Dialog open={groupsOpen} onOpenChange={setGroupsOpen}>
-        <DialogContent>
+        <DialogContent variant="sheet">
           <DialogHeader>
             <DialogTitle>User Groups</DialogTitle>
             <DialogDescription>Groups are available for users to select during signup.</DialogDescription>
@@ -1259,7 +1322,7 @@ export default function AdminUsers() {
               <Button onClick={addGroup}>Add</Button>
             </div>
             {groups.length > 0 ? (
-              <ul className="space-y-1">
+              <ul className="max-h-[45dvh] overflow-y-auto overscroll-contain space-y-1 pr-1">
                 {groups.map(g => (
                   <li key={g} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/50">
                     <span className="text-sm">{g}</span>
@@ -1273,6 +1336,8 @@ export default function AdminUsers() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {confirmModalElement}
     </div>
   );
 }

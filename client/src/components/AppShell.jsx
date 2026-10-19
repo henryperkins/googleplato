@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useBranding } from '../contexts/BrandingContext.jsx';
-import * as DropdownMenuRadix from '@radix-ui/react-dropdown-menu';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader,
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
@@ -52,7 +59,7 @@ export default function AppShell({ children }) {
       {isAdmin && (
         <div className="px-4 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-xs text-white" style={{ backgroundColor: '#470d99', '--ring': '#ffffff' }}>
           <div className="mx-auto max-w-5xl flex items-center gap-2">
-            <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center gap-1.5 opacity-90 hover:opacity-100">
+            <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center gap-1.5 opacity-90 hover:opacity-100 whitespace-nowrap shrink-0">
               <img src="/assets/logo-white.svg" alt="plato" className="h-3 w-auto" />
             </a>
             <div className="flex-1" />
@@ -60,13 +67,13 @@ export default function AppShell({ children }) {
               <button
                 type="button"
                 onClick={() => setViewAsOpen(true)}
-                className="touch-target flex items-center gap-1 cursor-pointer border border-white/30 rounded px-2 py-0.5 text-white/90 hover:text-white hover:bg-white/10 bg-transparent text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                className="touch-target flex items-center gap-1 cursor-pointer border border-white/30 rounded px-2 py-0.5 text-white/90 hover:text-white hover:bg-white/10 bg-transparent text-xs transition-colors whitespace-nowrap shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/></svg>
                 View as user
               </button>
             )}
-            <button onClick={() => navigate('/plato')} className="touch-target flex items-center gap-1 cursor-pointer border border-white/30 rounded px-2 py-0.5 text-white/90 hover:text-white hover:bg-white/10 bg-transparent text-xs transition-colors">
+            <button onClick={() => navigate('/plato')} className="touch-target flex items-center gap-1 cursor-pointer border border-white/30 rounded px-2 py-0.5 text-white/90 hover:text-white hover:bg-white/10 bg-transparent text-xs transition-colors whitespace-nowrap shrink-0">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
               Admin Dashboard
             </button>
@@ -78,20 +85,20 @@ export default function AppShell({ children }) {
           underneath the purple admin bar so it's the first thing the admin sees. */}
       {impersonating && (
         <div
-          className="px-4 py-2 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-sm flex items-center gap-3 border-b"
+          className="px-4 py-1.5 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-sm flex items-center gap-3 border-b"
           style={{ backgroundColor: '#fef3c7', color: '#78350f', borderColor: '#fde68a' }}
           role="status"
           aria-live="polite"
         >
           <div className="mx-auto max-w-5xl flex items-center w-full gap-3">
-            <span className="flex-1 min-w-0 break-words">
+            <span className="flex-1 min-w-0 truncate">
               Viewing as <strong>{impersonatedLabel}</strong>
             </span>
             <button
               type="button"
               onClick={handleStopImpersonation}
               aria-label={`Exit viewing as ${impersonatedLabel}`}
-              className="touch-target rounded border border-yellow-700/40 px-2.5 py-1 text-xs font-medium hover:bg-yellow-700/10 cursor-pointer bg-transparent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-yellow-700"
+              className="touch-target rounded border border-yellow-700/40 px-2.5 py-1 text-xs font-medium hover:bg-yellow-700/10 cursor-pointer bg-transparent transition-colors whitespace-nowrap shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-yellow-700"
             >
               Exit
             </button>
@@ -114,45 +121,33 @@ export default function AppShell({ children }) {
             {classroomLogo ? (
               <img src={classroomLogo} alt="" className="h-8 max-w-full object-contain" />
             ) : (
-              <span className="text-sm font-semibold break-words">{classroomName}</span>
+              <span className="text-sm font-semibold truncate">{classroomName}</span>
             )}
           </a>
           <div className="flex-1" />
-          <DropdownMenuRadix.Root>
-            <DropdownMenuRadix.Trigger asChild>
-              <button
-                type="button"
-                className="touch-target max-w-[45%] min-w-0 text-inherit hover:underline underline-offset-4 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium break-words"
-                aria-label={`${accountName} — Account`}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="touch-target max-w-[45%] min-w-0 truncate text-inherit hover:underline underline-offset-4 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium"
+              aria-label={`${accountName} — Account`}
+            >
+              {accountName}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={4}>
+              <DropdownMenuLabel>
+                {user?.email || ''}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => navigate('/settings')}>
+                User Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => setSignOutOpen(true)}
               >
-                {accountName}
-              </button>
-            </DropdownMenuRadix.Trigger>
-            <DropdownMenuRadix.Portal>
-              <DropdownMenuRadix.Content
-                align="end"
-                sideOffset={4}
-                className="z-50 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
-              >
-                <DropdownMenuRadix.Label className="px-2 py-1.5 text-xs text-muted-foreground break-all">
-                  {user?.email || ''}
-                </DropdownMenuRadix.Label>
-                <DropdownMenuRadix.Separator className="my-1 h-px bg-border" />
-                <DropdownMenuRadix.Item
-                  className="flex min-h-11 md:min-h-8 cursor-pointer items-center rounded-md px-2 py-1.5 text-sm outline-none hover:bg-accent focus:bg-accent"
-                  onSelect={() => navigate('/settings')}
-                >
-                  User Settings
-                </DropdownMenuRadix.Item>
-                <DropdownMenuRadix.Item
-                  className="flex min-h-11 md:min-h-8 cursor-pointer items-center rounded-md px-2 py-1.5 text-sm text-destructive outline-none hover:bg-destructive/10 focus:bg-destructive/10"
-                  onSelect={() => setSignOutOpen(true)}
-                >
-                  Sign Out
-                </DropdownMenuRadix.Item>
-              </DropdownMenuRadix.Content>
-            </DropdownMenuRadix.Portal>
-          </DropdownMenuRadix.Root>
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </nav>
       </header>
 

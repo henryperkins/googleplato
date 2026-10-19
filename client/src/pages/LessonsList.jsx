@@ -540,7 +540,7 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent variant="sheet">
         <DialogHeader>
           {/* Course tag above the title — establishes scope before the
               learner reads the title, matches the card's visual order. */}

@@ -44,6 +44,7 @@ export default function ComposeBar({
   const [localImages, setLocalImages] = useState([]); // array of { dataUrl, name }
   const [localLinks, setLocalLinks] = useState([]); // array of { url, title, siteName, text }
   const [loadingImages, setLoadingImages] = useState(false);
+  const [imageError, setImageError] = useState('');
   const text = textProp !== undefined ? textProp : localText;
   const setText = onTextChange || setLocalText;
   useEffect(() => {
@@ -78,27 +79,11 @@ export default function ComposeBar({
     if (linkOpen) linkInputRef.current?.focus();
   }, [linkOpen]);
 
-  // The lesson chat mounts two ComposeBar instances — an inline one and a
-  // fixed-overlay one — and a window-scroll listener swaps which is visible
-  // (`composePinned` in `LessonChat.jsx`). Each instance owns its own
-  // textarea ref. Without this effect, the freshly-mounted instance renders
-  // at `rows={1}` (its default) even when `text` already has multiple lines,
-  // because `useAutoResize` only fires on the `change` event and never sees
-  // the externally-supplied initial value. Result before this fix: when the
-  // user scrolls and the overlay swap happens, the textarea collapses back
-  // to a single line. (Bug #161.) Resync on every change to `text`, which
-  // covers both mount-with-prefilled-value and the rare case of the parent
-  // setting text from outside (e.g. retry / paste flows).
   useEffect(() => {
     if (!inputRef.current) return;
     handleResize({ target: inputRef.current });
   }, [text, handleResize]);
 
-  // Width, zoom, root text size, and font loading can alter line wrapping.
-  // The parent observer covers width and root text size, because its
-  // rem-based padding and toolbar resize with the root font even though the
-  // textarea's explicit pixel height does not. That makes an <html>
-  // attribute observer redundant.
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
@@ -128,6 +113,7 @@ export default function ComposeBar({
     setText('');
     setImages([]);
     setLinks([]);
+    setImageError('');
     if (inputRef.current) { inputRef.current.style.height = 'auto'; inputRef.current.style.overflowY = 'hidden'; }
     onSend(payload);
   };
@@ -136,9 +122,10 @@ export default function ComposeBar({
   // resolve. Disabling Send while pending closes the race where a fast user
   // could submit before async readers finished.
   const addImagesFromFiles = async (files) => {
+    setImageError('');
     const remaining = MAX_IMAGES - images.length;
     if (remaining <= 0) {
-      alert(`You can attach up to ${MAX_IMAGES} images per message.`);
+      setImageError(`You can attach up to ${MAX_IMAGES} images per message.`);
       return;
     }
     const valid = [];
@@ -149,22 +136,15 @@ export default function ComposeBar({
       valid.push(file);
       if (valid.length >= remaining) break;
     }
-    if (oversize) alert('Image must be under 5 MB.');
-    if (files.length > valid.length + (oversize ? 1 : 0)) {
-      alert(`You can attach up to ${MAX_IMAGES} images per message.`);
+    if (oversize) setImageError('Image must be under 5 MB.');
+    else if (files.length > valid.length) {
+      setImageError(`You can attach up to ${MAX_IMAGES} images per message.`);
     }
     if (!valid.length) return;
 
     setLoadingImages(true);
     setLoadingCount(valid.length);
     try {
-      // Read each file independently (allSettled, not all): a single
-      // unreadable file must not discard the others. FileReader rejects with
-      // a DOMException whose `.name` is the actionable signal — e.g.
-      // NotReadableError (file locked by antivirus / in use) or NotFoundError
-      // (a OneDrive "files on-demand" entry not yet downloaded locally). We
-      // surface that name so a screenshot of the alert is self-diagnosing
-      // (issue #228 — "Failed to read image" with no other clue).
       const settled = await Promise.allSettled(valid.map(readImageAsDataUrl));
       const loaded = [];
       const readErrors = [];
@@ -175,25 +155,21 @@ export default function ComposeBar({
       if (readErrors.length > 0) {
         const reason = readErrors[0]?.name || readErrors[0]?.message || 'unknown error';
         const n = readErrors.length;
-        alert(`Couldn't read ${n} image${n === 1 ? '' : 's'} (${reason}). Please try again or pick a different file.`);
+        setImageError(`Couldn't read ${n} image${n === 1 ? '' : 's'} (${reason}). Please try again or pick a different file.`);
       }
       if (loaded.length === 0) return;
-      // Compress before the image enters the compose state: it's persisted
-      // one-per-record as `screenshot:*` sync data, which DynamoDB caps at
-      // 400 KB. A raw screenshot can blow that limit (issues #191, #193).
       const compressed = await Promise.all(loaded.map(async (img) => ({
         ...img,
         dataUrl: await compressImageDataUrl(img.dataUrl),
       })));
-      // Filter out images that couldn't be compressed enough (null dataUrl)
       const usable = compressed.filter(img => img.dataUrl !== null);
       if (usable.length < compressed.length) {
-        alert(`${compressed.length - usable.length} image(s) were too large and could not be compressed enough. Please use smaller images.`);
+        setImageError(`${compressed.length - usable.length} image(s) were too large and could not be compressed enough. Please use smaller images.`);
       }
       setImages([...images, ...usable].slice(0, MAX_IMAGES));
     } catch (err) {
       console.error('[plato] image processing failed', err);
-      alert(`Failed to read image (${err?.name || err?.message || 'unknown error'}). Please try again.`);
+      setImageError(`Failed to read image (${err?.name || err?.message || 'unknown error'}). Please try again.`);
     } finally {
       setLoadingImages(false);
       setLoadingCount(0);
@@ -224,6 +200,7 @@ export default function ComposeBar({
   };
 
   const removeImage = (idx) => {
+    setImageError('');
     setImages(images.filter((_, i) => i !== idx));
   };
 
@@ -233,11 +210,6 @@ export default function ComposeBar({
     setLinkOpen(true);
   };
 
-  // Close the link input and move focus to a sensible place so keyboard and
-  // screen-reader users aren't dropped on document.body. After a successful
-  // add we send focus to the message textarea (continue composing); on cancel
-  // we return it to the link toggle button (the trigger), falling back to the
-  // textarea if that button is now disabled (e.g. max links reached).
   const closeLinkInput = (focusTarget = 'button') => {
     setLinkOpen(false);
     setLinkValue('');
@@ -255,7 +227,6 @@ export default function ComposeBar({
     const raw = linkValue.trim();
     if (!raw || fetchingLink) return;
     if (links.length >= MAX_LINKS) { setLinkError(`You can attach up to ${MAX_LINKS} links.`); return; }
-    // Be forgiving about a missing scheme — the server validates for real.
     const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
     setFetchingLink(true);
     setLinkError('');
@@ -308,14 +279,15 @@ export default function ComposeBar({
             </p>
           </div>
         )}
+        {imageError && (
+          <p className="mx-3 mt-2 text-xs text-destructive" role="alert">
+            {imageError}
+          </p>
+        )}
         {links.length > 0 && (
           <div className="m-2 flex flex-wrap gap-2">
             {links.map((link, idx) => (
               <div key={idx} className="inline-flex max-w-full items-center gap-1 rounded-md border border-input bg-muted py-0.5 pl-2 pr-1 text-xs">
-                {/* The chip body is a focusable link so keyboard/SR users can
-                    reach it, hear the full URL (aria-label), and open it to
-                    verify before deciding whether to remove it — the remove
-                    button sits beside the link so touch targets never overlap. */}
                 <a
                   href={link.url}
                   target="_blank"
@@ -348,7 +320,7 @@ export default function ComposeBar({
           ref={inputRef}
           id={inputId}
           enterKeyHint="enter"
-          className="w-full min-h-[calc(1lh+1rem)] resize-none rounded-t-xl bg-transparent px-3 py-2 text-base md:text-sm focus-visible:outline-offset-[-3px] placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full min-h-[calc(1lh+1rem)] resize-none overscroll-contain rounded-t-xl bg-transparent px-3 py-2 text-base md:text-sm focus-visible:outline-offset-[-3px] placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
           rows={1}
           placeholder={placeholder}
           value={text}
@@ -441,8 +413,6 @@ export default function ComposeBar({
               </svg>
             </Button>
           )}
-          {/* Persistent live region — keeps the same node mounted so transitions
-              (e.g. "Loading 3 images…" → cleared) are announced reliably. */}
           {(allowImages || allowLinks) && (
             <span id={statusId} className="text-xs text-muted-foreground" role="status" aria-live="polite">
               {loadingImages ? `Loading ${loadingCount} image${loadingCount === 1 ? '' : 's'}…` : (fetchingLink ? 'Fetching link…' : '')}

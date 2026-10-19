@@ -66,7 +66,7 @@ export default function ShareLessonModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent variant="sheet" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Visibility &amp; Sharing</DialogTitle>
           <DialogDescription>
@@ -116,11 +116,11 @@ export default function ShareLessonModal({
               onChange={(e) => setSearch(e.target.value)}
             />
 
-            <ScrollArea className="h-64 rounded-md border">
+            <ScrollArea className="max-h-[min(16rem,40dvh)] min-h-36 rounded-md border">
               {loading ? (
-                <div className="flex items-center justify-center h-full text-sm text-muted-foreground" role="status">Loading users...</div>
+                <div className="flex items-center justify-center py-8 text-sm text-muted-foreground" role="status">Loading users...</div>
               ) : filtered.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">No users found.</div>
+                <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">No users found.</div>
               ) : (
                 <div className="p-2 space-y-1" role="group" aria-label="User list">
                   {filtered.map(u => (
@@ -146,7 +146,7 @@ export default function ShareLessonModal({
               )}
             </ScrollArea>
 
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-muted-foreground tabular-nums">
               {selected.size} {selected.size === 1 ? 'user' : 'users'} selected
             </div>
           </>

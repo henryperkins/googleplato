@@ -176,7 +176,8 @@ export function useStickToBottom(logRef) {
       if (!isDocTarget && target?.nodeType === 1 && !target.contains(log)) return;
       atBottomRef.current = computeAtBottom(scrollers());
     };
-    window.addEventListener('scroll', handleScroll, true);
+    const scrollListenerOptions = { capture: true, passive: true };
+    window.addEventListener('scroll', handleScroll, scrollListenerOptions);
 
     // --- re-pin when content is added -------------------------------------
     const observer = new MutationObserver((records) => {
@@ -206,7 +207,7 @@ export function useStickToBottom(logRef) {
     pinToBottom();
 
     return () => {
-      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('scroll', handleScroll, scrollListenerOptions);
       observer.disconnect();
       resizeObserver.disconnect();
       if (raf) cancelAnimationFrame(raf);

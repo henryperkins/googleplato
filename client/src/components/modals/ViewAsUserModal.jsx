@@ -10,12 +10,9 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 /**
  * Admin "View as User" picker — single-select user search.
  *
- * Modeled on ShareLessonModal's user list pattern but with click-to-pick
- * rather than multi-select checkboxes. Self is filtered out (can't view-as
- * yourself); admins remain in the list so admin↔admin auditing is possible.
- * On select we kick off the impersonation start API call, persist target
- * to sessionStorage, close the modal, and let the caller redirect to the
- * classroom.
+ * Uses a bottom sheet on mobile viewports (<640px) and a centered dialog on
+ * desktop so the user search input and scrollable list stay clear of the
+ * virtual keyboard.
  */
 export default function ViewAsUserModal({ open, onOpenChange, onStarted }) {
   const { startImpersonation, user: currentUser } = useAuth();
@@ -71,7 +68,7 @@ export default function ViewAsUserModal({ open, onOpenChange, onStarted }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent variant="sheet" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>View as User</DialogTitle>
           <DialogDescription>
@@ -93,13 +90,13 @@ export default function ViewAsUserModal({ open, onOpenChange, onStarted }) {
           onChange={(e) => setSearch(e.target.value)}
         />
 
-        <ScrollArea className="h-64 rounded-md border">
+        <ScrollArea className="max-h-[min(16rem,45dvh)] min-h-36 rounded-md border">
           {loading ? (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground" role="status">Loading users...</div>
+            <div className="flex items-center justify-center py-8 text-sm text-muted-foreground" role="status">Loading users...</div>
           ) : error ? (
-            <div className="flex items-center justify-center h-full text-sm text-destructive p-4 text-center" role="alert">{error}</div>
+            <div className="flex items-center justify-center py-8 text-sm text-destructive p-4 text-center" role="alert">{error}</div>
           ) : filtered.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">No users found.</div>
+            <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">No users found.</div>
           ) : (
             <ul className="p-2 space-y-1" aria-label="Users">
               {filtered.map(u => {
@@ -119,7 +116,7 @@ export default function ViewAsUserModal({ open, onOpenChange, onStarted }) {
                         {u.name && <span className="text-xs text-muted-foreground truncate block">{u.email}</span>}
                       </span>
                       {isAdmin && (
-                        <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary-text shrink-0" aria-hidden="true">
+                        <span className="text-xs text-muted-foreground shrink-0" aria-hidden="true">
                           Admin
                         </span>
                       )}

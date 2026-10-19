@@ -285,7 +285,7 @@ function UninstallDialog({ plugin, open, onOpenChange, onConfirm }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent variant="sheet">
         <DialogHeader>
           <DialogTitle>Delete {plugin.name} data?</DialogTitle>
           <DialogDescription>

@@ -29,7 +29,10 @@ export default function ConfirmModal({
               : variant === 'success' ? 'bg-green-600 text-white hover:bg-green-700'
               : undefined
             }
-            onClick={() => { onConfirm(); }}
+            onClick={() => {
+              onOpenChange?.(false);
+              onConfirm?.();
+            }}
           >
             {confirmLabel}
           </AlertDialogAction>

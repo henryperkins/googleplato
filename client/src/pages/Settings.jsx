@@ -369,7 +369,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent variant="sheet">
         <DialogHeader>
           <DialogTitle>Add Profile Feedback</DialogTitle>
           <DialogDescription>

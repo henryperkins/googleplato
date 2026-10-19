@@ -171,6 +171,12 @@
   html {
     @apply font-sans;
   }
+  /* Prevent display utility classes (e.g. .flex) from overriding the UA
+     stylesheet for closed native <dialog> and [popover] elements. */
+  dialog:not([open]),
+  [popover]:not(:popover-open) {
+    display: none !important;
+  }
 
 }
 
@@ -297,6 +303,16 @@ html {
 
 .coach-copy a:hover {
   text-decoration-thickness: 2px;
+}
+
+.coach-copy pre {
+  margin-block: 0.75rem;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  background-color: var(--muted);
 }
 
 :root {

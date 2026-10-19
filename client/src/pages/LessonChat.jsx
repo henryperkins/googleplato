@@ -148,20 +148,13 @@ export default function LessonChat() {
   }, []);
 
   // Move focus to the Objectives dialog title when it opens so screen
-  // readers announce the dialog's purpose instead of landing on the close
-  // button. Two nested RAFs are required: Base UI runs its own focus
-  // management on open (focusing the close button) which may itself use a
-  // single RAF, so one RAF is not enough to reliably win.
+  // readers announce the dialog's purpose instead of landing on the close button.
   useEffect(() => {
     if (!showObjectives) return;
-    let cancelled = false;
     const id = requestAnimationFrame(() => {
-      if (cancelled) return;
-      requestAnimationFrame(() => {
-        if (!cancelled) objectivesTitleRef.current?.focus();
-      });
+      objectivesTitleRef.current?.focus();
     });
-    return () => { cancelled = true; cancelAnimationFrame(id); };
+    return () => cancelAnimationFrame(id);
   }, [showObjectives]);
 
   useEffect(() => {
@@ -383,21 +376,22 @@ export default function LessonChat() {
   return (
     <div className="flex flex-col min-h-[calc(100dvh-theme(spacing.20))]">
       {/* One header stays visible and accessible throughout the conversation. */}
-      <div id="lesson-header" className="sticky top-0 z-40 border-b border-border bg-background px-4 py-2">
-        <div className="mx-auto max-w-5xl flex items-start gap-2">
+      <div id="lesson-header" className="sticky top-0 z-40 border-b border-border bg-background px-4 py-1.5 sm:py-2">
+        <div className="mx-auto max-w-5xl flex items-center gap-2">
           <Button variant="ghost" size="icon-sm" aria-label="Back to lessons" onClick={() => navigate('/lessons')}>
             <ArrowLeft aria-hidden="true" />
           </Button>
           <div className="flex-1 min-w-0">
-            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-              <h1 className="text-sm font-semibold break-words min-w-0">{lesson.name}</h1>
+            <div className="flex flex-row items-center justify-between gap-2">
+              <h1 className="text-sm font-semibold truncate min-w-0">{lesson.name}</h1>
               <button
-                className="touch-target rounded-sm text-left text-xs text-primary-text hover:underline cursor-pointer sm:shrink-0"
+                type="button"
+                className="touch-target rounded-sm text-left text-xs text-primary-text hover:underline cursor-pointer whitespace-nowrap shrink-0"
                 onClick={() => setShowObjectives(true)}
                 aria-expanded={showObjectives}
                 aria-controls="lesson-objectives-dialog"
               >
-                Lesson Overview ({lesson.learningObjectives.length} Objectives)
+                Overview ({lesson.learningObjectives.length})
               </button>
             </div>
             <ProgressBar lessonKB={lessonKB} celebrate={celebratedLessonId === lessonGroupId} />
@@ -481,14 +475,14 @@ export default function LessonChat() {
         </div>
       )}
 
-      {/* Objectives dialog */}
+      {/* Objectives dialog — bottom sheet on mobile, centered dialog on desktop */}
       <Dialog open={showObjectives} onOpenChange={setShowObjectives}>
-        <DialogContent id="lesson-objectives-dialog" className="max-h-[85vh] flex flex-col">
+        <DialogContent id="lesson-objectives-dialog" variant="sheet">
           <DialogHeader>
             <DialogTitle ref={objectivesTitleRef} tabIndex={-1}>{lesson.name}</DialogTitle>
             {lesson.description && <DialogDescription>{lesson.description}</DialogDescription>}
           </DialogHeader>
-          <div className="overflow-y-auto flex-1 space-y-4 pr-2">
+          <div className="space-y-4">
           <div className="space-y-2">
             <h3 className="text-sm font-medium">Exemplar</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">{lesson.exemplar}</p>

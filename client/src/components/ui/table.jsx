@@ -6,13 +6,22 @@ import { cn } from "@/lib/utils"
 
 function Table({
   className,
+  stickyFirstColumn = true,
   ...props
 }) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    <div
+      data-slot="table-container"
+      className="relative w-full overflow-x-auto overscroll-x-contain"
+    >
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
+        className={cn(
+          "w-full caption-bottom text-sm tabular-nums",
+          stickyFirstColumn &&
+            "[&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-10 [&_th:first-child]:bg-card [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10 [&_td:first-child]:bg-card [&_tr:hover_td:first-child]:bg-muted",
+          className
+        )}
         {...props} />
     </div>
   );
