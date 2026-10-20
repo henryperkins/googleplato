@@ -1,13 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from '@/components/ui/table';
+import { MAX_EXCHANGES } from '../../lib/constants.js';
+import { readinessFill } from '../../lib/readiness.js';
 
 import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
 import ShareLessonModal from '../../components/modals/ShareLessonModal.jsx';
@@ -52,6 +56,13 @@ export default function AdminLessons() {
   const [editorLoading, setEditorLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [lessonsError, setLessonsError] = useState(null);
+  const [coursesError, setCoursesError] = useState(null);
+  const [lessonStats, setLessonStats] = useState({});
+  const [statsError, setStatsError] = useState(null);
+  const [lessonSearch, setLessonSearch] = useState('');
+  const [courseFilter, setCourseFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [confirmModal, setConfirmModal] = useState(null);
 
   // /plato/lessons/new mints a fresh draft id and redirects to its stable
@@ -72,18 +83,32 @@ export default function AdminLessons() {
 
   // Map courseId -> name for rendering tags on lesson rows.
   const courseNamesById = new Map(courses.map((c) => [c.courseId, c.name]));
+  const filteredLessons = useMemo(() => {
+    const q = lessonSearch.trim().toLowerCase();
+    return lessons.filter((lesson) => {
+      if (q && !(lesson.name || '').toLowerCase().includes(q) && !(lesson.lessonId || '').toLowerCase().includes(q)) return false;
+      if (courseFilter === 'none' && lesson.course) return false;
+      if (courseFilter && courseFilter !== 'none' && lesson.course !== courseFilter) return false;
+      if (statusFilter !== 'all' && (lesson.status || 'private') !== statusFilter) return false;
+      return true;
+    });
+  }, [lessons, lessonSearch, courseFilter, statusFilter]);
 
   useEffect(() => {
-    document.title = 'Lessons — Admin';
+    document.title = 'Lessons — plato';
     loadLessons();
     loadCourses();
+    loadLessonStats();
   }, []);
 
   async function loadCourses() {
     try {
       const data = await adminApi('GET', '/v1/admin/courses');
       setCourses(Array.isArray(data) ? data : []);
-    } catch { /* non-blocking — list still renders */ }
+      setCoursesError(null);
+    } catch (e) {
+      setCoursesError(e?.message || 'Courses could not be loaded.');
+    }
   }
 
   async function loadLessons() {
@@ -91,8 +116,21 @@ export default function AdminLessons() {
     try {
       const data = await adminApi('GET', '/v1/admin/lessons');
       setLessons(Array.isArray(data) ? data : []);
-    } catch { /* ignore */ }
+      setLessonsError(null);
+    } catch (e) {
+      setLessonsError(e?.message || 'Lessons could not be loaded.');
+    }
     setLoading(false);
+  }
+
+  async function loadLessonStats() {
+    try {
+      const data = await adminApi('GET', '/v1/admin/stats/lessons');
+      setLessonStats(data?.byLesson || {});
+      setStatsError(null);
+    } catch (e) {
+      setStatsError(e?.message || 'Lesson pacing stats could not be loaded.');
+    }
   }
 
   // Open the editor for a lesson by navigating to its deep-linkable route.
@@ -267,9 +305,70 @@ export default function AdminLessons() {
           role="alert"
         >
           <span>{message.text}</span>
-          <button onClick={() => setMessage(null)} aria-label="Dismiss" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+          <button type="button" onClick={() => setMessage(null)} aria-label="Dismiss" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
         </div>
       )}
+
+      {lessonsError && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-4 text-sm text-danger-foreground" role="alert">
+          <span>{lessonsError}</span>
+          <Button variant="outline" size="sm" onClick={loadLessons}>Retry</Button>
+        </div>
+      )}
+      {coursesError && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-4 text-sm text-danger-foreground" role="alert">
+          <span>{coursesError}</span>
+          <Button variant="outline" size="sm" onClick={loadCourses}>Retry</Button>
+        </div>
+      )}
+      {statsError && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning-border bg-warning px-4 py-3 mb-4 text-sm text-warning-foreground" role="alert">
+          <span>{statsError} Completions and average exchanges are hidden until stats load.</span>
+          <Button variant="outline" size="sm" onClick={loadLessonStats}>Retry</Button>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 mb-4">
+        <Label htmlFor="lessons-search" className="sr-only">Search lessons</Label>
+        <Input
+          id="lessons-search"
+          type="search"
+          inputMode="search"
+          enterKeyHint="search"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="Search lessons"
+          value={lessonSearch}
+          onChange={(e) => setLessonSearch(e.target.value)}
+          className="w-full sm:max-w-xs"
+        />
+        <select
+          id="lessons-course-filter"
+          aria-label="Filter by course"
+          value={courseFilter}
+          onChange={(e) => setCourseFilter(e.target.value)}
+          className="h-10 min-w-0 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
+        >
+          <option value="">All courses</option>
+          <option value="none">No course</option>
+          {courses.map((course) => (
+            <option key={course.courseId} value={course.courseId}>{course.name}</option>
+          ))}
+        </select>
+        <select
+          id="lessons-status-filter"
+          aria-label="Filter by visibility"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="h-10 min-w-0 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
+        >
+          <option value="all">All statuses</option>
+          <option value="public">Public</option>
+          <option value="private">Private</option>
+          <option value="draft">Draft</option>
+        </select>
+      </div>
 
       <Card className="p-0 overflow-hidden">
         <Table aria-label="Lessons">
@@ -277,26 +376,29 @@ export default function AdminLessons() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Course</TableHead>
-              <TableHead>Created by</TableHead>
-              <TableHead>Updated by</TableHead>
+              <TableHead className="text-right" title="Completions of the published lesson">Completions</TableHead>
+              <TableHead className="text-right" title={`Average exchanges on published completions. Over ${MAX_EXCHANGES} is past the lesson target.`}>Avg exchanges</TableHead>
               <TableHead>Updated</TableHead>
               <TableHead><span className="sr-only">Actions</span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {lessons.map(c => {
+            {filteredLessons.map(c => {
               const isDraft = c.status === 'draft';
               const isPublic = c.status === 'public';
               const courseName = c.course ? (courseNamesById.get(c.course) || null) : null;
+              const pacing = lessonStats[c.lessonId];
+              const avgExchanges = pacing?.avgExchanges;
+              const overPacing = typeof avgExchanges === 'number' && avgExchanges > MAX_EXCHANGES;
               return (
                 <TableRow key={c.lessonId}>
-                  <TableCell>
-                    <div className="flex items-center gap-2 min-w-0">
+                  <TableCell className="whitespace-normal">
+                    <div className="flex min-w-0 flex-col items-start gap-1">
                       <button
                         type="button"
                         onClick={() => openLessonEditor(c.lessonId)}
                         aria-label={isDraft ? `Resume draft ${c.name || c.lessonId}` : `Edit ${c.name || c.lessonId}`}
-                        className="touch-target truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link"
+                        className="touch-target truncate max-w-full rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link"
                       >
                         {c.name || c.lessonId}
                       </button>
@@ -309,8 +411,11 @@ export default function AdminLessons() {
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{courseName || '\u2014'}</TableCell>
-                  <TableCell className="text-muted-foreground">{c.createdByName || '\u2014'}</TableCell>
-                  <TableCell className="text-muted-foreground">{c.updatedByName || '\u2014'}</TableCell>
+                  <TableCell className="text-right tabular-nums">{pacing ? pacing.completions : '\u2014'}</TableCell>
+                  <TableCell className={`text-right tabular-nums ${overPacing ? 'font-medium text-warning-foreground' : ''}`}>
+                    {typeof avgExchanges === 'number' ? avgExchanges : '\u2014'}
+                    {overPacing && <span className="sr-only">, over the {MAX_EXCHANGES}-exchange target</span>}
+                  </TableCell>
                   <TableCell>{c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '\u2014'}</TableCell>
                   <TableCell>
                     <div className="flex gap-1" role="group" aria-label={`Actions for ${c.name}`}>
@@ -330,9 +435,15 @@ export default function AdminLessons() {
                 </TableRow>
               );
             })}
-            {lessons.length === 0 && (
+            {filteredLessons.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">No lessons yet. Click &ldquo;Add Lesson&rdquo; to create your first lesson.</TableCell>
+                <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
+                  {lessonsError
+                    ? 'Lessons could not be loaded. Retry above.'
+                    : lessons.length === 0
+                      ? 'No lessons yet. Click “Add Lesson” to create your first lesson.'
+                      : 'No lessons match these filters.'}
+                </TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -377,7 +488,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
   // A view is in "create" mode when it's driving a fresh or in-progress draft.
   // It's in "edit" mode when finalizing a non-draft lesson's content.
   const isCreate = !!isDraft;
-  const pageTitle = isCreate ? 'New Lesson — Admin' : 'Edit Lesson — Admin';
+  const pageTitle = isCreate ? 'New Lesson — plato' : 'Edit Lesson — plato';
   useEffect(() => { document.title = pageTitle; }, [pageTitle]);
   const notifyTitle = useTitleNotification(pageTitle);
   const [chatMessages, setChatMessages] = useState(initialMessages || []);
@@ -385,6 +496,8 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [key, setKey] = useState(0); // increment to restart conversation
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [draftWarning, setDraftWarning] = useState('');
   const [courses, setCourses] = useState([]);
   const [course, setCourse] = useState(initialCourse || '');
 
@@ -407,7 +520,9 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
       try {
         const data = await adminApi('GET', '/v1/admin/courses');
         if (!cancelled && Array.isArray(data)) setCourses(data);
-      } catch { /* dropdown stays empty; admin can still create the lesson */ }
+      } catch (e) {
+        setError(e?.message || 'Courses could not be loaded. You can still create the lesson.');
+      }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -438,9 +553,11 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
         conversation,
         readiness: r,
         course: courseRef.current || null,
-      }).catch(() => {});
+      }).then(() => setDraftWarning('')).catch(() => setDraftWarning('Draft could not be saved. Your latest message is still on this page.'));
     } else {
-      adminApi('PUT', `/v1/admin/lessons/${encodeURIComponent(lessonId)}/conversation`, { conversation, readiness: r }).catch(() => {});
+      adminApi('PUT', `/v1/admin/lessons/${encodeURIComponent(lessonId)}/conversation`, { conversation, readiness: r })
+        .then(() => setDraftWarning(''))
+        .catch(() => setDraftWarning('Draft could not be saved. Your latest message is still on this page.'));
     }
   }, [chatMessages, isCreate, lessonId]);
 
@@ -645,8 +762,11 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
       {error && (
         <div className="flex items-center justify-between rounded-lg border border-danger-border bg-danger text-danger-foreground px-4 py-3 mb-4 text-sm" role="alert">
           <span>{error}</span>
-          <button onClick={() => setError('')} aria-label="Dismiss error" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+          <button type="button" onClick={() => setError('')} aria-label="Dismiss error" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
         </div>
+      )}
+      {draftWarning && (
+        <p className="text-sm text-warning-foreground mb-4" role="status">{draftWarning}</p>
       )}
 
       {/* Lesson metadata — course assignment.
@@ -668,7 +788,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
 
       {/* Readiness bar + Create Lesson button */}
       {(chatMessages.length > 0 || displayText != null) && (
-        <div className="admin-sticky-bar sticky top-12 md:top-0 z-20 -mx-1 px-1 py-2 bg-background/95 backdrop-blur-xs flex items-end gap-4 mb-4">
+        <div className="admin-sticky-bar sticky top-0 z-20 -mx-1 px-1 py-2 bg-background/95 backdrop-blur-xs flex flex-wrap items-end gap-3 mb-4">
           <div
             className="flex-1 min-w-0"
             role="progressbar"
@@ -686,7 +806,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
                 className="progress-fill h-full rounded-full"
                 style={{
                   transform: `scaleX(${readiness / 10})`,
-                  backgroundColor: `hsl(${readiness * 12}, 80%, 45%)`,
+                  backgroundColor: readinessFill(readiness),
                 }}
               />
             </div>
@@ -694,30 +814,44 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
           <div className="flex items-center gap-2 shrink-0">
             <Button
               variant="outline"
-              onClick={() => setKey(k => k + 1)}
+              onClick={() => setConfirmRestart(true)}
               disabled={isBusy}
               size="sm"
-              aria-label="Start over"
-              title="Start over"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              Start over
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={isBusy}
+              disabled={isBusy || (isCreate && readiness < 3)}
               size="sm"
+              aria-describedby={isCreate && readiness < 3 ? 'create-lesson-hint' : undefined}
             >
               {busy === 'creating' ? (isCreate ? 'Creating...' : 'Updating...') : (isCreate ? 'Create Lesson' : 'Update Lesson')}
             </Button>
           </div>
+          {isCreate && readiness < 3 && (
+            <p id="create-lesson-hint" className="basis-full text-xs text-muted-foreground">
+              Keep chatting until readiness is at least 3 of 10 before creating the lesson.
+            </p>
+          )}
         </div>
       )}
+      <ConfirmModal
+        open={confirmRestart}
+        onOpenChange={setConfirmRestart}
+        title="Start over?"
+        message="This clears the conversation and resets the readiness score. It cannot be undone."
+        confirmLabel="Start over"
+        variant="destructive"
+        onConfirm={() => setKey(k => k + 1)}
+      />
 
       {/* Chat (left) + markdown preview (right). Stacks vertically below `lg`. */}
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="lg:w-3/5 min-w-0">
           {/* Chat + compose in a single container */}
-          <div className="rounded-2xl bg-muted/40 border border-border p-2 sm:p-4">
+          <div className="rounded-2xl bg-muted/40 p-2 sm:p-4">
             <div className="mb-3">
               <ChatArea announcement={srAnnouncement}>
                 {chatMessages.map(renderMessage)}

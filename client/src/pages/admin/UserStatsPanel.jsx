@@ -5,7 +5,7 @@ import CompletionRing from './CompletionRing.jsx';
 
 function StatTile({ label, value, sub }) {
   return (
-    <div className="rounded-lg border bg-card p-3">
+    <div className="rounded-lg bg-muted/50 p-3">
       <div className="text-2xl font-semibold">{value ?? '—'}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
       {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}

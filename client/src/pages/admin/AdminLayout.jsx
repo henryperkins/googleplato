@@ -82,10 +82,10 @@ export default function AdminLayout() {
   return (
     <>
     <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
-      <div className="flex flex-col md:flex-row min-h-dvh pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
+      <div className="flex h-dvh flex-col overflow-hidden md:h-auto md:min-h-dvh md:flex-row md:overflow-visible">
         {/* Mobile: compact top bar with brand, classroom shortcut, and drawer trigger */}
         <header
-          className="md:hidden sticky top-0 z-30 bg-sidebar text-sidebar-foreground flex items-center justify-between gap-2 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]"
+          className="md:hidden shrink-0 bg-sidebar text-sidebar-foreground flex items-center justify-between gap-2 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]"
           style={{ '--ring': 'var(--sidebar-foreground)' }}
         >
           <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center rounded-sm shrink-0">
@@ -119,7 +119,7 @@ export default function AdminLayout() {
           style={{ '--ring': 'var(--sidebar-foreground)' }}
         >
           <DialogTitle className="sr-only">Admin menu</DialogTitle>
-          <DialogDescription className="sr-only">Choose an admin page or visit the classroom.</DialogDescription>
+          <DialogDescription className="sr-only">Sign out or open the classroom. Admin pages are in the tabs at the bottom of the screen.</DialogDescription>
           <div className="flex items-center justify-between px-4 py-3">
             <img src="/assets/logo-white.svg" alt="plato" width="60" height="24" className="h-6 w-auto" />
             <DialogClose
@@ -132,9 +132,9 @@ export default function AdminLayout() {
             </DialogClose>
           </div>
 
-          <nav className="flex flex-col flex-1 gap-0.5 px-2 overflow-y-auto overscroll-contain" aria-label="Admin drawer navigation">
-            <NavItems onClick={() => setMenuOpen(false)} />
-          </nav>
+          <p className="px-4 py-3 text-sm text-sidebar-foreground/80">
+            Use the tabs at the bottom of the screen to move between admin pages.
+          </p>
 
           <div className="flex flex-col gap-2 px-4 py-3 mt-auto">
             <Button
@@ -218,7 +218,7 @@ export default function AdminLayout() {
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 p-4 sm:p-6 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] md:ml-56">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] md:ml-56 md:overflow-visible">
           <div className="min-w-0 max-w-4xl pb-4">
             <Outlet />
           </div>
@@ -226,7 +226,7 @@ export default function AdminLayout() {
 
         {/* Mobile bottom tab bar: exposes the 5 primary admin destinations directly without requiring the drawer */}
         <nav
-          className="admin-bottom-nav md:hidden fixed bottom-0 inset-x-0 z-30 flex items-center justify-around border-t bg-background/95 backdrop-blur-xs pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
+          className="admin-bottom-nav md:hidden shrink-0 flex items-center justify-around border-t bg-background pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
           aria-label="Admin primary navigation"
         >
           {NAV_LINKS.map(({ to, label, end }) => (

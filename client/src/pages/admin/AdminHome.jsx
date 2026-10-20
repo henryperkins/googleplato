@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { adminApi } from './adminApi.js';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -211,7 +211,7 @@ function PacingSection({ stats }) {
             {overTargetWarning && (
               <div className="text-xs mt-1 text-warning-foreground">
                 Over-target lessons averaging {avgExchangesOverTarget} exchanges — review lesson objectives and exemplar scope in{' '}
-                <Link to="/plato/lessons" className="underline">Lessons</Link>.
+                <Link to="/plato/lessons" className="touch-target inline-flex items-center underline underline-offset-4">Lessons</Link>.
               </div>
             )}
           </CardContent>
@@ -253,6 +253,11 @@ function PacingSection({ stats }) {
 }
 
 export default function AdminHome() {
+  const location = useLocation();
+  const [pageNotice, setPageNotice] = useState('');
+  useEffect(() => {
+    if (location.state?.notice) setPageNotice(location.state.notice);
+  }, [location.state]);
   const [activeCount, setActiveCount] = useState(null);
   const [pendingCount, setPendingCount] = useState(null);
   const [hasKB, setHasKB] = useState(true);
@@ -285,7 +290,7 @@ export default function AdminHome() {
   }, [loadStats]);
 
   useEffect(() => {
-    document.title = 'Admin — plato';
+    document.title = 'Dashboard — plato';
     loadDashboard();
   }, [loadDashboard]);
 
@@ -335,8 +340,15 @@ export default function AdminHome() {
           </Button>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground mb-6">Manage users and settings for plato.</p>
-      <span className="sr-only" role="status" aria-live="polite">{refreshAnnounce}</span>
+      <p className="text-sm text-muted-foreground mb-6">Learner engagement and lesson pacing.</p>
+      <span className="sr-only" role="status" aria-live="polite">{pageNotice || refreshAnnounce}</span>
+
+      {pageNotice && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-success-border bg-success px-4 py-3 mb-6 text-sm text-success-foreground" role="status">
+          <span>{pageNotice}</span>
+          <button type="button" onClick={() => setPageNotice('')} aria-label="Dismiss" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
+        </div>
+      )}
 
       {loadError && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-6 text-sm text-danger-foreground" role="alert">

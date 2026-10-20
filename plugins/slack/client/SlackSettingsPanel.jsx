@@ -107,7 +107,7 @@ export default function SlackSettingsPanel({ settings, onSave }) {
         <>
           <p className="text-sm text-muted-foreground">
             Connect your Slack workspace to invite users via DM. Create a Slack app at{' '}
-            <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="underline">api.slack.com/apps</a>,
+            <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="touch-target inline-flex items-center underline underline-offset-4">api.slack.com/apps</a>,
             install it to your workspace, and paste the Bot User OAuth Token below.
           </p>
           <div className="space-y-2">

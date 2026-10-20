@@ -1283,6 +1283,7 @@ export async function computeLessonStats() {
   let activeLearners = 0;       // non-admin users
   let learnersStarted = 0;      // ≥1 lessonKB:* record of any status
   let learnersCompletedHalf = 0; // completed > 50% of lessons available to them
+  const byLessonRaw = new Map();
 
   for (const user of users) {
     const isLearner = user.role !== 'admin';
@@ -1296,13 +1297,19 @@ export async function computeLessonStats() {
     let userCompleted = 0;
 
     for (const item of kbItems) {
-      if (!publicIds.has(item.dataKey.slice('lessonKB:'.length))) continue;
+      const lessonId = item.dataKey.slice('lessonKB:'.length);
+      if (!publicIds.has(lessonId)) continue;
       const kb = item.data;
       if (!kb) continue;
       userHasStarted = true;
       if (kb.status === 'completed') {
         userCompleted++;
         const exchanges = kb.activitiesCompleted || 0;
+        const lessonEntry = byLessonRaw.get(lessonId) || { completions: 0, totalExchanges: 0, overTarget: 0 };
+        lessonEntry.completions++;
+        lessonEntry.totalExchanges += exchanges;
+        if (exchanges > MAX_EXCHANGES) lessonEntry.overTarget++;
+        byLessonRaw.set(lessonId, lessonEntry);
         if (exchanges <= MAX_EXCHANGES) {
           withinTarget++;
           totalExchangesWithin += exchanges;
@@ -1314,7 +1321,6 @@ export async function computeLessonStats() {
         if (kb.startedAt && kb.completedAt) {
           durations.push((kb.completedAt - kb.startedAt) / 60000);
         } else {
-          const lessonId = item.dataKey.replace('lessonKB:', '');
           const msgItem = syncItems.find(s => s.dataKey === `messages:${lessonId}`);
           const msgs = msgItem?.data;
           if (Array.isArray(msgs) && msgs.length >= 2) {
@@ -1339,6 +1345,14 @@ export async function computeLessonStats() {
   const avgDurationMinutes = durations.length
     ? +(durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1)
     : null;
+  const byLesson = {};
+  for (const [lessonId, entry] of byLessonRaw.entries()) {
+    byLesson[lessonId] = {
+      completions: entry.completions,
+      avgExchanges: entry.completions ? +(entry.totalExchanges / entry.completions).toFixed(1) : null,
+      overTarget: entry.overTarget,
+    };
+  }
 
   return {
     totalCompletions,
@@ -1352,6 +1366,7 @@ export async function computeLessonStats() {
     avgExchangesOverTarget: overTarget ? +(totalExchangesOver / overTarget).toFixed(1) : null,
     avgDurationMinutes,
     activeLessons,
+    byLesson,
     // Engagement KPIs
     activeLearners,
     learnersStarted,
@@ -1375,10 +1390,13 @@ admin.get('/v1/admin/stats/lessons', async (c) => {
   if (!force) {
     const cached = await db.getSyncData('_system', 'stats:lessons');
     const status = classifyCache(cached);
-    if (status === 'fresh') {
+    // byLesson was added after the first cache writes. A fresh payload without
+    // it would hide per-lesson pacing on /plato/lessons until the 24h expiry.
+    const hasByLesson = !!cached?.data?.stats && Object.hasOwn(cached.data.stats, 'byLesson');
+    if (hasByLesson && status === 'fresh') {
       return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
     }
-    if (status === 'stale') {
+    if (hasByLesson && status === 'stale') {
       kickoffAsyncRefresh(); // fire and forget
       return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
     }

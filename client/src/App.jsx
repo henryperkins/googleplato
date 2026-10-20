@@ -127,6 +127,7 @@ export default function App() {
           {/* Back-compat redirect from the old /plato/integrations URL */}
           <Route path="integrations" element={<Navigate to="/plato/plugins" replace />} />
           <Route path="setup-kb" element={<Suspense fallback={<AdminFallback />}><AdminKBSetup /></Suspense>} />
+          <Route path="*" element={<Navigate to="/plato" replace />} />
         </Route>
 
         {/* Classroom routes — custom theme/branding applied here */}

@@ -1,27 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-
 import { renderMd } from '../../lib/helpers.js';
-import { converseStream, extractKBMarkdown } from '../../../js/orchestrator.js';
-import { parseResponse, cleanStream, buildConversationText } from '../../lib/lessonCreationEngine.js';
-import { useStreamedText } from '../../hooks/useStreamedText.js';
-import { useTitleNotification } from '../../hooks/useTitleNotification.js';
-import { MSG_TYPES } from '../../lib/constants.js';
 import { buildThemeVars, contrastText } from '../../lib/branding.js';
-import { aiErrorMessage } from '../../lib/aiErrors.js';
-
-import ChatArea from '../../components/chat/ChatArea.jsx';
-import ComposeBar from '../../components/chat/ComposeBar.jsx';
-import AssistantMessage from '../../components/chat/AssistantMessage.jsx';
-import UserMessage from '../../components/chat/UserMessage.jsx';
-import ThinkingSpinner from '../../components/chat/ThinkingSpinner.jsx';
-import MarkdownPreviewPane from './MarkdownPreviewPane.jsx';
+import KnowledgeBaseEditor from './KnowledgeBaseEditor.jsx';
 
 export default function AdminCustomizer() {
   const location = useLocation();
@@ -32,8 +19,8 @@ export default function AdminCustomizer() {
   const tab = isKnowledgeRoute ? 'knowledge' : 'styles';
   const setTab = (t) => navigate(t === 'knowledge' ? '/plato/customizer/knowledge' : '/plato/customizer', { replace: true });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
-  // Styles state
   const [primary, setPrimary] = useState('#8b1a1a');
   const [accent, setAccent] = useState('#dc2626');
   const [logoBase64, setLogoBase64] = useState(null);
@@ -42,7 +29,6 @@ export default function AdminCustomizer() {
   const [saving, setSaving] = useState(false);
   const [styleMessage, setStyleMessage] = useState(null);
 
-  // KB state
   const [kbContent, setKbContent] = useState('');
   const [kbConversation, setKbConversation] = useState(null);
   const [kbReadiness, setKbReadiness] = useState(null);
@@ -51,12 +37,13 @@ export default function AdminCustomizer() {
   const [kbEditing, setKbEditing] = useState(isEditKBRoute);
 
   useEffect(() => {
-    document.title = 'Classroom Customizer — Admin';
+    document.title = 'Classroom Customizer — plato';
     loadAll();
   }, []);
 
   async function loadAll() {
     setLoading(true);
+    setLoadError(null);
     try {
       const [themeData, kbData] = await Promise.all([
         adminApi('GET', '/v1/admin/theme'),
@@ -72,7 +59,9 @@ export default function AdminCustomizer() {
       setKbReadiness(kbData.readiness ?? null);
       setKbUpdatedAt(kbData.updatedAt || null);
       setKbUpdatedByName(kbData.updatedByName || null);
-    } catch { /* ignore */ }
+    } catch (e) {
+      setLoadError(e?.message || 'Customizer settings could not be loaded.');
+    }
     setLoading(false);
   }
 
@@ -81,7 +70,7 @@ export default function AdminCustomizer() {
     setStyleMessage(null);
     try {
       await adminApi('PUT', '/v1/admin/theme', { theme: { primary, accent }, logoBase64, classroomName });
-      setStyleMessage({ text: 'Saved! Open the Classroom to see your changes.', type: 'success' });
+      setStyleMessage({ text: 'Saved.', type: 'success' });
     } catch (e) { setStyleMessage({ text: e.message, type: 'error' }); }
     finally { setSaving(false); }
   }
@@ -121,6 +110,18 @@ export default function AdminCustomizer() {
   }
 
   if (loading) return <div className="flex items-center justify-center py-12 text-muted-foreground" role="status" aria-live="polite">Loading...</div>;
+
+  if (loadError) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-4">Classroom Customizer</h1>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 text-sm text-danger-foreground" role="alert">
+          <span>{loadError} Nothing was changed.</span>
+          <Button variant="outline" size="sm" onClick={loadAll}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -181,7 +182,7 @@ export default function AdminCustomizer() {
                   </div>
                 </div>
               </div>
-              <div className="classroom-theme rounded-lg overflow-hidden border border-border" aria-label="Theme preview" style={buildThemeVars({ primary, accent })}>
+              <div className="classroom-theme rounded-lg overflow-hidden" aria-label="Theme preview" style={buildThemeVars({ primary, accent })}>
                 <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-sm" style={{ backgroundColor: primary, color: contrastText(primary) }}>
                   <span className="font-semibold">Header Preview</span>
                   <span className="ml-auto">Nav Item</span>
@@ -227,30 +228,49 @@ export default function AdminCustomizer() {
 
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={saveStyle} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
-            {styleMessage && <span role="status" aria-live="polite" className={`text-sm ${styleMessage.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}>{styleMessage.text}</span>}
+            {styleMessage && (
+              <span role="status" aria-live="polite" className={`text-sm ${styleMessage.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}>
+                {styleMessage.text}
+                {styleMessage.type === 'success' && (
+                  <>
+                    {' '}
+                    <Link to="/lessons" className="touch-target inline-flex items-center underline underline-offset-4">Open the Classroom</Link>
+                    {' '}to see your changes.
+                  </>
+                )}
+              </span>
+            )}
           </div>
         </TabsContent>
 
         <TabsContent value="knowledge">
           {kbEditing ? (
-            <KBEditor
-              initialContent={kbContent}
-              initialConversation={kbConversation}
-              initialReadiness={kbReadiness}
-              onSave={async (content, conversation, readiness) => {
-                await adminApi('PUT', '/v1/admin/knowledge-base', { content, conversation, readiness });
-                const fresh = await adminApi('GET', '/v1/admin/knowledge-base');
-                setKbContent(content);
-                setKbEditing(false);
-                setKbUpdatedAt(fresh.updatedAt);
-                setKbUpdatedByName(fresh.updatedByName);
-                navigate('/plato/customizer/knowledge', { replace: true });
-              }}
-              onCancel={() => {
-                setKbEditing(false);
-                navigate('/plato/customizer/knowledge', { replace: true });
-              }}
-            />
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <Button variant="ghost" size="sm" onClick={() => { setKbEditing(false); navigate('/plato/customizer/knowledge', { replace: true }); }} aria-label="Back to knowledge base">&larr; Back</Button>
+                <h2 className="text-lg font-semibold">{kbContent ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</h2>
+              </div>
+              <KnowledgeBaseEditor
+                key={kbContent ? 'edit' : 'create'}
+                initialContent={kbContent}
+                initialConversation={kbConversation}
+                initialReadiness={kbReadiness ?? 0}
+                storageKey="plato_kb_customizer_draft"
+                pageTitle="Classroom Customizer — plato"
+                saveLabel={kbContent ? 'Update Knowledge Base' : 'Save Knowledge Base'}
+                onSave={async (content, conversation, readiness) => {
+                  await adminApi('PUT', '/v1/admin/knowledge-base', { content, conversation, readiness });
+                  const fresh = await adminApi('GET', '/v1/admin/knowledge-base');
+                  setKbContent(content);
+                  setKbConversation(conversation);
+                  setKbReadiness(readiness);
+                  setKbEditing(false);
+                  setKbUpdatedAt(fresh.updatedAt);
+                  setKbUpdatedByName(fresh.updatedByName);
+                  navigate('/plato/customizer/knowledge', { replace: true });
+                }}
+              />
+            </div>
           ) : (
             <KBViewer
               content={kbContent}
@@ -268,14 +288,12 @@ export default function AdminCustomizer() {
   );
 }
 
-// -- KB Viewer (read-only markdown display) -----------------------------------
-
 function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
   return (
     <div>
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div className="min-w-0">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground max-w-prose">
             The knowledge base provides context to the Coach and Lesson Creator agents about your program.
           </p>
           {updatedAt && (
@@ -300,269 +318,6 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
           </CardContent>
         </Card>
       )}
-    </div>
-  );
-}
-
-// -- KB Editor (conversational AI editor) -------------------------------------
-
-function KBEditor({ initialContent, onSave, onCancel, initialConversation, initialReadiness }) {
-  const isEditing = !!initialContent;
-  const [chatMessages, setChatMessages] = useState(initialConversation || []);
-  const [readiness, setReadiness] = useState(initialReadiness ?? 0);
-  const [busy, setBusy] = useState('');
-  const [error, setError] = useState('');
-
-  const [streamingText, setStreamingText] = useState(null);
-  const displayText = useStreamedText(streamingText);
-  const pendingRef = useRef(null);
-  const [srAnnouncement, setSrAnnouncement] = useState('');
-  const notifyTitle = useTitleNotification('Customizer — Admin');
-
-  // Markdown preview pane. Refreshed manually via the knowledge-base-extractor
-  // agent; never persisted until the admin clicks Save. Mirrors the lesson
-  // editor (NewLessonView). When editing, the saved content seeds the preview
-  // already in sync with the resumed conversation.
-  const [previewMarkdown, setPreviewMarkdown] = useState(initialContent || '');
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState('');
-  const [previewSyncedAt, setPreviewSyncedAt] = useState(
-    initialContent ? (initialConversation?.length || 0) : 0
-  );
-
-  // Auto-save KB conversation after each exchange
-  const readinessRef = useRef(readiness);
-  useEffect(() => { readinessRef.current = readiness; }, [readiness]);
-  useEffect(() => {
-    if (chatMessages.length === 0) return;
-    const conversation = chatMessages.map(m => ({ role: m.role, content: m.content, msgType: m.msgType }));
-    adminApi('PUT', '/v1/admin/knowledge-base/conversation', { conversation, readiness: readinessRef.current }).catch(() => {});
-  }, [chatMessages]);
-
-  useEffect(() => {
-    if (displayText === null && pendingRef.current) {
-      const { msgs, r } = pendingRef.current;
-      pendingRef.current = null;
-      if (msgs) {
-        setChatMessages(prev => [...prev, ...msgs]);
-        if (msgs.some(m => m.role === 'assistant')) {
-          setSrAnnouncement('');
-          requestAnimationFrame(() => setSrAnnouncement('New message received'));
-          notifyTitle();
-        }
-      }
-      if (r != null) setReadiness(r);
-      setBusy('');
-    }
-  }, [displayText]);
-
-  // Start conversation — skip if resuming from a saved conversation
-  useEffect(() => {
-    if (initialConversation?.length) return;
-    let cancelled = false;
-    setBusy('starting');
-    setStreamingText('');
-
-    const openingMessage = isEditing
-      ? `I want to edit my existing knowledge base. Here is the current content:\n\n${initialContent}\n\nWhat would you like to know about the changes I want to make?`
-      : 'I want to create a knowledge base for my program.';
-
-    if (isEditing) {
-      setChatMessages([{ role: 'user', content: openingMessage, msgType: MSG_TYPES.USER, timestamp: Date.now() }]);
-    }
-
-    (async () => {
-      try {
-        const raw = await converseStream(
-          'knowledge-base-editor',
-          [{ role: 'user', content: openingMessage }],
-          cleanStream((partial) => { if (!cancelled) setStreamingText(partial); }),
-          512
-        );
-        if (cancelled) return;
-        const { text, readiness: r } = parseResponse(raw);
-        const msg = { role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE, timestamp: Date.now() };
-        pendingRef.current = { msgs: [msg], r: r ?? (isEditing ? 8 : 1) };
-        setStreamingText(null);
-      } catch (e) {
-        if (!cancelled) { setError(aiErrorMessage(e, 'kb-editor')); setBusy(''); setStreamingText(null); }
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, []);
-
-  const chatMessagesRef = useRef(chatMessages);
-  useEffect(() => { chatMessagesRef.current = chatMessages; }, [chatMessages]);
-
-  const handleSend = useCallback(async ({ text }) => {
-    if (!text?.trim()) return;
-    setError('');
-    setBusy('qa');
-    setStreamingText('');
-
-    const userMsg = { role: 'user', content: text, msgType: MSG_TYPES.USER, timestamp: Date.now() };
-    setChatMessages(prev => [...prev, userMsg]);
-
-    try {
-      const tail = [...chatMessagesRef.current, userMsg].slice(-15).map(m => ({ role: m.role, content: m.content }));
-      const raw = await converseStream(
-        'knowledge-base-editor',
-        tail,
-        cleanStream((partial) => setStreamingText(partial)),
-        512
-      );
-      const { text: respText, readiness: r } = parseResponse(raw);
-      const assistantMsg = { role: 'assistant', content: respText, msgType: MSG_TYPES.GUIDE, timestamp: Date.now() };
-      pendingRef.current = { msgs: [assistantMsg], r };
-      setStreamingText(null);
-    } catch (e) {
-      setError(aiErrorMessage(e, 'kb-editor'));
-      setStreamingText(null);
-      setBusy('');
-    }
-  }, []);
-
-  async function handleSaveKB() {
-    setError('');
-    setBusy('creating');
-    try {
-      const md = await extractKBMarkdown(buildConversationText(chatMessages), initialContent);
-      if (!md || md.length < 50) {
-        setError('Could not generate a knowledge base from the conversation. Keep adding information.');
-        setBusy('');
-        return;
-      }
-      // Keep the preview in sync with what we're about to save.
-      setPreviewMarkdown(md);
-      setPreviewSyncedAt(chatMessages.length);
-      const conversation = chatMessages.map(m => ({ role: m.role, content: m.content, msgType: m.msgType }));
-      await onSave(md, conversation, readiness);
-    } catch (e) {
-      setError(aiErrorMessage(e, 'kb-builder'));
-      setBusy('');
-    }
-  }
-
-  const isBusy = !!busy;
-  const previewStale = !!previewMarkdown && chatMessages.length > previewSyncedAt;
-
-  // Refresh the markdown preview by re-running the knowledge-base-extractor.
-  // Runs independently of the chat — never sets `busy`.
-  async function handleRefreshPreview() {
-    if (chatMessages.length === 0) {
-      setPreviewError('Start the conversation first, then refresh.');
-      return;
-    }
-    setPreviewError('');
-    setPreviewLoading(true);
-    try {
-      const md = await extractKBMarkdown(buildConversationText(chatMessages), initialContent);
-      setPreviewMarkdown(md);
-      setPreviewSyncedAt(chatMessages.length);
-    } catch (e) {
-      setPreviewError(aiErrorMessage(e, 'preview'));
-    } finally {
-      setPreviewLoading(false);
-    }
-  }
-
-  const renderMessage = (msg, idx) => {
-    if (msg.msgType === MSG_TYPES.USER) return <UserMessage key={idx} content={msg.content} />;
-    return <AssistantMessage key={idx} content={msg.content} />;
-  };
-
-  return (
-    <div>
-      <div className="flex items-center gap-3 mb-4">
-        <Button variant="ghost" size="sm" onClick={onCancel} aria-label="Back to knowledge base">&larr; Back</Button>
-        <h2 className="text-lg font-semibold">{isEditing ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</h2>
-      </div>
-
-      {error && (
-        <div className="flex items-center justify-between rounded-lg border border-danger-border bg-danger text-danger-foreground px-4 py-3 mb-4 text-sm" role="alert" aria-live="assertive">
-          <span>{error}</span>
-          <button onClick={() => setError('')} aria-label="Dismiss error" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
-        </div>
-      )}
-
-      {(chatMessages.length > 0 || displayText != null) && (
-        <div className="admin-sticky-bar sticky top-12 md:top-0 z-20 -mx-1 px-1 py-2 bg-background/95 backdrop-blur-xs flex items-end gap-4 mb-4">
-          <div
-            className="flex-1 min-w-0"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={10}
-            aria-valuenow={readiness}
-            aria-label={`Knowledge base readiness: ${readiness} out of 10`}
-          >
-            <div className="flex justify-between text-xs text-muted-foreground mb-1" aria-hidden="true">
-              <span>Not ready</span>
-              <span>Ready</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-              <div
-                className="progress-fill h-full rounded-full"
-                style={{
-                  transform: `scaleX(${readiness / 10})`,
-                  backgroundColor: `hsl(${readiness * 12}, 80%, 45%)`,
-                }}
-              />
-            </div>
-          </div>
-          <Button
-            onClick={handleSaveKB}
-            disabled={isBusy || readiness < 3}
-            size="sm"
-            className="shrink-0"
-            title={readiness < 3 ? 'Tell the editor about your classroom goal, learners, and teachers first' : undefined}
-          >
-            {busy === 'creating' ? 'Saving...' : (isEditing ? 'Update Knowledge Base' : 'Save Knowledge Base')}
-          </Button>
-        </div>
-      )}
-
-      {/* Chat (left) + markdown preview (right). Stacks vertically below `lg`. */}
-      <div className="flex flex-col lg:flex-row gap-4">
-        <div className="lg:w-3/5 min-w-0">
-          <div className="rounded-2xl bg-muted/40 border border-border p-2 sm:p-4">
-            <div className="mb-3">
-              <ChatArea announcement={srAnnouncement}>
-                {chatMessages.map(renderMessage)}
-                {displayText != null && displayText.length > 0 && (
-                  <AssistantMessage content={displayText} streaming />
-                )}
-                {busy === 'starting' && !displayText && <ThinkingSpinner text="Starting..." />}
-                {busy === 'creating' && <ThinkingSpinner text="Generating knowledge base..." />}
-                {busy === 'qa' && !displayText && <ThinkingSpinner />}
-              </ChatArea>
-            </div>
-
-            <ComposeBar
-              placeholder="Tell me about your program..."
-              storageKey="plato_kb_customizer_draft"
-              onSend={handleSend}
-              disabled={isBusy}
-            />
-          </div>
-        </div>
-
-        <div className="lg:w-2/5 min-w-0">
-          <MarkdownPreviewPane
-            markdown={previewMarkdown}
-            loading={previewLoading}
-            error={previewError}
-            stale={previewStale}
-            saveLabel={isEditing ? 'Update Knowledge Base' : 'Save Knowledge Base'}
-            refreshDisabled={previewLoading || isBusy}
-            onRefresh={handleRefreshPreview}
-            title="Knowledge base preview"
-            ariaLabel="Knowledge base markdown preview"
-            noun="knowledge base"
-            emptyHint="No preview yet. Keep chatting with the editor, then click “Generate preview” to see the generated knowledge base."
-          />
-        </div>
-      </div>
     </div>
   );
 }

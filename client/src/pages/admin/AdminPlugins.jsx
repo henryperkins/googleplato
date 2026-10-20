@@ -86,7 +86,7 @@ export default function AdminPlugins() {
       <h1 className="text-2xl font-bold mb-2">Plugins</h1>
       <p className="text-sm text-muted-foreground mb-6">
         Enable, disable, and configure plato plugins.{' '}
-        <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="underline">
+        <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="touch-target inline-flex items-center underline underline-offset-4">
           Build your own.
         </a>
       </p>
@@ -159,11 +159,11 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 basis-48 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold leading-none">{plugin.name}</h2>
+              <h2 className="text-lg font-semibold">{plugin.name}</h2>
               <span className="text-xs text-muted-foreground">v{plugin.version}</span>
               {hasLoadError && <Badge variant="destructive" className="text-xs">Load error</Badge>}
             </div>
-            <p className="text-sm text-muted-foreground">{plugin.description}</p>
+            <p className="max-w-prose text-sm text-muted-foreground">{plugin.description}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span className={cn('text-xs font-medium', plugin.enabled ? 'text-foreground' : 'text-muted-foreground')}>

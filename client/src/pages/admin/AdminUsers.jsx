@@ -14,6 +14,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { PluginSlot } from '@/lib/plugins/Slot.jsx';
 import UserStatsPanel from './UserStatsPanel.jsx';
 import CompletionRing from './CompletionRing.jsx';
@@ -106,6 +109,7 @@ export default function AdminUsers() {
   const [waitlistSettings, setWaitlistSettings] = useState({ open: false, hasApiKey: false });
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [message, setMessage] = useState(null);
 
   // Modal states
@@ -175,7 +179,10 @@ export default function AdminUsers() {
       // The Slack tab is hidden when the plugin is disabled OR not connected.
       const slack = Array.isArray(pluginsRes) ? pluginsRes.find((entry) => entry.id === 'slack') : null;
       setSlackConnected(!!(slack?.enabled && slack?.settings?.connected));
-    } catch { /* ignore */ }
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(e?.message || 'Users could not be loaded.');
+    }
     setLoading(false);
   }, []);
 
@@ -866,18 +873,17 @@ export default function AdminUsers() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Invite Users
           </Button>
-          <Button variant="outline" onClick={() => setGroupsOpen(true)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            User Groups
-          </Button>
-          <Button variant="outline" onClick={() => setFieldsOpen(true)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            User Fields
-          </Button>
-          <Button variant="outline" onClick={() => setWaitlistOpen(true)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            Wait List
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-medium whitespace-nowrap hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
+              Manage
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setGroupsOpen(true)}>User Groups</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setFieldsOpen(true)}>User Fields</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setWaitlistOpen(true)}>Wait List Settings</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -886,7 +892,14 @@ export default function AdminUsers() {
           message.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'
         }`} role="alert">
           <span>{message.text}</span>
-          <button onClick={() => setMessage(null)} aria-label="Dismiss" className="touch-target inline-flex items-center justify-center rounded-sm ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+          <button type="button" onClick={() => setMessage(null)} aria-label="Dismiss" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-4 text-sm text-danger-foreground" role="alert">
+          <span>{loadError}</span>
+          <Button variant="outline" size="sm" onClick={loadData}>Retry</Button>
         </div>
       )}
 
@@ -956,9 +969,7 @@ export default function AdminUsers() {
             <Table aria-label="Users and invites">
               <TableHeader>
                 <TableRow>
-                  <SortHeader sortKey="name" sortBy={sortBy} onSort={handleSort}>Name</SortHeader>
-                  <SortHeader sortKey="email" sortBy={sortBy} onSort={handleSort}>Email</SortHeader>
-                  <SortHeader sortKey="username" sortBy={sortBy} onSort={handleSort}>Username</SortHeader>
+                  <SortHeader sortKey="name" sortBy={sortBy} onSort={handleSort}>User</SortHeader>
                   <SortHeader sortKey="group" sortBy={sortBy} onSort={handleSort}>Group</SortHeader>
                   <SortHeader sortKey="role" sortBy={sortBy} onSort={handleSort}>Role</SortHeader>
                   <SortHeader sortKey="completed" sortBy={sortBy} onSort={handleSort} align="center">Completed</SortHeader>
@@ -972,13 +983,14 @@ export default function AdminUsers() {
               <TableBody>
                 {pageItems.map(item => item._type === 'waitlist' ? (
                   <TableRow key={item._key} className="hover:bg-muted/50">
-                    <TableCell>
-                      <button type="button" className="touch-target truncate max-w-full rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
-                        {item.name || item.email}
-                      </button>
+                    <TableCell className="whitespace-normal">
+                      <div className="min-w-0 max-w-56">
+                        <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
+                          {item.name || item.email}
+                        </button>
+                        <span className="block truncate text-xs text-muted-foreground">{item.name ? item.email : 'Wait list'}</span>
+                      </div>
                     </TableCell>
-                    <TableCell>{item.email}</TableCell>
-                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
                     <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
                     <TableCell><Badge variant="outline">Wait List</Badge></TableCell>
                     <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
@@ -1001,11 +1013,12 @@ export default function AdminUsers() {
                   </TableRow>
                 ) : item._type === 'invite' ? (
                   <TableRow key={item._key}>
-                    <TableCell className="text-muted-foreground">
-                      <span className="block truncate max-w-full" title={item.email}>{item.email}</span>
+                    <TableCell className="whitespace-normal text-muted-foreground">
+                      <div className="min-w-0 max-w-56">
+                        <span className="block truncate max-w-full font-medium text-foreground" title={item.email}>{item.email}</span>
+                        <span className="block truncate text-xs">Pending invite</span>
+                      </div>
                     </TableCell>
-                    <TableCell>{item.email}</TableCell>
-                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
                     <TableCell>&mdash;</TableCell>
                     <TableCell><Badge variant="outline">Invited</Badge></TableCell>
                     <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
@@ -1026,13 +1039,16 @@ export default function AdminUsers() {
                   </TableRow>
                 ) : (
                   <TableRow key={item._key} className="hover:bg-muted/50">
-                    <TableCell>
-                      <button type="button" className="touch-target truncate max-w-full rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={() => openEditUser(item._user)}>
-                        {item.name || item.email}
-                      </button>
+                    <TableCell className="whitespace-normal">
+                      <div className="min-w-0 max-w-56">
+                        <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={() => openEditUser(item._user)}>
+                          {item.name || item.email}
+                        </button>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {[item.username ? `@${item.username}` : null, item.name ? item.email : null].filter(Boolean).join(' · ') || 'Active user'}
+                        </span>
+                      </div>
                     </TableCell>
-                    <TableCell>{item.email}</TableCell>
-                    <TableCell>{item.username || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
                     <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
                     <TableCell>
                       <Badge variant={item.role === 'admin' ? 'default' : 'secondary'}>
@@ -1109,7 +1125,7 @@ export default function AdminUsers() {
         </>
       ) : (
         <p className="text-muted-foreground py-8 text-center">
-          {search || filter !== 'all' ? 'No matching users.' : 'No users yet. Click "Invite Users" to get started.'}
+          {loadError ? 'Users could not be loaded. Retry above.' : search || filter !== 'all' ? 'No matching users.' : 'No users yet. Click "Invite Users" to get started.'}
         </p>
       )}
 

@@ -127,27 +127,31 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
 
     const lessonsSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminLessons.jsx'), 'utf8');
     assert.match(lessonsSrc, /onClick=\{\(\) => openLessonEditor\(c\.lessonId\)\}/);
-    assert.match(lessonsSrc, /className="touch-target truncate rounded-sm text-left font-medium underline/);
+    assert.match(lessonsSrc, /className="touch-target truncate max-w-full rounded-sm text-left font-medium underline/);
 
     const usersSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminUsers.jsx'), 'utf8');
-    assert.match(usersSrc, /item\._type === 'invite'\s*\?\s*\(\s*<TableRow[^>]*>\s*<TableCell className="text-muted-foreground">\s*<span className="block truncate max-w-full" title=\{item\.email\}>\{item\.email\}<\/span>/);
+    assert.match(usersSrc, /title=\{item\.email\}/);
+    assert.match(usersSrc, /Pending invite/);
     assert.match(usersSrc, /plato_admin_edit_user_draft/);
   });
 
   it('adapts AdminLayout, AdminHome, AdminKBSetup, UserFieldsDialog, WaitlistDialog, and WaitlistEntryEdit for mobile viewports', () => {
     const layoutSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminLayout.jsx'), 'utf8');
-    assert.match(layoutSrc, /pb-\[calc\(3\.5rem\+env\(safe-area-inset-bottom\)\)\]/);
+    assert.match(layoutSrc, /h-dvh/);
+    assert.match(layoutSrc, /overflow-y-auto/);
     assert.match(layoutSrc, /admin-bottom-nav/);
+    assert.equal(/admin-bottom-nav[^"]*fixed bottom-0/.test(layoutSrc), false);
 
     const homeSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminHome.jsx'), 'utf8');
     assert.equal(/text-\[10px\]/.test(homeSrc), false);
     assert.equal(/\btitle=/.test(homeSrc), false);
 
     const kbSetupSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminKBSetup.jsx'), 'utf8');
-    assert.match(kbSetupSrc, /min-h-dvh shrink-0/);
-    assert.match(kbSetupSrc, /safe-area-inset-top/);
-    assert.match(kbSetupSrc, /safe-area-inset-bottom/);
-    assert.match(kbSetupSrc, /\/v1\/admin\/knowledge-base\/conversation/);
+    assert.match(kbSetupSrc, /KnowledgeBaseEditor/);
+    assert.match(kbSetupSrc, /Skip for now/);
+    assert.equal(/<main\b/.test(kbSetupSrc), false);
+    const kbEditorSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/KnowledgeBaseEditor.jsx'), 'utf8');
+    assert.match(kbEditorSrc, /\/v1\/admin\/knowledge-base\/conversation/);
 
     const userFieldsSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/UserFieldsDialog.jsx'), 'utf8');
     assert.match(userFieldsSrc, /basis-full sm:basis-auto sm:flex-1/);
