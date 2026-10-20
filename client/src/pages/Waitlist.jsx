@@ -38,7 +38,14 @@ export default function Waitlist() {
   const navigate = useNavigate();
   const nameRef = useRef(null);
   const emailRef = useRef(null);
+  const doneRef = useRef(null);
   const branding = usePublicBranding('Join the wait list');
+
+  // The form (and its focused submit button) is replaced by the confirmation;
+  // move focus there so it is read and focus doesn't fall to <body>.
+  useEffect(() => {
+    if (done) doneRef.current?.focus();
+  }, [done]);
 
   useEffect(() => {
     try {
@@ -131,7 +138,7 @@ export default function Waitlist() {
   if (done) {
     body = (
       <CardContent>
-        <p role="status">You are on the wait list. We will email you when you are invited.</p>
+        <p ref={doneRef} tabIndex={-1}>You are on the wait list. We will email you when you are invited.</p>
       </CardContent>
     );
   } else if (!open) {
@@ -270,7 +277,7 @@ export default function Waitlist() {
             <input id="waitlist-website" type="text" name="website" tabIndex={-1} autoComplete="off"
               value={website} onChange={(e) => setWebsite(e.target.value)} />
           </div>
-          <Button type="submit" className="w-full" disabled={submitting}>
+          <Button type="submit" className="w-full" disabled={submitting} focusableWhenDisabled>
             {submitting ? 'Sending...' : 'Join the wait list'}
           </Button>
         </form>
@@ -280,10 +287,10 @@ export default function Waitlist() {
 
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
+      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</p>)}
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Join the wait list</CardTitle>
+          <CardTitle as="h1" className="text-2xl">Join the wait list</CardTitle>
           <CardDescription>Ask to join {branding.classroomName}.</CardDescription>
         </CardHeader>
         {body}

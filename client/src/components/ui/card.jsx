@@ -34,12 +34,15 @@ function CardHeader({
   );
 }
 
+// `as` lets a card title carry the heading level it visually reads as, e.g.
+// the page's <h1> on auth pages; the default stays a plain <div>.
 function CardTitle({
   className,
+  as: Comp = "div",
   ...props
 }) {
   return (
-    <div
+    <Comp
       data-slot="card-title"
       className={cn(
         "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",

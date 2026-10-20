@@ -131,7 +131,7 @@ export default function Setup() {
       <img src="/assets/logo-white.svg" alt="plato" width="160" height="40" fetchPriority="high" className="h-10 w-auto mb-6" />
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Build your Classroom.</CardTitle>
+          <CardTitle as="h1" className="text-2xl">Build your Classroom.</CardTitle>
           <CardDescription>Name your classroom and create your admin account.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -162,7 +162,7 @@ export default function Setup() {
               variant="outline"
               className="w-full gap-2 whitespace-nowrap shrink-0"
               onClick={handleGoogleSetup}
-              disabled={submitting || googleSubmitting}
+              disabled={submitting || googleSubmitting} focusableWhenDisabled
               aria-busy={googleSubmitting ? 'true' : undefined}
             >
               {googleSubmitting ? (
@@ -290,7 +290,7 @@ export default function Setup() {
             <Button
               type="submit"
               className="w-full gap-2 whitespace-nowrap shrink-0"
-              disabled={submitting || googleSubmitting}
+              disabled={submitting || googleSubmitting} focusableWhenDisabled
               aria-busy={submitting ? 'true' : undefined}
             >
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}

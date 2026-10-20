@@ -111,22 +111,25 @@ export default function ForgotPassword() {
 
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
+      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</p>)}
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Reset password</CardTitle>
+          <CardTitle as="h1" className="text-2xl">Reset password</CardTitle>
           <CardDescription>Enter your email and we&apos;ll send you a reset link.</CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Always mounted so the confirmation is announced when it appears. */}
+          <div role="status" aria-live="polite" aria-atomic="true">
+            {message && (
+              <div className="mb-4 bg-green-50 text-green-700 border border-green-200 rounded-lg p-3 text-sm">
+                {message}
+              </div>
+            )}
+          </div>
           <form className="space-y-4" onSubmit={handleSubmit} noValidate>
             {error && (
               <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
                 {error}
-              </div>
-            )}
-            {message && (
-              <div className="bg-green-50 text-green-700 border border-green-200 rounded-lg p-3 text-sm" role="status">
-                {message}
               </div>
             )}
             <div className="space-y-2">
@@ -143,7 +146,7 @@ export default function ForgotPassword() {
                 placeholder="you@example.com"
                 autoComplete="email"
                 value={email}
-                disabled={submitting}
+                readOnly={submitting}
                 aria-invalid={fieldError ? true : undefined}
                 aria-describedby={fieldError ? 'forgot-email-error' : undefined}
                 onChange={(e) => {
@@ -165,6 +168,7 @@ export default function ForgotPassword() {
               type="submit"
               className="w-full gap-2 whitespace-nowrap shrink-0"
               disabled={submitting}
+              focusableWhenDisabled
               aria-busy={submitting ? 'true' : undefined}
             >
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}

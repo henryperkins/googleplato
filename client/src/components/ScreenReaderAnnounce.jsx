@@ -1,27 +1,30 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-
-const ROUTE_NAMES = {
-  '/lessons': 'Lessons',
-  '/settings': 'Settings',
-  '/onboarding': 'Welcome',
-};
+import { useApp } from '../contexts/AppContext.jsx';
+import { routePageName, pageTitle } from '../lib/routeTitles.js';
 
 export default function ScreenReaderAnnounce() {
   const location = useLocation();
+  const { state } = useApp();
   const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    const path = location.pathname;
-    let name = ROUTE_NAMES[path];
-    if (!name && path.startsWith('/lessons/create')) name = 'Create Lesson';
-    else if (!name && path.startsWith('/lessons/')) name = 'Lesson';
+  // Resolve to primitives so a lessons refresh (tab refocus) with the same
+  // names doesn't re-announce the page.
+  const { name, pending } = routePageName(location.pathname, {
+    lessons: state.lessons,
+    lessonsLoaded: state.loaded,
+  });
 
+  useEffect(() => {
+    if (pending) {
+      document.title = pageTitle('Lesson');
+      return;
+    }
     if (name) {
       setMessage(`Navigated to ${name}`);
-      document.title = `${name} — plato`;
+      document.title = pageTitle(name);
     }
-  }, [location.pathname]);
+  }, [location.pathname, name, pending]);
 
   return (
     <div

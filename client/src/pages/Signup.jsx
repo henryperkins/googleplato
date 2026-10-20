@@ -223,10 +223,10 @@ export default function Signup() {
 
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
+      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</p>)}
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Create your account</CardTitle>
+          <CardTitle as="h1" className="text-2xl">Create your account</CardTitle>
           <CardDescription>Join {branding.classroomName}.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -240,7 +240,7 @@ export default function Signup() {
             variant="outline"
             className="w-full gap-2 whitespace-nowrap shrink-0"
             onClick={handleGoogleSignup}
-            disabled={submitting || googleSubmitting}
+            disabled={submitting || googleSubmitting} focusableWhenDisabled
             aria-busy={googleSubmitting ? 'true' : undefined}
           >
             {googleSubmitting ? (
@@ -445,7 +445,7 @@ export default function Signup() {
             <Button
               type="submit"
               className="w-full gap-2 whitespace-nowrap shrink-0"
-              disabled={submitting || googleSubmitting}
+              disabled={submitting || googleSubmitting} focusableWhenDisabled
               aria-busy={submitting ? 'true' : undefined}
             >
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}

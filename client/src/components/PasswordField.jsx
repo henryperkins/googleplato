@@ -3,7 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
 export default function PasswordField({
-  id, name, value, onChange, onBlur, onKeyDown, placeholder, autoComplete, enterKeyHint, inputRef, required, disabled,
+  id, name, value, onChange, onBlur, onKeyDown, placeholder, autoComplete, enterKeyHint, inputRef, required, disabled, readOnly,
   'aria-describedby': ariaDescribedBy,
   'aria-invalid': ariaInvalid,
 }) {
@@ -28,6 +28,7 @@ export default function PasswordField({
         ref={inputRef}
         required={required}
         disabled={disabled}
+        readOnly={readOnly}
         aria-describedby={ariaDescribedBy}
         aria-invalid={ariaInvalid}
         className="pr-16"

@@ -220,7 +220,7 @@ export default function Settings() {
                 spellCheck={false}
                 enterKeyHint="done"
                 value={username}
-                disabled={usernameSubmitting}
+                readOnly={usernameSubmitting}
                 aria-invalid={usernameFeedback?.type === 'error' ? true : undefined}
                 aria-describedby="username-feedback"
                 onChange={(e) => { setUsername(e.target.value); setUsernameFeedback(null); }}
@@ -231,7 +231,7 @@ export default function Settings() {
                 }}
               />
             </div>
-            <Button type="submit" disabled={usernameSubmitting} aria-label={usernameSubmitting ? 'Saving username' : 'Save username'}>{usernameSubmitting ? 'Saving...' : 'Save'}</Button>
+            <Button type="submit" disabled={usernameSubmitting} focusableWhenDisabled aria-label={usernameSubmitting ? 'Saving username' : 'Save username'}>{usernameSubmitting ? 'Saving...' : 'Save'}</Button>
             <SettingsFeedback id="username-feedback" feedback={usernameFeedback} />
           </form>
 
@@ -246,19 +246,21 @@ export default function Settings() {
                 autoComplete="name"
                 enterKeyHint="done"
                 value={name}
-                disabled={nameSubmitting}
+                readOnly={nameSubmitting}
                 aria-invalid={nameFeedback?.type === 'error' ? true : undefined}
                 aria-describedby="name-feedback"
                 onChange={(e) => { setName(e.target.value); setNameFeedback(null); }}
               />
             </div>
-            <Button type="submit" disabled={nameSubmitting} aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
+            <Button type="submit" disabled={nameSubmitting} focusableWhenDisabled aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
             <SettingsFeedback id="name-feedback" feedback={nameFeedback} />
           </form>
 
           <Separator />
 
           <form className="space-y-3" onSubmit={handleChangePassword} noValidate>
+            {/* Lets password managers attach the new password to this account. */}
+            <input type="text" name="username" autoComplete="username" value={user?.email || ''} readOnly hidden />
             <div className="space-y-1.5">
               <Label htmlFor="new-password">New Password</Label>
               <PasswordField
@@ -279,7 +281,7 @@ export default function Settings() {
                   }
                 }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); confirmPasswordRef.current?.focus(); } }}
-                disabled={passwordSubmitting}
+                readOnly={passwordSubmitting}
                 aria-invalid={passwordErrors.newPassword || (passwordFeedback?.type === 'error' && !passwordErrors.confirmPassword) ? true : undefined}
                 aria-describedby={passwordErrors.newPassword ? 'new-password-error password-feedback' : 'password-feedback'}
               />
@@ -307,7 +309,7 @@ export default function Settings() {
                   }
                 }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleChangePassword(e); } }}
-                disabled={passwordSubmitting}
+                readOnly={passwordSubmitting}
                 aria-invalid={passwordErrors.confirmPassword ? true : undefined}
                 aria-describedby={passwordErrors.confirmPassword ? 'confirm-password-error password-feedback' : 'password-feedback'}
               />
@@ -315,7 +317,7 @@ export default function Settings() {
                 <p id="confirm-password-error" className="text-xs text-destructive" role="alert">{passwordErrors.confirmPassword}</p>
               )}
             </div>
-            <Button type="submit" disabled={passwordSubmitting}>
+            <Button type="submit" disabled={passwordSubmitting} focusableWhenDisabled>
               {passwordSubmitting ? 'Changing...' : 'Change Password'}
             </Button>
             <SettingsFeedback id="password-feedback" feedback={passwordFeedback} />
@@ -361,11 +363,11 @@ export default function Settings() {
                       }
                     }
                   }}
-                  disabled={fieldsSaving}
+                  readOnly={fieldsSaving}
                   describedBy="fields-feedback"
                 />
               ))}
-              <Button type="submit" disabled={fieldsSaving}>
+              <Button type="submit" disabled={fieldsSaving} focusableWhenDisabled>
                 {fieldsSaving ? 'Saving...' : 'Save'}
               </Button>
               <SettingsFeedback id="fields-feedback" feedback={fieldsFeedback} />
@@ -465,7 +467,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
             rows={4}
             placeholder="e.g. I'm a complete beginner. I use a Chromebook and don't have admin access."
             value={text}
-            disabled={submitting}
+            readOnly={submitting}
             aria-describedby="profile-feedback-error"
             onChange={(e) => { setText(e.target.value); setError(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); } }}
@@ -476,7 +478,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={submitting || !text.trim()}>
+          <Button onClick={handleSubmit} disabled={submitting || !text.trim()} focusableWhenDisabled>
             {submitting ? 'Updating...' : 'Submit'}
           </Button>
         </DialogFooter>

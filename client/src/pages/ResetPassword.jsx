@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import PasswordField from '../components/PasswordField.jsx';
 import { Button } from '@/components/ui/button';
@@ -15,12 +15,20 @@ export default function ResetPassword() {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('reset') || '';
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);
+  const doneRef = useRef(null);
   const branding = usePublicBranding('Set new password');
+
+  // The form is replaced on success; move focus to the confirmation so it is
+  // read and focus doesn't fall to <body>.
+  useEffect(() => {
+    if (done) doneRef.current?.focus();
+  }, [done]);
 
   async function handleReset(e) {
     if (e) e.preventDefault();
@@ -52,7 +60,7 @@ export default function ResetPassword() {
         throw new Error(data.error || 'Reset failed');
       }
       setMessage('Password reset. You can now sign in.');
-      setTimeout(() => navigate('/login', { replace: true }), 2000);
+      setDone(true);
     } catch (e) {
       setError(e.message || 'Reset failed');
     } finally {
@@ -64,21 +72,33 @@ export default function ResetPassword() {
 
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: branding.primary, color: branding.foreground }}>
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</h1>)}
+      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />) : (<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</p>)}
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Set new password</CardTitle>
+          <CardTitle as="h1" className="text-2xl">Set new password</CardTitle>
         </CardHeader>
         <CardContent>
+          {!token ? (
+            <div className="space-y-4 text-sm">
+              <p>This password reset link is incomplete. Request a new link to choose a new password.</p>
+              <Button className="w-full" nativeButton={false} render={<Link to="/forgot-password" />}>
+                Request a new link
+              </Button>
+            </div>
+          ) : done ? (
+            <div className="space-y-4">
+              <p ref={doneRef} tabIndex={-1} className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+                {message}
+              </p>
+              <Button className="w-full" nativeButton={false} render={<Link to="/login" replace />}>
+                Sign in
+              </Button>
+            </div>
+          ) : (
           <form className="space-y-4" onSubmit={handleReset} noValidate>
             {error && (
               <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
                 {error}
-              </div>
-            )}
-            {message && (
-              <div className="bg-green-50 text-green-700 border border-green-200 rounded-lg p-3 text-sm" role="status">
-                {message}
               </div>
             )}
             <div className="space-y-2">
@@ -90,7 +110,7 @@ export default function ResetPassword() {
                 enterKeyHint="next"
                 inputRef={passwordRef}
                 value={password}
-                disabled={submitting}
+                readOnly={submitting}
                 aria-invalid={fieldErrors.password ? true : undefined}
                 aria-describedby={fieldErrors.password ? 'reset-password-error' : undefined}
                 onChange={(e) => {
@@ -117,7 +137,7 @@ export default function ResetPassword() {
                 enterKeyHint="done"
                 inputRef={confirmRef}
                 value={confirm}
-                disabled={submitting}
+                readOnly={submitting}
                 aria-invalid={fieldErrors.confirm ? true : undefined}
                 aria-describedby={fieldErrors.confirm ? 'reset-confirm-error' : undefined}
                 onChange={(e) => {
@@ -135,10 +155,11 @@ export default function ResetPassword() {
                 <p id="reset-confirm-error" className="text-xs text-destructive" role="alert">{fieldErrors.confirm}</p>
               )}
             </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
+            <Button type="submit" className="w-full" disabled={submitting} focusableWhenDisabled>
               {submitting ? 'Resetting...' : 'Reset password'}
             </Button>
           </form>
+          )}
         </CardContent>
       </Card>
       <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>

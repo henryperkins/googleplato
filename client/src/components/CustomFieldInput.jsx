@@ -10,6 +10,9 @@ const SELECT_CLASS = 'h-10 w-full rounded-lg border border-input bg-transparent 
  * Required fields show a visible "(required)" marker; it's aria-hidden
  * because aria-required already announces it (avoids "required, required").
  * `describedBy` links the control to a feedback or help element by id.
+ * `readOnly` holds the value while a form saves without disabling the field,
+ * which would drop focus to <body>. Native selects ignore `readonly`, so a
+ * read-only dropdown keeps focus and simply ignores changes.
  */
 export default function CustomFieldInput({
   field,
@@ -21,6 +24,7 @@ export default function CustomFieldInput({
   inputRef,
   idPrefix = 'cf',
   disabled = false,
+  readOnly = false,
   describedBy,
   error,
 }) {
@@ -35,18 +39,18 @@ export default function CustomFieldInput({
     'aria-required': field.required || undefined,
     'aria-invalid': error ? true : undefined,
     'aria-describedby': ariaDescribedBy,
-    onChange: (e) => onChange(e.target.value),
+    onChange: (e) => { if (!readOnly) onChange(e.target.value); },
     onBlur,
     onKeyDown: field.type === 'textarea' ? undefined : onKeyDown,
   };
 
   let control;
   if (field.type === 'textarea') {
-    control = <Textarea rows={3} enterKeyHint="enter" {...common} />;
+    control = <Textarea rows={3} enterKeyHint="enter" readOnly={readOnly} {...common} />;
   } else if (field.type === 'dropdown') {
     const options = field.options || [];
     control = (
-      <select {...common} className={SELECT_CLASS}>
+      <select {...common} aria-readonly={readOnly || undefined} className={SELECT_CLASS}>
         <option value="">Select…</option>
         {/* Keep a value that's no longer an option visible rather than silently blanking it. */}
         {value && !options.includes(value) && <option value={value}>{value} (no longer an option)</option>}
@@ -64,13 +68,14 @@ export default function CustomFieldInput({
         autoComplete="url"
         enterKeyHint={enterKeyHint}
         placeholder="https://"
+        readOnly={readOnly}
         {...common}
       />
     );
   } else if (field.type === 'phone') {
-    control = <Input type="tel" inputMode="tel" autoComplete="tel" enterKeyHint={enterKeyHint} {...common} />;
+    control = <Input type="tel" inputMode="tel" autoComplete="tel" enterKeyHint={enterKeyHint} readOnly={readOnly} {...common} />;
   } else {
-    control = <Input type="text" enterKeyHint={enterKeyHint} {...common} />;
+    control = <Input type="text" enterKeyHint={enterKeyHint} readOnly={readOnly} {...common} />;
   }
 
   return (

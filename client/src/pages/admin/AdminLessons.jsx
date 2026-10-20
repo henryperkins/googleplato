@@ -868,7 +868,7 @@ function NewLessonView({ onSave, onCancel, onError: _onError, lessonId, isDraft,
               placeholder="Describe what you want to teach..."
               storageKey={`plato_lesson_editor_draft:${lessonId || 'new'}`}
               onSend={handleSend}
-              disabled={isBusy}
+              busy={isBusy}
             />
           </div>
         </div>

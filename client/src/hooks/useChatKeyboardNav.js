@@ -1,6 +1,20 @@
 import { useEffect } from 'react';
 
 /**
+ * The message index Alt+Arrow moves to. `current` is -1 when focus is on the
+ * log itself (or another control in it) rather than on a message: Alt+ArrowUp
+ * then starts at the newest message, which is the one a learner returning to
+ * the log after "New message from coach" wants, and Alt+ArrowDown starts at
+ * the oldest. Movement stops at either end.
+ */
+export function nextMessageIndex(current, count, key) {
+  if (count === 0) return -1;
+  if (current === -1) return key === 'ArrowUp' ? count - 1 : 0;
+  if (key === 'ArrowDown') return Math.min(current + 1, count - 1);
+  return Math.max(current - 1, 0);
+}
+
+/**
  * Keyboard navigation for chat messages.
  *
  * When the chat log (or any descendant) is focused:
@@ -31,14 +45,7 @@ export function useChatKeyboardNav(logRef) {
         idx = msgs.findIndex(m => m.contains(current));
       }
 
-      let next;
-      if (e.key === 'ArrowDown') {
-        next = idx < msgs.length - 1 ? msgs[idx + 1] : msgs[msgs.length - 1];
-      } else {
-        next = idx > 0 ? msgs[idx - 1] : msgs[0];
-      }
-
-      if (next) next.focus();
+      msgs[nextMessageIndex(idx, msgs.length, e.key)]?.focus();
     }
 
     log.addEventListener('keydown', handleKeyDown);

@@ -16,7 +16,7 @@ colors:
   accent-foreground: "oklch(0.205 0 0)"
   destructive: "oklch(0.505 0.213 27.518)"
   border: "oklch(0.905 0 0)"
-  input: "oklch(0.905 0 0)"
+  input: "oklch(0.62 0 0)"
   ring: "oklch(0.336 0.182 285)"
   primary-text: "oklch(0.336 0.182 285)"
   link: "oklch(0.336 0.182 285)"
@@ -43,7 +43,7 @@ colors:
   dark-accent-foreground: "oklch(0.985 0 0)"
   dark-destructive: "oklch(0.704 0.191 22.216)"
   dark-border: "oklch(1 0 0 / 10%)"
-  dark-input: "oklch(1 0 0 / 15%)"
+  dark-input: "oklch(1 0 0 / 45%)"
   dark-ring: "oklch(0.556 0.2 285)"
   dark-primary-text: "oklch(0.78 0.12 285)"
   dark-link: "oklch(0.78 0.12 285)"
@@ -272,7 +272,8 @@ The semantic primary and the literal admin-bar/logo purple are different source 
 | `secondary`, `secondary-foreground` | Subdued filled controls and their text. |
 | `muted`, `muted-foreground` | Support surfaces, progress tracks, descriptions, metadata, and placeholders. |
 | `accent`, `accent-foreground` | Hover, selected, and expanded interaction surfaces. |
-| `border`, `input` | Thin separators and form boundaries. |
+| `border` | Thin decorative separators and card dividers. |
+| `input` | Form-field boundaries. A transparent field's border is its only outline, so `input` holds 3:1 against white and the workspace (WCAG 1.4.11). |
 | `workspace` | The slightly warm learner-page background. |
 
 The `dark-*` entries preserve the corresponding `.dark` declarations. Backgrounds become charcoal, cards and popovers sit one tonal level above them, primary becomes brighter violet, and borders become translucent white. The learner work area has its own dark stone value. This documents the stylesheet variant; a user-facing theme switch was not established by this pass.
@@ -311,7 +312,7 @@ The hierarchy is practical and closely spaced. Weight and context do much of the
 
 Lesson descriptions use a relaxed line height (1.625). Form labels use a tight line height (1). Native input primitives and the chat composer use body size on narrow screens and small-body size from the medium breakpoint.
 
-Exceptions remain local: auth card titles can use headline size with medium weight, dialog titles use 16 px / 500 with a tight line height, and course labels in lesson outlines use uppercase text with wider tracking. Statistics use tabular numerals where declared.
+Exceptions remain local: auth card titles can use headline size with medium weight and are the page's `h1` (the classroom name above them is branding text, not a heading), dialog titles use 16 px / 500 with a tight line height, and course labels in lesson outlines use uppercase text with wider tracking. Statistics use tabular numerals where declared.
 
 **The Two Voices Rule.** Keep learner messages in Geist and coach replies in the existing serif stack. Preserve their alignment and surface treatment alongside the font distinction.
 
@@ -393,11 +394,11 @@ Structured and familiar, with compact sizing and a clear variant API. The common
 
 These are compact desktop dimensions. Below 640 px or when a coarse pointer is available, shared buttons and explicitly marked touch controls have a minimum 44 × 44 px hit area. The existing `lg` height is smaller than default; preserve actual dimensions rather than inferring them from the name. Default text is 14 px / 500, small text is 0.8 rem, and extra-small text is 12 px. Icons are usually 16 px, with smaller icons on smaller controls.
 
-Shared button focus uses a ring-colored border and a 3 px ring at 50% opacity. Other keyboard-focusable controls have a solid 3 px outline consuming the complete ring color; colored headers use their contrasting foreground for focus. Account labels match the rendered name. Disabled controls reduce opacity and pointer interaction. Invalid controls use destructive border and ring colors. Pressed buttons move down 1 px unless they expose a popup. The primary background hover treatment is currently declared for anchor-rendered buttons; do not assume the same fill change on a native primary button.
+Shared button focus uses a ring-colored border and a 3 px ring at 50% opacity. Other keyboard-focusable controls have a solid 3 px outline consuming the complete ring color; colored headers use their contrasting foreground for focus. Account labels match the rendered name. Disabled controls reduce opacity and pointer interaction. A button that starts async work stays focusable while it waits (`focusableWhenDisabled`, exposed as `aria-disabled` with the same reduced opacity), so focus never falls to the document. Invalid controls use destructive border and ring colors. Pressed buttons move down 1 px unless they expose a popup. The primary background hover treatment is currently declared for anchor-rendered buttons; do not assume the same fill change on a native primary button.
 
 ### Inputs and textareas
 
-Structured, thinly bounded fields with 8 px corners and a transparent base surface. Text inputs are 40 px tall with 12 px horizontal and 8 px vertical padding. Textareas have a minimum height of 64 px and size to content. Dark fields add a faint input-color fill. Placeholder text is muted; focus and invalid states follow the button ring vocabulary.
+Structured, thinly bounded fields with 8 px corners and a transparent base surface; the `input` boundary holds 3:1 against the surface. While a form saves, its fields become read-only rather than disabled. Text inputs are 40 px tall with 12 px horizontal and 8 px vertical padding. Textareas have a minimum height of 64 px and size to content. Dark fields add a faint input-color fill. Placeholder text is muted; focus and invalid states follow the button ring vocabulary.
 
 Keep labels, help text, validation wording, and accessible names connected to the control. The chat composer is its own textarea inside a bordered container, with attachment tools and a send action; it does not share every generic textarea style.
 
@@ -423,9 +424,9 @@ The learner shell uses a branded header, a classroom name or logo linking to les
 
 ### Conversation and progress
 
-Coach replies align left as unboxed serif text. Learner replies align right as primary-filled Geist bubbles with contrasting text, 16 px horizontal / 12 px vertical padding, and a tighter lower-right corner. Both are limited to 85% of the chat width. Images and link attachments follow the learner side of the conversation.
+Coach replies align left as unboxed serif text. Learner replies align right as primary-filled Geist bubbles with contrasting text, 16 px horizontal / 12 px vertical padding, and a tighter lower-right corner. Learner text keeps its own line breaks. Both are limited to 85% of the chat width. Images and link attachments follow the learner side of the conversation.
 
-The composer uses the background surface, a thin input-colored boundary, and an 8 px radius. Attachment chips keep their own link and remove affordances. The progress track is a thin, fully rounded muted line, filled with accessible primary emphasis while active and green when complete. The composer uses 16 px text below the medium breakpoint and 14 px above it, retains an unclipped minimum line height, and resizes after text, width, font, or root text-size changes; long responses scroll within its 200 px height cap.
+The composer uses the background surface, a thin input-colored boundary, and an 8 px radius. While a reply streams it stays editable and keeps focus; only sending waits, and an early send explains why in the composer's status line. A lesson that fails to start offers Try again in place. Attachment chips keep their own link and remove affordances. The progress track is a thin, fully rounded muted line, filled with accessible primary emphasis while active and green when complete. The composer uses 16 px text below the medium breakpoint and 14 px above it, retains an unclipped minimum line height, and resizes after text, width, font, or root text-size changes; long responses scroll within its 200 px height cap.
 
 Preserve the silent chat log, separate announcements, keyboard message navigation, and exclusion of streaming text from screen-reader focus. Partial streaming messages are inert so their links cannot receive keyboard focus until the reply is complete. Chat back/reset actions use the same stroked SVG icon family as other controls. These interaction constraints are recorded in [PRODUCT.md](PRODUCT.md).
 

@@ -29,6 +29,14 @@ function StepIcon({ status }) {
   return <Circle className="w-5 h-5 text-muted-foreground" aria-hidden="true" />;
 }
 
+// Step state is drawn by aria-hidden icons, so screen readers get it as text.
+// One text node per step means a state change is announced with its label.
+const STATUS_TEXT = {
+  completed: 'done',
+  in_progress: 'in progress',
+  pending: 'not started',
+};
+
 function BuildStep({ label, status, detail, enrichments }) {
   const isEnrichment = enrichments !== undefined;
 
@@ -39,7 +47,8 @@ function BuildStep({ label, status, detail, enrichments }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium">
-          {label}
+          <span aria-hidden="true">{label}</span>
+          <span className="sr-only">{`${label}: ${STATUS_TEXT[status]}`}</span>
         </div>
         {detail && (
           <div className="text-sm text-muted-foreground mt-0.5">

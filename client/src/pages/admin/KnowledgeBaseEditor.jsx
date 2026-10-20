@@ -261,7 +261,7 @@ export default function KnowledgeBaseEditor({
               placeholder="Tell me about your program..."
               storageKey={storageKey}
               onSend={handleSend}
-              disabled={isBusy}
+              busy={isBusy}
             />
           </div>
         </div>

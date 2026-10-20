@@ -80,6 +80,7 @@ export default function ProfileCompletionGate({ children }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (saving) return;
     const cfErrs = validateCustomFields(fields, values);
     const cfIds = Object.keys(cfErrs);
     if (cfIds.length) {
@@ -112,7 +113,7 @@ export default function ProfileCompletionGate({ children }) {
       <Card>
         <CardHeader>
           <CardTitle>
-            <h2 ref={headingRef} tabIndex={-1} className="outline-none">Update your profile</h2>
+            <h1 ref={headingRef} tabIndex={-1} className="outline-none">Update your profile</h1>
           </CardTitle>
           <CardDescription>
             We&apos;ve added {fields.length === 1 ? 'a required field' : 'required fields'} you&apos;ll need to enter before you continue:
@@ -155,10 +156,10 @@ export default function ProfileCompletionGate({ children }) {
                     }
                   }
                 }}
-                disabled={saving}
+                readOnly={saving}
               />
             ))}
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving} focusableWhenDisabled>
               {saving ? 'Saving...' : 'Continue'}
             </Button>
           </form>

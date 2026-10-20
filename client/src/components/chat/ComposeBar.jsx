@@ -25,7 +25,11 @@ function hostLabel(url) {
 export default function ComposeBar({
   placeholder = 'Ask a question...',
   onSend,
+  // `disabled` makes the composer read-only (View as User). `busy` only holds
+  // sending while a reply streams: the textarea stays editable and focused, so
+  // the next message can be drafted and the mobile keyboard stays open.
   disabled = false,
+  busy = false,
   allowImages = false,
   allowLinks = false,
   elevated = false,
@@ -74,6 +78,7 @@ export default function ComposeBar({
   const [linkValue, setLinkValue] = useState('');
   const [fetchingLink, setFetchingLink] = useState(false);
   const [linkError, setLinkError] = useState('');
+  const [busyNotice, setBusyNotice] = useState('');
 
   useEffect(() => {
     if (linkOpen) linkInputRef.current?.focus();
@@ -107,15 +112,23 @@ export default function ComposeBar({
   const send = () => {
     const val = text.trim();
     if ((!val && images.length === 0 && links.length === 0) || disabled || loadingImages || fetchingLink) return;
+    if (busy) {
+      setBusyNotice('Wait for the reply to finish, then send.');
+      return;
+    }
     const imageDataUrls = images.length > 0 ? images.map(i => i.dataUrl) : null;
     const linkPayload = links.length > 0 ? links.map(l => ({ url: l.url, title: l.title, text: l.text })) : null;
     const payload = { text: val || null, imageDataUrls, links: linkPayload };
+    setBusyNotice('');
     setText('');
     setImages([]);
     setLinks([]);
     setImageError('');
     if (inputRef.current) { inputRef.current.style.height = 'auto'; inputRef.current.style.overflowY = 'hidden'; }
     onSend(payload);
+    // Sending from the Send button would otherwise leave focus on a control
+    // that is about to disable itself, which drops focus to <body>.
+    inputRef.current?.focus();
   };
 
   // Reads N files in parallel, applies a single state update once all readers
@@ -251,7 +264,10 @@ export default function ComposeBar({
   };
 
   const hasContent = text.trim() || images.length > 0 || links.length > 0;
-  const busy = loadingImages || fetchingLink;
+  const attaching = loadingImages || fetchingLink;
+  const status = loadingImages
+    ? `Loading ${loadingCount} image${loadingCount === 1 ? '' : 's'}…`
+    : (fetchingLink ? 'Fetching link…' : (busy ? busyNotice : ''));
 
   return (
     <div className="px-4 pb-4 pt-2">
@@ -287,7 +303,7 @@ export default function ComposeBar({
         {links.length > 0 && (
           <div className="m-2 flex flex-wrap gap-2.5">
             {links.map((link, idx) => (
-              <div key={idx} className="inline-flex max-w-full items-center gap-1 rounded-md border border-input bg-muted py-0.5 pl-2 pr-1 text-xs">
+              <div key={idx} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted py-0.5 pl-2 pr-1 text-xs">
                 <a
                   href={link.url}
                   target="_blank"
@@ -413,20 +429,18 @@ export default function ComposeBar({
               </svg>
             </Button>
           )}
-          {(allowImages || allowLinks) && (
-            <span id={statusId} className="text-xs text-muted-foreground" role="status" aria-live="polite">
-              {loadingImages ? `Loading ${loadingCount} image${loadingCount === 1 ? '' : 's'}…` : (fetchingLink ? 'Fetching link…' : '')}
-            </span>
-          )}
+          <span id={statusId} className="min-w-0 text-xs text-muted-foreground" role="status" aria-live="polite">
+            {status}
+          </span>
           <div className="flex-1" />
           <Button
             variant="default"
             size="icon-sm"
             className={`transition-opacity ${hasContent ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
             aria-label="Send"
-            aria-describedby={(allowImages || allowLinks) && busy ? statusId : undefined}
+            aria-describedby={status ? statusId : undefined}
             onClick={send}
-            disabled={disabled || !hasContent || busy}
+            disabled={disabled || busy || !hasContent || attaching}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="12" y1="19" x2="12" y2="5" />

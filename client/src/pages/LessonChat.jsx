@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -58,6 +58,11 @@ export default function LessonChat() {
   const [loadingStep, setLoadingStep] = useState('initializing');
   const [loadingEnrichments, setLoadingEnrichments] = useState([]);
   const [error, setError] = useState('');
+  // A failed lesson start has no conversation to fall back on, so it offers
+  // its own retry instead of sending the learner to reload the page.
+  const [startFailed, setStartFailed] = useState(false);
+  const [startAttempt, setStartAttempt] = useState(0);
+  const headingRef = useRef(null);
 
   const [streamingText, setStreamingText] = useState(null);
   const displayText = useStreamedText(streamingText);
@@ -178,6 +183,8 @@ export default function LessonChat() {
         setError('This learner has not started this lesson yet — there is nothing to view.');
         setPhase(LESSON_PHASES.LEARNING);
       } else {
+        setError('');
+        setStartFailed(false);
         setLoading('starting');
         setLoadingStep('initializing');
         setLoadingEnrichments([]);
@@ -199,13 +206,25 @@ export default function LessonChat() {
           pendingAfterStreamRef.current = { msgs: result.messages, p: result.phase };
           setStreamingText(null);
         } catch (e) {
-          if (!cancelled) { setError(aiErrorMessage(e, 'coach-start')); setLoading(''); setStreamingText(null); }
+          if (!cancelled) {
+            setError(aiErrorMessage(e, 'coach-start'));
+            setStartFailed(true);
+            setLoading('');
+            setStreamingText(null);
+          }
         }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [lessonGroupId, lessonLoaded, impersonating]);
+  }, [lessonGroupId, lessonLoaded, impersonating, startAttempt]);
+
+  const retryStart = () => {
+    // The error and its button are replaced by the loading view, so park focus
+    // on the lesson heading rather than letting it fall to <body>.
+    headingRef.current?.focus();
+    setStartAttempt((n) => n + 1);
+  };
 
   const handleSend = useCallback(async ({ text, imageDataUrls, links }) => {
     const hasImages = Array.isArray(imageDataUrls) && imageDataUrls.length > 0;
@@ -311,7 +330,14 @@ export default function LessonChat() {
   };
 
   if (!state.loaded) return <div className="flex items-center justify-center py-12 text-muted-foreground" role="status" aria-live="polite">Loading...</div>;
-  if (!lesson) return <p className="p-4 text-muted-foreground">Lesson not found.</p>;
+  if (!lesson) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-2 p-4">
+        <h1 className="text-xl font-semibold">Lesson not found</h1>
+        <Link to="/lessons" className="text-sm text-link underline underline-offset-4">Back to lessons</Link>
+      </div>
+    );
+  }
   const busy = !!loading;
   const composePlaceholder = phase === LESSON_PHASES.COMPLETED
     ? 'Share feedback about this lesson...'
@@ -383,7 +409,7 @@ export default function LessonChat() {
           </Button>
           <div className="flex-1 min-w-0">
             <div className="flex flex-row items-center justify-between gap-2">
-              <h1 className="text-sm font-semibold truncate min-w-0">{lesson.name}</h1>
+              <h1 ref={headingRef} tabIndex={-1} className="text-sm font-semibold truncate min-w-0">{lesson.name}</h1>
               <button
                 type="button"
                 className="touch-target rounded-sm text-left text-xs text-primary-text hover:underline cursor-pointer whitespace-nowrap shrink-0"
@@ -424,7 +450,14 @@ export default function LessonChat() {
             <AssistantMessage content={displayText} streaming />
           )}
           {loading === 'qa' && !displayText && <ThinkingSpinner />}
-          {error && <div className="px-3 py-2 text-sm text-destructive" role="alert">{error}</div>}
+          {error && (
+            <div className="space-y-2 px-3 py-2">
+              <p className="text-sm text-destructive" role="alert">{error}</p>
+              {startFailed && (
+                <Button variant="outline" size="sm" onClick={retryStart}>Try again</Button>
+              )}
+            </div>
+          )}
           {phase === LESSON_PHASES.COMPLETED && (
             <div className="flex flex-col items-center gap-3 mt-8 mb-4 px-4">
               {nextLesson ? (
@@ -462,7 +495,8 @@ export default function LessonChat() {
           <ComposeBar
             placeholder={impersonating ? 'Read-only — viewing as another user' : composePlaceholder}
             onSend={handleSend}
-            disabled={busy || impersonating}
+            disabled={impersonating}
+            busy={busy}
             allowImages
             allowLinks
             text={composeText}

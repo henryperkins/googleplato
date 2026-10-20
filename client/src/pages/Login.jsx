@@ -119,11 +119,11 @@ export default function Login() {
       {logo ? (
         <img src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />
       ) : (
-        <h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</h1>
+        <p className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</p>
       )}
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Sign in</CardTitle>
+          <CardTitle as="h1" className="text-2xl">Sign in</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
@@ -136,7 +136,7 @@ export default function Login() {
             variant="outline"
             className="w-full gap-2 whitespace-nowrap shrink-0"
             onClick={handleGoogleLogin}
-            disabled={submitting || googleSubmitting}
+            disabled={submitting || googleSubmitting} focusableWhenDisabled
             aria-busy={googleSubmitting ? 'true' : undefined}
           >
             {googleSubmitting ? (
@@ -223,7 +223,7 @@ export default function Login() {
             <Button
               type="submit"
               className="w-full gap-2 whitespace-nowrap shrink-0"
-              disabled={submitting || googleSubmitting}
+              disabled={submitting || googleSubmitting} focusableWhenDisabled
               aria-busy={submitting ? 'true' : undefined}
             >
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}

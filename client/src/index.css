@@ -88,7 +88,10 @@
     --danger-foreground: oklch(0.396 0.141 25.723);
     --danger-border: oklch(0.808 0.114 19.571);
     --border: oklch(0.905 0 0);
-    --input: oklch(0.905 0 0);
+    /* Field boundaries are often a field's only outline, so they hold 3:1
+       against white and the workspace (WCAG 1.4.11). --border stays light
+       for decorative separators. */
+    --input: oklch(0.62 0 0);
     --ring: oklch(0.336 0.182 285);
     --chart-1: oklch(0.336 0.182 285);
     --chart-2: oklch(0.556 0.15 285);
@@ -134,7 +137,7 @@
     --danger-foreground: oklch(0.885 0.062 18.334);
     --danger-border: oklch(0.505 0.213 27.518);
     --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
+    --input: oklch(1 0 0 / 45%);
     --ring: oklch(0.556 0.2 285);
     --chart-1: oklch(0.556 0.2 285);
     --chart-2: oklch(0.7 0.15 285);

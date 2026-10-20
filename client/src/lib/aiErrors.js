@@ -11,10 +11,8 @@
  */
 
 const SURFACES = {
-  'coach-start': {
-    subject: 'Your coach', action: 'start this lesson', audience: 'learner',
-    retry: 'Reload the page to try again.',
-  },
+  // The lesson page shows a "Try again" button under this message.
+  'coach-start': { subject: 'Your coach', action: 'start this lesson', audience: 'learner' },
   'coach-reply': {
     subject: 'Your coach', action: 'reply', audience: 'learner',
     rejectedHint: 'If you attached an image or link, try sending without it.',

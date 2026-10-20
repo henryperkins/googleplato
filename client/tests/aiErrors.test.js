@@ -34,7 +34,7 @@ describe('aiErrorMessage', () => {
   it('words retries for the surface the learner is on', () => {
     assert.equal(
       aiErrorMessage(serverError('ai_rate_limited', 429), 'coach-start'),
-      "Your coach couldn't start this lesson because the AI service is busy. Wait a moment, then reload the page to try again.",
+      "Your coach couldn't start this lesson because the AI service is busy. Wait a moment, then try again.",
     );
     assert.equal(aiErrorMessage(serverError('ai_timeout'), 'kb-editor'), 'The knowledge base editor took too long to respond. Try again.');
   });

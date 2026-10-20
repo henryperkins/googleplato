@@ -20,11 +20,11 @@ export default function Privacy() {
       {logo ? (
         <img src={logo} alt={classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />
       ) : (
-        <h1 className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</h1>
+        <p className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</p>
       )}
       <Card className="w-full max-w-3xl">
         <CardHeader>
-          <CardTitle className="text-2xl">Privacy & Data Handling</CardTitle>
+          <CardTitle as="h1" className="text-2xl">Privacy & Data Handling</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6 text-sm">
           <section>
