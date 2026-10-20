@@ -87,6 +87,19 @@ test('stale recovery stays available but cannot overwrite newer remote work', as
   assert.deepEqual(resumed.getState().snapshot.conversation, ['local']);
 });
 
+test('reload retains a lost-response operation when a later edit invalidated its acknowledgment', async () => {
+  const recovery = {
+    version: 1, snapshot: { conversation: ['local'], course: 'deleted-course' },
+    operations: [{ id: 'save-before-delete', body: { course: 'deleted-course' } }],
+  };
+  const resumed = setup({ recovery, version: 3, operationId: null,
+    write: async () => assert.fail('must not restore deleted course') });
+  await assert.rejects(resumed.flush(), { status: 409 });
+  assert.equal(resumed.getState().error.status, 409);
+  assert.equal(resumed.getState().pending, 1);
+  assert.equal(resumed.getState().snapshot.course, 'deleted-course');
+});
+
 test('storage failure is visible and does not prevent saving to the server', async () => {
   const queue = setup({ storage: { setItem() { throw new Error('Quota exceeded'); } },
     write: async () => ({ version: 2 }) });

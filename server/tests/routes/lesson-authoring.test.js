@@ -72,6 +72,28 @@ test('retries a committed operation without writing it twice after a lost respon
   assert.equal(writes, 1);
 });
 
+test('a course deletion invalidates an earlier lost-response retry', async () => {
+  record.data.course = 'communication';
+  const body = { expectedVersion: 1, operationId: 'save-before-delete', course: 'communication', conversation: [] };
+  assert.equal((await request('PUT', body)).status, 200);
+  db.getAllSyncData = async () => [{ ...record, dataKey: 'lesson:test' }];
+  db.deleteSyncData = async (userId, dataKey) => {
+    assert.equal(userId, '_system');
+    assert.equal(dataKey, 'course:communication');
+  };
+  const deleted = await app.request('/v1/admin/courses/communication', {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${await signAccessToken('admin', 'admin')}` },
+  });
+  assert.equal(deleted.status, 200);
+  assert.equal(record.data.course, null);
+  assert.equal((await request('PUT', body)).status, 409);
+  const saved = await (await request('GET')).json();
+  assert.equal(saved.version, 3);
+  assert.notEqual(saved.authoringOperationId, body.operationId);
+  assert.equal(writes, 2);
+});
+
 test('a competing database write returns a recoverable conflict', async () => {
   db.putSyncData = async () => { throw Object.assign(new Error('Version mismatch'), { name: 'ConditionalCheckFailedException' }); };
   const res = await request('PUT', { expectedVersion: 1, conversation: [] });

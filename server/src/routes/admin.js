@@ -1114,7 +1114,9 @@ admin.delete('/v1/admin/courses/:courseId', async (c) => {
     const fresh = await db.getSyncData('_system', dataKey);
     if (!fresh) continue;
     if (fresh.data?.course !== courseId) continue;
-    await db.putSyncData('_system', dataKey, { ...fresh.data, course: null }, fresh.version || 0);
+    // This is a new edit, so an earlier authoring operation must not acknowledge
+    // this version and let its next queued save restore the deleted course.
+    await db.putSyncData('_system', dataKey, { ...fresh.data, course: null, authoringOperationId: null }, fresh.version || 0);
   }
 
   return c.json({ ok: true });

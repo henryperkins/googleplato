@@ -27,7 +27,7 @@ without another extraction. Opening and reply failures have distinct guidance.
 
 Validation:
 
-- **813 tests pass:** 320 client, 493 server.
+- **815 tests pass:** 321 client, 494 server.
 - Client build passes. Both ESLint commands exit successfully; client reports
   21 warnings, server reports none.
 - 14 browser workflow assertions pass against synthetic, intercepted APIs.
@@ -46,13 +46,21 @@ Validation:
 - At 390×844 after send, Chromium's composer input is at y=663–707 and WebKit's
   at y=664–708. The preview below the chat no longer pulls it offscreen.
   Both engines preserve scrollTop=0 when a reply arrives while reading above.
-- Independent code review of the hardening changes found no remaining critical
-  or important defects after the concurrency, recovery and validation follow-ups.
+- Independent pre-merge code review approved the changes with no remaining
+  critical or important defects after the concurrency and recovery follow-ups.
+- The pre-merge review reproduced a course-deletion/lost-response race. The
+  cascade now invalidates the earlier operation acknowledgment, so queued saves
+  and tab recovery require conflict resolution instead of restoring a deleted
+  course assignment. Route and recovery regression tests cover this case.
 
 Recovery uses **sessionStorage**: it survives navigation and reload in the same
 tab, not closing that tab. Conflicts require an explicit choice to discard local
 work and load the saved lesson. Unknown save outcomes retain their operation for
 retry; a confirmed 400 rejecting markdown permits revision.
+
+One nonblocking presentation issue remains: reload after an acknowledged final
+save can still offer **Retry saving lesson**. That action performs no additional
+write and returns to the lesson list; the saved lesson is already durable.
 
 Evidence is local browser emulation with synthetic AI/storage responses, not
 physical-device or production proof. Real mobile keyboards, browser chrome,

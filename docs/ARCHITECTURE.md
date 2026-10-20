@@ -707,6 +707,9 @@ adapters enforce strict compare-and-set, including first creation and deletion.
 A retry of an already committed operation acknowledges the existing version.
 Competing changes return 409 rather than overwriting another session. Legacy
 draft writes also cannot rename or overwrite a finalized lesson.
+Non-authoring edits must clear `authoringOperationId`: the course-deletion
+cascade does this so neither a retry nor tab recovery can mistake its newer
+version for the original authoring save and restore a deleted course assignment.
 
 Before requests, a recovery copy stores the conversation, pending operations,
 reply state and preview in account/lesson-scoped **sessionStorage**. It survives
@@ -726,9 +729,10 @@ text size. Headers and action groups wrap at narrow widths. The preview is
 re-runs the relevant extractor agent — it does NOT auto-update per message and
 runs no AI call on editor open. On open the pane shows the already-saved markdown
 (edit) or a quiet empty-state (new). Once the conversation advances past the last
-refresh a "Preview may be outdated" hint appears. Conversation and markdown
-revision IDs preserve that distinction across sessions. **Review lesson**
-generates and validates a preview; **Create/Update Lesson** saves that exact
+refresh a hint explains that the conversation has changed. Conversation and
+markdown revision IDs preserve that distinction across sessions.
+**Generate preview / Refresh preview** generates and validates a preview;
+**Create/Update Lesson** saves that exact
 markdown, after pending autosaves finish. Failed finalization retains the
 preview for persistence-only retry. Restart clears it and invalidates outstanding
 extractions. Preview markdown is kept in the tab's recovery copy, but is not
