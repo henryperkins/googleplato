@@ -496,7 +496,7 @@ function StatusIndicator({ progress, statusText }) {
       <span
         aria-hidden="true"
         title={statusText}
-        className={`${sharedClass} bg-emerald-100 text-emerald-700`}
+        className={`${sharedClass} bg-completed-background text-completed-foreground`}
       >
         <Check className="h-3.5 w-3.5" strokeWidth={3} />
       </span>
@@ -508,7 +508,7 @@ function StatusIndicator({ progress, statusText }) {
       <span
         aria-hidden="true"
         title={statusText}
-        className={`${sharedClass} bg-amber-100 text-amber-700`}
+        className={`${sharedClass} bg-in-progress-background text-in-progress-foreground`}
       >
         <ProgressRing pct={pct} />
       </span>

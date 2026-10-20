@@ -65,7 +65,6 @@ colors:
   completed-foreground: "oklch(50.8% 0.118 165.612)"
   in-progress-background: "oklch(96.2% 0.059 95.617)"
   in-progress-foreground: "oklch(55.5% 0.163 48.998)"
-  completed-progress: "oklch(72.3% 0.219 149.579)"
 typography:
   headline:
     fontFamily: "'Geist Variable', ui-sans-serif, system-ui, sans-serif"
@@ -276,18 +275,20 @@ The semantic primary and the literal admin-bar/logo purple are different source 
 | `input` | Form-field boundaries. A transparent field's border is its only outline, so `input` holds 3:1 against white and the workspace (WCAG 1.4.11). |
 | `workspace` | The slightly warm learner-page background. |
 
-The `dark-*` entries preserve the corresponding `.dark` declarations. Backgrounds become charcoal, cards and popovers sit one tonal level above them, primary becomes brighter violet, and borders become translucent white. The learner work area has its own dark stone value. This documents the stylesheet variant; a user-facing theme switch was not established by this pass.
+The `dark-*` entries preserve the corresponding `.dark` declarations. Backgrounds become charcoal, cards and popovers sit one tonal level above them, primary becomes brighter violet, and borders become translucent white. The learner work area has its own dark stone value. This documents the stylesheet variant; a user-facing theme switch was not established by this pass. Nothing applies `.dark` yet, so the page declares `color-scheme: light`: native controls, scrollbars, and select popups stay light when the operating system is dark, instead of rendering dark on a light page.
 
 ### Functional states
 
 - `destructive` identifies errors and destructive actions. Its light foreground is dark enough for the tinted error surfaces.
 - `success`, `warning`, and `danger` each pair a surface, foreground, and border for dashboard status cards in light and dark variants. Status wording remains visible alongside color.
 - `primary-text` is the readable primary emphasis for headings and active progress; `link` is the readable link emphasis. Classroom overrides derive both for each theme.
-- `completed-background` and `completed-foreground` identify the completed lesson indicator. `completed-progress` records the green used by high-completion admin rings; the completed chat bar and check use `success-foreground` in both themes.
+- `completed-background` and `completed-foreground` identify the completed lesson indicator. The completed chat bar and check use `success-foreground` in both themes. Admin completion rings draw their arc and percentage in the `success`, `warning`, and `danger` foregrounds of the dashboard status cards, on a `muted` track like other progress tracks, so the ring and its percentage hold 3:1 against the card.
 - `in-progress-background` and `in-progress-foreground` identify an active lesson. Shape, icons, and accessible wording accompany color.
 - `ring` supplies the standard focus color, including classroom overrides.
 
 **The Classroom Boundary Rule.** Apply saved classroom identity to learner and auth surfaces. Keep the administration identity independent of those settings.
+
+**The Semantic Token Rule.** Color with the tokens above, in core and plugin UIs alike. A raw Tailwind palette class (`bg-green-50`, `text-blue-700`) skips classroom branding, the prepared dark variant, and the tuned contrast; `client/tests/design-tokens-contract.test.js` rejects them. Tailwind scans `plugins/*/client`, so a class only a plugin uses is still generated.
 
 ## Typography
 
@@ -295,7 +296,7 @@ The `dark-*` entries preserve the corresponding `.dark` declarations. Background
 
 **Coach font:** The system serif stack recorded under `typography.coach`. Coach replies use this stack at body size; no separate serif font asset is loaded.
 
-The hierarchy is practical and closely spaced. Weight and context do much of the work. There is no extracted oversized display treatment or fixed scale ratio.
+The hierarchy is practical and closely spaced. Weight and context do much of the work. There is no extracted oversized display treatment or fixed scale ratio. Headings balance their lines (`text-wrap: balance`), and running text avoids a single word stranded on its last line (`text-wrap: pretty`).
 
 | Role | Typical use | Observed size / weight |
 | --- | --- | --- |
@@ -316,7 +317,7 @@ Exceptions remain local: auth card titles can use headline size with medium weig
 
 **The Two Voices Rule.** Keep learner messages in Geist and coach replies in the existing serif stack. Preserve their alignment and surface treatment alongside the font distinction.
 
-The coach markup uses the lightweight renderer in [helpers.js](client/src/lib/helpers.js). Its scoped `coach-copy` styles give unordered and ordered lists their markers, compact item spacing, and 24 px indentation. Links use the accessible link color with a persistent underline; long addresses wrap within the message width. This formatting does not depend on a typography plugin.
+The coach markup uses the lightweight renderer in [helpers.js](client/src/lib/helpers.js). Its scoped `coach-copy` styles give unordered and ordered lists their markers, compact item spacing, and 24 px indentation. Markdown headings become real headings under the page's `h1` (the lesson or page title): a reply's top heading level becomes `h2` and each deeper level it uses steps down one, to `h4` at most, so screen-reader heading navigation works inside long replies without skipped levels. They are semibold at 1.25, 1.125, and 1 em, never smaller than the text around them. Tables scroll inside their own wrapper, so on a phone their cells wrap between words rather than mid-word. Line breaks next to lists, tables, and headings are dropped, so block margins alone separate them. Links use the accessible link color with a persistent underline; long addresses wrap within the message width. This formatting does not depend on a typography plugin.
 
 ## Layout
 
@@ -389,10 +390,10 @@ Structured and familiar, with compact sizing and a clear variant API. The common
 | Default | 40 px | 16 px padding, 8 px corners |
 | `xs` | 24 px | 8 px padding, 6.4 px corners |
 | `sm` | 28 px | 10 px padding, 6.4 px corners |
-| `lg` | 36 px | 10 px padding, 8 px corners |
+| `lg` | 44 px | 24 px padding, 8 px corners |
 | Icon sizes | 24 / 28 / 32 / 36 px | Square controls using the corresponding size |
 
-These are compact desktop dimensions. Below 640 px or when a coarse pointer is available, shared buttons and explicitly marked touch controls have a minimum 44 × 44 px hit area. Links inside a sentence get the same hit area from an invisible overlay (`.touch-target-inline`) so their lines keep normal spacing, and horizontal tab lists grow to fit 44 px tabs instead of scrolling. The existing `lg` height is smaller than default; preserve actual dimensions rather than inferring them from the name. Default text is 14 px / 500, small text is 0.8 rem, and extra-small text is 12 px. Icons are usually 16 px, with smaller icons on smaller controls.
+These are compact desktop dimensions. Below 640 px or when a coarse pointer is available, shared buttons and explicitly marked touch controls have a minimum 44 × 44 px hit area. Links inside a sentence get the same hit area from an invisible overlay (`.touch-target-inline`) so their lines keep normal spacing, and horizontal tab lists grow to fit 44 px tabs instead of scrolling. Heights increase with the size name; `lg` is reserved for the single next step after a completed lesson. Default and large text are 14 px / 500; small and extra-small text are 12 px, on the caption scale. Icons are usually 16 px, with smaller icons on smaller controls.
 
 Shared button focus uses a ring-colored border and a 3 px ring at 50% opacity. Other keyboard-focusable controls have a solid 3 px outline consuming the complete ring color; colored headers use their contrasting foreground for focus. Account labels match the rendered name. Disabled controls reduce opacity and pointer interaction. A button that starts async work stays focusable while it waits (`focusableWhenDisabled`, exposed as `aria-disabled` with the same reduced opacity), so focus never falls to the document. Invalid controls use destructive border and ring colors. Pressed buttons move down 1 px unless they expose a popup. The primary background hover treatment is currently declared for anchor-rendered buttons; do not assume the same fill change on a native primary button.
 
@@ -408,7 +409,7 @@ Password visibility controls remain centered through press states and disable wi
 
 Badges are compact (20 px high), medium-weight labels with highly rounded ends. Primary, secondary, outline, destructive, ghost, and link variants reuse the existing semantic colors. Anchor-rendered badges have their own hover behavior.
 
-Lesson status is a separate visual language: a completed check on an emerald wash, an active ring on an amber wash, and an unstarted neutral circle. Visible state and accessible status wording accompany these symbols.
+Lesson status is a separate visual language: a completed check on an emerald wash (`completed-background` / `completed-foreground`), an active ring on an amber wash (`in-progress-background` / `in-progress-foreground`), and an unstarted neutral circle. Visible state and accessible status wording accompany these symbols.
 
 ### Cards and lesson cards
 
@@ -420,7 +421,7 @@ Lesson cards override the outer padding and gap. A title-first open action occup
 
 Administration uses a purple navigation surface with light text. Items have 6.4 px corners and 12 px horizontal / 8 px vertical padding. The current item has a 20% light wash and medium weight; inactive items gain a 10% wash on hover. Mobile reuses the same items in an accessible modal drawer. The sidebar semantic surface matches Plato Purple in light mode and becomes a dark purple surface in the prepared dark variant. User tables preserve native row/cell semantics and expose editing through a named button in the name cell.
 
-The learner shell uses a branded header, a classroom name or logo linking to lessons, an account menu, and a small attribution footer. The account trigger underlines on hover to preserve contrast with custom header colors. The admin strip is a separate fixed-color identity layer. Preserve skip links and accessible navigation names.
+The learner shell uses a branded header, a classroom name or logo linking to lessons, an account menu, and a small attribution footer. The account trigger underlines on hover to preserve contrast with custom header colors. The admin strip is a separate fixed-color identity layer and a navigation landmark named “Admin”; its logo and **Admin Dashboard** are links to the dashboard, beside the **View as user** button. Preserve skip links and accessible navigation names.
 
 ### Conversation and progress
 
@@ -454,7 +455,7 @@ Lesson preparation uses the shared card surface and spacing. Step labels stay vi
 
 - **Don't** replace classroom settings with a universal purple learner theme.
 - **Don't** equate the semantic primary value with the separately defined admin-bar and logo color.
-- **Don't** import stock radius values or assume component size names imply increasing heights.
+- **Don't** import stock radius values or raw Tailwind palette colors; both bypass the tuned system.
 - **Don't** turn coach replies into filled learner-style bubbles or make both voices typographically identical.
 - **Don't** nest the outline action inside the lesson-opening action or communicate lesson status through color alone.
 - **Don't** add route or list-entry choreography to routine navigation, replay completion on resume, or make motion the only indication of state.

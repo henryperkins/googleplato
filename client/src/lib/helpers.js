@@ -35,9 +35,17 @@ export function renderMd(text) {
     const safeHref = href.replace(/"/g, '%22').replace(/'/g, '%27');
     return `<a href="${safeHref}" target="_blank" rel="noopener">${label}</a>`;
   });
-  escaped = escaped.replace(/^### (.+)$/gm, '<strong style="font-size:0.85rem;">$1</strong>');
-  escaped = escaped.replace(/^## (.+)$/gm, '<strong style="font-size:0.9rem;">$1</strong>');
-  escaped = escaped.replace(/^# (.+)$/gm, '<strong style="font-size:1rem;">$1</strong>');
+  // Real headings, so screen-reader heading navigation works inside long
+  // replies. The page's h1 is the lesson or page title, so the reply's top
+  // heading level becomes h2 and each deeper level it uses steps down one, to
+  // h4 at most: "## Plan" then "#### Step" reads h2, h3, never skipping a
+  // level. .coach-copy sizes them at or above the surrounding text.
+  const headingLine = /^(#{1,6}) (.+)$/gm;
+  const headingLevels = [...new Set([...escaped.matchAll(headingLine)].map((m) => m[1].length))].sort((a, b) => a - b);
+  escaped = escaped.replace(headingLine, (_, hashes, title) => {
+    const tag = `h${Math.min(headingLevels.indexOf(hashes.length) + 2, 4)}`;
+    return `<${tag}>${title}</${tag}>`;
+  });
   // Convert each raw list block once so ordered lists cannot re-wrap the
   // <li> elements already generated for an unordered list.
   const renderList = (block, tag, marker) => {
@@ -58,7 +66,9 @@ export function renderMd(text) {
     const parseRow = (r) => r.split('|').slice(1, -1).map(c => c.trim());
     const headerCells = parseRow(rows[0]);
     const dataRows = rows.slice(isSeparator(rows[1]) ? 2 : 1);
-    let html = '<table class="border-collapse text-sm w-full my-2"><thead><tr>';
+    // The wrapper scrolls a wide table on its own; the learner shell can't
+    // clip horizontal overflow (see docs/ARCHITECTURE.md, chat auto-scroll).
+    let html = '<div class="md-table-scroll"><table class="border-collapse text-sm w-full"><thead><tr>';
     for (const cell of headerCells) html += `<th class="border border-border px-3 py-1.5 text-left font-medium bg-muted/50">${cell}</th>`;
     html += '</tr></thead><tbody>';
     for (const row of dataRows) {
@@ -68,13 +78,14 @@ export function renderMd(text) {
       for (const cell of cells) html += `<td class="border border-border px-3 py-1.5">${cell}</td>`;
       html += '</tr>';
     }
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     return html;
   });
   escaped = escaped.replace(/\n/g, '<br>');
-  // Clean up <br> tags adjacent to block-level elements
-  escaped = escaped.replace(/<br>(<\/?(?:[uo]l|table|thead|tbody|tr)>)/g, '$1');
-  escaped = escaped.replace(/(<\/?(?:[uo]l|table|thead|tbody|tr)>)<br>/g, '$1');
+  // Drop <br> runs next to block-level elements: their margins already
+  // separate them, and a leftover <br> adds an empty line.
+  escaped = escaped.replace(/(?:<br>)+(<\/?(?:[uo]l|table|thead|tbody|tr|h[234]|div)\b[^>]*>)/g, '$1');
+  escaped = escaped.replace(/(<\/?(?:[uo]l|table|thead|tbody|tr|h[234]|div)\b[^>]*>)(?:<br>)+/g, '$1');
   return escaped;
 }
 

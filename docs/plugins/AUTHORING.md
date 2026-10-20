@@ -98,6 +98,8 @@ Slot components receive props per [EXTENSION_REFERENCE.md](./EXTENSION_REFERENCE
 
 The `@/components/ui/...` and `@/lib/...` aliases work in plugin code (configured in `client/vite.config.js`).
 
+Style plugin UI with the host's Tailwind classes and its semantic color tokens (`text-muted-foreground`, `text-destructive`, `bg-success`, `text-success-foreground`; see [DESIGN.md](../../DESIGN.md#colors)). `client/src/index.css` scans `plugins/*/client`, so a class only your plugin uses is still generated.
+
 ### 5. Run it
 
 ```bash
@@ -127,6 +129,7 @@ For Phase 1, plugins ship by being committed to a plato fork. Open a PR to `1111
 - **Mutating `_system` directly.** The plugin host owns activation and settings persistence. Use `ctx.setSettings()` from lifecycle/hook contexts, or `PUT /v1/admin/plugins/<id>/settings`.
 - **Heavy work in `onActivate`.** It runs synchronously during boot. Schedule background work via `setTimeout(() => doWork(), 0)` or queue it explicitly.
 - **Touching files outside `plugins/<id>/`.** Out of scope for plugin authoring. Open a separate PR for core changes.
+- **Raw palette colors.** Classes like `text-green-700` ignore classroom branding and the contrast the tokens were tuned for, and `client/tests/design-tokens-contract.test.js` fails on them. Use the semantic tokens.
 
 ## Where to look next
 

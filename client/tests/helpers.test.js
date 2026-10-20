@@ -68,7 +68,9 @@ describe('renderMd lists', () => {
   });
 
   it('keeps surrounding prose and separate lists outside list items', () => {
-    assert.equal(renderMd('Before\n- First\n\nBetween\n- Second\nAfter'), 'Before<ul><li>First</li></ul><br>Between<ul><li>Second</li></ul>After');
+    // The list's own margin separates it from the next paragraph; a leftover
+    // <br> would add an empty line.
+    assert.equal(renderMd('Before\n- First\n\nBetween\n- Second\nAfter'), 'Before<ul><li>First</li></ul>Between<ul><li>Second</li></ul>After');
   });
 
   it('retains safe links and escaped HTML inside list items', () => {
@@ -76,6 +78,39 @@ describe('renderMd lists', () => {
     assert.match(html, /<li><a href="https:\/\/example\.com"[^>]*>Reference<\/a><\/li>/);
     assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
     assert.doesNotMatch(html, /<img|href="javascript:|<ul><ol>/);
+  });
+});
+
+describe('renderMd blocks', () => {
+  it('renders markdown headings as real headings below the page h1', () => {
+    assert.equal(renderMd('# Title\n## Section\n### Detail'), '<h2>Title</h2><h3>Section</h3><h4>Detail</h4>');
+  });
+
+  it("starts a reply's top heading at h2 and never skips a level", () => {
+    assert.equal(renderMd('## Section'), '<h2>Section</h2>');
+    assert.equal(renderMd('## Plan\n#### Step'), '<h2>Plan</h2><h3>Step</h3>');
+  });
+
+  it('keeps headings deeper than three levels at h4', () => {
+    assert.equal(renderMd('# A\n## B\n### C\n#### D'), '<h2>A</h2><h3>B</h3><h4>C</h4><h4>D</h4>');
+  });
+
+  it('leaves seven hashes and hashtags as text', () => {
+    assert.equal(renderMd('####### Too deep'), '####### Too deep');
+    assert.equal(renderMd('#tag'), '#tag');
+  });
+
+  it('drops line breaks around headings so only their margins separate them', () => {
+    assert.equal(renderMd('Intro\n\n## Plan\n\nFirst step.'), 'Intro<h2>Plan</h2>First step.');
+  });
+
+  it('wraps tables in their own scroller', () => {
+    const html = renderMd('Intro\n| A | B |\n|---|---|\n| 1 | 2 |\n\nOutro');
+    assert.match(html, /^Intro<div class="md-table-scroll"><table[^>]*>.*<\/table><\/div>Outro$/);
+  });
+
+  it('keeps line breaks inside ordinary prose', () => {
+    assert.equal(renderMd('Line one\nLine two\n\nNext paragraph'), 'Line one<br>Line two<br><br>Next paragraph');
   });
 });
 

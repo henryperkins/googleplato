@@ -68,7 +68,8 @@ function SortHeader({ sortKey, sortBy, onSort, align = 'left', children }) {
         className={`touch-target inline-flex items-center gap-1 font-medium hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 ${btnAlign}`}
       >
         {children}
-        <span aria-hidden="true" className={`text-xs ${active ? '' : 'opacity-30'}`}>
+        {/* Unsorted columns show a muted arrow, not a near-invisible one. */}
+        <span aria-hidden="true" className={`text-xs ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
           {active ? (sortBy.dir === 'asc' ? '↑' : '↓') : '↕'}
         </span>
       </button>

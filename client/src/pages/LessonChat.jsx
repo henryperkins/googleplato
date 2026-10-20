@@ -493,7 +493,7 @@ export default function LessonChat() {
           keyboard focus and open attachment UI are never destroyed mid-typing. */}
       {phase && (
         <div
-          className="compose-sticky-bar sticky bottom-0 z-30 bg-stone-100/95 dark:bg-stone-900/95 backdrop-blur-xs pb-[env(safe-area-inset-bottom)]"
+          className="compose-sticky-bar sticky bottom-0 z-30 bg-workspace/95 backdrop-blur-xs pb-[env(safe-area-inset-bottom)]"
           style={keyboardOffset > 0 ? { transform: `translateY(-${keyboardOffset}px)` } : undefined}
         >
           <ComposeBar
@@ -542,19 +542,19 @@ export default function LessonChat() {
               {lessonKB.enrichments.map((enrichment, idx) => (
                 <section
                   key={idx}
-                  className="border border-blue-200 bg-blue-50 rounded p-3 space-y-2"
+                  className="rounded-lg border border-border bg-muted/50 p-3 space-y-2"
                   aria-labelledby={`enrichment-${idx}-label`}
                 >
                   <h4
                     id={`enrichment-${idx}-label`}
-                    className="text-sm font-medium text-blue-900"
+                    className="text-sm font-medium"
                   >
                     {enrichment.label || enrichment.pluginId}
                   </h4>
                   {enrichment.reasoning && (
                     <div role="note">
                       <p className="sr-only">Why this context matters:</p>
-                      <p className="text-xs text-blue-700">
+                      <p className="text-xs text-muted-foreground">
                         {enrichment.reasoning}
                       </p>
                     </div>
@@ -562,14 +562,14 @@ export default function LessonChat() {
                   {enrichment.context && (
                     <div>
                       <p className="sr-only">Context:</p>
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                      <p className="text-sm whitespace-pre-wrap">
                         {enrichment.context}
                       </p>
                     </div>
                   )}
                   {enrichment.sources && enrichment.sources.length > 0 && (
                     <nav aria-label={`Sources from ${enrichment.label || enrichment.pluginId}`}>
-                      <div className="text-xs font-medium text-blue-800 mb-1">Sources:</div>
+                      <div className="text-xs font-medium text-muted-foreground mb-1">Sources:</div>
                       <ul className="text-xs space-y-1">
                         {enrichment.sources.map((source, sidx) => (
                           <li key={sidx}>
@@ -577,7 +577,7 @@ export default function LessonChat() {
                               href={source.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-blue-700 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-1 rounded"
+                              className="rounded-sm text-link underline underline-offset-4 hover:decoration-2"
                               aria-label={`${source.title || source.url} (opens in new tab)`}
                             >
                               {source.title || source.url}

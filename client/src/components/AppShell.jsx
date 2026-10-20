@@ -58,9 +58,11 @@ export default function AppShell({ children }) {
       {/* Admin bar — plato branding, quick links to dashboard */}
       {isAdmin && (
         <div className="px-4 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-xs text-white" style={{ backgroundColor: '#470d99', '--ring': '#ffffff' }}>
-          <div className="mx-auto max-w-5xl flex flex-wrap items-center gap-2">
+          {/* A landmark, so screen-reader users can find admin controls from
+              the classroom; both links go to the admin dashboard. */}
+          <nav aria-label="Admin" className="mx-auto max-w-5xl flex flex-wrap items-center gap-2">
             <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center gap-1.5 opacity-90 hover:opacity-100 whitespace-nowrap shrink-0">
-              <img src="/assets/logo-white.svg" alt="plato" width="48" height="12" className="h-3 w-auto" />
+              <img src="/assets/logo-white.svg" alt="plato admin" width="48" height="12" className="h-3 w-auto" />
             </a>
             <div className="flex-1" />
             {!impersonating && (
@@ -73,11 +75,11 @@ export default function AppShell({ children }) {
                 View as user
               </button>
             )}
-            <button onClick={() => navigate('/plato')} className="touch-target flex items-center gap-1 cursor-pointer border border-white/30 rounded px-2 py-0.5 text-white/90 hover:text-white hover:bg-white/10 bg-transparent text-xs transition-colors whitespace-nowrap shrink-0">
+            <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center gap-1 cursor-pointer border border-white/30 rounded px-2 py-0.5 text-white/90 hover:text-white hover:bg-white/10 text-xs transition-colors whitespace-nowrap shrink-0 no-underline">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
               Admin Dashboard
-            </button>
-          </div>
+            </a>
+          </nav>
         </div>
       )}
 
@@ -150,7 +152,7 @@ export default function AppShell({ children }) {
         </nav>
       </header>
 
-      <main id="main-content" className="flex-1 min-w-0 bg-stone-100 dark:bg-stone-900 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]" tabIndex={-1}>
+      <main id="main-content" className="flex-1 min-w-0 bg-workspace pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]" tabIndex={-1}>
         {children}
       </main>
 

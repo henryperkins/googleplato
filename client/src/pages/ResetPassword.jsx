@@ -87,7 +87,7 @@ export default function ResetPassword() {
             </div>
           ) : done ? (
             <div className="space-y-4">
-              <p ref={doneRef} tabIndex={-1} className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+              <p ref={doneRef} tabIndex={-1} className="rounded-lg border border-success-border bg-success p-3 text-sm text-success-foreground">
                 {message}
               </p>
               <Button className="w-full" nativeButton={false} render={<Link to="/login" replace />}>

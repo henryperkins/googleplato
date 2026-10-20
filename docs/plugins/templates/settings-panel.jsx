@@ -64,15 +64,15 @@ export default function SettingsPanel({ settings, onSave }) {
         <Button onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
-        {message && (
-          <span
-            role="status"
-            aria-live="polite"
-            className={`text-sm ${message.type === 'error' ? 'text-destructive' : 'text-green-700'}`}
-          >
-            {message.text}
-          </span>
-        )}
+        {/* Always mounted, so the result is announced when it appears. Colors
+            are semantic tokens (DESIGN.md), not raw Tailwind palette classes. */}
+        <span
+          role="status"
+          aria-live="polite"
+          className={`text-sm ${message?.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}
+        >
+          {message?.text}
+        </span>
       </div>
     </div>
   );

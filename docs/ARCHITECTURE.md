@@ -370,7 +370,8 @@ on send. Three traps here each produced a shipped-but-broken fix:
    ancestor of the lesson header) makes that element the sticky header's scroll
    container, and the header silently stops sticking. With no clipping
    ancestor, wide content must contain its own horizontal overflow
-   (`.coach-copy` wraps anywhere). The footer isn't pinned to the viewport
+   (`.coach-copy` wraps anywhere, and markdown tables scroll inside their own
+   `.md-table-scroll` wrapper). The footer isn't pinned to the viewport
    either, so the fixed compose overlay sits at `bottom-0`. Embedded authoring
    views can still have an element scrollport, and setting `scrollTop` on a
    non-scrolling element is a **silent no-op**, indistinguishable from an

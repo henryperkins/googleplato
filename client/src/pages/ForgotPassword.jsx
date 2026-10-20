@@ -85,7 +85,7 @@ export default function ForgotPassword() {
           {/* Always mounted so the confirmation is announced when it appears. */}
           <div role="status" aria-live="polite" aria-atomic="true">
             {message && (
-              <div className="mb-4 bg-green-50 text-green-700 border border-green-200 rounded-lg p-3 text-sm">
+              <div className="mb-4 rounded-lg border border-success-border bg-success p-3 text-sm text-success-foreground">
                 {message}
               </div>
             )}

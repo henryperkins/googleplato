@@ -91,7 +91,7 @@ export default function SlackSettingsPanel({ settings, onSave }) {
       {connected ? (
         <>
           <div className="flex items-center gap-2">
-            <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+            <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-success-foreground" />
             <span className="text-sm">
               Connected to <strong>{workspaceName}</strong>
             </span>

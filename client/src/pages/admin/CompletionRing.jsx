@@ -1,5 +1,7 @@
 // SVG donut showing completed / available lessons as a percentage.
-// Thresholds match plato's pacing-dashboard pattern (green / yellow / red).
+// Thresholds match plato's pacing-dashboard pattern (green / yellow / red),
+// drawn in the same status foregrounds as the dashboard cards so the ring and
+// its number hold 3:1 or better against the card (WCAG 1.4.11).
 //   0–34 %  → red    (struggling)
 //   35–89 % → yellow (in progress)
 //   90 %+   → green  (nearly done)
@@ -8,9 +10,9 @@
 
 function colorForPercent(p) {
   if (p == null) return { stroke: 'text-muted-foreground', text: 'text-muted-foreground' };
-  if (p >= 90) return { stroke: 'text-green-500', text: 'text-green-700 dark:text-green-400' };
-  if (p >= 35) return { stroke: 'text-yellow-500', text: 'text-yellow-700 dark:text-yellow-400' };
-  return { stroke: 'text-red-500', text: 'text-red-700 dark:text-red-400' };
+  if (p >= 90) return { stroke: 'text-success-foreground', text: 'text-success-foreground' };
+  if (p >= 35) return { stroke: 'text-warning-foreground', text: 'text-warning-foreground' };
+  return { stroke: 'text-danger-foreground', text: 'text-danger-foreground' };
 }
 
 export default function CompletionRing({
@@ -40,7 +42,7 @@ export default function CompletionRing({
         <circle
           cx={size / 2} cy={size / 2} r={radius}
           fill="none" strokeWidth={strokeWidth}
-          className="text-muted/40" stroke="currentColor"
+          className="text-muted" stroke="currentColor"
         />
         {pct != null && pct > 0 && (
           <circle
@@ -52,9 +54,12 @@ export default function CompletionRing({
             transform={`rotate(-90 ${size / 2} ${size / 2})`}
           />
         )}
+        {/* SVG text paints with fill, not color, so it needs currentColor
+            to pick up the status color. */}
         <text
           x="50%" y="50%"
           dominantBaseline="central" textAnchor="middle"
+          fill="currentColor"
           className={`${text} font-semibold tabular-nums`}
           style={{ fontSize: `${fontSize}px` }}
         >

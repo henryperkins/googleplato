@@ -71,6 +71,7 @@ The pilot agent is explicitly told not to claim extension-point requests — the
 - ❌ Modify files outside `plugins/<id>/` from inside a plugin (CLAUDE.md scope)
 - ❌ Re-export or shadow core API endpoints under your plugin's prefix
 - ❌ Block boot — keep `onActivate` short; if you need expensive work, schedule it via setTimeout(0)
+- ❌ Color with raw Tailwind palette classes (`bg-green-500`, `text-blue-700`) — use the semantic tokens from `client/src/index.css` (`text-success-foreground`, `text-muted-foreground`, `text-destructive`); `client/tests/design-tokens-contract.test.js` fails on raw palette classes in `plugins/*/client`
 
 ## Recipes (copy-paste-ready)
 

@@ -92,7 +92,7 @@ If a plugin you're building genuinely cannot use existing extension points, **do
 
 No Docker or external services needed for local development — data lives in SQLite. AI features do need AWS credentials with Bedrock access (plato runs one open source model, Qwen3-VL 235B (Apache-2.0); see the README's [AI provider](README.md#ai-provider) section). Without them the app is fully navigable, but you can't start lesson conversations.
 
-The client uses **Tailwind CSS v4** and **shadcn/ui** for styling. UI components are in `src/components/ui/`.
+The client uses **Tailwind CSS v4** and **shadcn/ui** for styling. UI components are in `src/components/ui/`. Colors come from the semantic tokens in `src/index.css`, documented in [DESIGN.md](DESIGN.md); raw Tailwind palette classes such as `bg-green-50` fail `tests/design-tokens-contract.test.js`.
 
 ## Project structure
 

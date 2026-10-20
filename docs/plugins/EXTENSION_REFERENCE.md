@@ -301,6 +301,7 @@ Adding to this surface is a core change — it widens the public plugin contract
 - `@/components/ui/*` — shadcn-style UI primitives (Button, Input, Label, Card, etc.)
 - `@/lib/*` — shared client utilities (branding, helpers)
 - Relative paths into `client/js/*` (`auth.js` etc.)
+- Tailwind classes. `client/src/index.css` scans `plugins/*/client` (`@source`), so a class only a plugin uses is generated. Color with the semantic tokens ([DESIGN.md](../../DESIGN.md#colors)); `client/tests/design-tokens-contract.test.js` rejects raw palette classes such as `bg-green-500`.
 
 ## Endpoints
 

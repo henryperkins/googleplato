@@ -948,21 +948,6 @@
           "oklch(0.836 0.163 48.998)",
           "oklch(0.950 0.163 48.998)"
         ]
-      },
-      "completed-progress": {
-        "role": "semantic",
-        "displayName": "Completed Progress",
-        "canonical": "oklch(72.3% 0.219 149.579)",
-        "tonalRamp": [
-          "oklch(0.150 0.219 149.579)",
-          "oklch(0.264 0.219 149.579)",
-          "oklch(0.379 0.219 149.579)",
-          "oklch(0.493 0.219 149.579)",
-          "oklch(0.607 0.219 149.579)",
-          "oklch(0.721 0.219 149.579)",
-          "oklch(0.836 0.219 149.579)",
-          "oklch(0.950 0.219 149.579)"
-        ]
       }
     },
     "typographyMeta": {
@@ -1191,6 +1176,11 @@
         "section": "colors"
       },
       {
+        "name": "The Semantic Token Rule",
+        "body": "Color with the tokens above, in core and plugin UIs alike. A raw Tailwind palette class (`bg-green-50`, `text-blue-700`) skips classroom branding, the prepared dark variant, and the tuned contrast; `client/tests/design-tokens-contract.test.js` rejects them. Tailwind scans `plugins/*/client`, so a class only a plugin uses is still generated.",
+        "section": "colors"
+      },
+      {
         "name": "The Two Voices Rule",
         "body": "Keep learner messages in Geist and coach replies in the existing serif stack. Preserve their alignment and surface treatment alongside the font distinction.",
         "section": "typography"
@@ -1218,7 +1208,7 @@
     "donts": [
       "**Don't** replace classroom settings with a universal purple learner theme.",
       "**Don't** equate the semantic primary value with the separately defined admin-bar and logo color.",
-      "**Don't** import stock radius values or assume component size names imply increasing heights.",
+      "**Don't** import stock radius values or raw Tailwind palette colors; both bypass the tuned system.",
       "**Don't** turn coach replies into filled learner-style bubbles or make both voices typographically identical.",
       "**Don't** nest the outline action inside the lesson-opening action or communicate lesson status through color alone.",
       "**Don't** add route or list-entry choreography to routine navigation, replay completion on resume, or make motion the only indication of state."

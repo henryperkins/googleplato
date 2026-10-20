@@ -3,6 +3,11 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+/* Plugin UIs live outside client/, so Tailwind must be told to scan them, or
+   classes only a plugin uses are never generated. Name the files: a glob that
+   stops at each plugin's client directory matches nothing. */
+@source "../../plugins/*/client/**/*.{js,jsx}";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -36,6 +41,11 @@
     --color-danger: var(--danger);
     --color-danger-foreground: var(--danger-foreground);
     --color-danger-border: var(--danger-border);
+    --color-workspace: var(--workspace);
+    --color-completed-background: var(--completed-background);
+    --color-completed-foreground: var(--completed-foreground);
+    --color-in-progress-background: var(--in-progress-background);
+    --color-in-progress-foreground: var(--in-progress-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -87,6 +97,12 @@
     --danger: oklch(0.971 0.013 17.38);
     --danger-foreground: oklch(0.396 0.141 25.723);
     --danger-border: oklch(0.808 0.114 19.571);
+    /* Slightly warm learner-page background, and the lesson-card status chips. */
+    --workspace: oklch(0.97 0.001 106.424);
+    --completed-background: oklch(0.95 0.052 163.051);
+    --completed-foreground: oklch(0.508 0.118 165.612);
+    --in-progress-background: oklch(0.962 0.059 95.617);
+    --in-progress-foreground: oklch(0.555 0.163 48.998);
     --border: oklch(0.905 0 0);
     /* Field boundaries are often a field's only outline, so they hold 3:1
        against white and the workspace (WCAG 1.4.11). --border stays light
@@ -136,6 +152,7 @@
     --danger: oklch(0.258 0.092 26.042);
     --danger-foreground: oklch(0.885 0.062 18.334);
     --danger-border: oklch(0.505 0.213 27.518);
+    --workspace: oklch(0.216 0.006 56.043);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 45%);
     --ring: oklch(0.556 0.2 285);
@@ -158,6 +175,13 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Even heading lines, and no single word stranded on a paragraph's last line. */
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+  p, li, dd, figcaption {
+    text-wrap: pretty;
+  }
   html, body, #root {
     @apply h-full;
   }
@@ -173,7 +197,9 @@
   }
   html {
     @apply font-sans bg-background text-foreground;
-    color-scheme: light dark;
+    /* No dark theme ships yet (.dark is never applied), so native controls,
+       scrollbars, and select popups stay light to match the page. */
+    color-scheme: light;
   }
   /* Prevent display utility classes (e.g. .flex) from overriding the UA
      stylesheet for closed native <dialog> and [popover] elements. */
@@ -316,6 +342,46 @@ html {
    and the typography plugin is not installed, so `prose` classes do nothing. */
 .coach-copy {
   overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+/* Markdown headings: never smaller than the reply text around them. */
+.coach-copy h2,
+.coach-copy h3,
+.coach-copy h4 {
+  margin-block: 1em 0.25em;
+  font-weight: 600;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+.coach-copy h2 {
+  font-size: 1.25em;
+}
+
+.coach-copy h3 {
+  font-size: 1.125em;
+}
+
+.coach-copy h4 {
+  font-size: 1em;
+}
+
+.coach-copy :is(h2, h3, h4):first-child {
+  margin-block-start: 0;
+}
+
+/* Tables scroll inside their own wrapper, so cells break between words
+   instead of mid-word ("Openi/ng") to fit a phone. */
+.coach-copy .md-table-scroll {
+  margin-block: 0.5rem;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.coach-copy .md-table-scroll :is(th, td) {
+  overflow-wrap: break-word;
 }
 
 .coach-copy ul,
