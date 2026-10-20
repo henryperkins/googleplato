@@ -387,6 +387,13 @@ Verify changes by hand with the compose bar in *both* states (fixed mid-lesson,
 inline at the end of a short one); `client/tests/stickToBottom.test.js` covers
 only the decision layer.
 
+On short viewports (`@media (max-height: 34em)` in `index.css`) the lesson
+header and composer go `position: static`, and
+`useVisualViewportKeyboardOffset` stops lifting the composer
+(`SHORT_VIEWPORT_QUERY`; keep the two in step). The query is in `em` so page
+zoom and an enlarged default font size count as short, not only landscape
+phones.
+
 ## Focus and failure states
 
 Rules that keep keyboard, screen reader, and mobile users oriented when work is

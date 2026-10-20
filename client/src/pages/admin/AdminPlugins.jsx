@@ -90,7 +90,7 @@ export default function AdminPlugins() {
       )}
       <p className="text-sm text-muted-foreground mb-6">
         Enable, disable, and configure plato plugins.{' '}
-        <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="touch-target inline-flex items-center underline underline-offset-4">
+        <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="touch-target-inline underline underline-offset-4">
           Build your own.
         </a>
       </p>

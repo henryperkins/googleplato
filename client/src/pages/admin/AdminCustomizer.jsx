@@ -298,7 +298,7 @@ export default function AdminCustomizer() {
                 {styleMessage.type === 'success' && (
                   <>
                     {' '}
-                    <Link to="/lessons" className="touch-target inline-flex items-center underline underline-offset-4">Open the Classroom</Link>
+                    <Link to="/lessons" className="touch-target-inline underline underline-offset-4">Open the Classroom</Link>
                     {' '}to see your changes.
                   </>
                 )}

@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
 
+// Short viewports unpin the sticky header and composer (see the matching
+// @media rule in index.css), so there's nothing to lift above the keyboard.
+export const SHORT_VIEWPORT_QUERY = '(max-height: 34em)';
+
 function isEditableElement(el) {
   if (!el || typeof el !== 'object') return false;
   const tag = el.tagName;
@@ -35,9 +39,9 @@ export function useVisualViewportKeyboardOffset() {
         setOffset(0);
         return;
       }
-      // In short landscape viewports (max-height: 500px), sticky bars unpin to
-      // position: static via CSS media query so they scroll with the document.
-      if (window.matchMedia?.('(orientation: landscape) and (max-height: 500px)')?.matches) {
+      // In short viewports, sticky bars unpin to position: static via CSS so
+      // they scroll with the document.
+      if (window.matchMedia?.(SHORT_VIEWPORT_QUERY)?.matches) {
         setOffset(0);
         return;
       }

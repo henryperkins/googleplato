@@ -219,7 +219,7 @@ function PacingSection({ stats }) {
             {overTargetWarning && (
               <div className="text-xs mt-1 text-warning-foreground">
                 Over-target lessons averaging {avgExchangesOverTarget} exchanges — review lesson objectives and exemplar scope in{' '}
-                <Link to="/plato/lessons" className="touch-target inline-flex items-center underline underline-offset-4">Lessons</Link>.
+                <Link to="/plato/lessons" className="touch-target-inline underline underline-offset-4">Lessons</Link>.
               </div>
             )}
           </CardContent>

@@ -12,6 +12,15 @@
         ],
         "createdAt": "2026-10-13T00:56:38.516Z",
         "reason": "Agent verified: this is an intentionally hostile HTML string in a markdown escaping regression test, not a rendered image."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "client/tests/mobile-ux-high-traffic.test.js"
+        ],
+        "createdAt": "2026-10-20T04:42:26.567Z",
+        "reason": "Claude: L49 is a regex in a source-contract assertion (/<img[^>]+width=/), not rendered markup"
       }
     ]
   }

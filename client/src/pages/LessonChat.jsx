@@ -410,8 +410,10 @@ export default function LessonChat() {
             <ArrowLeft aria-hidden="true" />
           </Button>
           <div className="flex-1 min-w-0">
-            <div className="flex flex-row items-center justify-between gap-2">
-              <h1 ref={headingRef} tabIndex={-1} className="text-sm font-semibold truncate min-w-0">{lesson.name}</h1>
+            {/* The title stacks above Overview on narrow screens and wraps rather
+                than truncating; three lines caps the sticky header's height. */}
+            <div className="flex flex-col items-start gap-x-2 sm:flex-row sm:items-center sm:justify-between">
+              <h1 ref={headingRef} tabIndex={-1} className="text-sm font-semibold break-words line-clamp-3 min-w-0">{lesson.name}</h1>
               <button
                 type="button"
                 className="touch-target rounded-sm text-left text-xs text-primary-text hover:underline cursor-pointer whitespace-nowrap shrink-0"

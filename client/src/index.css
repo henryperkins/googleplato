@@ -240,6 +240,22 @@ html {
     min-height: 44px;
   }
 
+  /* Links inside a sentence get a 44px hit area without becoming 44px tall,
+     which would push the surrounding lines apart. */
+  .touch-target-inline {
+    position: relative;
+  }
+
+  .touch-target-inline::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+
   input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="color"]),
   textarea,
   select {
@@ -247,9 +263,12 @@ html {
   }
 }
 
-/* Short landscape viewports: prevent sticky bars and multi-line compose boxes
-   from colliding with the software keyboard and crushing visible content. */
-@media (orientation: landscape) and (max-height: 500px) {
+/* Short viewports: prevent sticky bars and multi-line compose boxes from
+   colliding with the software keyboard and crushing visible content. Measured
+   in em so it covers landscape phones (34em = 544px at default text), page zoom
+   (which shrinks the viewport in CSS px), and enlarged default text (which grows
+   the em). Mirrored by SHORT_VIEWPORT_QUERY in useVisualViewportKeyboardOffset.js. */
+@media (max-height: 34em) {
   #lesson-header,
   .compose-sticky-bar {
     position: static;
@@ -273,7 +292,8 @@ html {
     min-inline-size: 28px;
     min-block-size: 28px;
   }
-  button:not(.truncate) {
+  /* Tabs keep one-line labels; the tab list grows to fit 44px tabs instead. */
+  button:not(.truncate):not([role="tab"]) {
     max-inline-size: 100%;
     block-size: auto;
     white-space: normal;

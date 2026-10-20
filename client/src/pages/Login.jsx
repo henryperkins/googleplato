@@ -173,13 +173,15 @@ export default function Login() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="login-password">Password</Label>
+                {/* Padding (cancelled by negative margin) makes a 28px target without
+                    moving the row; a 44px one would overlap the password field. */}
                 <a
                   href="/forgot-password"
                   onClick={(e) => {
                     e.preventDefault();
                     navigate('/forgot-password', { state: { email: email.trim() } });
                   }}
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                  className="-my-1.5 py-1.5 text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                 >
                   Forgot password?
                 </a>

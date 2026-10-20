@@ -162,4 +162,44 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     const waitlistEditSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/WaitlistEntryEdit.jsx'), 'utf8');
     assert.match(waitlistEditSrc, /flex flex-wrap items-center gap-3 pt-2/);
   });
+
+  it('relaxes sticky bars on short viewports in em, so zoom and enlarged text count as short', () => {
+    const css = fs.readFileSync(path.join(SRC_DIR, 'index.css'), 'utf8');
+    const hook = fs.readFileSync(path.join(SRC_DIR, 'hooks/useVisualViewportKeyboardOffset.js'), 'utf8');
+    assert.match(css, /@media \(max-height: 34em\) \{\s*#lesson-header,\s*\.compose-sticky-bar\s*\{\s*position:\s*static/);
+    assert.match(hook, /SHORT_VIEWPORT_QUERY = '\(max-height: 34em\)'/);
+    assert.match(hook, /matchMedia\?\.\(SHORT_VIEWPORT_QUERY\)/);
+    assert.equal(/orientation: landscape/.test(css), false);
+  });
+
+  it('keeps author-written names from truncating or overflowing on narrow screens', () => {
+    const chatSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/LessonChat.jsx'), 'utf8');
+    // The lesson title stacks above Overview and wraps (DESIGN.md: chat header).
+    assert.match(chatSrc, /flex flex-col items-start gap-x-2 sm:flex-row sm:items-center sm:justify-between/);
+    assert.match(chatSrc, /<h1 ref=\{headingRef\}[^>]*className="[^"]*break-words line-clamp-3/);
+
+    const listSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/LessonsList.jsx'), 'utf8');
+    // Filter selects shrink below their longest option instead of widening the page.
+    assert.match(listSrc, /id="course-filter"[\s\S]*?className="flex h-9 min-w-0 max-w-full sm:max-w-xs/);
+    // Course names wrap inside the card's meta line.
+    assert.match(listSrc, /key: 'course', text: lesson\.course\.name, wrap: true/);
+    assert.match(listSrc, /part\.wrap \? 'break-words' : 'whitespace-nowrap'/);
+  });
+
+  it('sizes touch targets without clipping tabs or stretching sentences', () => {
+    const css = fs.readFileSync(path.join(SRC_DIR, 'index.css'), 'utf8');
+    assert.match(css, /button:not\(\.truncate\):not\(\[role="tab"\]\)\s*\{[\s\S]*?white-space:\s*normal/);
+    assert.match(css, /\.touch-target-inline::after\s*\{[\s\S]*?width:\s*max\(100%,\s*44px\)[\s\S]*?height:\s*max\(100%,\s*44px\)/);
+
+    const tabsSrc = fs.readFileSync(path.join(SRC_DIR, 'components/ui/tabs.jsx'), 'utf8');
+    assert.match(tabsSrc, /pointer-coarse:group-data-horizontal\/tabs:h-auto/);
+    assert.match(tabsSrc, /group-data-\[variant=default\]\/tabs-list:after:hidden/);
+
+    // Links inside sentences use the inline hit area, never a 44px-tall box.
+    for (const rel of ['pages/admin/AdminHome.jsx', 'pages/admin/AdminCustomizer.jsx', 'pages/admin/AdminPlugins.jsx']) {
+      const src = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');
+      assert.match(src, /touch-target-inline underline/, `${rel} inline link`);
+      assert.equal(/touch-target inline-flex items-center underline/.test(src), false, `${rel} stretches its sentence`);
+    }
+  });
 });

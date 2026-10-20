@@ -235,15 +235,17 @@ export default function LessonsList() {
     <div className="mx-auto max-w-5xl p-4">
       <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">Lessons</h1>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* A select is as wide as its longest option, so a long course name
+            would push the page sideways; these shrink to the space available. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
           {hasCourseFilter && (
-            <div className="flex items-center gap-2">
-              <label htmlFor="course-filter" className="text-sm text-muted-foreground">Course</label>
+            <div className="flex min-w-0 max-w-full items-center gap-2">
+              <label htmlFor="course-filter" className="shrink-0 text-sm text-muted-foreground">Course</label>
               <select
                 id="course-filter"
                 value={courseFilter}
                 onChange={(e) => setCourseFilter(e.target.value)}
-                className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex h-9 min-w-0 max-w-full sm:max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value={FILTER_ALL}>All courses</option>
                 {courseOptions.named.map((c) => (
@@ -255,13 +257,13 @@ export default function LessonsList() {
               </select>
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <label htmlFor="status-filter" className="text-sm text-muted-foreground">Status</label>
+          <div className="flex min-w-0 max-w-full items-center gap-2">
+            <label htmlFor="status-filter" className="shrink-0 text-sm text-muted-foreground">Status</label>
             <select
               id="status-filter"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="flex h-9 min-w-0 max-w-full rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value={STATUS_ALL}>All statuses</option>
               <option value={STATUS_NOT_STARTED}>Not started</option>
@@ -381,7 +383,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
     parts.push({ key: 'custom', text: 'My Lesson' });
   }
   if (lesson.course?.name) {
-    parts.push({ key: 'course', text: lesson.course.name });
+    parts.push({ key: 'course', text: lesson.course.name, wrap: true });
   }
   if (range) {
     const completionWord = `learner completion${timeStats.sampleSize === 1 ? '' : 's'}`;
@@ -434,13 +436,15 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
           id={metaId}
           className="text-xs text-muted-foreground flex-1 min-w-0 leading-relaxed"
         >
-          {/* Each item is whitespace-nowrap so wrapping happens between
-              items (clean line endings), not inside a phrase. The leading
-              separator lives inside the nowrap span so when the line wraps,
-              the dot travels with the item it precedes — no orphan " ·"
-              dangling at the end of a line. SR users hear sr-only commas
-              between items instead of the visible middle-dot, which gives
-              natural pauses in the reading flow. */}
+          {/* Short items are whitespace-nowrap so wrapping happens between
+              items (clean line endings), not inside a phrase. Course names
+              are author-written and can outrun the card, so they wrap inside
+              instead of sliding under "View outline". The leading separator
+              lives inside the item's span so when the line wraps, the dot
+              travels with the item it precedes — no orphan " ·" dangling at
+              the end of a line. SR users hear sr-only commas between items
+              instead of the visible middle-dot, which gives natural pauses in
+              the reading flow. */}
           {parts.map((part, idx) => (
             <Fragment key={part.key}>
               {idx > 0 && (
@@ -449,7 +453,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
                   <span className="sr-only">, </span>
                 </>
               )}
-              <span className="whitespace-nowrap">
+              <span className={part.wrap ? 'break-words' : 'whitespace-nowrap'}>
                 {idx > 0 && <span aria-hidden="true">· </span>}
                 {part.title ? (
                   <span title={part.title}>{part.text}</span>
