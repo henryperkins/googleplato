@@ -65,7 +65,8 @@ retry. Both retries made zero additional model requests. No model provider was
 called during these synthetic browser checks.
 
 The synthetic learner, private lesson, invitation, screenshot and all learner
-sync records were removed afterward. Verification refresh tokens were revoked.
+sync records were removed afterward. The synthetic learner's refresh token and
+the final admin verification session were revoked.
 The final account/content inventory contained one bootstrap admin and zero
 lessons. Normal system defaults and verification audit records remain.
 
