@@ -1,7 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 
+const TICK_MS = 30;
+const CATCH_UP_SHARE = 0.1;
+
 /**
- * Smoothly reveals streamed text at a steady typing cadence.
+ * How many characters to show after one tick. The reveal keeps a steady
+ * typing cadence (one character per tick, more after a throttled background
+ * tab) and also takes a share of whatever text is waiting. A reply that
+ * arrives all at once lands in about a second and a half whatever its
+ * length, instead of typing out at a fixed ~33 characters a second while the
+ * composer waits; a slow stream still reads as typing. Exported for tests.
+ */
+export function nextRevealLength(shown, available, elapsedMs) {
+  const backlog = available - shown;
+  if (backlog <= 0) return shown;
+  const cadence = Math.max(1, Math.floor(elapsedMs / TICK_MS));
+  const catchUp = Math.ceil(backlog * CATCH_UP_SHARE);
+  return Math.min(available, shown + Math.max(cadence, catchUp));
+}
+
+/**
+ * Smoothly reveals streamed text, catching up when text arrives faster than
+ * it can be typed (see nextRevealLength).
  *
  * rawText: the full accumulated text from the API (or null when not streaming).
  * Returns [displayText, isDraining]:
@@ -50,11 +70,10 @@ export function useStreamedText(rawText) {
       const elapsed = now - lastTickRef.current;
       const target = bufferRef.current;
 
-      // Catch up if we were throttled (e.g., tab was hidden)
-      // Advance by at least 1 char, or more if time has passed
-      const charsToAdd = Math.max(1, Math.floor(elapsed / 30));
       // Reduced motion shows each received chunk without artificial typing.
-      const newPos = motionPreference.matches ? target.length : Math.min(posRef.current + charsToAdd, target.length);
+      const newPos = motionPreference.matches
+        ? target.length
+        : nextRevealLength(posRef.current, target.length, elapsed);
 
       if (newPos > posRef.current) {
         posRef.current = newPos;
@@ -74,7 +93,7 @@ export function useStreamedText(rawText) {
       }
     };
 
-    timerRef.current = setInterval(tick, 30);
+    timerRef.current = setInterval(tick, TICK_MS);
 
     return () => {
       if (timerRef.current) {

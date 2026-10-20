@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
+import { preloadFirebase } from '../../js/auth.js';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
 import { Button } from '@/components/ui/button';
@@ -43,6 +44,8 @@ export default function Login() {
       .then(d => setWaitlistOpen(!!d?.open))
       .catch(() => {});
   }, []);
+
+  useEffect(() => { preloadFirebase(); }, []);
 
   function validateField(name, val) {
     if (name === 'email') return val.trim() ? '' : 'Please enter your email or username.';

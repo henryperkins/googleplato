@@ -4,7 +4,7 @@
  */
 
 import { authenticatedFetch } from './auth.js';
-import { clearCache, _populateCache } from './storage.js';
+import { clearCache, _populateCache, usesFirebase } from './storage.js';
 
 let _firestoreUnsub = null;
 
@@ -23,7 +23,8 @@ export async function loadAll() {
     _populateCache(dataKey, data, version);
   }
 
-  if (typeof window !== 'undefined') {
+  // Only Google sessions have a Firestore copy; password sessions skip the SDK.
+  if (typeof window !== 'undefined' && await usesFirebase()) {
     try {
       const { loadAllSyncDataFromFirestore, subscribeToFirestoreSync } = await import('./firebaseClient.js');
       const firestoreItems = await loadAllSyncDataFromFirestore();

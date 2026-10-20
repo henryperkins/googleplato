@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { renderMd } from '../../lib/helpers.js';
 import { buildThemeVars, contrastText, normalizeHex } from '../../lib/branding.js';
+import { invalidatePublicBranding } from '../../lib/publicBranding.js';
 import KnowledgeBaseEditor from './KnowledgeBaseEditor.jsx';
 
 const DEFAULT_PRIMARY = '#8b1a1a';
@@ -95,6 +96,8 @@ export default function AdminCustomizer() {
     setStyleMessage(null);
     try {
       await adminApi('PUT', '/v1/admin/theme', { theme: { primary: nextPrimary, accent: nextAccent }, logoBase64, classroomName });
+      // The classroom and sign-in pages read branding from a shared cache.
+      invalidatePublicBranding();
       setStyleMessage({ text: 'Saved.', type: 'success' });
     } catch (e) { setStyleMessage({ text: e.message, type: 'error' }); }
     finally { setSaving(false); }

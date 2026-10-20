@@ -1,4 +1,7 @@
-export default function UserMessage({ content, label }) {
+import { memo } from 'react';
+
+// Memoized so streaming a reply doesn't re-render the learner's past messages.
+export default memo(function UserMessage({ content, label }) {
   return (
     <div className="flex justify-end"
       data-chat-message="user" tabIndex={-1}
@@ -11,4 +14,4 @@ export default function UserMessage({ content, label }) {
       </div>
     </div>
   );
-}
+});

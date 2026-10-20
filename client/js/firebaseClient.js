@@ -3,10 +3,13 @@
  *
  * Responsibilities:
  * - Initializes Firebase App, Auth, and Firestore using firebase-applet-config.json
- * - Validates Firestore connectivity on boot via getDocFromServer
  * - Enforces structured FirestoreErrorInfo error reporting on all Firestore operations
  * - Provides Google Sign-In popup helper and Firestore sync Data helpers
  *   strictly adhering to firebase-blueprint.json & firestore.rules constraints
+ *
+ * This module is ~170 KB gzipped, so it is only ever imported dynamically:
+ * by Google sign-in, and by sync for sessions that signed in with Google
+ * (see `usesFirebase` in storage.js). Password sessions never load it.
  */
 
 import { initializeApp } from 'firebase/app';
@@ -16,7 +19,6 @@ import {
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
-  sendPasswordResetEmail,
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -24,7 +26,6 @@ import {
   collection,
   getDoc,
   getDocs,
-  getDocFromServer,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -93,18 +94,15 @@ export function handleFirestoreError(error, operationType, path) {
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Validate connection to Firestore when the application boots
-async function testConnection() {
-  if (typeof window === 'undefined') return;
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-    }
-  }
+/**
+ * The signed-in Firebase user once Firebase has restored any persisted
+ * session. Reading `auth.currentUser` straight after a lazy import returns
+ * null until that restore finishes, which would silently skip mirroring.
+ */
+async function restoredUser() {
+  await auth.authStateReady();
+  return auth.currentUser;
 }
-testConnection();
 
 /**
  * Sign in with Google Popup and return the Firebase user + ID token.
@@ -129,28 +127,11 @@ export async function signOutFirebase() {
 }
 
 /**
- * Initiates the Firebase sendPasswordResetEmail flow to help users recover access.
- *
- * @param {string} email - The email address to send the password reset email to.
- * @returns {Promise<{ success: boolean }>}
- */
-export async function sendFirebasePasswordReset(email) {
-  if (!email || typeof email !== 'string') {
-    const err = new Error('Please enter your email.');
-    err.code = 'auth/missing-email';
-    throw err;
-  }
-  const cleanEmail = email.trim();
-  await sendPasswordResetEmail(auth, cleanEmail);
-  return { success: true };
-}
-
-/**
  * Ensure the authenticated Firebase user's profile and isolated PII record
  * exist in Firestore (`users/{uid}` and `users/{uid}/private/info`).
  */
 export async function ensureFirestoreUserProfile(platoUser) {
-  const currentUser = auth.currentUser;
+  const currentUser = await restoredUser();
   if (!currentUser || !currentUser.emailVerified || !platoUser) return;
 
   const uid = currentUser.uid;
@@ -249,7 +230,7 @@ export async function ensureFirestoreUserProfile(platoUser) {
  * Mirror a plato sync record (`users/{uid}/syncData/{syncId}`) to Cloud Firestore.
  */
 export async function mirrorSyncDataToFirestore(syncKey, data) {
-  const currentUser = auth.currentUser;
+  const currentUser = await restoredUser();
   if (!currentUser || !currentUser.emailVerified) return;
 
   const uid = currentUser.uid;
@@ -300,7 +281,7 @@ export async function mirrorSyncDataToFirestore(syncKey, data) {
  * Delete a mirrored sync record from Cloud Firestore.
  */
 export async function deleteSyncDataFromFirestore(syncKey) {
-  const currentUser = auth.currentUser;
+  const currentUser = await restoredUser();
   if (!currentUser || !currentUser.emailVerified) return;
 
   const uid = currentUser.uid;
@@ -323,7 +304,7 @@ export async function deleteSyncDataFromFirestore(syncKey) {
  * Load all mirrored sync records for the authenticated Firebase user from Firestore.
  */
 export async function loadAllSyncDataFromFirestore() {
-  const currentUser = auth.currentUser;
+  const currentUser = await restoredUser();
   if (!currentUser || !currentUser.emailVerified) return [];
 
   const uid = currentUser.uid;

@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import * as authModule from '../../js/auth.js';
 import { authenticatedFetch } from '../../js/auth.js';
 import { clearCache } from '../../js/storage.js';
-import '../../js/firebaseClient.js';
 
 const AuthContext = createContext(null);
 

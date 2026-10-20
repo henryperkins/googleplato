@@ -5,7 +5,7 @@
 
 import {
   getAuthTokens, saveAuthTokens, clearAuth,
-  saveAuthUser
+  saveAuthUser, saveAuthProvider, usesFirebase,
 } from './storage.js';
 
 // When served from the same origin (Lambda), use relative paths.
@@ -92,7 +92,20 @@ export async function login(email, password) {
   const { accessToken, refreshToken, user } = await res.json();
   await saveAuthTokens({ accessToken, refreshToken });
   await saveAuthUser(user);
+  saveAuthProvider('password');
   return user;
+}
+
+/**
+ * Start downloading the Firebase SDK ahead of a Google sign-in, so the popup
+ * opens straight from the click (Safari blocks popups opened after a slow
+ * await). Pages with a "Continue with Google" button call this once idle.
+ */
+export function preloadFirebase() {
+  if (typeof window === 'undefined') return;
+  const load = () => { import('./firebaseClient.js').catch(() => {}); };
+  if ('requestIdleCallback' in window) window.requestIdleCallback(load, { timeout: 3000 });
+  else setTimeout(load, 1000);
 }
 
 /**
@@ -130,6 +143,7 @@ export async function loginWithGoogle(options = {}) {
   const { accessToken, refreshToken, user } = body;
   await saveAuthTokens({ accessToken, refreshToken });
   await saveAuthUser(user);
+  saveAuthProvider('firebase');
 
   try {
     await ensureFirestoreUserProfile(user);
@@ -154,7 +168,8 @@ export async function logout() {
       });
     } catch { /* best-effort server notification */ }
   }
-  if (typeof window !== 'undefined') {
+  // Ask before clearAuth(), which forgets how this session signed in.
+  if (typeof window !== 'undefined' && await usesFirebase()) {
     try {
       const { signOutFirebase } = await import('./firebaseClient.js');
       await signOutFirebase();
@@ -240,37 +255,20 @@ export async function authenticatedFetch(path, options = {}) {
 
 
 /**
- * Request a password reset email via Firebase Auth and server.
+ * Request a password reset email. Sign-in checks plato's own password, so
+ * plato's reset is the one that can change it. The server answers the same
+ * way whether or not the address has an account.
  */
 export async function forgotPassword(email) {
-  const cleanEmail = String(email || '').trim();
-  let firebaseAttempted = false;
-  let firebaseErr = null;
-
-  try {
-    const { sendFirebasePasswordReset } = await import('./firebaseClient.js');
-    await sendFirebasePasswordReset(cleanEmail);
-    firebaseAttempted = true;
-  } catch (err) {
-    firebaseErr = err;
+  const res = await fetch(`${SERVICE_URL}/v1/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: String(email || '').trim() }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'Request failed');
   }
-
-  try {
-    const res = await fetch(`${SERVICE_URL}/v1/auth/forgot-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail }),
-    });
-    if (!res.ok && !firebaseAttempted) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || firebaseErr?.message || 'Request failed');
-    }
-  } catch (serverErr) {
-    if (!firebaseAttempted) {
-      throw firebaseErr || serverErr;
-    }
-  }
-
   return { success: true };
 }
 

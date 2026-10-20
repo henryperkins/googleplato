@@ -23,6 +23,54 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
 - Classroom branding (colors, logo, name) stored in `_system` settings, fetched
   via `/v1/branding` (public, no auth).
 
+## Google sign-in and the Firestore copy
+
+Google sign-in uses Firebase Auth's popup. The server verifies the Firebase ID
+token at `POST /v1/auth/firebase` and answers with plato's own access and
+refresh tokens, so from then on a Google session is an ordinary plato session.
+The verified email matches an existing account, or onboards a new one through
+the same invite and wait-list checks as signup.
+
+For Google sessions only, `client/js/firebaseClient.js` also keeps a copy in
+Cloud Firestore: a profile at `users/{uid}` (email isolated in
+`users/{uid}/private/info`) and each sync record at `users/{uid}/syncData/{id}`.
+plato's server stays the source of truth. Mirror writes are fire-and-forget
+after the server write succeeds. On load, `loadAll` (`client/js/sync.js`) adds
+only the Firestore records the server didn't return, then subscribes to
+changes. `firestore.rules` holds the validation; the bounds in
+`firebaseClient.js` mirror it.
+
+- **The SDK loads only when needed.** It's ~170 KB gzipped, so it is imported
+  dynamically and never ships in the entry bundle. Login, Signup, and Setup
+  preload it at idle (`preloadFirebase`) so the popup opens promptly. After
+  sign-in, `usesFirebase()` in `storage.js` decides: it reads the provider
+  recorded at sign-in (`saveAuthProvider`, stored in `plato_auth`), and for
+  sessions from before that flag existed it checks IndexedDB for Firebase's
+  persisted session (`firebaseLocalStorageDb`). Password sessions never request
+  the SDK.
+- **Wait for the restored session.** Right after a lazy import,
+  `auth.currentUser` is `null` until Firebase restores its persisted session.
+  Every Firestore helper awaits `auth.authStateReady()` first (`restoredUser`);
+  reading `currentUser` directly makes mirroring skip silently.
+- **Password reset is plato's.** `/forgot-password` calls
+  `POST /v1/auth/forgot-password`, which emails a plato reset link. Firebase's
+  reset email isn't sent: plato checks its own password hash, so a Firebase
+  reset would change a credential plato never reads, and a second email would
+  compete with the one that works.
+
+## Client loading
+
+The login page, lesson list, and lesson conversation ship in the entry bundle.
+Everything else (admin, settings, signup, setup, password reset, wait list,
+privacy) is a lazy route with a spinner fallback, and `ErrorBoundary` recovers
+when a chunk is stale after a deploy. `App` starts the `/v1/branding` request at
+boot alongside the setup check. `client/src/lib/publicBranding.js` shares that
+one request between auth pages (`usePublicBranding`) and the classroom
+(`BrandingProvider`), caches the result for the page session, and doesn't cache
+failures. Auth pages apply the cached colors in a layout effect, before first
+paint, so they never flash plato's default purple. Saving in the Customizer
+invalidates the cache.
+
 ## AI agents
 
 9 AI agents, all sharing one open source model on Bedrock (prompt files in

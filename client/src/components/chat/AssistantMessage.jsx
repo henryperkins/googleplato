@@ -1,6 +1,9 @@
+import { memo } from 'react';
 import { renderMd } from '../../lib/helpers.js';
 
-export default function AssistantMessage({ content, streaming = false }) {
+// Memoized: while a reply streams, the lesson page re-renders on every reveal
+// tick, and past messages would otherwise re-parse their markdown each time.
+export default memo(function AssistantMessage({ content, streaming = false }) {
   let text = content;
   try {
     const parsed = JSON.parse(content);
@@ -25,4 +28,4 @@ export default function AssistantMessage({ content, streaming = false }) {
       </div>
     </div>
   );
-}
+});

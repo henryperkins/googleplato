@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
-import { saveAuthTokens, saveAuthUser } from '../../js/storage.js';
-import { loginWithGoogle } from '../../js/auth.js';
+import { saveAuthTokens, saveAuthUser, saveAuthProvider } from '../../js/storage.js';
+import { loginWithGoogle, preloadFirebase } from '../../js/auth.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,6 +38,7 @@ export default function Setup() {
 
   useEffect(() => {
     document.title = 'Setup — plato';
+    preloadFirebase();
   }, []);
 
   useEffect(() => {
@@ -118,6 +119,7 @@ export default function Setup() {
       try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
       await saveAuthTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
       await saveAuthUser(data.user);
+      saveAuthProvider('password');
       window.location.href = '/plato';
     } catch (e) {
       setError(e.message || 'Setup failed');

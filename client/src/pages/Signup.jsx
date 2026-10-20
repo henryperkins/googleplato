@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
+import { preloadFirebase } from '../../js/auth.js';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
@@ -49,6 +50,8 @@ export default function Signup() {
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);
   const branding = usePublicBranding('Create account');
+
+  useEffect(() => { preloadFirebase(); }, []);
 
   // Persist non-password signup draft across mobile background tab discards
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useId, useEffect } from 'react';
+import { memo, useState, useRef, useId, useEffect } from 'react';
 import { useAutoResize } from '../../hooks/useAutoResize.js';
 import { compressImageDataUrl } from '../../lib/imageCompression.js';
 import { fetchLinkContent } from '../../lib/links.js';
@@ -22,7 +22,7 @@ function hostLabel(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
 
-export default function ComposeBar({
+function ComposeBar({
   placeholder = 'Ask a question...',
   onSend,
   // `disabled` makes the composer read-only (View as User). `busy` only holds
@@ -452,3 +452,7 @@ export default function ComposeBar({
     </div>
   );
 }
+
+// Memoized: its props stay stable while a reply streams, so the reveal ticks
+// that re-render the lesson page skip the composer.
+export default memo(ComposeBar);

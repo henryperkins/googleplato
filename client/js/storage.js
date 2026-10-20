@@ -55,11 +55,7 @@ export async function putSyncData(syncKey, data) {
     if (res.ok) {
       const result = await res.json();
       _versions.set(syncKey, result.version);
-      if (typeof window !== 'undefined') {
-        import('./firebaseClient.js')
-          .then(({ mirrorSyncDataToFirestore }) => mirrorSyncDataToFirestore(syncKey, data))
-          .catch(() => {});
-      }
+      mirrorToFirestore((fb) => fb.mirrorSyncDataToFirestore(syncKey, data));
       return true;
     } else if (res.status === 409) {
       // Version conflict — fetch latest version and retry once
@@ -75,11 +71,7 @@ export async function putSyncData(syncKey, data) {
         if (retry.ok) {
           const retryResult = await retry.json();
           _versions.set(syncKey, retryResult.version);
-          if (typeof window !== 'undefined') {
-            import('./firebaseClient.js')
-              .then(({ mirrorSyncDataToFirestore }) => mirrorSyncDataToFirestore(syncKey, data))
-              .catch(() => {});
-          }
+          mirrorToFirestore((fb) => fb.mirrorSyncDataToFirestore(syncKey, data));
           return true;
         }
       }
@@ -106,12 +98,20 @@ async function deleteSyncData(syncKey) {
   _versions.delete(syncKey);
   try {
     await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, { method: 'DELETE' });
-    if (typeof window !== 'undefined') {
-      import('./firebaseClient.js')
-        .then(({ deleteSyncDataFromFirestore }) => deleteSyncDataFromFirestore(syncKey))
-        .catch(() => {});
-    }
+    mirrorToFirestore((fb) => fb.deleteSyncDataFromFirestore(syncKey));
   } catch { /* best effort */ }
+}
+
+/**
+ * Best-effort Firestore mirror for sessions that signed in with Google.
+ * Password sessions return before the Firebase SDK is ever requested.
+ */
+function mirrorToFirestore(operation) {
+  if (typeof window === 'undefined') return;
+  usesFirebase()
+    .then((firebaseSession) => (firebaseSession ? import('./firebaseClient.js') : null))
+    .then((fb) => fb && operation(fb))
+    .catch(() => {});
 }
 
 // -- Preferences --------------------------------------------------------------
@@ -318,6 +318,8 @@ export async function deleteUserLesson(lessonId) {
 // -- Auth tokens (localStorage) -----------------------------------------------
 
 const AUTH_STORAGE_KEY = 'plato_auth';
+// Memo for usesFirebase(); null until known for this page session.
+let _firebaseSession = null;
 
 export async function getAuthTokens() {
   try {
@@ -341,7 +343,42 @@ export async function saveAuthTokens({ accessToken, refreshToken }) {
 
 export async function clearAuth() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
+  _firebaseSession = null;
   clearCache();
+}
+
+/**
+ * How this session signed in: 'firebase' (Google) or 'password'. Recorded at
+ * sign-in so the Firebase SDK only loads for sessions that need it.
+ */
+export function saveAuthProvider(provider) {
+  try {
+    const existing = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}');
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...existing, provider }));
+  } catch { /* storage full or disabled */ }
+  _firebaseSession = provider === 'firebase';
+}
+
+/**
+ * Whether this session signed in with Google (Firebase Auth). Sessions from
+ * before the provider was recorded are recognized by Firebase's persisted
+ * sign-in database, which can be listed without loading the SDK.
+ */
+export async function usesFirebase() {
+  if (_firebaseSession !== null) return _firebaseSession;
+  let provider = null;
+  try { provider = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}').provider || null; } catch { /* ignore */ }
+  if (provider) {
+    _firebaseSession = provider === 'firebase';
+  } else {
+    try {
+      const databases = await indexedDB.databases();
+      _firebaseSession = databases.some((d) => d.name === 'firebaseLocalStorageDb');
+    } catch {
+      _firebaseSession = false;
+    }
+  }
+  return _firebaseSession;
 }
 
 export async function getAuthUser() {

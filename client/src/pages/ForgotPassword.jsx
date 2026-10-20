@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
-import { sendFirebasePasswordReset } from '../../js/firebaseClient.js';
+import { forgotPassword } from '../../js/auth.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,16 +40,6 @@ export default function ForgotPassword() {
     return '';
   }
 
-  function formatFirebaseResetError(err) {
-    if (!err) return 'Password reset request failed. Please try again.';
-    const code = err.code || '';
-    if (code === 'auth/invalid-email') return 'Please enter a valid email address.';
-    if (code === 'auth/missing-email') return 'Please enter your email address.';
-    if (code === 'auth/too-many-requests') return 'Too many attempts. Please wait a few minutes before trying again.';
-    if (code === 'auth/network-request-failed') return 'Network error connecting to Firebase. Please check your internet connection.';
-    return err.message || 'Failed to send password reset email. Please try again.';
-  }
-
   async function handleSubmit(e) {
     if (e) e.preventDefault();
     if (submitting) return;
@@ -67,41 +57,14 @@ export default function ForgotPassword() {
     const cleanEmail = email.trim();
 
     try {
-      let firebaseError = null;
-      try {
-        await sendFirebasePasswordReset(cleanEmail);
-      } catch (fbErr) {
-        // If user not found in Firebase Auth, proceed to backend or display generic success
-        // to conform to email enumeration protection standards
-        if (fbErr.code === 'auth/user-not-found') {
-          // Treated as non-fatal to avoid leaking account existence
-        } else {
-          firebaseError = fbErr;
-        }
-      }
-
-      // Also invoke server forgot-password endpoint for dual-mode SQLite/DynamoDB accounts
-      let serverSucceeded = false;
-      try {
-        const res = await fetch('/v1/auth/forgot-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: cleanEmail }),
-        });
-        if (res.ok) serverSucceeded = true;
-      } catch {
-        // Best effort server notification
-      }
-
-      // If Firebase failed with an actionable error and server didn't succeed, surface the error
-      if (firebaseError && !serverSucceeded) {
-        throw firebaseError;
-      }
-
+      await forgotPassword(cleanEmail);
       try { sessionStorage.removeItem(FORGOT_DRAFT_KEY); } catch { /* ignore */ }
       setMessage('Password reset email sent! If an account exists for this email, you will receive instructions to reset your password. Please check your inbox and spam folder.');
     } catch (e) {
-      setError(formatFirebaseResetError(e));
+      // fetch() rejects with a TypeError when the server can't be reached.
+      setError(e instanceof TypeError
+        ? "We couldn't reach plato. Check your internet connection, then try again."
+        : (e.message || "We couldn't send the reset email. Try again."));
     } finally {
       setSubmitting(false);
     }

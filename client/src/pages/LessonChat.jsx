@@ -360,7 +360,9 @@ export default function LessonChat() {
                 <div className="flex justify-end mt-1">
                   <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary p-1.5 flex flex-wrap gap-1">
                     {urls.map((url, i) => (
-                      <img key={i} src={url} alt={`Your uploaded work ${i + 1}`} loading="lazy" decoding="async" className="max-w-full rounded-lg" />
+                      // Hydrated data URLs are already in memory: lazy loading
+                      // saved nothing and decoded late, shifting the scrolled log.
+                      <img key={i} src={url} alt={`Your uploaded work ${i + 1}`} decoding="async" className="max-w-full rounded-lg" />
                     ))}
                   </div>
                 </div>

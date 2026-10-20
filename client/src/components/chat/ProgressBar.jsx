@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { celebrateExemplar } from '../../lib/exemplarCelebration.js';
 
 /**
  * Lesson progress meter -- simple bar driven by coach's progress score.
  */
-export default function ProgressBar({ lessonKB, celebrate = false }) {
+function ProgressBar({ lessonKB, celebrate = false }) {
   const checkRef = useRef(null);
   const isComplete = lessonKB?.status === 'completed';
   useEffect(() => {
@@ -45,3 +45,6 @@ export default function ProgressBar({ lessonKB, celebrate = false }) {
     </div>
   );
 }
+
+// Memoized: the lesson page re-renders on every reveal tick while a reply streams.
+export default memo(ProgressBar);
