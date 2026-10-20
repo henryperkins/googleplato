@@ -4,6 +4,8 @@ Flat reference of every plato extension point. One section per surface; no nesti
 
 ## Slots
 
+Every slot component renders inside its own error boundary. If one throws while rendering, the host drops it from the slot, logs `[plato] plugin "<id>" failed to render` to the console, and the rest of the page keeps working. If the plugin bundle fails to load, slots render their fallback.
+
 ### `adminSettingsPanel`
 
 - **Capability:** `ui.slot.adminSettingsPanel`

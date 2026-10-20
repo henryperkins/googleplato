@@ -1499,3 +1499,48 @@ describe('custom user fields admin API (#364)', () => {
     assert.equal(nameOnly.status, 200);
   });
 });
+
+describe('PUT /v1/admin/theme — color validation', () => {
+  // Theme colors paint every learner header and the auth pages, so the route
+  // validates them instead of trusting the customizer form.
+  let saved;
+  const makeApp = () => {
+    const app = new Hono();
+    app.route('/', admin);
+    return app;
+  };
+
+  beforeEach(() => {
+    saved = [];
+    db.putSyncData = async (userId, dataKey, data) => { saved.push({ userId, dataKey, data }); };
+  });
+
+  it('stores colors as lowercase #rrggbb', async () => {
+    const res = await adminReq(makeApp(), 'PUT', '/v1/admin/theme', { theme: { primary: '#8B1A1A', accent: '#d26' } });
+    assert.equal(res.status, 200);
+    assert.equal(saved[0].dataKey, 'settings');
+    assert.deepEqual(saved[0].data.theme, { primary: '#8b1a1a', accent: '#dd2266' });
+  });
+
+  it('rejects a color that is not a hex value', async () => {
+    for (const primary of ['#12', 'red', 'rgb(1, 2, 3)', 42, '']) {
+      const res = await adminReq(makeApp(), 'PUT', '/v1/admin/theme', { theme: { primary, accent: '#dc2626' } });
+      assert.equal(res.status, 400, `accepted ${JSON.stringify(primary)}`);
+      assert.match((await res.json()).error, /primary color must be a hex value/);
+    }
+    assert.equal(saved.length, 0);
+  });
+
+  it('rejects a theme that is not an object', async () => {
+    const res = await adminReq(makeApp(), 'PUT', '/v1/admin/theme', { theme: 'dark' });
+    assert.equal(res.status, 400);
+    assert.equal(saved.length, 0);
+  });
+
+  it('still saves the classroom name without a theme', async () => {
+    const res = await adminReq(makeApp(), 'PUT', '/v1/admin/theme', { classroomName: 'Acme Academy' });
+    assert.equal(res.status, 200);
+    assert.equal(saved[0].data.classroomName, 'Acme Academy');
+    assert.equal(saved[0].data.theme, undefined);
+  });
+});

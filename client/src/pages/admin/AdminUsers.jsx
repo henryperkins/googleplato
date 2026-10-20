@@ -109,7 +109,14 @@ export default function AdminUsers() {
   const [waitlistSettings, setWaitlistSettings] = useState({ open: false, hasApiKey: false });
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Only the first load replaces the page with a spinner; refreshes after an
+  // invite, delete, or edit keep the page (and any open dialog) mounted.
+  const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  // Unknown is not "none": a failed status fetch must not make Generate or
+  // Make a key look safe, since both replace a live credential.
+  const [linkLoadFailed, setLinkLoadFailed] = useState(false);
+  const [waitlistLoadFailed, setWaitlistLoadFailed] = useState(false);
   const [message, setMessage] = useState(null);
 
   // Modal states
@@ -165,16 +172,21 @@ export default function AdminUsers() {
         adminApi('GET', '/v1/admin/invites'),
         adminApi('GET', '/v1/admin/settings'),
         adminApi('GET', '/v1/admin/plugins').catch(() => []),
-        adminApi('GET', '/v1/admin/invites/link').catch(() => null),
-        adminApi('GET', '/v1/admin/waitlist').catch(() => null),
+        adminApi('GET', '/v1/admin/invites/link').then((data) => ({ ok: true, data }), () => ({ ok: false })),
+        adminApi('GET', '/v1/admin/waitlist').then((data) => ({ ok: true, data }), () => ({ ok: false })),
       ]);
       setUsers(Array.isArray(usersRes) ? usersRes : []);
       setPendingInvites(Array.isArray(invitesRes) ? invitesRes.filter(x => x.status === 'pending') : []);
       setGroups(settingsRes.userGroups || []);
       setUserFields(Array.isArray(settingsRes.userFields) ? settingsRes.userFields : []);
-      setLinkInvite(linkRes);
-      setWaitlistEntries(Array.isArray(waitlistRes?.entries) ? waitlistRes.entries : []);
-      setWaitlistSettings({ open: !!waitlistRes?.open, hasApiKey: !!waitlistRes?.hasApiKey });
+      setLinkLoadFailed(!linkRes.ok);
+      if (linkRes.ok) setLinkInvite(linkRes.data);
+      setWaitlistLoadFailed(!waitlistRes.ok);
+      if (waitlistRes.ok) {
+        const waitlist = waitlistRes.data;
+        setWaitlistEntries(Array.isArray(waitlist?.entries) ? waitlist.entries : []);
+        setWaitlistSettings({ open: !!waitlist?.open, hasApiKey: !!waitlist?.hasApiKey });
+      }
       // Slack connection status comes from the plugin's settings, not legacy _system:settings.slack.
       // The Slack tab is hidden when the plugin is disabled OR not connected.
       const slack = Array.isArray(pluginsRes) ? pluginsRes.find((entry) => entry.id === 'slack') : null;
@@ -184,10 +196,10 @@ export default function AdminUsers() {
       setLoadError(e?.message || 'Users could not be loaded.');
     }
     setLoading(false);
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
-    document.title = 'Users — plato';
     loadData();
   }, [loadData]);
 
@@ -483,6 +495,15 @@ export default function AdminUsers() {
     if (waitlistToken && !loading && !editEntry) navigate('/plato/users', { replace: true });
   }, [waitlistToken, loading, editEntry, navigate]);
 
+  // The list and both editors are one route component, so the title follows
+  // the view rather than being set once on mount.
+  const editUserName = editUser ? (editUser.name || editUser.email) : '';
+  useEffect(() => {
+    if (editUserName) document.title = `Edit ${editUserName} — plato`;
+    else if (editEntry) document.title = 'Edit wait-list entry — plato';
+    else document.title = 'Users — plato';
+  }, [editUserName, editEntry]);
+
   function revokeInvite(token, email) {
     setConfirmModal({
       title: 'Revoke Invite?',
@@ -548,11 +569,28 @@ export default function AdminUsers() {
     } catch (e) { setMessage({ text: e.message, type: 'error' }); }
   }
 
-  async function deleteGroup(name) {
-    try {
-      const data = await adminApi('DELETE', `/v1/admin/groups/${encodeURIComponent(name)}`);
-      setGroups(data.userGroups || []);
-    } catch (e) { setMessage({ text: e.message, type: 'error' }); }
+  // Deleting a group clears it from every member server-side, so it confirms
+  // first (like courses and user fields) and names how many users it touches.
+  function deleteGroup(name) {
+    const members = users.filter((u) => u.userGroup === name).length;
+    const scope = members > 0
+      ? ` and cleared from ${members} ${members === 1 ? 'user' : 'users'}`
+      : '';
+    setConfirmModal({
+      title: 'Delete group?',
+      message: `"${name}" will be removed${scope}. This can't be undone.`,
+      confirmLabel: 'Delete group',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          const data = await adminApi('DELETE', `/v1/admin/groups/${encodeURIComponent(name)}`);
+          setGroups(data.userGroups || []);
+          if (members > 0) loadData();
+        } catch (e) { setMessage({ text: e.message, type: 'error' }); }
+        // The deleted row's button is gone; keep focus in the groups dialog.
+        document.getElementById('new-group-name')?.focus();
+      },
+    });
   }
 
   // -- Edit user --
@@ -741,7 +779,7 @@ export default function AdminUsers() {
   // Reset page when filter/search/sort changes
   useEffect(() => { setPage(1); }, [filter, search, sortBy, fieldFilter]);
 
-  if (loading) return <div className="flex items-center justify-center py-12 text-muted-foreground" role="status" aria-live="polite">Loading...</div>;
+  if (loading && !loaded) return <div className="flex items-center justify-center py-12 text-muted-foreground" role="status" aria-live="polite">Loading...</div>;
 
   const confirmModalElement = confirmModal ? (
     <ConfirmModal
@@ -899,6 +937,19 @@ export default function AdminUsers() {
       {loadError && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-4 text-sm text-danger-foreground" role="alert">
           <span>{loadError}</span>
+          <Button variant="outline" size="sm" onClick={loadData}>Retry</Button>
+        </div>
+      )}
+
+      {!loadError && (waitlistLoadFailed || linkLoadFailed) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning-border bg-warning px-4 py-3 mb-4 text-sm text-warning-foreground" role="alert">
+          <span>
+            {waitlistLoadFailed && linkLoadFailed
+              ? "The wait list and the shareable invite link couldn't be loaded. They stay hidden until they load."
+              : waitlistLoadFailed
+                ? "The wait list couldn't be loaded. Its entries and settings stay hidden until it loads."
+                : "The shareable invite link couldn't be loaded. It stays hidden until it loads."}
+          </span>
           <Button variant="outline" size="sm" onClick={loadData}>Retry</Button>
         </div>
       )}
@@ -1290,7 +1341,14 @@ export default function AdminUsers() {
 
           {/* Link tab */}
           <TabsContent value="link">
-            {linkInvite ? (
+            {linkLoadFailed ? (
+              <div className="space-y-3">
+                <p className="text-sm text-destructive" role="alert">
+                  The current invite link couldn&apos;t be loaded, so it can&apos;t be shown or replaced yet.
+                </p>
+                <Button variant="outline" onClick={loadData}>Try again</Button>
+              </div>
+            ) : linkInvite ? (
               <div className="space-y-4">
                 <div className="rounded-lg border p-4 bg-muted/50">
                   <Label htmlFor="invite-link">Shareable Invite Link</Label>
@@ -1374,6 +1432,8 @@ export default function AdminUsers() {
         onOpenChange={setWaitlistOpen}
         settings={waitlistSettings}
         onChange={setWaitlistSettings}
+        loadFailed={waitlistLoadFailed}
+        onRetry={loadData}
       />
 
       <Dialog open={groupsOpen} onOpenChange={setGroupsOpen}>

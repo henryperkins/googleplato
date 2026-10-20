@@ -1129,12 +1129,36 @@ admin.get('/v1/admin/theme', async (c) => {
   });
 });
 
+const HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{6})$/i;
+
+/** `#rgb` or `#rrggbb` as lowercase `#rrggbb`; null for anything else. */
+export function normalizeThemeColor(value) {
+  if (typeof value !== 'string' || !HEX_COLOR.test(value.trim())) return null;
+  const hex = value.trim().slice(1).toLowerCase();
+  return `#${hex.length === 3 ? [...hex].map((ch) => ch + ch).join('') : hex}`;
+}
+
 // PUT /v1/admin/theme
+// Theme colors reach every learner page header and the auth pages, so they
+// are validated here rather than trusted from the customizer form.
 admin.put('/v1/admin/theme', async (c) => {
   const body = await c.req.json();
+  let theme;
+  if (body.theme !== undefined) {
+    if (!body.theme || typeof body.theme !== 'object' || Array.isArray(body.theme)) {
+      return c.json({ error: 'Theme must include primary and accent colors.' }, 400);
+    }
+    theme = { ...body.theme };
+    for (const key of ['primary', 'accent']) {
+      if (theme[key] === undefined) continue;
+      const color = normalizeThemeColor(theme[key]);
+      if (!color) return c.json({ error: `The ${key} color must be a hex value like #8b1a1a.` }, 400);
+      theme[key] = color;
+    }
+  }
   const current = await db.getSyncData('_system', 'settings');
   const settings = { ...(current?.data || {}) };
-  if (body.theme !== undefined) settings.theme = body.theme;
+  if (theme !== undefined) settings.theme = theme;
   if (body.logoBase64 !== undefined) settings.logoBase64 = body.logoBase64;
   if (body.classroomName !== undefined) {
     settings.classroomName = body.classroomName;

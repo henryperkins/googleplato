@@ -22,6 +22,13 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
   const [message, setMessage] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  // Invite emails the saved entry, so it waits until edits are saved rather
+  // than silently sending the old answers (or the old address).
+  const dirty = form.name !== (entry.name || '')
+    || form.email !== (entry.email || '')
+    || form.userGroup !== (entry.userGroup || '')
+    || userFields.some((f) => (form.customFields[f.id] ?? '') !== (entry.customFields?.[f.id] ?? ''));
+
   async function save() {
     const missing = missingRequired(userFields, form.customFields);
     if (missing.length) {
@@ -88,17 +95,30 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
               idPrefix="wl-edit-field"
               value={form.customFields[f.id]}
               onChange={(v) => setForm(prev => ({ ...prev, customFields: { ...prev.customFields, [f.id]: v } }))}
-              disabled={saving}
+              readOnly={saving}
             />
           ))}
           <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Button onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+            <Button onClick={save} disabled={saving} focusableWhenDisabled>{saving ? 'Saving...' : 'Save'}</Button>
             <Button variant="outline" onClick={onBack}>Cancel</Button>
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto">
-              <Button variant="outline" onClick={() => onInvite(entry)} disabled={saving}>Invite</Button>
+              <Button
+                variant="outline"
+                onClick={() => onInvite(entry)}
+                disabled={saving || dirty}
+                focusableWhenDisabled
+                aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}
+              >
+                Invite
+              </Button>
               <Button variant="destructive" onClick={() => onRemove(entry)} disabled={saving}>Remove</Button>
             </div>
           </div>
+          {dirty && (
+            <p id="wl-edit-invite-hint" className="text-sm text-muted-foreground">
+              Save your changes before inviting. The invite uses the saved answers.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

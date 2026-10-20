@@ -11,8 +11,10 @@ import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
 /**
  * Admin → Users → "Wait List" (#363): open or close the public form, and
  * make or revoke the API key an outside form uses. A new key is shown once.
+ * When the current settings couldn't be loaded, the controls stay hidden:
+ * "Make a key" would otherwise skip its confirmation and replace a live key.
  */
-export default function WaitlistDialog({ open, onOpenChange, settings, onChange }) {
+export default function WaitlistDialog({ open, onOpenChange, settings, onChange, loadFailed = false, onRetry }) {
   const [newKey, setNewKey] = useState('');
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
@@ -78,6 +80,15 @@ export default function WaitlistDialog({ open, onOpenChange, settings, onChange 
             </DialogDescription>
           </DialogHeader>
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+          {loadFailed ? (
+            <div className="space-y-3">
+              <p className="text-sm text-destructive" role="alert">
+                The wait-list settings couldn&apos;t be loaded, so they can&apos;t be changed yet.
+              </p>
+              <Button variant="outline" onClick={onRetry}>Try again</Button>
+            </div>
+          ) : (
+          <>
           <div className="flex items-center gap-2.5">
             <input
               id="waitlist-open"
@@ -119,6 +130,8 @@ export default function WaitlistDialog({ open, onOpenChange, settings, onChange 
               )}
             </div>
           </div>
+          </>
+          )}
         </DialogContent>
       </Dialog>
 

@@ -21,6 +21,9 @@ import SettingsForm from '@/lib/plugins/SettingsForm.jsx';
 export default function AdminPlugins() {
   const [plugins, setPlugins] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Only the first load replaces the page; refreshes after a toggle or save
+  // keep the cards (and focus) in place, and errors show above them.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [registryReady, setRegistryReady] = useState(false);
 
@@ -31,16 +34,19 @@ export default function AdminPlugins() {
       const list = await adminApi('GET', '/v1/admin/plugins');
       setPlugins(Array.isArray(list) ? list : []);
     } catch (e) {
-      setError(e.message);
+      setError(e.message || 'Plugins could not be loaded.');
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
   }, []);
 
   useEffect(() => {
     document.title = 'Plugins — plato';
     load();
-    initPluginRegistry().then(() => setRegistryReady(true));
+    initPluginRegistry()
+      .catch((e) => console.error('[plato] plugin registry failed to load', e))
+      .finally(() => setRegistryReady(true));
   }, [load]);
 
   async function toggle(pluginId, enabled) {
@@ -65,7 +71,7 @@ export default function AdminPlugins() {
     await load();
   }
 
-  if (loading) {
+  if (loading && !loaded) {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground" role="status" aria-live="polite">
         Loading…
@@ -73,17 +79,15 @@ export default function AdminPlugins() {
     );
   }
 
-  if (error) {
-    return (
-      <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
-        {error}
-      </div>
-    );
-  }
-
   return (
     <div>
       <h1 className="text-2xl font-bold mb-2">Plugins</h1>
+      {error && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-4 text-sm text-danger-foreground" role="alert">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+        </div>
+      )}
       <p className="text-sm text-muted-foreground mb-6">
         Enable, disable, and configure plato plugins.{' '}
         <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="touch-target inline-flex items-center underline underline-offset-4">
@@ -173,7 +177,7 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
               checked={!!plugin.enabled}
               onCheckedChange={onToggle}
               disabled={hasLoadError}
-              label={`${plugin.enabled ? 'Deactivate' : 'Activate'} ${plugin.name}`}
+              label={`Enable ${plugin.name}`}
             />
           </div>
         </div>

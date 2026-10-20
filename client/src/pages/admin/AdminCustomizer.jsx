@@ -7,8 +7,12 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { renderMd } from '../../lib/helpers.js';
-import { buildThemeVars, contrastText } from '../../lib/branding.js';
+import { buildThemeVars, contrastText, normalizeHex } from '../../lib/branding.js';
 import KnowledgeBaseEditor from './KnowledgeBaseEditor.jsx';
+
+const DEFAULT_PRIMARY = '#8b1a1a';
+const DEFAULT_ACCENT = '#dc2626';
+const HEX_COLOR_ERROR = 'Enter a hex color like #8b1a1a.';
 
 export default function AdminCustomizer() {
   const location = useLocation();
@@ -21,13 +25,27 @@ export default function AdminCustomizer() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
-  const [primary, setPrimary] = useState('#8b1a1a');
-  const [accent, setAccent] = useState('#dc2626');
+  const [primary, setPrimary] = useState(DEFAULT_PRIMARY);
+  const [accent, setAccent] = useState(DEFAULT_ACCENT);
   const [logoBase64, setLogoBase64] = useState(null);
   const [classroomName, setClassroomName] = useState('');
   const [logoError, setLogoError] = useState('');
+  const [colorErrors, setColorErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [styleMessage, setStyleMessage] = useState(null);
+
+  // The preview keeps the last usable color while a hex code is mid-edit,
+  // rather than going transparent behind white text.
+  const safePrimary = normalizeHex(primary) || DEFAULT_PRIMARY;
+  const safeAccent = normalizeHex(accent) || DEFAULT_ACCENT;
+
+  // Expand shorthand (#abc) on blur; flag anything that isn't a color.
+  function commitColor(field, value, setValue) {
+    const normalized = normalizeHex(value);
+    if (normalized) setValue(normalized);
+    setColorErrors((prev) => ({ ...prev, [field]: normalized ? '' : HEX_COLOR_ERROR }));
+    return normalized;
+  }
 
   const [kbContent, setKbContent] = useState('');
   const [kbConversation, setKbConversation] = useState(null);
@@ -50,8 +68,8 @@ export default function AdminCustomizer() {
         adminApi('GET', '/v1/admin/knowledge-base'),
       ]);
       const t = themeData.theme || {};
-      setPrimary(t.primary || '#8b1a1a');
-      setAccent(t.accent || '#dc2626');
+      setPrimary(normalizeHex(t.primary) || DEFAULT_PRIMARY);
+      setAccent(normalizeHex(t.accent) || DEFAULT_ACCENT);
       setLogoBase64(themeData.logoBase64 || null);
       setClassroomName(themeData.classroomName || '');
       setKbContent(kbData.content || '');
@@ -66,31 +84,49 @@ export default function AdminCustomizer() {
   }
 
   async function saveStyle() {
+    if (saving) return;
+    const nextPrimary = commitColor('primary', primary, setPrimary);
+    const nextAccent = commitColor('accent', accent, setAccent);
+    if (!nextPrimary || !nextAccent) {
+      document.getElementById(nextPrimary ? 'theme-accent-hex' : 'theme-primary-hex')?.focus();
+      return;
+    }
     setSaving(true);
     setStyleMessage(null);
     try {
-      await adminApi('PUT', '/v1/admin/theme', { theme: { primary, accent }, logoBase64, classroomName });
+      await adminApi('PUT', '/v1/admin/theme', { theme: { primary: nextPrimary, accent: nextAccent }, logoBase64, classroomName });
       setStyleMessage({ text: 'Saved.', type: 'success' });
     } catch (e) { setStyleMessage({ text: e.message, type: 'error' }); }
     finally { setSaving(false); }
   }
 
   function handleLogoUpload(e) {
-    const file = e.target.files[0];
+    const input = e.target;
+    const file = input.files[0];
     if (!file) return;
     setLogoError('');
+    // Clear a rejected file so the field doesn't keep showing its name and the
+    // same file can be picked again after it's fixed.
+    const reject = (text) => {
+      setLogoError(text);
+      input.value = '';
+    };
+    const unreadable = () => reject("That file couldn't be read. Try a PNG, JPG, WebP, or SVG.");
     if (file.type === 'image/svg+xml') {
       const reader = new FileReader();
       reader.onload = (ev) => setLogoBase64(ev.target.result);
+      reader.onerror = unreadable;
       reader.readAsDataURL(file);
       return;
     }
     const reader = new FileReader();
+    reader.onerror = unreadable;
     reader.onload = (ev) => {
       const img = new Image();
+      img.onerror = unreadable;
       img.onload = () => {
         if (img.width < 512 || img.height < 512) {
-          setLogoError('Image must be at least 512x512px.');
+          reject('Image must be at least 512x512px.');
           return;
         }
         const size = 512;
@@ -137,17 +173,19 @@ export default function AdminCustomizer() {
           <p className="text-sm text-muted-foreground mb-4">Classroom style and branding. These settings only affect the learner-facing classroom.</p>
 
           <Card className="mb-6">
-            <CardHeader><CardTitle>Colors</CardTitle></CardHeader>
+            <CardHeader><CardTitle as="h2">Colors</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">Set two colors — contrast is derived automatically.</p>
               <div className="flex flex-wrap gap-6">
                 <div className="flex items-center gap-3">
-                  <input id="theme-primary" type="color" value={primary} onChange={e => setPrimary(e.target.value)}
+                  <input id="theme-primary" type="color" value={safePrimary}
+                    onChange={e => { setPrimary(e.target.value); setColorErrors((prev) => ({ ...prev, primary: '' })); }}
                     className="w-12 h-12 shrink-0 rounded-lg border border-border cursor-pointer p-0.5" aria-label="Primary color" />
                   <div className="space-y-1">
                     <Label htmlFor="theme-primary">Primary</Label>
                     <p className="text-xs text-muted-foreground">Header, buttons, badges</p>
                     <Input
+                      id="theme-primary-hex"
                       type="text"
                       inputMode="text"
                       autoCapitalize="none"
@@ -155,19 +193,27 @@ export default function AdminCustomizer() {
                       spellCheck={false}
                       maxLength={7}
                       value={primary}
-                      onChange={e => setPrimary(e.target.value)}
+                      onChange={e => { setPrimary(e.target.value); setColorErrors((prev) => ({ ...prev, primary: '' })); }}
+                      onBlur={e => commitColor('primary', e.target.value, setPrimary)}
                       aria-label="Primary color hex code"
+                      aria-invalid={colorErrors.primary ? true : undefined}
+                      aria-describedby={colorErrors.primary ? 'theme-primary-error' : undefined}
                       className="h-8 w-28 font-mono text-xs"
                     />
+                    {colorErrors.primary && (
+                      <p id="theme-primary-error" className="text-xs text-destructive" role="alert">{colorErrors.primary}</p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <input id="theme-accent" type="color" value={accent} onChange={e => setAccent(e.target.value)}
+                  <input id="theme-accent" type="color" value={safeAccent}
+                    onChange={e => { setAccent(e.target.value); setColorErrors((prev) => ({ ...prev, accent: '' })); }}
                     className="w-12 h-12 shrink-0 rounded-lg border border-border cursor-pointer p-0.5" aria-label="Accent color" />
                   <div className="space-y-1">
                     <Label htmlFor="theme-accent">Accent</Label>
                     <p className="text-xs text-muted-foreground">Links, focus rings</p>
                     <Input
+                      id="theme-accent-hex"
                       type="text"
                       inputMode="text"
                       autoCapitalize="none"
@@ -175,15 +221,21 @@ export default function AdminCustomizer() {
                       spellCheck={false}
                       maxLength={7}
                       value={accent}
-                      onChange={e => setAccent(e.target.value)}
+                      onChange={e => { setAccent(e.target.value); setColorErrors((prev) => ({ ...prev, accent: '' })); }}
+                      onBlur={e => commitColor('accent', e.target.value, setAccent)}
                       aria-label="Accent color hex code"
+                      aria-invalid={colorErrors.accent ? true : undefined}
+                      aria-describedby={colorErrors.accent ? 'theme-accent-error' : undefined}
                       className="h-8 w-28 font-mono text-xs"
                     />
+                    {colorErrors.accent && (
+                      <p id="theme-accent-error" className="text-xs text-destructive" role="alert">{colorErrors.accent}</p>
+                    )}
                   </div>
                 </div>
               </div>
-              <div className="classroom-theme rounded-lg overflow-hidden" aria-label="Theme preview" style={buildThemeVars({ primary, accent })}>
-                <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-sm" style={{ backgroundColor: primary, color: contrastText(primary) }}>
+              <div className="classroom-theme rounded-lg overflow-hidden" aria-label="Theme preview" style={buildThemeVars({ primary: safePrimary, accent: safeAccent })}>
+                <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-sm" style={{ backgroundColor: safePrimary, color: contrastText(safePrimary) }}>
                   <span className="font-semibold">Header Preview</span>
                   <span className="ml-auto">Nav Item</span>
                 </div>
@@ -191,7 +243,7 @@ export default function AdminCustomizer() {
                   <p>Body text on the page background.</p>
                   <a href="#" onClick={e => e.preventDefault()} className="text-link underline">Accent link</a>
                   <div className="flex gap-2 mt-2">
-                    <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: primary, color: contrastText(primary) }}>Badge</span>
+                    <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: safePrimary, color: contrastText(safePrimary) }}>Badge</span>
                     <span className="px-2 py-0.5 rounded text-xs font-medium border border-link text-link">Outline</span>
                   </div>
                 </div>
@@ -200,7 +252,7 @@ export default function AdminCustomizer() {
           </Card>
 
           <Card className="mb-6">
-            <CardHeader><CardTitle>Classroom Identity</CardTitle></CardHeader>
+            <CardHeader><CardTitle as="h2">Classroom Identity</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="classroom-name">Classroom Name</Label>
@@ -209,11 +261,18 @@ export default function AdminCustomizer() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="logo-file">Logo image (optional)</Label>
-                <Input id="logo-file" type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" onChange={handleLogoUpload} />
-                <p className="text-xs text-muted-foreground">Square, at least 512x512px. SVG preferred. If not set, the classroom name is displayed as text.</p>
-                {logoError && <p className="text-sm text-destructive">{logoError}</p>}
+                <Input
+                  id="logo-file"
+                  type="file"
+                  accept="image/svg+xml,image/png,image/jpeg,image/webp"
+                  onChange={handleLogoUpload}
+                  aria-invalid={logoError ? true : undefined}
+                  aria-describedby={logoError ? 'logo-file-error logo-file-hint' : 'logo-file-hint'}
+                />
+                <p id="logo-file-hint" className="text-xs text-muted-foreground">Square, at least 512x512px. SVG preferred. If not set, the classroom name is displayed as text.</p>
+                {logoError && <p id="logo-file-error" className="text-sm text-destructive" role="alert">{logoError}</p>}
               </div>
-              <div className="p-4 rounded-lg text-center" style={{ backgroundColor: primary, color: contrastText(primary) }}>
+              <div className="p-4 rounded-lg text-center" style={{ backgroundColor: safePrimary, color: contrastText(safePrimary) }}>
                 {logoBase64 ? (
                   <img src={logoBase64} alt={classroomName || 'Logo preview'} width="48" height="48" className="max-h-12 w-auto inline-block object-contain" />
                 ) : (
@@ -227,9 +286,11 @@ export default function AdminCustomizer() {
           </Card>
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={saveStyle} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+            <Button onClick={saveStyle} disabled={saving} focusableWhenDisabled>{saving ? 'Saving...' : 'Save'}</Button>
+            {/* Always mounted so the result is announced when it appears. */}
+            <span role="status" aria-live="polite" className={`text-sm ${styleMessage?.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}>
             {styleMessage && (
-              <span role="status" aria-live="polite" className={`text-sm ${styleMessage.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}>
+              <>
                 {styleMessage.text}
                 {styleMessage.type === 'success' && (
                   <>
@@ -238,8 +299,9 @@ export default function AdminCustomizer() {
                     {' '}to see your changes.
                   </>
                 )}
-              </span>
+              </>
             )}
+            </span>
           </div>
         </TabsContent>
 

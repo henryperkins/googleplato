@@ -6,14 +6,32 @@
  * component, so host-defined props (e.g. `user` for adminUserRowAction)
  * are passed through directly.
  *
- * Lazy-initializes the registry on first mount of any slot.
+ * Lazy-initializes the registry on first mount of any slot. Each plugin
+ * renders inside its own error boundary, so one failing plugin drops out of
+ * the slot instead of blanking the host page.
  */
 
-import { useEffect, useState, Fragment } from 'react';
+import { Component, useEffect, useState } from 'react';
 import { initPluginRegistry, slotComponents } from './registry.js';
 
 let registryLoaded = false;
 let registryPromise = null;
+
+class PluginBoundary extends Component {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error) {
+    console.error(`[plato] plugin "${this.props.pluginId}" failed to render`, error);
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 export function PluginSlot({ name, context = {}, fallback = null }) {
   const [, force] = useState(0);
@@ -21,13 +39,17 @@ export function PluginSlot({ name, context = {}, fallback = null }) {
   useEffect(() => {
     if (registryLoaded) return;
     if (!registryPromise) {
-      registryPromise = initPluginRegistry().then(() => {
-        registryLoaded = true;
-        force((n) => n + 1);
-      });
-    } else {
-      registryPromise.then(() => force((n) => n + 1));
+      registryPromise = initPluginRegistry()
+        .catch((err) => {
+          // A plugin bundle that fails to load leaves its slots empty rather
+          // than stuck on the fallback with an unhandled rejection.
+          console.error('[plato] plugin registry failed to load', err);
+        })
+        .then(() => {
+          registryLoaded = true;
+        });
     }
+    registryPromise.then(() => force((n) => n + 1));
   }, []);
 
   if (!registryLoaded) return fallback;
@@ -37,10 +59,10 @@ export function PluginSlot({ name, context = {}, fallback = null }) {
 
   return (
     <>
-      {components.map(({ pluginId, Component }) => (
-        <Fragment key={pluginId}>
-          <Component pluginId={pluginId} {...context} />
-        </Fragment>
+      {components.map(({ pluginId, Component: PluginComponent }) => (
+        <PluginBoundary key={pluginId} pluginId={pluginId}>
+          <PluginComponent pluginId={pluginId} {...context} />
+        </PluginBoundary>
       ))}
     </>
   );

@@ -191,6 +191,12 @@ function PacingSection({ stats }) {
           <CardContent>
             <div className="text-2xl font-bold tabular-nums">{estimatedDuration != null ? `${estimatedDuration} min` : '—'}</div>
             <div className="text-sm text-muted-foreground">Est. active time</div>
+            {/* The warning fill alone would be color-only (WCAG 1.4.1). */}
+            {durationWarning && (
+              <div className="text-xs mt-1 text-warning-foreground">
+                Longer than the ~20-minute target — consider reviewing lesson scope.
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -359,7 +365,7 @@ export default function AdminHome() {
 
       {!hasKB && (
         <Link to="/plato/setup-kb" className="block no-underline mb-6">
-          <div className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground hover:underline" role="alert">
+          <div className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground hover:underline">
             <strong>Set up your knowledge base</strong> — tell plato about your program so the AI can give learners informed answers.{' '}
             <span className="underline">Get started</span>
           </div>

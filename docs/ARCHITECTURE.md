@@ -338,6 +338,35 @@ Verify changes by hand with the compose bar in *both* states (fixed mid-lesson,
 inline at the end of a short one); `client/tests/stickToBottom.test.js` covers
 only the decision layer.
 
+## Focus and failure states
+
+Rules that keep keyboard, screen reader, and mobile users oriented when work is
+async or something fails:
+
+- **Never disable the control that has focus.** A disabled control loses focus to
+  `<body>` (and closes the mobile keyboard). `ComposeBar` takes `busy` (holds only
+  the send while a reply streams; the textarea stays editable) separately from
+  `disabled` (read-only View as User). Forms make fields `readOnly` while saving
+  and keep the submit button focusable with Base UI's `focusableWhenDisabled`
+  (rendered as `aria-disabled`, which `button.jsx` styles like `disabled`).
+  Handlers guard against double submits themselves.
+- **Confirmations that replace a form take focus** (Reset Password, Wait List),
+  and a failed lesson start offers Try again in place, parking focus on the
+  lesson heading while the loading view replaces the error.
+- **Page titles name the page.** `client/src/lib/routeTitles.js` names lesson
+  routes after their lesson for the title and the "Navigated to …" announcement;
+  admin views that share a route component set their title per view.
+- **Refreshes don't unmount pages.** Admin pages show the full-page spinner only
+  on the first load, so a refresh after a save or delete keeps the page, its
+  scroll position, and any open dialog in place.
+- **Unknown is not "none".** When the invite-link or wait-list status fails to
+  load, the controls that would replace a live credential stay hidden behind a
+  Try again prompt, so a failed fetch can't skip the replacement confirmation.
+- **Error boundaries.** `ErrorBoundary` (wrapping the routes in `App.jsx`, reset
+  on navigation) shows a recovery screen instead of a blank page, which also
+  covers a stale lazy chunk after a deploy. Each plugin slot component has its
+  own boundary, so a failing plugin drops out instead of blanking the host page.
+
 ## Invite system
 
 Admins invite users via email or shareable link. Invites expire after 7 days (TTL enforced in DynamoDB/SQLite). All invite operations are audit-logged.

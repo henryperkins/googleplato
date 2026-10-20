@@ -8,11 +8,19 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { adminApi } from '../../pages/admin/adminApi.js';
 
+// A stable default: a fresh `[]` per render would re-run the load effect.
+const NO_USERS = [];
+
+const VISIBILITY_OPTIONS = [
+  { value: 'public', label: 'Public' },
+  { value: 'private', label: 'Private' },
+];
+
 export default function ShareLessonModal({
   open,
   onOpenChange,
   lessonName,
-  initialSharedWith = [],
+  initialSharedWith = NO_USERS,
   initialStatus = 'private',
   onConfirm,
 }) {
@@ -21,6 +29,8 @@ export default function ShareLessonModal({
   const [status, setStatus] = useState(initialStatus);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -30,14 +40,17 @@ export default function ShareLessonModal({
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const data = await adminApi('GET', '/v1/admin/users');
         if (!cancelled) setUsers(Array.isArray(data) ? data : []);
-      } catch { /* ignore */ }
+      } catch (e) {
+        if (!cancelled) setLoadError(e.message || 'Check your connection, then try again.');
+      }
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [open, initialSharedWith, initialStatus]);
+  }, [open, initialSharedWith, initialStatus, reloadKey]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return users;
@@ -74,27 +87,29 @@ export default function ShareLessonModal({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Public / Private toggle */}
-        <div className="flex rounded-lg border border-border overflow-hidden" role="radiogroup" aria-label="Lesson visibility">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={isPublic}
-            className={`touch-target flex-1 px-4 py-2 text-sm font-medium transition-colors ${isPublic ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
-            onClick={() => setStatus('public')}
-          >
-            Public
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={!isPublic}
-            className={`touch-target flex-1 px-4 py-2 text-sm font-medium transition-colors ${!isPublic ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
-            onClick={() => setStatus('private')}
-          >
-            Private
-          </button>
-        </div>
+        {/* Public / Private: native radios, so the group is one tab stop and
+            the arrow keys move between options. The ring is drawn inset on the
+            label because the input itself is visually hidden, in the
+            foreground color on the filled (selected) option so it stays visible. */}
+        <fieldset className="flex min-w-0 rounded-lg border border-border overflow-hidden">
+          <legend className="sr-only">Lesson visibility</legend>
+          {VISIBILITY_OPTIONS.map(({ value, label }) => (
+            <label
+              key={value}
+              className={`touch-target flex flex-1 cursor-pointer items-center justify-center px-4 py-2 text-sm font-medium transition-colors has-[:focus-visible]:outline-3 has-[:focus-visible]:-outline-offset-4 ${status === value ? 'bg-primary text-primary-foreground has-[:focus-visible]:outline-primary-foreground' : 'bg-background hover:bg-muted has-[:focus-visible]:outline-ring'}`}
+            >
+              <input
+                type="radio"
+                name="lesson-visibility"
+                value={value}
+                checked={status === value}
+                onChange={() => setStatus(value)}
+                className="sr-only"
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
 
         {isPublic ? (
           <p className="text-sm text-muted-foreground py-4">
@@ -119,6 +134,11 @@ export default function ShareLessonModal({
             <ScrollArea className="max-h-[min(16rem,40dvh)] min-h-36 rounded-md border">
               {loading ? (
                 <div className="flex items-center justify-center py-8 text-sm text-muted-foreground" role="status">Loading users...</div>
+              ) : loadError ? (
+                <div className="flex flex-col items-center gap-2 px-3 py-6 text-center text-sm">
+                  <p className="text-destructive" role="alert">Couldn&apos;t load users. {loadError}</p>
+                  <Button variant="outline" size="sm" onClick={() => setReloadKey((n) => n + 1)}>Try again</Button>
+                </div>
               ) : filtered.length === 0 ? (
                 <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">No users found.</div>
               ) : (

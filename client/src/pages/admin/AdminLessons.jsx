@@ -56,6 +56,9 @@ export default function AdminLessons() {
   const [editorLoading, setEditorLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Only the first load swaps the list for a spinner. Refreshes (after a save,
+  // delete, share, or a course change) keep the list and open dialogs mounted.
+  const [lessonsLoaded, setLessonsLoaded] = useState(false);
   const [lessonsError, setLessonsError] = useState(null);
   const [coursesError, setCoursesError] = useState(null);
   const [lessonStats, setLessonStats] = useState({});
@@ -95,11 +98,17 @@ export default function AdminLessons() {
   }, [lessons, lessonSearch, courseFilter, statusFilter]);
 
   useEffect(() => {
-    document.title = 'Lessons — plato';
     loadLessons();
     loadCourses();
     loadLessonStats();
   }, []);
+
+  // The list and editor share this route component, so the list's title is
+  // restored whenever the route returns to it (the editor sets its own).
+  const onList = !routeLessonId && !isNewRoute;
+  useEffect(() => {
+    if (onList) document.title = 'Lessons — plato';
+  }, [onList]);
 
   async function loadCourses() {
     try {
@@ -121,6 +130,7 @@ export default function AdminLessons() {
       setLessonsError(e?.message || 'Lessons could not be loaded.');
     }
     setLoading(false);
+    setLessonsLoaded(true);
   }
 
   async function loadLessonStats() {
@@ -267,7 +277,7 @@ export default function AdminLessons() {
   }
 
   // Lesson list
-  if (loading) return spinner;
+  if (loading && !lessonsLoaded) return spinner;
 
   return (
     <div>

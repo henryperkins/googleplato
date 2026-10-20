@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext.jsx';
 import AppShell from './components/AppShell.jsx';
 import LessonsList from './pages/LessonsList.jsx';
@@ -13,6 +13,7 @@ import Setup from './pages/Setup.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import ScreenReaderAnnounce from './components/ScreenReaderAnnounce.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ProfileCompletionGate from './components/ProfileCompletionGate.jsx';
 import { BrandingProvider } from './contexts/BrandingContext.jsx';
 
@@ -60,6 +61,7 @@ const AdminFallback = () => (
 
 export default function App() {
   const { loading } = useAuth();
+  const location = useLocation();
   const [needsSetup, setNeedsSetup] = useState(null);
 
   useEffect(() => {
@@ -82,9 +84,11 @@ export default function App() {
     return (
       <>
         <ScreenReaderAnnounce />
-        <Routes>
-          <Route path="*" element={<Setup />} />
-        </Routes>
+        <ErrorBoundary resetKey={location.pathname}>
+          <Routes>
+            <Route path="*" element={<Setup />} />
+          </Routes>
+        </ErrorBoundary>
       </>
     );
   }
@@ -92,6 +96,7 @@ export default function App() {
   return (
     <>
       <ScreenReaderAnnounce />
+      <ErrorBoundary resetKey={location.pathname}>
       <Routes>
         <Route path="/login" element={<RequireGuest><Login /></RequireGuest>} />
         <Route path="/signup" element={<RequireGuest><Signup /></RequireGuest>} />
@@ -151,6 +156,7 @@ export default function App() {
           </RequireAuth>
         } />
       </Routes>
+      </ErrorBoundary>
     </>
   );
 }
