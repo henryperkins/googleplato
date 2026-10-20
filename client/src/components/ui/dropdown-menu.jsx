@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { ChevronRightIcon, CheckIcon } from 'lucide-react';
+import { getPopoverPosition } from '@/lib/popoverPosition.js';
 
 const DropdownMenuContext = React.createContext(null);
 
@@ -101,18 +102,32 @@ function DropdownMenuContent({
   ...props
 }) {
   const ctx = React.useContext(DropdownMenuContext);
-  const [coords, setCoords] = React.useState({ top: 0, left: 0, right: 16 });
+  const [coords, setCoords] = React.useState({
+    top: 8, left: 8, maxHeight: 'calc(100dvh - 16px)', maxWidth: 'calc(100vw - 16px)',
+  });
 
   const updateCoords = React.useCallback(() => {
     const trig = ctx?.triggerRef.current;
-    if (!trig) return;
+    const pop = ctx?.popoverRef.current;
+    if (!trig || !pop) return;
+    if (typeof pop.showPopover === 'function' ? !pop.matches(':popover-open') : !ctx.open) return;
     const rect = trig.getBoundingClientRect();
-    setCoords({
-      top: Math.min(window.innerHeight - 48, rect.bottom + sideOffset),
-      left: Math.max(8, rect.left),
-      right: Math.max(8, window.innerWidth - rect.right),
+    const visible = window.visualViewport;
+    const next = getPopoverPosition({
+      anchor: rect,
+      menuWidth: pop.getBoundingClientRect().width,
+      menuHeight: pop.scrollHeight + pop.offsetHeight - pop.clientHeight,
+      viewport: {
+        left: visible?.offsetLeft || 0,
+        top: visible?.offsetTop || 0,
+        width: visible?.width || window.innerWidth,
+        height: visible?.height || window.innerHeight,
+      },
+      align,
+      gap: sideOffset,
     });
-  }, [ctx?.triggerRef, sideOffset]);
+    setCoords(previous => Object.keys(next).every(key => previous[key] === next[key]) ? previous : next);
+  }, [ctx, align, sideOffset]);
 
   React.useEffect(() => {
     const pop = ctx?.popoverRef.current;
@@ -145,11 +160,18 @@ function DropdownMenuContent({
     pop.addEventListener('toggle', onToggle);
     window.addEventListener('resize', updateCoords);
     window.addEventListener('scroll', updateCoords, true);
+    window.visualViewport?.addEventListener('resize', updateCoords);
+    window.visualViewport?.addEventListener('scroll', updateCoords);
+    const observer = new ResizeObserver(updateCoords);
+    observer.observe(pop);
     return () => {
       pop.removeEventListener('beforetoggle', onBeforeToggle);
       pop.removeEventListener('toggle', onToggle);
       window.removeEventListener('resize', updateCoords);
       window.removeEventListener('scroll', updateCoords, true);
+      window.visualViewport?.removeEventListener('resize', updateCoords);
+      window.visualViewport?.removeEventListener('scroll', updateCoords);
+      observer.disconnect();
     };
   }, [ctx, updateCoords]);
 
@@ -195,11 +217,11 @@ function DropdownMenuContent({
       style={{
         position: 'fixed',
         inset: 'unset',
-        top: `${coords.top}px`,
-        ...(align === 'end' ? { right: `${coords.right}px` } : { left: `${coords.left}px` }),
+        ...coords,
+        '--popover-available-width': typeof coords.maxWidth === 'number' ? `${coords.maxWidth}px` : coords.maxWidth,
       }}
       className={cn(
-        'z-50 m-0 max-h-[calc(100dvh-4rem)] min-w-44 max-w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none',
+        'z-50 m-0 min-w-[min(11rem,var(--popover-available-width))] overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none',
         className
       )}
       {...props}

@@ -12,7 +12,6 @@ import {
   getLessonKB, deleteLessonProgress,
   getUserLessonMarkdown, deleteUserLesson,
 } from '../../js/storage.js';
-import { invalidateLessonsCache, loadLessons } from '../../js/lessonOwner.js';
 import * as engine from '../lib/lessonEngine.js';
 
 import ChatArea from '../components/chat/ChatArea.jsx';
@@ -32,7 +31,7 @@ import {
 export default function LessonChat() {
   const { lessonGroupId } = useParams();
   const navigate = useNavigate();
-  const { state, dispatch } = useApp();
+  const { state, dispatch, reloadLessons } = useApp();
   const { lessons } = state;
   const lesson = lessons.find(c => c.lessonId === lessonGroupId);
   const { impersonatedUser } = useAuth();
@@ -322,9 +321,9 @@ export default function LessonChat() {
       onConfirm: async () => {
         await deleteLessonProgress(lessonGroupId);
         await deleteUserLesson(lessonGroupId);
-        invalidateLessonsCache();
-        dispatch({ type: 'REFRESH_LESSONS', lessons: await loadLessons() });
+        dispatch({ type: 'REFRESH_LESSONS', lessons: lessons.filter(item => item.lessonId !== lessonGroupId) });
         navigate('/lessons');
+        await reloadLessons();
       },
     });
   };

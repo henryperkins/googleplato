@@ -1,25 +1,17 @@
 /**
- * Firebase Client Initialization & Cloud Firestore Sync Layer for plato.
+ * Cloud Firestore Sync Layer for plato.
  *
  * Responsibilities:
- * - Initializes Firebase App, Auth, and Firestore using firebase-applet-config.json
+ * - Reuses the app and authentication initialized by firebaseAuth.js
  * - Enforces structured FirestoreErrorInfo error reporting on all Firestore operations
- * - Provides Google Sign-In popup helper and Firestore sync Data helpers
+ * - Provides Firestore sync Data helpers
  *   strictly adhering to firebase-blueprint.json & firestore.rules constraints
  *
- * This module is ~170 KB gzipped, so it is only ever imported dynamically:
- * by Google sign-in, and by sync for sessions that signed in with Google
- * (see `usesFirebase` in storage.js). Password sessions never load it.
+ * Imported dynamically after Google sign-in and for Google session sync.
+ * Auth-page preloading stops at firebaseAuth.js and never loads Firestore.
  */
 
-import { initializeApp } from 'firebase/app';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-} from 'firebase/auth';
+import { app, auth, restoredUser } from './firebaseAuth.js';
 import {
   getFirestore,
   doc,
@@ -34,12 +26,8 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json' with { type: 'json' };
 
-const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
-
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+export { auth, signInWithGooglePopup, signOutFirebase, onAuthStateChanged } from './firebaseAuth.js';
 
 export const OperationType = {
   CREATE: 'create',
@@ -92,38 +80,6 @@ export function handleFirestoreError(error, operationType, path) {
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
-}
-
-/**
- * The signed-in Firebase user once Firebase has restored any persisted
- * session. Reading `auth.currentUser` straight after a lazy import returns
- * null until that restore finishes, which would silently skip mirroring.
- */
-async function restoredUser() {
-  await auth.authStateReady();
-  return auth.currentUser;
-}
-
-/**
- * Sign in with Google Popup and return the Firebase user + ID token.
- */
-export async function signInWithGooglePopup() {
-  const result = await signInWithPopup(auth, googleProvider);
-  const idToken = await result.user.getIdToken();
-  return { firebaseUser: result.user, idToken };
-}
-
-/**
- * Sign out of Firebase Auth if signed in.
- */
-export async function signOutFirebase() {
-  try {
-    if (auth.currentUser) {
-      await firebaseSignOut(auth);
-    }
-  } catch {
-    // Non-fatal on logout
-  }
 }
 
 /**
@@ -372,5 +328,3 @@ export function subscribeToFirestoreSync(onRecordChange) {
     }
   );
 }
-
-export { onAuthStateChanged };

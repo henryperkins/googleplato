@@ -226,7 +226,7 @@ export default function AdminLayout() {
 
         {/* Mobile bottom tab bar: exposes the 5 primary admin destinations directly without requiring the drawer */}
         <nav
-          className="admin-bottom-nav md:hidden shrink-0 flex items-center justify-around border-t bg-background pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
+          className="admin-bottom-nav md:hidden shrink-0 flex flex-wrap items-center justify-around border-t bg-background pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
           aria-label="Admin primary navigation"
         >
           {NAV_LINKS.map(({ to, label, end }) => (
@@ -235,7 +235,7 @@ export default function AdminLayout() {
               to={to}
               end={end}
               className={({ isActive }) =>
-                `touch-target flex flex-auto min-w-0 items-center justify-center px-1.5 py-2 text-xs whitespace-nowrap transition-colors ${
+                `touch-target flex flex-auto items-center justify-center px-1.5 py-2 text-xs whitespace-nowrap transition-colors ${
                   isActive
                     ? 'font-semibold text-primary-text border-t-2 border-primary'
                     : 'text-muted-foreground hover:text-foreground'

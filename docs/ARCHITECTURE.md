@@ -41,14 +41,16 @@ only the Firestore records the server didn't return, then subscribes to
 changes. `firestore.rules` holds the validation; the bounds in
 `firebaseClient.js` mirror it.
 
-- **The SDK loads only when needed.** It's ~170 KB gzipped, so it is imported
-  dynamically and never ships in the entry bundle. Login, Signup, and Setup
-  preload it at idle (`preloadFirebase`) so the popup opens promptly. After
+- **Authentication and Firestore load separately.** Neither SDK ships in the
+  entry bundle. Login, Signup, and Setup preload only `firebaseAuth.js` at idle
+  (`preloadFirebase`) so the popup opens promptly. The larger Firestore layer,
+  `firebaseClient.js`, loads after a successful Google sign-in or for a restored
+  Google session. Both modules share the same Firebase app and Auth instance. After
   sign-in, `usesFirebase()` in `storage.js` decides: it reads the provider
   recorded at sign-in (`saveAuthProvider`, stored in `plato_auth`), and for
   sessions from before that flag existed it checks IndexedDB for Firebase's
   persisted session (`firebaseLocalStorageDb`). Password sessions never request
-  the SDK.
+  Firestore; auth pages intentionally prewarm the smaller authentication SDK.
 - **Wait for the restored session.** Right after a lazy import,
   `auth.currentUser` is `null` until Firebase restores its persisted session.
   Every Firestore helper awaits `auth.authStateReady()` first (`restoredUser`);
@@ -71,6 +73,17 @@ one request between auth pages (`usePublicBranding`) and the classroom
 failures. Auth pages apply the cached colors in a layout effect, before first
 paint, so they never flash plato's default purple. Saving in the Customizer
 invalidates the cache.
+
+Lesson loading distinguishes a successful empty classroom from an unavailable
+`/v1/lessons` response. `AppContext` uses one load path for startup, foreground
+refresh, and manual retry. A failed refresh preserves the last rendered lessons
+and displays an error with **Try again**. Retry invalidates the lesson cache;
+failed requests are never cached as empty lists. Request generations prevent an
+older load or Firestore listener from replacing the active cache or updating state
+after logout. Optional course-agent catalog context falls back to an empty list
+during an outage, so it does not block completion updates. Retrying
+parks focus on the lesson heading so removing the error banner keeps focus in
+the classroom.
 
 ## AI agents
 

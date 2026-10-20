@@ -7,6 +7,7 @@ import { authenticatedFetch } from './auth.js';
 import { getUserLessons } from './storage.js';
 
 let lessonsCache = null;
+let cacheRevision = 0;
 
 /**
  * Load all lessons from the server.
@@ -14,27 +15,21 @@ let lessonsCache = null;
  */
 export async function loadLessons() {
   if (lessonsCache) return lessonsCache;
+  const revision = cacheRevision;
 
   const lessons = [];
-  try {
-    const resp = await authenticatedFetch('/v1/lessons');
-    if (resp.ok) {
-      const serverLessons = await resp.json();
-      for (const lesson of serverLessons) {
-        if (lesson.markdown) {
-          // parseLessonPrompt only knows about fields encoded inside the
-          // markdown (name, description, exemplar, objectives). Top-level
-          // server fields like `course` (the inlined { id, name } block)
-          // need to be carried forward explicitly so they survive into the
-          // client-side lesson model used by the classroom UI and the coach
-          // context builder.
-          const parsed = parseLessonPrompt(lesson.lessonId, lesson.markdown);
-          if (lesson.course) parsed.course = lesson.course;
-          lessons.push(parsed);
-        }
-      }
+  const resp = await authenticatedFetch('/v1/lessons');
+  if (!resp.ok) throw new Error('Lessons could not be loaded.');
+  const serverLessons = await resp.json();
+  if (!Array.isArray(serverLessons)) throw new Error('Lessons could not be loaded.');
+  for (const lesson of serverLessons) {
+    if (lesson.markdown) {
+      // Course metadata is carried alongside the parsed lesson markdown.
+      const parsed = parseLessonPrompt(lesson.lessonId, lesson.markdown);
+      if (lesson.course) parsed.course = lesson.course;
+      lessons.push(parsed);
     }
-  } catch { /* server unavailable */ }
+  }
 
   // Merge user-created lessons from sync-data
   try {
@@ -47,23 +42,26 @@ export async function loadLessons() {
   } catch { /* ignore */ }
 
   lessons.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-  lessonsCache = lessons;
+  // A request started before a refresh must not replace the refreshed cache.
+  if (revision === cacheRevision) lessonsCache = lessons;
   return lessons;
 }
 
 /** Clear the cache so loadLessons() re-fetches on next call. */
 export function invalidateLessonsCache() {
   lessonsCache = null;
+  cacheRevision += 1;
 }
 
 /**
  * Return the lessons belonging to a course as `[{ name, description }]`.
  * Used to give the course-progress agent the course's shape for naming and
- * framing. Empty array when the course has no lessons or is unknown.
+ * framing. Empty array when the course is empty, unknown, or unavailable;
+ * this optional context must not prevent recording a completed lesson.
  */
 export async function getLessonsInCourse(courseId) {
   if (!courseId) return [];
-  const lessons = await loadLessons();
+  const lessons = await loadLessons().catch(() => []);
   return lessons
     .filter(l => l.course?.id === courseId)
     .map(l => ({ name: l.name, description: l.description }));

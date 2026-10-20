@@ -99,13 +99,13 @@ export async function login(email, password) {
 }
 
 /**
- * Start downloading the Firebase SDK ahead of a Google sign-in, so the popup
+ * Preload only Firebase Auth ahead of a Google sign-in, so the popup
  * opens straight from the click (Safari blocks popups opened after a slow
  * await). Pages with a "Continue with Google" button call this once idle.
  */
 export function preloadFirebase() {
   if (typeof window === 'undefined') return;
-  const load = () => { import('./firebaseClient.js').catch(() => {}); };
+  const load = () => { import('./firebaseAuth.js').catch(() => {}); };
   if ('requestIdleCallback' in window) window.requestIdleCallback(load, { timeout: 3000 });
   else setTimeout(load, 1000);
 }
@@ -116,7 +116,7 @@ export function preloadFirebase() {
  * initializes the user's Firestore profile.
  */
 export async function loginWithGoogle(options = {}) {
-  const { signInWithGooglePopup, ensureFirestoreUserProfile, signOutFirebase } = await import('./firebaseClient.js');
+  const { signInWithGooglePopup, signOutFirebase } = await import('./firebaseAuth.js');
   const { idToken } = await signInWithGooglePopup();
 
   const res = await fetch(`${SERVICE_URL}/v1/auth/firebase`, {
@@ -148,6 +148,7 @@ export async function loginWithGoogle(options = {}) {
   saveAuthProvider('firebase');
 
   try {
+    const { ensureFirestoreUserProfile } = await import('./firebaseClient.js');
     await ensureFirestoreUserProfile(user);
   } catch (err) {
     console.error('Firestore profile initialization failed:', err);
@@ -173,7 +174,7 @@ export async function logout() {
   // Ask before clearAuth(), which forgets how this session signed in.
   if (typeof window !== 'undefined' && await usesFirebase()) {
     try {
-      const { signOutFirebase } = await import('./firebaseClient.js');
+      const { signOutFirebase } = await import('./firebaseAuth.js');
       await signOutFirebase();
     } catch { /* best-effort firebase sign-out */ }
   }

@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useMemo, useId } from 'react';
+import { Fragment, useState, useEffect, useMemo, useId, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext.jsx';
 import { getLessonKB } from '../../js/storage.js';
@@ -59,9 +59,10 @@ function formatTimeRange(p20, p80) {
 }
 
 export default function LessonsList() {
-  const { state } = useApp();
+  const { state, reloadLessons } = useApp();
   const navigate = useNavigate();
-  const { lessons, loaded } = state;
+  const { lessons, loaded, lessonsError, loadingLessons } = state;
+  const headingRef = useRef(null);
   const [lessonData, setLessonData] = useState({});
   const [timeStats, setTimeStats] = useState({});
   const [detailLesson, setDetailLesson] = useState(null);
@@ -218,7 +219,7 @@ export default function LessonsList() {
     if (!loaded) return '';
     const total = filtered.length;
     const scope = filterPhrase ? ` ${filterPhrase}` : '';
-    if (lessons.length === 0) return EMPTY_MESSAGE;
+    if (lessons.length === 0) return lessonsError ? '' : EMPTY_MESSAGE;
     if (total === 0) {
       return filterPhrase ? `No lessons ${filterPhrase}.` : 'No lessons.';
     }
@@ -229,12 +230,12 @@ export default function LessonsList() {
     const showingFrom = pageStart + 1;
     const showingTo = pageStart + visibleLessons.length;
     return `Showing ${showingFrom} to ${showingTo} of ${total} ${lessonWord}${scope}, page ${currentPage} of ${totalPages}.`;
-  }, [loaded, lessons.length, filtered.length, filterPhrase, totalPages, pageStart, visibleLessons.length, currentPage]);
+  }, [loaded, lessons.length, lessonsError, filtered.length, filterPhrase, totalPages, pageStart, visibleLessons.length, currentPage]);
 
   return (
     <div className="mx-auto max-w-5xl p-4">
       <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold">Lessons</h1>
+        <h1 ref={headingRef} tabIndex={-1} className="text-xl font-semibold">Lessons</h1>
         {/* A select is as wide as its longest option, so a long course name
             would push the page sideways; these shrink to the space available. */}
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
@@ -282,6 +283,24 @@ export default function LessonsList() {
         {announcement}
       </div>
 
+      {lessonsError && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger-border bg-danger px-4 py-3 text-sm text-danger-foreground" role="alert">
+          <p>{lessonsError}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loadingLessons}
+            focusableWhenDisabled
+            onClick={() => {
+              headingRef.current?.focus();
+              reloadLessons();
+            }}
+          >
+            {loadingLessons ? 'Retrying…' : 'Try again'}
+          </Button>
+        </div>
+      )}
+
       {!loaded ? (
         // Plain visible state — no role/aria-live here. The sr-only live
         // region above is the single announcer; it fires when its content
@@ -289,11 +308,11 @@ export default function LessonsList() {
         <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
           Loading lessons…
         </div>
-      ) : lessons.length === 0 ? (
+      ) : lessons.length === 0 ? (lessonsError ? null : (
         <div className="rounded-lg border border-dashed px-4 py-12 text-center text-muted-foreground">
           {EMPTY_MESSAGE}
         </div>
-      ) : filtered.length === 0 ? (
+      )) : filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed px-4 py-12 text-center text-muted-foreground">
           {activeFilterResets.length > 1 ? 'No lessons match these filters.' : 'No lessons match this filter.'}{' '}
           Choose {activeFilterResets.join(' or ')} to see more.
@@ -327,7 +346,7 @@ export default function LessonsList() {
       )}
 
       {totalPages > 1 && (
-        <nav aria-label="Lessons pagination" className="flex items-center justify-center gap-2 mt-6">
+        <nav aria-label="Lessons pagination" className="flex flex-wrap items-center justify-center gap-2 mt-6">
           <Button
             variant="outline"
             size="sm"
@@ -338,7 +357,7 @@ export default function LessonsList() {
           >
             &larr; Previous
           </Button>
-          <span className="text-sm text-muted-foreground tabular-nums" aria-current="page">
+          <span className="text-sm text-muted-foreground tabular-nums whitespace-nowrap" aria-current="page">
             Page {currentPage} of {totalPages}
           </span>
           <Button

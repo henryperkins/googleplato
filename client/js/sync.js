@@ -11,12 +11,14 @@ let _firestoreUnsub = null;
 /**
  * Load all data from the server and populate the in-memory cache.
  * Also merges and subscribes to Cloud Firestore syncData when signed in via Firebase Auth.
+ * A superseded load must not replace the active session's cached data.
  */
-export async function loadAll() {
+export async function loadAll({ isCurrent = () => true } = {}) {
   const res = await authenticatedFetch('/v1/sync');
-  if (!res.ok) return;
+  if (!res.ok || !isCurrent()) return;
 
   const items = await res.json();
+  if (!isCurrent()) return;
   clearCache();
 
   for (const { dataKey, data, version } of items) {
@@ -25,9 +27,12 @@ export async function loadAll() {
 
   // Only Google sessions have a Firestore copy; password sessions skip the SDK.
   if (typeof window !== 'undefined' && await usesFirebase()) {
+    if (!isCurrent()) return;
     try {
       const { loadAllSyncDataFromFirestore, subscribeToFirestoreSync } = await import('./firebaseClient.js');
+      if (!isCurrent()) return;
       const firestoreItems = await loadAllSyncDataFromFirestore();
+      if (!isCurrent()) return;
       for (const { dataKey, data, version } of firestoreItems) {
         if (!items.some((i) => i.dataKey === dataKey)) {
           _populateCache(dataKey, data, version);
@@ -37,7 +42,7 @@ export async function loadAll() {
         try { _firestoreUnsub(); } catch { /* noop */ }
       }
       _firestoreUnsub = subscribeToFirestoreSync((syncKey, data, version) => {
-        _populateCache(syncKey, data, version);
+        if (isCurrent()) _populateCache(syncKey, data, version);
       });
     } catch {
       // Non-fatal if Firebase Auth is not active for password-only sessions
