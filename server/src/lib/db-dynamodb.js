@@ -1,7 +1,8 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { randomUUID } from 'node:crypto';
 import {
   DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand,
-  UpdateCommand, DeleteCommand, ScanCommand,
+  UpdateCommand, DeleteCommand, ScanCommand, TransactGetCommand, TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
   USERS_TABLE, INVITES_TABLE, REFRESH_TOKENS_TABLE, SYNC_DATA_TABLE,
@@ -449,7 +450,62 @@ const db = {
     return { version: newVersion, updatedAt: now };
   },
 
-  async deleteSyncData(userId, dataKey) {
+  async getLessonState(userId, lessonId) {
+    const names = ['messages', 'lessonKB', 'lessonGeneration'];
+    const result = await doc.send(new TransactGetCommand({
+      TransactItems: names.map(name => ({ Get: { TableName: SYNC_DATA_TABLE, Key: { userId, dataKey: `${name}:${lessonId}` } } })),
+    }));
+    return Object.fromEntries(names.map((name, i) => {
+      const item = result.Responses[i].Item;
+      if (name === 'lessonGeneration') return ['generation', item?.data ?? null];
+      return [name, item ? { data: item.data, version: item.version }
+        : { data: name === 'messages' ? [] : null, version: 0 }];
+    }));
+  },
+
+  async commitLessonTurn(userId, lessonId, base, desired) {
+    const updatedAt = new Date().toISOString();
+    const names = ['messages', 'lessonKB'];
+    try {
+      await doc.send(new TransactWriteCommand({
+        TransactItems: [...names.map(name => ({ Put: {
+          TableName: SYNC_DATA_TABLE,
+          Item: { userId, dataKey: `${name}:${lessonId}`, data: desired[name], version: base[name].version + 1, updatedAt },
+          ...(base[name].version === 0 ? { ConditionExpression: 'attribute_not_exists(version)' } : {
+            // Compare data too: delete/recreate can reuse an old numeric version.
+            ConditionExpression: 'version = :v AND #data = :previous',
+            ExpressionAttributeNames: { '#data': 'data' },
+            ExpressionAttributeValues: { ':v': base[name].version, ':previous': base[name].data },
+          }),
+        } })), { ConditionCheck: {
+          TableName: SYNC_DATA_TABLE, Key: { userId, dataKey: `lessonGeneration:${lessonId}` },
+          ...(base.generation === null ? { ConditionExpression: 'attribute_not_exists(dataKey)' } : {
+            ConditionExpression: '#data = :generation', ExpressionAttributeNames: { '#data': 'data' },
+            ExpressionAttributeValues: { ':generation': base.generation },
+          }),
+        } }],
+      }));
+    } catch (error) {
+      if (error.name === 'TransactionCanceledException'
+        && error.CancellationReasons?.some(reason => reason.Code === 'ConditionalCheckFailed')) {
+        throw Object.assign(new Error('Lesson changed while saving'), { name: 'ConditionalCheckFailedException' });
+      }
+      throw error;
+    }
+    return { generation: base.generation, ...Object.fromEntries(names.map(name => [name, { data: desired[name], version: base[name].version + 1 }])) };
+  },
+
+  async deleteSyncData(userId, dataKey, { invalidateLesson = false } = {}) {
+    const lessonId = invalidateLesson && /^(?:messages|lessonKB):(.+)$/.exec(dataKey)?.[1];
+    if (lessonId) {
+      await doc.send(new TransactWriteCommand({ TransactItems: [
+        { Delete: { TableName: SYNC_DATA_TABLE, Key: { userId, dataKey } } },
+        { Put: { TableName: SYNC_DATA_TABLE, Item: {
+          userId, dataKey: `lessonGeneration:${lessonId}`, data: randomUUID(), version: 1, updatedAt: new Date().toISOString(),
+        } } },
+      ] }));
+      return;
+    }
     await doc.send(new DeleteCommand({
       TableName: SYNC_DATA_TABLE,
       Key: { userId, dataKey },

@@ -9,14 +9,15 @@
 
 import {
   getLearnerProfileSummary, getPreferences,
-  getLessonKB, saveLessonKB, getCourseProgress,
+  getLessonKB, getCourseProgress, getAuthUser, _populateCache,
   saveScreenshot, getScreenshot,
-  saveLessonMessages, getLessonMessages, replaceLessonMessages,
+  getLessonMessages, replaceLessonMessages,
 } from '../../js/storage.js';
 import * as orchestrator from '../../js/orchestrator.js';
 import { authenticatedFetch } from '../../js/auth.js';
 import { compressImageDataUrl } from './imageCompression.js';
-import { syncInBackground } from './syncDebounce.js';
+import { readLessonState, persistLessonTurn, assertTurnOwner } from '../../js/turnPersistence.js';
+import { generatedTurns } from './generatedTurns.js';
 import { ensureProfileExists, updateProfileOnCompletionInBackground, updateProfileFromObservation } from './profileQueue.js';
 import { updateCourseProgressOnCompletionInBackground } from './courseProgressQueue.js';
 import { LESSON_PHASES, MSG_TYPES, MAX_EXCHANGES } from './constants.js';
@@ -140,6 +141,58 @@ export function cleanStream(onStream) {
 
 // -- Lesson lifecycle ---------------------------------------------------------
 
+const generations = new Map();
+async function generateTurn(lessonId, kind, generate) {
+  assertNotImpersonating(kind === 'start' ? 'start a lesson' : 'send a message');
+  const user = await getAuthUser();
+  if (!user?.userId) throw new Error('Sign in to continue this lesson.');
+  const userId = user.userId;
+  if (generatedTurns.read(userId, lessonId)) throw new Error('Save the retained reply before sending another message.');
+  const key = `${userId}:${lessonId}`;
+  if (generations.has(key)) {
+    if (kind === 'start' && generations.get(key).kind === kind) return generations.get(key).promise;
+    throw new Error('Wait for the current reply before sending another message.');
+  }
+  const promise = (async () => {
+    const base = await readLessonState(userId, lessonId);
+    return generate({ userId, base, turnId: crypto.randomUUID() });
+  })();
+  generations.set(key, { kind, promise });
+  try { return await promise; } finally { generations.delete(key); }
+}
+
+async function saveGeneratedTurn(entry) {
+  const persistence = await persistLessonTurn(entry);
+  const { turn } = entry;
+  if (persistence.status === 'saved') generatedTurns.clear(turn.userId, turn.lessonId, turn.turnId);
+  const conversation = await hydrateMessageImages(persistence.state?.messages.data || [...turn.base.messages.data, ...turn.messages]);
+  return {
+    messages: conversation.filter(message => turn.messages.some(generated => generated.id === message.id)),
+    conversation,
+    lessonKB: persistence.state?.lessonKB.data || turn.lessonKB,
+    phase: turn.phase, achieved: turn.achieved,
+    savedMessages: persistence.state?.messages.data,
+    persistence,
+  };
+}
+
+export async function retryLessonSave(lessonId) {
+  assertNotImpersonating('save a reply');
+  const user = await getAuthUser();
+  const entry = generatedTurns.read(user?.userId, lessonId);
+  if (!entry) throw new Error('There is no retained reply to save. Reload the conversation.');
+  return saveGeneratedTurn(entry);
+}
+
+export async function discardLessonReply(lessonId) {
+  assertNotImpersonating('discard a reply');
+  const user = await getAuthUser();
+  const entry = generatedTurns.read(user?.userId, lessonId);
+  const state = await readLessonState(user?.userId, lessonId);
+  if (entry) generatedTurns.clear(user.userId, lessonId, entry.turn.turnId);
+  for (const name of ['messages', 'lessonKB']) _populateCache(`${name}:${lessonId}`, state[name].data, state[name].version);
+}
+
 /**
  * Start a new lesson: Lesson Owner generates KB, Coach opens conversation.
  *
@@ -150,82 +203,80 @@ export function cleanStream(onStream) {
  *   Steps: 'initializing', 'enriching', 'starting'
  */
 export async function startLesson(lessonId, lesson, onStream, onProgress) {
-  assertNotImpersonating('start a lesson');
-  await ensureProfileExists();
-  const profileSummary = await getLearnerProfileSummary();
-
-  // Lesson Owner generates the KB
-  if (onProgress) onProgress('initializing');
-  const lessonKB = await orchestrator.initializeLessonKB(lesson, profileSummary);
-  lessonKB.lessonId = lessonId;
-  lessonKB.name = lesson.name;
-  lessonKB.progress = 0;
-  lessonKB.startedAt = ts();
-  await saveLessonKB(lessonId, lessonKB);
-  syncInBackground(`lessonKB:${lessonId}`);
-
-  // Emit lessonStarted hook and collect enrichments from plugins
-  let enrichments = [];
-  try {
-    if (onProgress) onProgress('enriching', { enrichments: [] });
-    const res = await authenticatedFetch('/v1/sync/lesson-started', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        lessonId,
-        lesson: {
-          name: lesson.name,
-          markdown: lesson.markdown,
-          exemplar: lesson.exemplar,
-          learningObjectives: lesson.learningObjectives,
-          coachDirective: lesson.coachDirective,
-        },
-        lessonKB,
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      enrichments = data.enrichments || [];
+  return generateTurn(lessonId, 'start', async ({ userId, base, turnId }) => {
+    if (base.messages.data.length) {
+      return { messages: await hydrateMessageImages(base.messages.data), lessonKB: base.lessonKB.data,
+        phase: base.lessonKB.data?.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING };
     }
-  } catch (err) {
-    // Fail open — enrichment errors must never block lesson start
-    console.warn('[startLesson] Failed to collect enrichments:', err);
-  }
+    await ensureProfileExists();
+    const profileSummary = await getLearnerProfileSummary();
 
-  // Save enrichments (if any) BEFORE starting coach to avoid race condition
-  // where coach's progress update could overwrite enrichments
-  if (enrichments.length > 0) {
-    lessonKB.enrichments = enrichments;
-    await saveLessonKB(lessonId, lessonKB);
-    syncInBackground(`lessonKB:${lessonId}`);
-  }
+    // Lesson Owner generates the KB
+    if (onProgress) onProgress('initializing');
+    const lessonKB = await orchestrator.initializeLessonKB(lesson, profileSummary);
+    lessonKB.lessonId = lessonId;
+    lessonKB.name = lesson.name;
+    lessonKB.progress = 0;
+    lessonKB.startedAt = ts();
 
-  // Coach opens the conversation
-  if (onProgress) onProgress('starting');
-  const prefs = await getPreferences();
-  const courseProgress = await loadCourseProgressSummary(lesson);
-  const context = buildContext(lesson, lessonKB, profileSummary, prefs.name, courseProgress);
-  const coachMsg = await orchestrator.converseStream(
-    'coach',
-    [{ role: 'user', content: context }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: 'Start the lesson.' }],
-    cleanStream(onStream),
-    1024
-  );
+    // Emit lessonStarted hook and collect enrichments from plugins
+    let enrichments = [];
+    try {
+      if (onProgress) onProgress('enriching', { enrichments: [] });
+      const res = await authenticatedFetch('/v1/sync/lesson-started', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lessonId,
+          lesson: {
+            name: lesson.name,
+            markdown: lesson.markdown,
+            exemplar: lesson.exemplar,
+            learningObjectives: lesson.learningObjectives,
+            coachDirective: lesson.coachDirective,
+          },
+          lessonKB,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        enrichments = data.enrichments || [];
+      }
+    } catch (err) {
+      // Fail open — enrichment errors must never block lesson start
+      console.warn('[startLesson] Failed to collect enrichments:', err);
+    }
 
-  const { text, progress } = parseCoachResponse(coachMsg);
+    // Include enrichments in the staged turn before the coach reads its context.
+    if (enrichments.length > 0) {
+      lessonKB.enrichments = enrichments;
+    }
 
-  if (progress != null) {
-    lessonKB.progress = progress;
-    await saveLessonKB(lessonId, lessonKB);
-  }
+    // Coach opens the conversation
+    if (onProgress) onProgress('starting');
+    const prefs = await getPreferences();
+    const courseProgress = await loadCourseProgressSummary(lesson);
+    const context = buildContext(lesson, lessonKB, profileSummary, prefs.name, courseProgress);
+    const coachMsg = await orchestrator.converseStream(
+      'coach',
+      [{ role: 'user', content: context }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: 'Start the lesson.' }],
+      cleanStream(onStream),
+      1024
+    );
 
-  const messages = [
-    { role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE, phase: LESSON_PHASES.LEARNING, timestamp: ts() },
-  ];
+    const { text, progress } = parseCoachResponse(coachMsg);
 
-  await saveLessonMessages(lessonId, messages);
-  syncInBackground(`lessonKB:${lessonId}`, `messages:${lessonId}`);
-  return { messages, lessonKB, phase: LESSON_PHASES.LEARNING };
+    if (progress != null) {
+      lessonKB.progress = progress;
+    }
+
+    const messages = [
+      { id: `${turnId}:0`, role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE, phase: LESSON_PHASES.LEARNING, timestamp: ts() },
+    ];
+
+    const entry = generatedTurns.stage({ userId, lessonId, turnId, base, messages, lessonKB, phase: LESSON_PHASES.LEARNING });
+    return saveGeneratedTurn(entry);
+  });
 }
 
 /**
@@ -274,102 +325,93 @@ export function buildUserParts(text, imageDataUrls = [], links = []) {
  *   text is sent to the coach this turn but only `{ url, title }` is persisted.
  */
 export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, onStream) {
-  assertNotImpersonating('send a message');
-  let lessonKB = await getLessonKB(lessonId);
-  const profileSummary = await getLearnerProfileSummary();
+  return generateTurn(lessonId, 'send', async ({ userId, base, turnId }) => {
+    let lessonKB = base.lessonKB.data;
+    if (!lessonKB) throw new Error('Reload the lesson before sending your answer.');
+    const profileSummary = await getLearnerProfileSummary();
 
-  const imageDataUrls = normalizeImageDataUrls(imageDataUrl);
-  const linkList = Array.isArray(links) ? links.filter((l) => l && l.url) : [];
+    const imageDataUrls = normalizeImageDataUrls(imageDataUrl);
+    const linkList = Array.isArray(links) ? links.filter((l) => l && l.url) : [];
 
-  // Validate and persist images as individual `screenshot:*` records. The
-  // conversation record stores only these keys (see saveLessonMessages
-  // below) — never the base64 — so it stays small enough for DynamoDB.
-  // The index disambiguates images pasted within the same millisecond.
-  const imageKeys = [];
-  for (let i = 0; i < imageDataUrls.length; i++) {
-    const url = imageDataUrls[i];
-    assertImageWithinBedrockLimit(url);
-    const key = `lesson-${lessonId}-${ts()}-${i}`;
-    await saveScreenshot(key, url);
-    imageKeys.push(key);
-  }
-
-  // Build conversation tail — filter out messages with empty content (e.g. image-only)
-  // Target: 11 exchanges (22 msgs), but over-target avg is 15.9 exchanges (~32 msgs).
-  // Set to 40 to cover outliers up to 22 exchanges without being unlimited.
-  const allMsgs = await getLessonMessages(lessonId);
-  const tail = allMsgs.slice(-40)
-    .map(m => ({ role: m.role, content: m.content }))
-    .filter(m => m.content && (typeof m.content === 'string' ? m.content.trim() : m.content.length));
-
-  // Build user message content (text, link page-text, then images)
-  const userParts = buildUserParts(text, imageDataUrls, linkList);
-
-  // Always include context as first message so coach has lesson + profile info
-  const prefs = await getPreferences();
-  const courseProgress = await loadCourseProgressSummary(lesson);
-  const contextMsg = buildContext(lesson, lessonKB, profileSummary, prefs.name, courseProgress);
-  const messages = [{ role: 'user', content: contextMsg }, { role: 'assistant', content: 'Ready.' }, ...tail];
-  // Collapse to a plain string only when the turn is a single text block.
-  messages.push({ role: 'user', content: userParts.length === 1 && userParts[0].type === 'text' ? userParts[0].text : userParts });
-
-  const coachMsg = await orchestrator.converseStream(
-    'coach',
-    messages,
-    cleanStream(onStream),
-    1024
-  );
-
-  const parsed = parseCoachResponse(coachMsg);
-
-  const applied = applyCoachResponseToKB(lessonKB, parsed, { now: ts });
-  lessonKB = applied.lessonKB;
-  const { achieved, phase } = applied;
-
-  await saveLessonKB(lessonId, lessonKB);
-  syncInBackground(`lessonKB:${lessonId}`);
-
-  // Profile updates — from explicit tag or from KB insights as fallback
-  if (parsed.profileUpdate?.observation) {
-    updateProfileFromObservation(lessonKB, parsed.profileUpdate.observation);
-  } else if (parsed.kbUpdate?.insights?.length) {
-    // Use KB insights as a profile signal if no explicit profile update
-    const insightText = parsed.kbUpdate.insights.join('. ');
-    updateProfileFromObservation(lessonKB, insightText);
-  }
-  if (achieved) {
-    updateProfileOnCompletionInBackground(lessonKB, lesson);
-    // When the lesson belongs to a course, refresh the cross-lesson progress
-    // note so the coach for sibling lessons sees what was just demonstrated.
-    if (lesson.course?.id) {
-      updateCourseProgressOnCompletionInBackground(lessonKB, lesson);
+    // Validate and persist images as individual `screenshot:*` records. The
+    // conversation record stores only these keys — never the base64 — so it
+    // stays small enough for DynamoDB.
+    // The index disambiguates images pasted within the same millisecond.
+    const imageKeys = [];
+    for (let i = 0; i < imageDataUrls.length; i++) {
+      const url = imageDataUrls[i];
+      assertImageWithinBedrockLimit(url);
+      const key = `lesson-${lessonId}-${ts()}-${i}`;
+      await assertTurnOwner(userId);
+      if (!await saveScreenshot(key, url)) throw new Error('Your image could not be saved. Keep your submission and try again.');
+      imageKeys.push(key);
     }
-  }
 
-  // Save messages. The persisted user message references images by KEY only
-  // — the base64 lives in separate `screenshot:*` records. `imageDataUrls`
-  // is attached for the caller's in-session render but is NOT persisted.
-  // Persist only `{ url, title }` for links — never the fetched page text
-  // (image parity; the text was injected into this turn's AI call only).
-  const metaLinks = linkList.map(({ url, title }) => ({ url, title }));
-  const metadata = (imageKeys.length > 0 || metaLinks.length > 0)
-    ? { ...(imageKeys.length > 0 ? { imageKeys } : {}), ...(metaLinks.length > 0 ? { links: metaLinks } : {}) }
-    : null;
-  const persistedUserMsg = {
-    role: 'user',
-    content: text || (imageDataUrls.length > 0 ? '[image]' : (metaLinks.length > 0 ? '[link]' : '')),
-    msgType: MSG_TYPES.USER, phase,
-    metadata, timestamp: ts(),
-  };
-  const assistantMsg = { role: 'assistant', content: parsed.text, msgType: MSG_TYPES.GUIDE, phase, timestamp: ts() };
+    // Build conversation tail — filter out messages with empty content (e.g. image-only)
+    // Target: 11 exchanges (22 msgs), but over-target avg is 15.9 exchanges (~32 msgs).
+    // Set to 40 to cover outliers up to 22 exchanges without being unlimited.
+    const allMsgs = base.messages.data;
+    const tail = allMsgs.slice(-40)
+      .map(m => ({ role: m.role, content: m.content }))
+      .filter(m => m.content && (typeof m.content === 'string' ? m.content.trim() : m.content.length));
 
-  await saveLessonMessages(lessonId, [persistedUserMsg, assistantMsg]);
-  syncInBackground(`messages:${lessonId}`);
+    // Build user message content (text, link page-text, then images)
+    const userParts = buildUserParts(text, imageDataUrls, linkList);
 
-  const userMsg = imageDataUrls.length > 0
-    ? { ...persistedUserMsg, metadata: { ...persistedUserMsg.metadata, imageDataUrls: [...imageDataUrls] } }
-    : persistedUserMsg;
-  return { messages: [userMsg, assistantMsg], progress: parsed.progress, achieved, phase };
+    // Always include context as first message so coach has lesson + profile info
+    const prefs = await getPreferences();
+    const courseProgress = await loadCourseProgressSummary(lesson);
+    const contextMsg = buildContext(lesson, lessonKB, profileSummary, prefs.name, courseProgress);
+    const messages = [{ role: 'user', content: contextMsg }, { role: 'assistant', content: 'Ready.' }, ...tail];
+    // Collapse to a plain string only when the turn is a single text block.
+    messages.push({ role: 'user', content: userParts.length === 1 && userParts[0].type === 'text' ? userParts[0].text : userParts });
+
+    const coachMsg = await orchestrator.converseStream(
+      'coach',
+      messages,
+      cleanStream(onStream),
+      1024
+    );
+
+    const parsed = parseCoachResponse(coachMsg);
+
+    const applied = applyCoachResponseToKB(lessonKB, parsed, { now: ts });
+    lessonKB = applied.lessonKB;
+    const { achieved, phase } = applied;
+
+    // Save messages. The persisted user message references images by KEY only
+    // — the base64 lives in separate `screenshot:*` records. `imageDataUrls`
+    // is attached for the caller's in-session render but is NOT persisted.
+    // Persist only `{ url, title }` for links — never the fetched page text
+    // (image parity; the text was injected into this turn's AI call only).
+    const metaLinks = linkList.map(({ url, title }) => ({ url, title }));
+    const metadata = (imageKeys.length > 0 || metaLinks.length > 0)
+      ? { ...(imageKeys.length > 0 ? { imageKeys } : {}), ...(metaLinks.length > 0 ? { links: metaLinks } : {}) }
+      : null;
+    const persistedUserMsg = {
+      id: `${turnId}:0`,
+      role: 'user',
+      content: text || (imageDataUrls.length > 0 ? '[image]' : (metaLinks.length > 0 ? '[link]' : '')),
+      msgType: MSG_TYPES.USER, phase,
+      metadata, timestamp: ts(),
+    };
+    const assistantMsg = { id: `${turnId}:1`, role: 'assistant', content: parsed.text, msgType: MSG_TYPES.GUIDE, phase, timestamp: ts() };
+    const entry = generatedTurns.stage({ userId, lessonId, turnId, base, messages: [persistedUserMsg, assistantMsg], lessonKB, phase, achieved });
+    const result = await saveGeneratedTurn(entry);
+    // Optional model enrichment only follows an acknowledged initial commit.
+    // Recovery saves the authoritative completion but never runs any model.
+    if (result.persistence.status === 'saved') {
+      await assertTurnOwner(userId).then(() => {
+        if (parsed.profileUpdate?.observation) updateProfileFromObservation(lessonKB, parsed.profileUpdate.observation);
+        else if (parsed.kbUpdate?.insights?.length) updateProfileFromObservation(lessonKB, parsed.kbUpdate.insights.join('. '));
+        if (achieved) {
+          updateProfileOnCompletionInBackground(lessonKB, lesson);
+          if (lesson.course?.id) updateCourseProgressOnCompletionInBackground(lessonKB, lesson);
+        }
+      }).catch(() => {});
+    }
+    return result;
+  });
 }
 
 /**
@@ -381,11 +423,17 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, o
  * Legacy messages that still embed `imageDataUrls` directly (pre-#193) are
  * returned untouched — that field already drives the same render path.
  */
-export async function hydrateMessageImages(messages) {
+export async function hydrateMessageImages(messages, { timeoutMs = 5000 } = {}) {
   return Promise.all((messages || []).map(async (m) => {
     const keys = m.metadata?.imageKeys;
     if (!Array.isArray(keys) || keys.length === 0) return m;
-    const urls = (await Promise.all(keys.map((k) => getScreenshot(k)))).filter(Boolean);
+    // Missing images must not trap retained text behind a hanging network read.
+    // Keep the durable keys so a later visit can still load the attachments.
+    let timeout;
+    const urls = await Promise.race([
+      Promise.all(keys.map(k => getScreenshot(k))).then(values => values.filter(Boolean)).catch(() => []),
+      new Promise(resolve => { timeout = setTimeout(() => resolve([]), timeoutMs); }),
+    ]).finally(() => clearTimeout(timeout));
     if (urls.length === 0) return m;
     return { ...m, metadata: { ...m.metadata, imageDataUrls: urls } };
   }));
@@ -455,6 +503,16 @@ export async function migrateLegacyImages(lessonId, messages) {
  * Resume an existing lesson. Loads messages and KB.
  */
 export async function resumeLesson(lessonId) {
+  const user = await getAuthUser();
+  const retained = !isImpersonating() && generatedTurns.read(user?.userId, lessonId);
+  if (retained) {
+    const { turn, persistedLocally } = retained;
+    return {
+      messages: await hydrateMessageImages([...turn.base.messages.data, ...turn.messages]),
+      lessonKB: turn.lessonKB, phase: turn.phase, progress: turn.lessonKB.progress,
+      persistence: { status: 'pending', persistedLocally, message: 'Your generated reply has not been confirmed saved. Retry saving to continue.' },
+    };
+  }
   let messages = await getLessonMessages(lessonId);
   // Heal pre-#193 conversations whose embedded base64 images bloated the
   // record. Never while impersonating — `resumeLesson` is read-only for the

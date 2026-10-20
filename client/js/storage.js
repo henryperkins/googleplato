@@ -114,6 +114,15 @@ function mirrorToFirestore(operation) {
     .catch(() => {});
 }
 
+/** Cache/mirror only the server's acknowledged atomic lesson commit. */
+export function acceptSavedLessonState(lessonId, state) {
+  for (const name of ['messages', 'lessonKB']) {
+    const key = `${name}:${lessonId}`;
+    _populateCache(key, state[name].data, state[name].version);
+    mirrorToFirestore(fb => fb.mirrorSyncDataToFirestore(key, state[name].data));
+  }
+}
+
 // -- Preferences --------------------------------------------------------------
 
 export async function getPreferences() {
@@ -151,7 +160,7 @@ export async function getLessonKB(lessonId) {
 }
 
 export async function saveLessonKB(lessonId, kb) {
-  await putSyncData(`lessonKB:${lessonId}`, kb);
+  return putSyncData(`lessonKB:${lessonId}`, kb);
 }
 
 export async function deleteLessonKB(lessonId) {
@@ -273,7 +282,7 @@ export async function saveLessonMessages(lessonId, msgs) {
   const withTimestamps = msgs.map(m => ({ ...m, timestamp: m.timestamp || Date.now() }));
   all = [...all, ...withTimestamps];
   _cache.set(key, all);
-  await putSyncData(key, all);
+  return putSyncData(key, all);
 }
 
 /**

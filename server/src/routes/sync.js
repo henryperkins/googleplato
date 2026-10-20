@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { isDeepStrictEqual } from 'node:util';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { isPublicLessonRecord } from '../lib/lesson-visibility.js';
@@ -109,19 +110,79 @@ function estimateSyncDataSize(userId, dataKey, data) {
 
 const MAX_ITEM_SIZE = 380 * 1024; // 380 KB — slightly under DynamoDB's 400 KB limit for safety
 
-// GET /v1/sync — get all synced data. Two record families are filtered out:
+// Generated turns have a dedicated commit boundary. Retrying this endpoint
+// never runs inference, reapplies coach tags, or overwrites another session.
+sync.get('/v1/sync/lesson-turn/:lessonId', async (c) => {
+  const resolved = resolveReadUserId(c);
+  if (resolved.error) return resolved.error;
+  c.header('Cache-Control', 'no-store');
+  return c.json(await db.getLessonState(resolved.userId, c.req.param('lessonId')));
+});
+
+sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
+  const reject = rejectWriteIfImpersonating(c);
+  if (reject) return reject;
+  const userId = c.get('userId');
+  const lessonId = c.req.param('lessonId');
+  const body = await c.req.json();
+  if (body?.userId !== userId) return c.json({ error: 'Return to the original account to save this reply.' }, 403);
+  const { turnId, base, messages, lessonKB } = body;
+  const object = value => value && typeof value === 'object' && !Array.isArray(value);
+  const validRecord = record => object(record) && Number.isSafeInteger(record.version) && record.version >= 0;
+  if (typeof turnId !== 'string' || !/^[\w-]{1,100}$/.test(turnId)
+    || !(base?.generation === null || typeof base?.generation === 'string')
+    || !validRecord(base?.messages) || !Array.isArray(base.messages.data)
+    || !validRecord(base?.lessonKB) || !(base.lessonKB.data === null || object(base.lessonKB.data))
+    || !object(lessonKB) || lessonKB.lessonId !== lessonId
+    || !Array.isArray(messages) || messages.length < 1 || messages.length > 2
+    || messages.some((message, i) => !object(message) || message.id !== `${turnId}:${i}`
+      || message.role !== (i === messages.length - 1 ? 'assistant' : 'user') || typeof message.content !== 'string')) {
+    return c.json({ error: 'Invalid generated lesson turn.' }, 400);
+  }
+  const conflict = () => c.json({ code: 'lesson_turn_conflict', error: 'This lesson changed in another session. Your reply is retained; the saved lesson has not been overwritten.' }, 409);
+  const replay = state => state.generation === base.generation && Array.isArray(state.messages.data)
+    && messages.every(message => state.messages.data.some(saved => saved.id === message.id && isDeepStrictEqual(saved, message)))
+    && state.lessonKB.data?.startedAt === lessonKB.startedAt;
+  const current = await db.getLessonState(userId, lessonId);
+  if (replay(current)) return c.json(current);
+  if (!isDeepStrictEqual(current, base)) return conflict();
+  // Existing identities may never be reassigned, even if a client supplies
+  // a fresh base snapshot with a different reply under an old turn ID.
+  if (current.messages.data.some(saved => messages.some(message => message.id === saved.id))) return conflict();
+  const desired = { messages: [...current.messages.data, ...messages], lessonKB };
+  for (const [name, data] of Object.entries(desired)) {
+    if (Buffer.byteLength(JSON.stringify({ userId, dataKey: `${name}:${lessonId}`, data }), 'utf8') > MAX_ITEM_SIZE) {
+      return c.json({ error: 'The saved lesson is too large. Your reply is retained; ask an administrator for help.' }, 413);
+    }
+  }
+  try {
+    const saved = await db.commitLessonTurn(userId, lessonId, base, desired);
+    await applyActivityEffects(userId, `lessonKB:${lessonId}`, base.lessonKB.data?.status, lessonKB);
+    return c.json(saved);
+  } catch (error) {
+    if (error.name !== 'ConditionalCheckFailedException') throw error;
+    // Two retries can race after a lost acknowledgement. Only one commits;
+    // the other acknowledges its exact output without repeating any effects.
+    const latest = await db.getLessonState(userId, lessonId);
+    return replay(latest) ? c.json(latest) : conflict();
+  }
+});
+
+// GET /v1/sync — get all synced data. Three record families are filtered out:
 //   - `userMeta:<pluginId>` — plugin-owned, admin-only by default; the
 //     plugin's own routes are responsible for any learner exposure.
 //   - `screenshot:<key>` — pasted images, stored one-per-record and often
 //     hundreds of KB each. Bundling them into this bulk payload (fetched on
 //     every login *and* every tab refocus) would be wasteful; they're
 //     fetched on demand by key via GET /v1/sync/:dataKey instead.
+//   - `lessonGeneration:<lessonId>` — internal reset markers, exposed only
+//     through the consistent lesson-turn snapshot.
 sync.get('/v1/sync', async (c) => {
   const resolved = resolveReadUserId(c);
   if (resolved.error) return resolved.error;
   const items = await db.getAllSyncData(resolved.userId);
   return c.json(items
-    .filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('screenshot:'))
+    .filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('screenshot:') && !item.dataKey?.startsWith('lessonGeneration:'))
     .map((item) => ({
       dataKey: item.dataKey,
       data: item.data,
@@ -265,8 +326,10 @@ sync.delete('/v1/sync', async (c) => {
   if (reject) return reject;
   const userId = c.get('userId');
   const items = await db.getAllSyncData(userId);
-  const deletable = items.filter((item) => !item.dataKey?.startsWith('userMeta:'));
-  await Promise.all(deletable.map((item) => db.deleteSyncData(userId, item.dataKey)));
+  const deletable = items.filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('lessonGeneration:'));
+  // Preserve reset markers and serialize the two records of each lesson so
+  // their DynamoDB transactions do not contend on the same marker.
+  for (const item of deletable) await db.deleteSyncData(userId, item.dataKey, { invalidateLesson: true });
   return c.json({ ok: true, deleted: deletable.length });
 });
 
@@ -281,7 +344,7 @@ sync.delete('/v1/sync/:dataKey', async (c) => {
     return c.json({ error: 'Invalid dataKey' }, 400);
   }
 
-  await db.deleteSyncData(userId, dataKey);
+  await db.deleteSyncData(userId, dataKey, { invalidateLesson: true });
   return c.json({ ok: true });
 });
 

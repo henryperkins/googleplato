@@ -311,8 +311,37 @@ calls an agent.
 ## Image & conversation persistence (#191, #193)
 
 A learner's chat history for a lesson lives in one `messages:<lessonId>`
-sync-data record (append-only via `saveLessonMessages`); progress lives
-separately in `lessonKB:<lessonId>`.
+sync-data record; progress lives separately in `lessonKB:<lessonId>`.
+Generated learner turns commit both records together through
+`POST /v1/sync/lesson-turn/:lessonId` (a SQLite transaction or DynamoDB
+`TransactWrite`). The engine first reads a consistent snapshot through the GET
+of that endpoint, generates once, applies coach tags once, and assigns stable
+turn/message IDs. The commit compares the original versions, values, and
+reset generation; it never merges a stale turn over another session's work.
+An exact replay acknowledges the existing messages without appending again
+or reapplying completion effects. Sync deletes of either lesson record rotate
+an internal `lessonGeneration:<lessonId>` marker, so a retained opening cannot
+recreate a lesson after a reset even when both records are missing again.
+
+Before requesting the commit, `generatedTurns` stores the exact output and
+base snapshot in memory and in account/lesson-scoped `sessionStorage`.
+`LessonChat` displays an unconfirmed reply with **Retry saving**, blocks another
+Send, and restores the retained conversation after navigation or reload in the
+same tab. `retryLessonSave` only submits that retained turn; it never calls any
+model, reapplies tags, or rebuilds the reply. Unknown save outcomes retain the
+same IDs. Conflicts preserve the copy and require an explicit discard to load
+the current saved conversation. The browser cache and optional Firestore mirror
+receive a generated turn only after the authoritative API acknowledges it.
+
+Recovery is limited to the current browser tab/session. If browser storage is
+unavailable or full, the UI warns that only the in-memory copy is available and
+asks the learner to keep the tab open. Save attempts time out after 15 seconds;
+image hydration is bounded to five seconds so a stalled image read cannot hide
+retained text and retry controls indefinitely. Missing images keep their keys.
+Optional profile/course model enrichment runs only after an acknowledged initial
+save. A recovered turn saves authoritative progress/completion but skips these
+optional model calls and their derived profile/course summaries and bookkeeping.
+They are not durably queued or backfilled by recovery.
 
 **Pasted/uploaded images are NOT embedded in the messages record.** Each image
 is its own `screenshot:<key>` record, and the message stores only

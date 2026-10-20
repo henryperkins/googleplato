@@ -7,6 +7,8 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import {
   REFRESH_TOKEN_TTL_DAYS, INVITE_TTL_DAYS, RESET_TOKEN_TTL_HOURS,
 } from '../config.js';
@@ -535,8 +537,52 @@ const db = {
     return { version: newVersion, updatedAt: now };
   },
 
-  async deleteSyncData(userId, dataKey) {
-    sqlite.prepare('DELETE FROM sync_data WHERE userId = ? AND dataKey = ?').run(userId, dataKey);
+  async getLessonState(userId, lessonId) {
+    return sqlite.transaction(() => {
+      const generation = sqlite.prepare('SELECT data FROM sync_data WHERE userId = ? AND dataKey = ?')
+        .get(userId, `lessonGeneration:${lessonId}`);
+      return { generation: generation ? JSON.parse(generation.data) : null, ...Object.fromEntries(['messages', 'lessonKB'].map(name => {
+      const row = sqlite.prepare('SELECT data, version FROM sync_data WHERE userId = ? AND dataKey = ?')
+        .get(userId, `${name}:${lessonId}`);
+      return [name, row ? { data: JSON.parse(row.data), version: row.version }
+        : { data: name === 'messages' ? [] : null, version: 0 }];
+      })) };
+    })();
+  },
+
+  async commitLessonTurn(userId, lessonId, base, desired) {
+    return sqlite.transaction(() => {
+      const generation = sqlite.prepare('SELECT data FROM sync_data WHERE userId = ? AND dataKey = ?')
+        .get(userId, `lessonGeneration:${lessonId}`);
+      if ((generation ? JSON.parse(generation.data) : null) !== base.generation) throw conditionalCheckFailed('Lesson was reset');
+      const saved = { generation: base.generation };
+      for (const name of ['messages', 'lessonKB']) {
+        const dataKey = `${name}:${lessonId}`;
+        const row = sqlite.prepare('SELECT data, version FROM sync_data WHERE userId = ? AND dataKey = ?').get(userId, dataKey);
+        if ((row?.version || 0) !== base[name].version
+          || (row && !isDeepStrictEqual(JSON.parse(row.data), base[name].data))) {
+          throw conditionalCheckFailed('Lesson changed while saving');
+        }
+        const version = base[name].version + 1;
+        sqlite.prepare(`INSERT INTO sync_data (userId, dataKey, data, version, updatedAt) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(userId, dataKey) DO UPDATE SET data = excluded.data, version = excluded.version, updatedAt = excluded.updatedAt`)
+          .run(userId, dataKey, JSON.stringify(desired[name]), version, new Date().toISOString());
+        saved[name] = { data: desired[name], version };
+      }
+      return saved;
+    })();
+  },
+
+  async deleteSyncData(userId, dataKey, { invalidateLesson = false } = {}) {
+    sqlite.transaction(() => {
+      const lessonId = invalidateLesson && /^(?:messages|lessonKB):(.+)$/.exec(dataKey)?.[1];
+      if (lessonId) {
+        sqlite.prepare(`INSERT INTO sync_data (userId, dataKey, data, version, updatedAt) VALUES (?, ?, ?, 1, ?)
+          ON CONFLICT(userId, dataKey) DO UPDATE SET data = excluded.data, updatedAt = excluded.updatedAt`)
+          .run(userId, `lessonGeneration:${lessonId}`, JSON.stringify(randomUUID()), new Date().toISOString());
+      }
+      sqlite.prepare('DELETE FROM sync_data WHERE userId = ? AND dataKey = ?').run(userId, dataKey);
+    })();
   },
 
   // ── Audit Log ──

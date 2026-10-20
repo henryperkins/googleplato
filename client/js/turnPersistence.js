@@ -1,0 +1,75 @@
+import { authenticatedFetch, getImpersonation } from './auth.js';
+import { getAuthUser, acceptSavedLessonState } from './storage.js';
+
+export async function assertTurnOwner(userId) {
+  if ((await getAuthUser())?.userId !== userId || getImpersonation()) {
+    throw new Error('Return to the original account to save this reply.');
+  }
+}
+
+function validState(state) {
+  return Array.isArray(state?.messages?.data) && state?.lessonKB
+    && (state.generation === null || typeof state.generation === 'string')
+    && (state.lessonKB.data === null || (typeof state.lessonKB.data === 'object' && !Array.isArray(state.lessonKB.data)))
+    && ['messages', 'lessonKB'].every(name => Number.isSafeInteger(state[name].version) && state[name].version >= 0);
+}
+
+// Bound the whole attempt, including refresh and response parsing. Unknown
+// outcomes keep the same turn ID; the server acknowledges an already committed
+// retry without appending again. This module has no model/orchestrator imports.
+async function requestState(userId, lessonId, turn) {
+  const controller = new AbortController();
+  let timeout;
+  try {
+    return await Promise.race([
+      (async () => {
+        await assertTurnOwner(userId);
+        const response = await authenticatedFetch(`/v1/sync/lesson-turn/${encodeURIComponent(lessonId)}`, {
+          signal: controller.signal, cache: 'no-store',
+          ...(turn ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(turn) } : {}),
+        });
+        await assertTurnOwner(userId);
+        if (!response.ok) throw Object.assign(new Error(response.status === 409
+          ? 'This lesson changed in another session. Your reply is retained; the saved lesson has not been overwritten.'
+          : response.status === 413 ? 'This lesson is too large to save. Your reply is retained; ask an administrator for help.'
+            : 'Your reply has not been confirmed saved. Retry saving when your connection is available.'), { status: response.status });
+        const state = await response.json();
+        await assertTurnOwner(userId);
+        controller.signal.throwIfAborted();
+        if (!validState(state) || (turn && (state.messages.version <= turn.base.messages.version
+          || state.lessonKB.version <= turn.base.lessonKB.version
+          || state.lessonKB.data?.lessonId !== lessonId || state.lessonKB.data?.startedAt !== turn.lessonKB.startedAt
+          || state.generation !== turn.base.generation
+          || !turn.messages.every(message => state.messages.data.some(saved => saved.id === message.id && saved.content === message.content && saved.role === message.role))))) {
+          throw new Error('The save could not be confirmed. Your reply is retained; retry saving.');
+        }
+        return state;
+      })(),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error('Saving took too long. Your reply is retained; retry saving.'));
+        }, 15_000);
+      }),
+    ]);
+  } finally { clearTimeout(timeout); }
+}
+
+export async function readLessonState(userId, lessonId) {
+  return requestState(userId, lessonId);
+}
+
+export async function persistLessonTurn(entry) {
+  const { turn, persistedLocally } = entry;
+  try {
+    const state = await requestState(turn.userId, turn.lessonId, turn);
+    await assertTurnOwner(turn.userId);
+    acceptSavedLessonState(turn.lessonId, state);
+    return { status: 'saved', state, persistedLocally, message: 'Your reply is saved.' };
+  } catch (error) {
+    return {
+      status: error.status === 409 ? 'conflict' : 'pending', persistedLocally,
+      message: error instanceof TypeError ? 'Your reply is retained. Retry saving when your connection is available.' : error.message,
+    };
+  }
+}

@@ -9,7 +9,7 @@ import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeybo
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
 import {
-  getLessonKB, deleteLessonProgress,
+  deleteLessonProgress,
   getUserLessonMarkdown, deleteUserLesson,
 } from '../../js/storage.js';
 import * as engine from '../lib/lessonEngine.js';
@@ -30,12 +30,26 @@ import {
 
 export default function LessonChat() {
   const { lessonGroupId } = useParams();
+  const { user, impersonatedUser } = useAuth();
+  // Remount the conversation and its stream animation together. Setting the
+  // stream to null only drains buffered text; it cannot isolate two views.
+  return <LessonConversation key={`${user?.userId}:${impersonatedUser?.userId || ''}:${lessonGroupId}`} />;
+}
+
+function LessonConversation() {
+  const { lessonGroupId } = useParams();
   const navigate = useNavigate();
   const { state, dispatch, reloadLessons } = useApp();
   const { lessons } = state;
   const lesson = lessons.find(c => c.lessonId === lessonGroupId);
-  const { impersonatedUser } = useAuth();
+  const { user, impersonatedUser } = useAuth();
   const impersonating = !!impersonatedUser;
+  const viewKey = `${user?.userId}:${impersonatedUser?.userId || ''}:${lessonGroupId}`;
+  const activeView = useRef(viewKey);
+  useEffect(() => {
+    activeView.current = viewKey;
+    return () => { activeView.current = null; };
+  }, [viewKey]);
 
   // The resume/start effect below must run once per lesson — NOT every time
   // the lessons array is rebuilt. Returning to the browser tab re-runs
@@ -57,6 +71,10 @@ export default function LessonChat() {
   const [loadingStep, setLoadingStep] = useState('initializing');
   const [loadingEnrichments, setLoadingEnrichments] = useState([]);
   const [error, setError] = useState('');
+  const [persistence, setPersistence] = useState(null);
+  const [resuming, setResuming] = useState(true);
+  const savingRef = useRef(false);
+  const pendingSave = !!persistence && persistence.status !== 'saved';
   // A failed lesson start has no conversation to fall back on, so it offers
   // its own retry instead of sending the learner to reload the page.
   const [startFailed, setStartFailed] = useState(false);
@@ -107,7 +125,7 @@ export default function LessonChat() {
       const { msgs, p, achieved } = pendingAfterStreamRef.current;
       pendingAfterStreamRef.current = null;
       if (msgs) {
-        setMessages(prev => [...prev, ...msgs]);
+        setMessages(msgs);
         const hasAssistant = msgs.some(m => m.role === 'assistant');
         if (hasAssistant) {
           if (srClearTimeoutRef.current) clearTimeout(srClearTimeoutRef.current);
@@ -146,6 +164,13 @@ export default function LessonChat() {
     }
   }, [displayText]);
 
+  useEffect(() => {
+    if (!pendingSave && !loading) return;
+    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [pendingSave, loading]);
+
   useEffect(() => () => {
     if (srClearTimeoutRef.current) clearTimeout(srClearTimeoutRef.current);
     if (srRafRef.current) cancelAnimationFrame(srRafRef.current);
@@ -166,57 +191,76 @@ export default function LessonChat() {
     if (!lesson) return;
     let cancelled = false;
     setCelebratedLessonId(null);
+    setResuming(true);
+    setMessages([]);
+    setLessonKB(null);
+    setPhase(null);
+    setError('');
+    setPersistence(null);
+    setStartFailed(false);
+    setLoading('');
+    setStreamingText(null);
+    pendingAfterStreamRef.current = null;
 
     (async () => {
-      const existing = await engine.resumeLesson(lessonGroupId);
-      if (cancelled) return;
+      try {
+        const existing = await engine.resumeLesson(lessonGroupId);
+        if (cancelled) return;
 
-      if (existing.messages.length > 0) {
-        setMessages(existing.messages);
-        setLessonKB(existing.lessonKB);
-        setPhase(existing.phase);
-      } else if (impersonating) {
-        // Admin "View as User": the target hasn't started this lesson yet.
-        // Don't auto-start (engine guard would throw, and we'd be writing
-        // with the admin's JWT anyway). Show an informational state instead.
-        setError('This learner has not started this lesson yet — there is nothing to view.');
-        setPhase(LESSON_PHASES.LEARNING);
-      } else {
-        setError('');
-        setStartFailed(false);
-        setLoading('starting');
-        setLoadingStep('initializing');
-        setLoadingEnrichments([]);
-        setStreamingText('');
-        try {
-          const result = await engine.startLesson(
-            lessonGroupId,
-            lesson,
-            (partial) => { if (!cancelled) setStreamingText(partial); },
-            (step, data) => {
-              if (!cancelled) {
-                setLoadingStep(step);
-                if (data?.enrichments) setLoadingEnrichments(data.enrichments);
+        if (existing.messages.length > 0) {
+          setMessages(existing.messages);
+          setLessonKB(existing.lessonKB);
+          setPhase(existing.phase);
+          setPersistence(existing.persistence || null);
+        } else if (impersonating) {
+          // Admin "View as User": the target hasn't started this lesson yet.
+          // Don't auto-start (engine guard would throw, and we'd be writing
+          // with the admin's JWT anyway). Show an informational state instead.
+          setError('This learner has not started this lesson yet — there is nothing to view.');
+          setPhase(LESSON_PHASES.LEARNING);
+        } else {
+          setError('');
+          setStartFailed(false);
+          setLoading('starting');
+          setLoadingStep('initializing');
+          setLoadingEnrichments([]);
+          setStreamingText('');
+          try {
+            const result = await engine.startLesson(
+              lessonGroupId,
+              lesson,
+              (partial) => { if (!cancelled) setStreamingText(partial); },
+              (step, data) => {
+                if (!cancelled) {
+                  setLoadingStep(step);
+                  if (data?.enrichments) setLoadingEnrichments(data.enrichments);
+                }
               }
-            }
-          );
-          if (cancelled) return;
-          setLessonKB(result.lessonKB);
-          pendingAfterStreamRef.current = { msgs: result.messages, p: result.phase };
-          setStreamingText(null);
-        } catch (e) {
-          if (!cancelled) {
-            setError(aiErrorMessage(e, 'coach-start'));
-            setStartFailed(true);
-            setLoading('');
+            );
+            if (cancelled) return;
+            setLessonKB(result.lessonKB);
+            setPersistence(result.persistence || null);
+            pendingAfterStreamRef.current = { msgs: result.conversation || result.messages, p: result.phase };
             setStreamingText(null);
+          } catch (e) {
+            if (!cancelled) {
+              setError(aiErrorMessage(e, 'coach-start'));
+              setStartFailed(true);
+              setLoading('');
+              setStreamingText(null);
+            }
           }
         }
-      }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e.message || 'The saved lesson could not be loaded. Try again.');
+          setStartFailed(true);
+        }
+      } finally { if (!cancelled) setResuming(false); }
     })();
 
     return () => { cancelled = true; };
-  }, [lessonGroupId, lessonLoaded, impersonating, startAttempt]);
+  }, [lessonGroupId, lessonLoaded, impersonating, startAttempt, viewKey]);
 
   const retryStart = () => {
     // The error and its button are replaced by the loading view, so park focus
@@ -250,15 +294,18 @@ export default function LessonChat() {
     try {
       const result = await engine.sendMessage(
         lessonGroupId, lesson, text, imageDataUrls, links,
-        (partial) => setStreamingText(partial)
+        (partial) => { if (activeView.current === viewKey) setStreamingText(partial); }
       );
-      const assistantMsg = result.messages.find(m => m.role === 'assistant');
-      pendingAfterStreamRef.current = { msgs: assistantMsg ? [assistantMsg] : [], p: result.phase, achieved: result.achieved };
+      if (activeView.current !== viewKey) return;
+      setPersistence(result.persistence || null);
+      pendingAfterStreamRef.current = {
+        msgs: result.conversation, p: result.phase,
+        achieved: result.achieved && result.persistence?.status === 'saved',
+      };
       setStreamingText(null);
-
-      const freshKB = await getLessonKB(lessonGroupId);
-      setLessonKB(freshKB);
+      setLessonKB(result.lessonKB);
     } catch (e) {
+      if (activeView.current !== viewKey) return;
       setError(aiErrorMessage(e, 'coach-reply'));
       setComposeText(text || '');
       setComposeImages((imageDataUrls || []).map((dataUrl, index) => ({ dataUrl, name: `Attached image ${index + 1}` })));
@@ -267,7 +314,46 @@ export default function LessonChat() {
       setStreamingText(null);
       setLoading('');
     }
-  }, [lessonGroupId, lesson]);
+  }, [lessonGroupId, lesson, viewKey]);
+
+  const retrySave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setLoading('saving');
+    setError('');
+    try {
+      const result = await engine.retryLessonSave(lessonGroupId);
+      if (activeView.current !== viewKey) return;
+      setPersistence(result.persistence);
+      if (result.persistence.status === 'saved') {
+        setMessages(result.conversation);
+        setLessonKB(result.lessonKB);
+        setPhase(result.lessonKB?.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING);
+        headingRef.current?.focus();
+        if (result.achieved) {
+          setCelebratedLessonId(lessonGroupId);
+          window.dispatchEvent(new CustomEvent('plato:lesson-completed', { detail: { lessonId: lessonGroupId } }));
+        }
+      }
+    } catch (e) {
+      if (activeView.current === viewKey) setError(e.message);
+    } finally {
+      savingRef.current = false;
+      if (activeView.current === viewKey) setLoading('');
+    }
+  };
+
+  const loadSavedConversation = () => setConfirmModal({
+    title: 'Load the saved conversation?',
+    message: 'This discards the unsaved reply kept in this tab. Copy the reply first if you want to keep it.',
+    confirmLabel: 'Discard unsaved reply',
+    onConfirm: async () => {
+      try {
+        await engine.discardLessonReply(lessonGroupId);
+        if (activeView.current === viewKey) setStartAttempt(n => n + 1);
+      } catch (e) { if (activeView.current === viewKey) setError(e.message); }
+    },
+  });
 
   const isCustomLesson = lessonGroupId?.startsWith('custom-');
 
@@ -337,7 +423,7 @@ export default function LessonChat() {
       </div>
     );
   }
-  const busy = !!loading;
+  const busy = !!loading || pendingSave || resuming;
   const composePlaceholder = phase === LESSON_PHASES.COMPLETED
     ? 'Share feedback about this lesson...'
     : 'Chat with your coach...';
@@ -431,12 +517,12 @@ export default function LessonChat() {
             </Button>
           )}
           {phase && (
-            <Button variant="ghost" size="icon-sm" onClick={handleReset} aria-label="Reset lesson" title="Reset lesson">
+            <Button variant="ghost" size="icon-sm" disabled={busy} onClick={handleReset} aria-label="Reset lesson" title="Reset lesson">
               <RotateCcw aria-hidden="true" />
             </Button>
           )}
           {isCustomLesson && (
-            <Button variant="ghost" size="icon-sm" onClick={handleDelete} aria-label="Delete lesson" title="Delete lesson">
+            <Button variant="ghost" size="icon-sm" disabled={busy} onClick={handleDelete} aria-label="Delete lesson" title="Delete lesson">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </Button>
           )}
@@ -444,7 +530,9 @@ export default function LessonChat() {
       </div>
 
       <div className="flex-1">
-      {loading === 'starting' && !displayText ? (
+      {resuming && !loading ? (
+        <p className="px-4 py-8 text-sm text-muted-foreground" role="status">Loading your saved conversation…</p>
+      ) : loading === 'starting' && !displayText ? (
         <LessonLoadingView step={loadingStep} enrichments={loadingEnrichments} />
       ) : (
         <ChatArea ref={chatAreaRef} announcement={srAnnouncement}>
@@ -453,6 +541,28 @@ export default function LessonChat() {
             <AssistantMessage content={displayText} streaming />
           )}
           {loading === 'qa' && !displayText && <ThinkingSpinner />}
+          {persistence && (
+            <div className="space-y-2 px-3 py-2">
+              <p className="text-sm" role="status" aria-live="polite">{persistence.message}</p>
+              {pendingSave && !persistence.persistedLocally && (
+                <p className="text-sm text-destructive">Keep this tab open until saving succeeds. A recovery copy could not be stored in your browser.</p>
+              )}
+              {pendingSave && (
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={retrySave} disabled={!!loading}>
+                    {loading === 'saving' ? 'Saving…' : 'Retry saving'}
+                  </Button>
+                  <Button variant="ghost" size="sm" disabled={!!loading} onClick={async () => {
+                    try { await navigator.clipboard.writeText(messages.at(-1)?.content || ''); setSrAnnouncement('Reply copied'); }
+                    catch { setError('Copy was unavailable. Select the reply text to copy it.'); }
+                  }}>Copy reply</Button>
+                  {persistence.status === 'conflict' && (
+                    <Button variant="ghost" size="sm" onClick={loadSavedConversation} disabled={!!loading}>Load saved conversation</Button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {error && (
             <div className="space-y-2 px-3 py-2">
               <p className="text-sm text-destructive" role="alert">{error}</p>
@@ -461,7 +571,7 @@ export default function LessonChat() {
               )}
             </div>
           )}
-          {phase === LESSON_PHASES.COMPLETED && (
+          {phase === LESSON_PHASES.COMPLETED && !pendingSave && (
             <div className="flex flex-col items-center gap-3 mt-8 mb-4 px-4">
               {nextLesson ? (
                 <Button

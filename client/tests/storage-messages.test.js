@@ -68,6 +68,21 @@ describe('saveLessonMessages', () => {
     _serverVersions.clear();
   });
 
+  it('reports a rejected write so a generated reply is not treated as saved', async () => {
+    const fetchBefore = globalThis.fetch;
+    globalThis.fetch = async (url, options) => options?.method === 'PUT'
+      ? { ok: false, status: 503 }
+      : fetchBefore(url, options);
+    try {
+      assert.equal(await saveLessonMessages('lesson-1', [
+        { role: 'assistant', content: 'Keep this generated reply.' },
+      ]), false);
+      assert.equal(_serverStore.has('messages:lesson-1'), false);
+    } finally {
+      globalThis.fetch = fetchBefore;
+    }
+  });
+
   it('appends messages to an empty lesson', async () => {
     await saveLessonMessages('lesson-1', [
       { role: 'assistant', content: 'Hello' },
