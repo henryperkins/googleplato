@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { preloadFirebase } from '../../js/auth.js';
+import { googleSignInError, passwordSignInError } from '../lib/authErrors.js';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
 import { Button } from '@/components/ui/button';
@@ -59,8 +60,9 @@ export default function Login() {
     const emailErr = validateField('email', email);
     const passwordErr = validateField('password', password);
     if (emailErr || passwordErr) {
+      // Each empty field explains itself; a banner would repeat it.
       setFieldErrors({ email: emailErr, password: passwordErr });
-      setError('Please enter email/username and password.');
+      setError('');
       if (emailErr) emailRef.current?.focus();
       else if (passwordErr) passwordRef.current?.focus();
       return;
@@ -73,28 +75,10 @@ export default function Login() {
       try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
       navigate('/lessons', { replace: true });
     } catch (e) {
-      setError(e.message || 'Login failed');
+      setError(passwordSignInError(e));
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function formatGoogleError(err) {
-    if (!err) return 'Google sign-in failed.';
-    const code = err.code || '';
-    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-      return '';
-    }
-    if (code === 'auth/unauthorized-domain') {
-      return 'This app domain is not yet authorized in Firebase Authentication. Add this app URL to Authorized Domains in the Firebase console.';
-    }
-    if (code === 'auth/popup-blocked') {
-      return 'The sign-in popup was blocked by your browser. Please allow popups for this site.';
-    }
-    if (code === 'auth/network-request-failed') {
-      return 'Network error connecting to Google. Please check your internet connection.';
-    }
-    return err.message || 'Google sign-in failed. Please try again.';
   }
 
   async function handleGoogleLogin() {
@@ -106,7 +90,7 @@ export default function Login() {
       try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
       navigate('/lessons', { replace: true });
     } catch (e) {
-      const msg = formatGoogleError(e);
+      const msg = googleSignInError(e);
       if (msg) setError(msg);
     } finally {
       setGoogleSubmitting(false);
@@ -197,7 +181,7 @@ export default function Login() {
                   }}
                   className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                 >
-                  Forgot Password?
+                  Forgot password?
                 </a>
               </div>
               <PasswordField
@@ -234,17 +218,12 @@ export default function Login() {
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="flex-col gap-1 justify-center">
-          <Button
-            variant="link"
-            onClick={() => navigate('/forgot-password', { state: { email: email.trim() } })}
-          >
-            Forgot Password?
-          </Button>
-          {waitlistOpen && (
+        {/* "Forgot password?" sits beside the Password label, so it isn't repeated here. */}
+        {waitlistOpen && (
+          <CardFooter className="flex-col gap-1 justify-center">
             <Button variant="link" onClick={() => navigate('/waitlist')}>No account? Join the wait list</Button>
-          )}
-        </CardFooter>
+          </CardFooter>
+        )}
       </Card>
       <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>
         <a href="/privacy" onClick={e => { e.preventDefault(); navigate('/privacy'); }} className="underline hover:no-underline">Privacy</a>

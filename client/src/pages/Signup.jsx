@@ -7,6 +7,7 @@ import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
 import { missingRequired, validateCustomField, validateCustomFields } from '../lib/userFields.js';
+import { googleSignInError, missingFieldsMessage, requestError } from '../lib/authErrors.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -128,18 +129,8 @@ export default function Signup() {
       try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
       navigate('/lessons', { replace: true });
     } catch (e) {
-      const code = e?.code || '';
-      if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-        if (code === 'auth/unauthorized-domain') {
-          setError('This app domain is not yet authorized in Firebase Authentication. Add this app URL to Authorized Domains in the Firebase console.');
-        } else if (code === 'auth/popup-blocked') {
-          setError('The sign-in popup was blocked by your browser. Please allow popups for this site.');
-        } else if (code === 'auth/network-request-failed') {
-          setError('Network error connecting to Google. Please check your internet connection.');
-        } else {
-          setError(e.message || 'Google signup failed');
-        }
-      }
+      const msg = googleSignInError(e);
+      if (msg) setError(msg);
     } finally {
       setGoogleSubmitting(false);
     }
@@ -170,8 +161,9 @@ export default function Signup() {
 
     if (Object.keys(nextErrs).length > 0) {
       setFieldErrors(nextErrs);
-      if (!name.trim() || !password) {
-        setError('Name and password are required.');
+      const missingBasics = [!name.trim() && 'your name', !password && 'a password'].filter(Boolean);
+      if (missingBasics.length) {
+        setError(missingFieldsMessage(missingBasics));
       } else if (nextErrs.email) {
         setError(nextErrs.email);
       } else if (nextErrs.password) {
@@ -209,14 +201,14 @@ export default function Signup() {
           customFields: userFields.length ? fieldValues : undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Signup failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "We couldn't create your account. Try again.");
       try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
       // Log in with the returned credentials
       await login(data.user?.email || email.trim(), password);
       navigate('/lessons', { replace: true });
     } catch (e) {
-      setError(e.message || 'Signup failed');
+      setError(requestError(e, "We couldn't create your account. Try again."));
     } finally {
       setSubmitting(false);
     }

@@ -44,7 +44,7 @@ export default function UserStatsPanel({ userId }) {
     lessonsCompleted, lessonsAvailable,
     lastActiveAt,
     completionMinutesP50, completionMinutesP90,
-    lessonDurations = [], windowDays,
+    lessonDurations = [],
   } = stats;
 
   // Format lastActiveAt as relative time
@@ -74,7 +74,8 @@ export default function UserStatsPanel({ userId }) {
   return (
     <Card>
       <CardContent className="space-y-4">
-        <h2 className="text-lg font-semibold">Activity <span className="text-sm font-normal text-muted-foreground">(last {windowDays} days)</span></h2>
+        {/* All-time stats: the server doesn't filter by its windowDays value. */}
+        <h2 className="text-lg font-semibold">Activity</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
           <div className="flex justify-center">
@@ -86,10 +87,11 @@ export default function UserStatsPanel({ userId }) {
             />
           </div>
           <StatTile label="Last active" value={formatRelativeTime(lastActiveAt)} />
+          {/* Estimated from exchanges × MINS_PER_EXCHANGE, like the dashboard's "Est. active time". */}
           <StatTile
-            label="Median completion time"
-            value={completionMinutesP50 != null ? `${completionMinutesP50} min` : '—'}
-            sub={completionMinutesP90 != null ? `p90: ${completionMinutesP90} min` : null}
+            label="Median est. active time"
+            value={completionMinutesP50 != null ? `${Math.round(completionMinutesP50)} min` : '—'}
+            sub={completionMinutesP90 != null ? `90% finish within ${Math.round(completionMinutesP90)} min` : null}
           />
         </div>
 
@@ -101,7 +103,7 @@ export default function UserStatsPanel({ userId }) {
                 <li key={l.lessonId + (l.completedAt || '')} className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-0.5 sm:gap-3 border-b last:border-b-0 py-1.5 sm:py-1">
                   <span className="truncate">{l.lessonName}</span>
                   <span className="text-muted-foreground text-xs whitespace-nowrap">
-                    {l.exchanges} ex · {l.minutes} min{l.completedAt ? ` · ${l.completedAt.slice(0, 10)}` : ''}
+                    {l.exchanges} exchange{l.exchanges === 1 ? '' : 's'} · ~{Math.round(l.minutes)} min{l.completedAt ? ` · ${l.completedAt.slice(0, 10)}` : ''}
                   </span>
                 </li>
               ))}

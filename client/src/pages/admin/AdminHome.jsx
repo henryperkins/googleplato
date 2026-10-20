@@ -159,7 +159,7 @@ function PacingSection({ stats }) {
         <CardContent>
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div>
-              <div className="text-sm font-medium">On-Target Rate</div>
+              <div className="text-sm font-medium">On-target rate</div>
               <div className="text-4xl font-bold tabular-nums mt-1">{rate !== null ? `${rate}%` : '—'}</div>
             </div>
             <div className="text-left sm:text-right text-xs text-muted-foreground">
@@ -212,7 +212,9 @@ function PacingSection({ stats }) {
               Avg exchanges (over target)
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              Average for the {overTarget} lesson{overTarget !== 1 ? 's' : ''} past target.
+              {overTarget > 0
+                ? `Average for the ${overTarget} lesson${overTarget !== 1 ? 's' : ''} past target.`
+                : 'No completed lesson has gone past target.'}
             </div>
             {overTargetWarning && (
               <div className="text-xs mt-1 text-warning-foreground">
@@ -250,7 +252,8 @@ function PacingSection({ stats }) {
         <Card>
           <CardContent>
             <div className="text-2xl font-bold tabular-nums">{activeLessons}</div>
-            <div className="text-sm text-muted-foreground">Active lessons</div>
+            <div className="text-sm text-muted-foreground">Lessons in progress</div>
+            <div className="text-xs text-muted-foreground mt-1">Started, not yet completed</div>
           </CardContent>
         </Card>
       </div>
@@ -264,7 +267,7 @@ export default function AdminHome() {
   useEffect(() => {
     if (location.state?.notice) setPageNotice(location.state.notice);
   }, [location.state]);
-  const [activeCount, setActiveCount] = useState(null);
+  const [userCount, setUserCount] = useState(null);
   const [pendingCount, setPendingCount] = useState(null);
   const [hasKB, setHasKB] = useState(true);
   const [lessonStats, setLessonStats] = useState(null);
@@ -286,7 +289,7 @@ export default function AdminHome() {
         adminApi('GET', '/v1/admin/knowledge-base'),
         loadStats(),
       ]);
-      setActiveCount(Array.isArray(users) ? users.length : 0);
+      setUserCount(Array.isArray(users) ? users.length : 0);
       setPendingCount(Array.isArray(invites) ? invites.filter(i => i.status === 'pending').length : 0);
       setHasKB(!!kb?.content);
       setLessonStats(stats);
@@ -346,7 +349,7 @@ export default function AdminHome() {
           </Button>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground mb-6">Learner engagement and lesson pacing.</p>
+      <p className="text-sm text-muted-foreground mb-6">Lesson stats count published lessons only.</p>
       <span className="sr-only" role="status" aria-live="polite">{pageNotice || refreshAnnounce}</span>
 
       {pageNotice && (
@@ -376,8 +379,9 @@ export default function AdminHome() {
         <Link to="/plato/users" className="no-underline touch-manipulation">
           <Card className="[@media(hover:hover)_and_(pointer:fine)]:hover:ring-2 [@media(hover:hover)_and_(pointer:fine)]:hover:ring-primary/30 active:ring-2 active:ring-primary/30 transition-shadow cursor-pointer">
             <CardContent>
-              <div className="text-3xl font-bold tabular-nums">{activeCount ?? '—'}</div>
-              <div className="text-sm text-muted-foreground">Active users</div>
+              <div className="text-3xl font-bold tabular-nums">{userCount ?? '—'}</div>
+              {/* Every account, admins included; nothing here measures recent activity. */}
+              <div className="text-sm text-muted-foreground">Users</div>
             </CardContent>
           </Card>
         </Link>

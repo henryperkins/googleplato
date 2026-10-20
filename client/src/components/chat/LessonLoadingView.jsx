@@ -2,8 +2,8 @@
  * LessonLoadingView — stepped build progress UI shown when starting a lesson.
  *
  * Shows 3 phases:
- * 1. Initializing lesson (Lesson Owner agent generates KB)
- * 2. Enriching lesson (plugins run — only shown if plugins are active)
+ * 1. Planning the lesson (Lesson Owner agent generates KB)
+ * 2. Adding context (plugins run — only shown if plugins are active)
  * 3. Starting conversation (Coach opens with first message)
  *
  * Each step shows a spinner + status. The enrichment step expands to show
@@ -78,8 +78,8 @@ export default function LessonLoadingView({ step, enrichments = [] }) {
   const steps = [
     {
       key: STEPS.INITIALIZING,
-      label: 'Initializing lesson',
-      detail: 'The Lesson Owner is reviewing the objectives and creating your personalized learning plan',
+      label: 'Planning the lesson',
+      detail: 'Reviewing the objectives and tailoring the plan to you',
       status: step === STEPS.INITIALIZING
         ? 'in_progress'
         : (step === STEPS.ENRICHING || step === STEPS.STARTING ? 'completed' : 'pending'),
@@ -90,8 +90,8 @@ export default function LessonLoadingView({ step, enrichments = [] }) {
   if (showEnrichmentStep) {
     steps.push({
       key: STEPS.ENRICHING,
-      label: 'Enriching lesson',
-      detail: 'Gathering additional context and resources for this lesson',
+      label: 'Adding context',
+      detail: 'Gathering resources for this lesson',
       status: step === STEPS.ENRICHING
         ? 'in_progress'
         : (step === STEPS.STARTING ? 'completed' : 'pending'),

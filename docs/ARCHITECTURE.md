@@ -28,8 +28,9 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
 Google sign-in uses Firebase Auth's popup. The server verifies the Firebase ID
 token at `POST /v1/auth/firebase` and answers with plato's own access and
 refresh tokens, so from then on a Google session is an ordinary plato session.
-The verified email matches an existing account, or onboards a new one through
-the same invite and wait-list checks as signup.
+A verified email that matches an existing account signs in to it. Any other
+verified Google account gets a new learner account: a pending invite or
+wait-list entry for that email supplies its profile, but neither is required.
 
 For Google sessions only, `client/js/firebaseClient.js` also keeps a copy in
 Cloud Firestore: a profile at `users/{uid}` (email isolated in
@@ -407,6 +408,12 @@ async or something fails:
 - **Refreshes don't unmount pages.** Admin pages show the full-page spinner only
   on the first load, so a refresh after a save or delete keeps the page, its
   scroll position, and any open dialog in place.
+- **Auth errors are written for people.** `client/src/lib/authErrors.js` turns
+  Firebase codes into plain messages, so learners never see a raw
+  `auth/…` message or a Firebase console instruction (only first-run Setup
+  explains how to enable Google sign-in). A closed Google window isn't an
+  error, an unreachable server reads as offline, and a missing-fields summary
+  names only the fields that are actually empty.
 - **Unknown is not "none".** When the invite-link or wait-list status fails to
   load, the controls that would replace a live credential stay hidden behind a
   Try again prompt, so a failed fetch can't skip the replacement confirmation.
@@ -507,10 +514,11 @@ host filters out nulls — only non-null returns are stored.
 ### UI components
 
 - **LessonLoadingView** (`client/src/components/chat/LessonLoadingView.jsx`) —
-  stepped progress UI showing: (1) Initializing lesson (Lesson Owner), (2) Enriching
-  lesson (plugins — only shown when active), (3) Starting conversation (Coach).
-  The enrichment step expands to show per-plugin progress when multiple plugins
-  are active. Includes `role="status"` and `aria-live="polite"` for screen reader
+  stepped progress UI showing: (1) Planning the lesson (Lesson Owner), (2) Adding
+  context (plugins — only shown when active), (3) Starting conversation (Coach).
+  Labels describe the work, not the agent doing it: learners never see agent
+  names. The enrichment step expands to show per-plugin progress when multiple
+  plugins are active. Includes `role="status"` and `aria-live="polite"` for screen reader
   announcements.
 - **Lesson Overview Dialog** (`client/src/pages/LessonChat.jsx`) — modal dialog
   displaying lesson name, description, exemplar, learning objectives, and an
@@ -865,19 +873,19 @@ silently redirects back to `/plato/users`.
 
 `UserStatsPanel` (`client/src/pages/admin/UserStatsPanel.jsx`) fetches
 `GET /v1/admin/users/:userId/stats` and renders three summary tiles (a
-CompletionRing for completed/available with color thresholds at 35%/90%,
-logins-in-window count, median completion time with p90 sub) and a list of
-completed lessons. Computed on demand — no precomputation.
+CompletionRing for completed/available with color thresholds at 35%/90%, last
+active, and median estimated active time with the 90th percentile beneath) and
+a list of completed lessons. Computed on demand — no precomputation.
 
-- UI uses "completed" / "completion time" rather than "mastered" / "time to
-  mastery" because the underlying field is `lessonKB.status === 'completed'` —
-  calling it mastery would imply a quality claim we don't measure.
+- The stats are all-time. The route accepts `?days=` and echoes it as
+  `windowDays`, but nothing is filtered by it, so the panel names no window.
+- UI uses "completed" rather than "mastered" because the underlying field is
+  `lessonKB.status === 'completed'` — calling it mastery would imply a quality
+  claim we don't measure.
 - Duration is exchange-based (`activitiesCompleted × MINS_PER_EXCHANGE`) for
   consistency with `/v1/admin/stats/lessons` — wall-clock minutes inflate from
-  multi-session lessons.
-- Logins come from audit-log `user_login` entries (written by `/v1/auth/login`;
-  the audit-log table has no GSI on userId, so reads use Scan-with-filter — fine
-  at current scale, revisit at ~100k entries).
+  multi-session lessons — so the UI labels it an estimate ("est. active time",
+  "~N min"), matching the dashboard.
 
 The Admin → Users table opt-in `?include=stats` adds `lessonsCompleted`,
 `lessonsAvailable`, and `lastActiveAt` to each row; the Completed column renders

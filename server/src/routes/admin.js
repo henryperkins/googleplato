@@ -1431,7 +1431,8 @@ admin.get('/v1/admin/stats/lessons', async (c) => {
 
 // GET /v1/admin/users/:userId/stats — per-user activity metrics for the
 // admin user-detail panel (issue #136). Computed on demand from sync-data;
-// no precomputation. Window is the last `days` calendar days (default 30) in UTC.
+// no precomputation. Stats are all-time: `days` (default 30) is only echoed
+// back as `windowDays`, and the panel doesn't claim a window.
 //
 // Duration is exchange-based (activitiesCompleted × MINS_PER_EXCHANGE) to
 // match `/v1/admin/stats/lessons` and AdminHome — wall-clock minutes inflate

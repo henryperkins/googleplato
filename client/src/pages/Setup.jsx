@@ -3,6 +3,7 @@ import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
 import { saveAuthTokens, saveAuthUser, saveAuthProvider } from '../../js/storage.js';
 import { loginWithGoogle, preloadFirebase } from '../../js/auth.js';
+import { googleSignInError, missingFieldsMessage, requestError } from '../lib/authErrors.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,9 +60,8 @@ export default function Setup() {
       try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
       window.location.href = '/plato';
     } catch (e) {
-      if (e?.code !== 'auth/popup-closed-by-user') {
-        setError(e.message || 'Google setup failed');
-      }
+      const msg = googleSignInError(e, { audience: 'admin' });
+      if (msg) setError(msg);
     } finally {
       setGoogleSubmitting(false);
     }
@@ -89,8 +89,10 @@ export default function Setup() {
 
     if (Object.keys(nextErrs).length > 0) {
       setFieldErrors(nextErrs);
-      if (!email.trim() || !name.trim() || !password) {
-        setError('All fields are required.');
+      // The classroom name is optional, so name only the fields that are missing.
+      const missing = [!name.trim() && 'your name', !email.trim() && 'your email', !password && 'a password'].filter(Boolean);
+      if (missing.length) {
+        setError(missingFieldsMessage(missing));
       } else if (nextErrs.email) {
         setError(nextErrs.email);
       } else if (nextErrs.password) {
@@ -114,15 +116,15 @@ export default function Setup() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), name: name.trim(), password, classroomName: classroomName.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Setup failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "We couldn't finish setup. Try again.");
       try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
       await saveAuthTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
       await saveAuthUser(data.user);
       saveAuthProvider('password');
       window.location.href = '/plato';
     } catch (e) {
-      setError(e.message || 'Setup failed');
+      setError(requestError(e, "We couldn't finish setup. Try again."));
     } finally {
       setSubmitting(false);
     }
@@ -133,7 +135,7 @@ export default function Setup() {
       <img src="/assets/logo-white.svg" alt="plato" width="160" height="40" fetchPriority="high" className="h-10 w-auto mb-6" />
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle as="h1" className="text-2xl">Build your Classroom.</CardTitle>
+          <CardTitle as="h1" className="text-2xl">Build your classroom</CardTitle>
           <CardDescription>Name your classroom and create your admin account.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

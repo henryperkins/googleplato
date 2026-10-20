@@ -457,7 +457,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
         <DialogHeader>
           <DialogTitle>Add Profile Feedback</DialogTitle>
           <DialogDescription>
-            Share anything that seems inaccurate or missing -- your device, experience level, learning style, or anything else.
+            Tell us what your profile gets wrong or leaves out, like your device, experience level, or learning style.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">

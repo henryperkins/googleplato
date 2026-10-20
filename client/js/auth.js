@@ -87,7 +87,9 @@ export async function login(email, password) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'Login failed');
+    const err = new Error(body.error || 'Login failed');
+    err.status = res.status;
+    throw err;
   }
   const { accessToken, refreshToken, user } = await res.json();
   await saveAuthTokens({ accessToken, refreshToken });
@@ -134,7 +136,7 @@ export async function loginWithGoogle(options = {}) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     await signOutFirebase();
-    const err = new Error(body.error || 'Google sign-in failed');
+    const err = new Error(body.error || "Google sign-in didn't work. Try again.");
     err.code = body.code;
     err.email = body.email;
     throw err;

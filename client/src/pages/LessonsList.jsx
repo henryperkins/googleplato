@@ -28,6 +28,9 @@ const STATUS_NOT_STARTED = 'not-started';
 const STATUS_IN_PROGRESS = 'in-progress';
 const STATUS_COMPLETED = 'completed';
 
+// Learners can't create lessons, so the empty list explains where they come from.
+const EMPTY_MESSAGE = 'No lessons yet. Lessons appear here when they’re published or shared with you.';
+
 function lessonStatusKey(d) {
   if (d?.status === 'completed') return STATUS_COMPLETED;
   if (d?.status) return STATUS_IN_PROGRESS;
@@ -187,6 +190,12 @@ export default function LessonsList() {
   // know the visible content shifted. Kept in an always-mounted sr-only
   // region so the announcement fires reliably (a region that appears for
   // the first time on render is sometimes missed).
+  // The filter choices that would widen an empty result, named as they appear.
+  const activeFilterResets = [
+    courseFilter !== FILTER_ALL && '“All\u00a0courses”',
+    statusFilter !== STATUS_ALL && '“All\u00a0statuses”',
+  ].filter(Boolean);
+
   const filterPhrase = useMemo(() => {
     const phrases = [];
     if (courseFilter === FILTER_NONE) phrases.push('without a course');
@@ -209,7 +218,7 @@ export default function LessonsList() {
     if (!loaded) return '';
     const total = filtered.length;
     const scope = filterPhrase ? ` ${filterPhrase}` : '';
-    if (lessons.length === 0) return 'No lessons yet.';
+    if (lessons.length === 0) return EMPTY_MESSAGE;
     if (total === 0) {
       return filterPhrase ? `No lessons ${filterPhrase}.` : 'No lessons.';
     }
@@ -279,12 +288,13 @@ export default function LessonsList() {
           Loading lessons…
         </div>
       ) : lessons.length === 0 ? (
-        <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
-          No lessons yet.
+        <div className="rounded-lg border border-dashed px-4 py-12 text-center text-muted-foreground">
+          {EMPTY_MESSAGE}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
-          No lessons match this filter.
+        <div className="rounded-lg border border-dashed px-4 py-12 text-center text-muted-foreground">
+          {activeFilterResets.length > 1 ? 'No lessons match these filters.' : 'No lessons match this filter.'}{' '}
+          Choose {activeFilterResets.join(' or ')} to see more.
         </div>
       ) : (
         <ul

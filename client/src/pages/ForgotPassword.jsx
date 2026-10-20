@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { forgotPassword } from '../../js/auth.js';
+import { requestError } from '../lib/authErrors.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,12 +60,12 @@ export default function ForgotPassword() {
     try {
       await forgotPassword(cleanEmail);
       try { sessionStorage.removeItem(FORGOT_DRAFT_KEY); } catch { /* ignore */ }
-      setMessage('Password reset email sent! If an account exists for this email, you will receive instructions to reset your password. Please check your inbox and spam folder.');
+      // The server answers the same whether or not the account exists, so the
+      // message can't claim an email was sent. Echoing the address shows typos.
+      // "1 hour" mirrors RESET_TOKEN_TTL_HOURS in server/src/config.js.
+      setMessage(`If ${cleanEmail} belongs to an account, a reset link is on its way. The link expires in 1\u00a0hour. If it doesn't arrive in a few minutes, check your spam folder.`);
     } catch (e) {
-      // fetch() rejects with a TypeError when the server can't be reached.
-      setError(e instanceof TypeError
-        ? "We couldn't reach plato. Check your internet connection, then try again."
-        : (e.message || "We couldn't send the reset email. Try again."));
+      setError(requestError(e, "We couldn't send the reset email. Try again."));
     } finally {
       setSubmitting(false);
     }

@@ -56,6 +56,19 @@ export default function Privacy() {
           </section>
 
           <section>
+            <h2 className="text-lg font-semibold mb-2">Google Sign-In and Firebase</h2>
+            <p className="text-muted-foreground mb-2">
+              If you sign in with Google, plato uses Google Firebase Authentication to verify your sign-in. For
+              those accounts, plato also keeps a copy of your account details (name, username, email, role, and
+              group) and your lesson data (conversations, progress, learner profile, and screenshots) in Google
+              Cloud Firestore, alongside the main copy in Amazon DynamoDB.
+            </p>
+            <p className="text-muted-foreground">
+              If you sign in with an email or username and password, plato doesn’t use Firebase.
+            </p>
+          </section>
+
+          <section>
             <h2 className="text-lg font-semibold mb-2">AI Provider</h2>
             <p className="text-muted-foreground mb-2">
               plato uses Amazon Bedrock to power the AI coach and other lesson features. Bedrock is Amazon’s
@@ -95,7 +108,8 @@ export default function Privacy() {
             <h2 className="text-lg font-semibold mb-2">Data Retention</h2>
             <p className="text-muted-foreground">
               Your account, lessons, and chat history are retained as long as your account is active. If you wish
-              to delete your data, contact your plato administrator.
+              to delete your data, contact your plato administrator. If you signed in with Google, ask them to
+              delete the Firestore copy too; it isn’t removed along with your plato account.
             </p>
           </section>
 
