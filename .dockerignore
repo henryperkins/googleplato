@@ -1,0 +1,17 @@
+.git
+**/node_modules
+**/.env
+**/.env.*
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/dist
+**/.aws-sam
+**/client-dist
+**/client-content
+.impeccable
+.playwright-cli
+output
+data
+client/data
+server/data
