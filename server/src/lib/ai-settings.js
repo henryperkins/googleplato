@@ -1,0 +1,44 @@
+import db from './db.js';
+
+export const BEDROCK_MODEL = 'qwen3-vl-235b';
+export const WORKERS_AI_MODELS = [
+  { id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash 1017', description: 'Text and images. Maximum reasoning. Requires Workers Paid or prepaid AI Gateway credits.' },
+  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', name: 'Mistral Small 3.1 24B', description: 'Text and images. No reasoning mode.' },
+];
+export const DEFAULT_WORKERS_AI_MODEL = WORKERS_AI_MODELS[0].id;
+
+export function validateAiSettings(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'AI settings must be an object.';
+  if (!['bedrock', 'workers-ai'].includes(value.provider)) return 'Choose Amazon Bedrock or Cloudflare Workers AI.';
+  if (!WORKERS_AI_MODELS.some(model => model.id === value.workersAiModel)) return 'Choose a supported Cloudflare-hosted model.';
+  if (Object.keys(value).some(key => !['provider', 'workersAiModel', 'version'].includes(key))) return 'Only provider and model settings can be saved. Configure credentials on the server.';
+  return null;
+}
+
+export async function readAiSettings() {
+  const item = await db.getSyncData('_system', 'ai-settings', { consistentRead: true });
+  const settings = {
+    provider: item?.data?.provider ?? process.env.AI_PROVIDER ?? 'bedrock',
+    workersAiModel: item?.data?.workersAiModel ?? process.env.WORKERS_AI_MODEL ?? DEFAULT_WORKERS_AI_MODEL,
+  };
+  if (validateAiSettings(settings)) {
+    throw Object.assign(new Error('Invalid server AI settings.'), { name: 'AiConfigurationError' });
+  }
+  return { ...settings, version: item?.version || 0 };
+}
+
+export function workersAiCredentialStatus() {
+  const accountId = /^[a-f0-9]{32}$/i.test(process.env.CLOUDFLARE_ACCOUNT_ID || '');
+  const apiToken = Boolean(process.env.CLOUDFLARE_API_TOKEN?.trim());
+  return { accountId, apiToken, configured: accountId && apiToken };
+}
+
+export function adminAiSettings(settings) {
+  return {
+    ...settings,
+    bedrockModel: BEDROCK_MODEL,
+    awsRegion: process.env.AWS_REGION || 'us-east-2',
+    workersAiModels: WORKERS_AI_MODELS,
+    workersAiCredentials: workersAiCredentialStatus(),
+  };
+}

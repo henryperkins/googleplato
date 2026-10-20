@@ -21,7 +21,7 @@ describe('aiErrorMessage', () => {
   it('gives admins the configuration hint they can act on', () => {
     assert.equal(
       aiErrorMessage(serverError('ai_unavailable'), 'lesson-creator'),
-      "The lesson creator can't respond because the server can't reach the AI service. Check the server's AWS credentials and Bedrock model access.",
+      "The lesson creator can't respond because the server can't reach the AI service. Open AI Settings in the admin dashboard to check the selected provider, server credentials, and model access.",
     );
   });
 

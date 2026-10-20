@@ -82,7 +82,7 @@ function describe(kind, s) {
   switch (kind) {
     case 'unavailable':
       return s.audience === 'admin'
-        ? `${who} can't ${act} because the server can't reach the AI service. Check the server's AWS credentials and Bedrock model access.`
+        ? `${who} can't ${act} because the server can't reach the AI service. Open AI Settings in the admin dashboard to check the selected provider, server credentials, and model access.`
         : `${who} can't ${act} because the AI service is unavailable right now. Try again later, and tell your program admin if this keeps happening.`;
     case 'busy':
       return `${who} couldn't ${act} because the AI service is busy. Wait a moment, then ${lowerFirst(retry)}`;

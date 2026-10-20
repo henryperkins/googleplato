@@ -87,7 +87,7 @@ the classroom.
 
 ## AI agents
 
-9 AI agents, all sharing one open source model on Bedrock (prompt files in
+9 AI agents, all sharing the admin-selected provider and model (prompt files in
 `client/prompts/`; see [AI provider & model choice](#ai-provider--model-choice)).
 Each prompt file has an HTML comment header documenting what it reads, who calls
 it, and its purpose:
@@ -113,15 +113,48 @@ Context appended at runtime (`client/js/orchestrator.js`):
 
 ## AI provider & model choice
 
-plato runs **one model for all nine agents** — no per-agent routing. It is
-declared once as `LLM` in `server/src/lib/ai-provider.js`, mirrored in
-`client/js/api.js`, and injected into plugins as `ctx.LLM`. Bedrock is the only
-backend, in production and in local dev; the direct Anthropic API provider was
-removed when plato moved to open weights.
+plato runs **one model for all nine agents** — no per-agent routing. Admins
+choose **Amazon Bedrock** or **Cloudflare Workers AI** at `/plato/ai`. The
+admin-only `/v1/admin/ai-settings` API stores `{ provider, workersAiModel }` in
+`_system:ai-settings`, separately from branding and other settings. Saves use
+strict version checks. Every inference consistently reads the saved selection
+once, so it applies to the next request across server instances without changing
+an in-flight stream. No provider fallback occurs.
 
-Current model: **`qwen.qwen3-vl-235b-a22b`** (Qwen3-VL 235B A22B, Apache-2.0).
+`server/src/lib/ai-provider.js` routes both invocation modes and plugin calls
+through the selected adapter. `LLM` / `ctx.LLM` remain compatibility hints;
+browser and plugin model arguments do not override the admin choice.
+Before the first save, `AI_PROVIDER` and `WORKERS_AI_MODEL` supply optional
+defaults. Existing installations default to Bedrock.
 
-### Why this model
+Bedrock uses **`qwen.qwen3-vl-235b-a22b`** and the AWS credential chain.
+Workers AI defaults to **`@cf/deepseek-ai/deepseek-v4.1-flash-1017`**, hosted by
+Cloudflare, with **`reasoning_effort: 'max'`** on every request. Mistral Small 3.1
+24B is an optional non-reasoning model. The server maintains the supported-model
+allowlist in `ai-settings.js`; model IDs cannot redirect inference to external
+providers. Both choices support images.
+
+`workers-ai.js` calls Cloudflare's Chat Completions endpoint using
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the server environment.
+Settings responses expose only credential-presence booleans. Tokens are never
+stored in synced settings or sent to the browser. SAM passes the optional
+Cloudflare credentials to both Lambda functions.
+
+The adapter translates system prompts, text, and base64 images into Chat
+Completions messages and converts responses/SSE back into the existing Messages
+wire format. Reasoning traces never enter visible replies or tag parsing.
+DeepSeek gets 8,192 additional completion tokens for reasoning on top of the
+caller's existing output budget. Both adapters have a 115-second timeout.
+Partial, malformed, and reasoning-only Cloudflare streams fail explicitly;
+they do not become successful empty replies. The admin connection test makes
+a small non-streaming request without saving or activating the draft settings.
+
+### Historical Bedrock model selection
+
+The following evaluation describes the original Bedrock deployment. Its
+Bedrock-only constraint no longer applies to installations selecting Workers AI.
+Cloudflare models need separate coaching/tag-compliance evaluation; the earlier
+Bedrock results do not qualify them.
 
 Selected against the models available on Bedrock in us-east-2 by applying four
 constraints in the following order — the fourth is what ultimately decides it:
@@ -252,14 +285,16 @@ tail is real and worth watching in the log-watch alarm.
 ### Errors shown to users
 
 A failed AI call should say what failed and what to do next, and never echo
-provider internals. On a streaming failure, `server/src/routes/ai.js` classifies
-the Bedrock error with `server/src/lib/ai-errors.js` into a stable code
+provider internals. On either invocation mode, `server/src/routes/ai.js` classifies
+the provider error with `server/src/lib/ai-errors.js` into a stable code
 (`ai_unavailable`, `ai_rate_limited`, `ai_overloaded`, `ai_timeout`,
 `ai_invalid_request`, `ai_error`) and streams
-`{ type: 'error', error: { code, message } }` with a generic message, because raw
-AWS text can include the account ID and IAM role name. Server logs keep the full
+`{ type: 'error', error: { code, message } }` with a generic message for streams
+(or `{ code, error }` with a classified HTTP status for ordinary requests), because raw
+AWS text can include the account ID and IAM role name. Server streaming logs keep the
 error. The empty-content guard answers with `code: 'empty_message'`.
-Non-streaming failures still reach the global error handler as a 500.
+Missing credentials or model access are not retried as transient overloads.
+Closing a streaming response aborts the upstream provider request.
 
 The client must surface these. `parseSSEStream` throws on an error event, and
 `converseStream` drops empty turns before sending and treats an empty reply as
@@ -269,7 +304,7 @@ chats kept it as a blank turn, and the next send failed with the guard's
 
 `client/src/lib/aiErrors.js` maps the code, plus the surface that made the call,
 to the copy each page shows. Learners get plain language; admins also get the
-configuration hint, such as checking AWS credentials. Errors that don't come
+configuration hint pointing to Admin → AI Settings. Errors that don't come
 from an AI call keep their own message. Add a surface there when a new page
 calls an agent.
 

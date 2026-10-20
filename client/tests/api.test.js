@@ -38,6 +38,11 @@ describe('parseSSEStream', () => {
 });
 
 describe('parseResponse', () => {
+  it('does not mark missing provider configuration as transient overload', async () => {
+    const resp = Response.json({ error: 'The AI service is unavailable.', code: 'ai_unavailable' }, { status: 503 });
+    await assert.rejects(parseResponse(resp), err => err.code === 'ai_unavailable' && err.type === 'api');
+  });
+
   it('carries the server code on a rejected request', async () => {
     const resp = new Response(JSON.stringify({ error: 'messages must have non-empty content', code: 'empty_message' }), { status: 400 });
     await assert.rejects(parseResponse(resp), (err) => err.status === 400 && err.code === 'empty_message');
