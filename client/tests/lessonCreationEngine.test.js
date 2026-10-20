@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildConversationText } from '../src/lib/lessonCreationEngine.js';
+import { buildConversationText, lessonObjectiveError } from '../src/lib/lessonCreationEngine.js';
+
+it('rejects a preview whose objectives would be rejected by the server', () => {
+  assert.ok(lessonObjectiveError('## Learning Objectives\n- Understand A\n- Apply B'));
+  assert.ok(lessonObjectiveError('## learning objectives\n- Can do A\n- Can do B'));
+  assert.equal(lessonObjectiveError('## Learning Objectives\n- Can do A\n- Can do B\n## Coach Directive\n- Anything'), null);
+});
 
 // buildConversationText feeds the lesson-extractor agent. It is shared by the
 // lesson editor's "Create/Update Lesson" finalize path and the preview-refresh

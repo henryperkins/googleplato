@@ -401,6 +401,12 @@ Verify changes by hand with the compose bar in *both* states (fixed mid-lesson,
 inline at the end of a short one); `client/tests/stickToBottom.test.js` covers
 only the decision layer.
 
+The admin lesson editor passes an explicit `scrollTargetRef` at the end of its
+inline composer. On narrow screens the markdown preview follows the chat, so
+scrolling that admin container to its absolute bottom would hide the composer.
+The optional target changes both pinning and the "at bottom" calculation.
+Learner chat continues to use full-scrollport pinning.
+
 On short viewports (`@media (max-height: 34em)` in `index.css`) the lesson
 header and composer go `position: static`, and
 `useVisualViewportKeyboardOffset` stops lifting the composer
@@ -689,23 +695,50 @@ editor). The editor is deep-linked at `/plato/lessons/:lessonId/edit` (mirrors
 the `users/:userId` pattern) so it survives reload and browser-back.
 `/plato/lessons/new` mints a fresh `admin-<ms>` draft id and `replace`-redirects
 to that edit URL — the draft record is created lazily by the editor's first
-auto-save. The edit route fetches the lesson on mount; a missing/deleted lesson
-redirects to `/plato/lessons`, but a 404 on a freshly-minted draft id (within
-`FRESH_DRAFT_WINDOW_MS`, i.e. not yet auto-saved) opens create mode instead of
-bouncing. `AdminLessons` keys `NewLessonView` on `lessonId` so switching lessons
-remounts cleanly.
+auto-save. Only a confirmed 404 for a fresh draft (within five minutes) or an
+unsaved recovery copy opens create mode. Other load failures offer retry in
+place, without starting an agent or writing a draft. `AdminLessons` keys
+`LessonEditor` on the lesson and load attempt so switching lessons remounts cleanly.
+
+`lessonSaveQueue` serializes conversation, course and final markdown writes.
+Each write carries the last acknowledged `expectedVersion` and a stable
+`operationId`. Authoring reads are consistent on DynamoDB; both database
+adapters enforce strict compare-and-set, including first creation and deletion.
+A retry of an already committed operation acknowledges the existing version.
+Competing changes return 409 rather than overwriting another session. Legacy
+draft writes also cannot rename or overwrite a finalized lesson.
+Non-authoring edits must clear `authoringOperationId`: the course-deletion
+cascade does this so neither a retry nor tab recovery can mistake its newer
+version for the original authoring save and restore a deleted course assignment.
+
+Before requests, a recovery copy stores the conversation, pending operations,
+reply state and preview in account/lesson-scoped **sessionStorage**. It survives
+navigation and reload in that tab, not closing the tab. Failed saves provide
+**Retry saving**, without another AI call; interrupted replies provide **Retry
+reply**, reusing the submitted user turn. Back waits for pending saves, unload
+warns while writes are pending, and storage failure is visible. Departed editors
+cannot overwrite a newer recovery copy or navigate after their requests finish.
+Conflicts preserve local work until the admin explicitly chooses to discard it
+and load the saved lesson. A confirmed 400 rejecting final markdown permits
+**Revise lesson**; unknown write outcomes retain the same operation for retry.
 
 **Markdown preview pane** (`client/src/pages/admin/MarkdownPreviewPane.jsx`):
-chat left, rendered markdown right, stacking below `lg`. The preview is
+chat left, rendered markdown right, wrapping according to available space and
+text size. Headers and action groups wrap at narrow widths. The preview is
 **manually refreshed** via a "Generate preview" / "Refresh preview" button that
 re-runs the relevant extractor agent — it does NOT auto-update per message and
 runs no AI call on editor open. On open the pane shows the already-saved markdown
 (edit) or a quiet empty-state (new). Once the conversation advances past the last
-refresh a "Preview may be outdated" hint appears. The preview is **not
-persisted** — a standing note tells the admin to click the save button.
+refresh a hint explains that the conversation has changed. Conversation and
+markdown revision IDs preserve that distinction across sessions.
+**Generate preview / Refresh preview** generates and validates a preview;
+**Create/Update Lesson** saves that exact
+markdown, after pending autosaves finish. Failed finalization retains the
+preview for persistence-only retry. Restart clears it and invalidates outstanding
+extractions. Preview markdown is kept in the tab's recovery copy, but is not
+published as lesson content until the save button is used.
 `buildConversationText` (`client/src/lib/lessonCreationEngine.js`) is the shared
-builder for the extractor input, used by both the finalize and preview-refresh
-paths. The same pane (copy parametrized via props) backs both the lesson editor
+builder for the extractor input. The same pane (copy parametrized via props) backs both the lesson editor
 (`extractLessonMarkdown`) and the **knowledge base editor**
 (`AdminCustomizer` + `AdminKBSetup`, `extractKBMarkdown`).
 

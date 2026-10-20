@@ -386,10 +386,11 @@ const db = {
 
   // ── Sync Data ──
 
-  async getSyncData(userId, dataKey) {
+  async getSyncData(userId, dataKey, { consistentRead = false } = {}) {
     const result = await doc.send(new GetCommand({
       TableName: SYNC_DATA_TABLE,
       Key: { userId, dataKey },
+      ConsistentRead: consistentRead,
     }));
     return result.Item || null;
   },
@@ -431,15 +432,17 @@ const db = {
     return items;
   },
 
-  async putSyncData(userId, dataKey, data, expectedVersion) {
+  async putSyncData(userId, dataKey, data, expectedVersion, { strictVersion = false } = {}) {
     const now = new Date().toISOString();
     const newVersion = (expectedVersion || 0) + 1;
     const params = {
       TableName: SYNC_DATA_TABLE,
       Item: { userId, dataKey, data, updatedAt: now, version: newVersion },
     };
-    if (expectedVersion) {
-      params.ConditionExpression = 'attribute_not_exists(version) OR version = :v';
+    if (strictVersion && expectedVersion === 0) {
+      params.ConditionExpression = 'attribute_not_exists(version)';
+    } else if (expectedVersion) {
+      params.ConditionExpression = strictVersion ? 'version = :v' : 'attribute_not_exists(version) OR version = :v';
       params.ExpressionAttributeValues = { ':v': expectedVersion };
     }
     await doc.send(new PutCommand(params));

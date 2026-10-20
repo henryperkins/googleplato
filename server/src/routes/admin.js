@@ -21,6 +21,46 @@ import {
 
 const admin = new Hono();
 
+const lessonConflict = 'This lesson changed in another session. Load the saved lesson before continuing.';
+
+function checkLessonWrite(c, body, current) {
+  if (body.expectedVersion !== undefined && (!Number.isSafeInteger(body.expectedVersion) || body.expectedVersion < 0)) {
+    return c.json({ error: 'expectedVersion must be a non-negative integer' }, 400);
+  }
+  if (body.operationId !== undefined && (typeof body.operationId !== 'string' || !body.operationId || body.operationId.length > 128)) {
+    return c.json({ error: 'operationId must be a non-empty string of at most 128 characters' }, 400);
+  }
+  // A retry after a lost response acknowledges the original write.
+  if (body.operationId && body.operationId === current?.data?.authoringOperationId) {
+    return c.json({ ok: true, version: current.version });
+  }
+  if (body.expectedVersion !== undefined && body.expectedVersion !== (current?.version || 0)) {
+    return c.json({ error: lessonConflict }, 409);
+  }
+  return null;
+}
+
+async function writeLesson(c, lessonId, body, current, data) {
+  data.authoringOperationId = body.operationId || null;
+  try {
+    const saved = await db.putSyncData('_system', `lesson:${lessonId}`, data, current?.version || 0, {
+      strictVersion: body.expectedVersion !== undefined,
+    });
+    return c.json({ lessonId, ok: true, version: saved?.version ?? (current?.version || 0) + 1 });
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') {
+      // A departed editor and its resumed copy may retry the same request
+      // concurrently. A winning identical operation is success, not conflict.
+      if (body.operationId) {
+        const saved = await db.getSyncData('_system', `lesson:${lessonId}`, { consistentRead: true });
+        if (saved?.data?.authoringOperationId === body.operationId) return c.json({ ok: true, version: saved.version });
+      }
+      return c.json({ error: lessonConflict }, 409);
+    }
+    throw error;
+  }
+}
+
 /** Validate lesson markdown for microlearning constraints. Returns error string or null. */
 function validateLessonMarkdown(markdown) {
   const objSection = markdown.split(/^## Learning Objectives$/m)[1];
@@ -867,9 +907,9 @@ admin.get('/v1/admin/lessons', async (c) => {
 // GET /v1/admin/lessons/:lessonId
 admin.get('/v1/admin/lessons/:lessonId', async (c) => {
   const lessonId = c.req.param('lessonId');
-  const item = await db.getSyncData('_system', `lesson:${lessonId}`);
+  const item = await db.getSyncData('_system', `lesson:${lessonId}`, { consistentRead: true });
   if (!item) return c.json({ error: 'Lesson not found' }, 404);
-  return c.json({ lessonId, ...item.data, updatedAt: item.updatedAt });
+  return c.json({ lessonId, ...item.data, version: item.version, updatedAt: item.updatedAt });
 });
 
 // PUT /v1/admin/lessons/:lessonId
@@ -877,7 +917,13 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   const lessonId = c.req.param('lessonId');
   const body = await c.req.json();
   const adminUser = c.get('user');
-  const current = await db.getSyncData('_system', `lesson:${lessonId}`);
+  const current = await db.getSyncData('_system', `lesson:${lessonId}`, { consistentRead: true });
+  const rejected = checkLessonWrite(c, body, current);
+  if (rejected) return rejected;
+  // Also protect against delayed autosaves from clients without revision metadata.
+  if (body.status === 'draft' && current?.data?.markdown) {
+    return c.json({ error: lessonConflict }, 409);
+  }
   const markdownToValidate = body.markdown || current?.data?.markdown;
   const hasMarkdown = !!markdownToValidate;
   const newStatus = normalizeStatus(body.status || current?.data?.status, hasMarkdown);
@@ -910,11 +956,13 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   const data = {
     markdown: markdownToValidate || '',
     name: body.name || current?.data?.name || lessonId,
-    isBuiltIn: body.isBuiltIn || false,
+    isBuiltIn: body.isBuiltIn !== undefined ? body.isBuiltIn : (current?.data?.isBuiltIn || false),
     status: newStatus,
     sharedWith,
     course,
     conversation: body.conversation !== undefined ? body.conversation : (current?.data?.conversation || null),
+    conversationRevision: body.conversationRevision ?? current?.data?.conversationRevision ?? null,
+    markdownRevision: body.markdown ? (body.markdownRevision ?? null) : (current?.data?.markdownRevision ?? null),
     readiness: body.readiness !== undefined ? body.readiness : (current?.data?.readiness ?? null),
     updatedBy: adminUser.userId,
     updatedByName: adminUser.username || adminUser.email,
@@ -922,21 +970,22 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
     createdByName: current?.data?.createdByName || adminUser.username || adminUser.email,
     createdAt: current?.data?.createdAt || new Date().toISOString(),
   };
-  await db.putSyncData('_system', `lesson:${lessonId}`, data, current?.version || 0);
-  return c.json({ lessonId, ok: true });
+  return writeLesson(c, lessonId, body, current, data);
 });
 
 // PUT /v1/admin/lessons/:lessonId/conversation — auto-save conversation without requiring markdown
 admin.put('/v1/admin/lessons/:lessonId/conversation', async (c) => {
   const lessonId = c.req.param('lessonId');
   const body = await c.req.json();
-  const current = await db.getSyncData('_system', `lesson:${lessonId}`);
+  const current = await db.getSyncData('_system', `lesson:${lessonId}`, { consistentRead: true });
   if (!current) return c.json({ error: 'Lesson not found' }, 404);
+  const rejected = checkLessonWrite(c, body, current);
+  if (rejected) return rejected;
   const data = { ...current.data };
   data.conversation = body.conversation || null;
+  data.conversationRevision = body.conversationRevision ?? null;
   if (body.readiness !== undefined) data.readiness = body.readiness;
-  await db.putSyncData('_system', `lesson:${lessonId}`, data, current.version);
-  return c.json({ ok: true });
+  return writeLesson(c, lessonId, body, current, data);
 });
 
 // DELETE /v1/admin/lessons/:lessonId
@@ -1065,7 +1114,9 @@ admin.delete('/v1/admin/courses/:courseId', async (c) => {
     const fresh = await db.getSyncData('_system', dataKey);
     if (!fresh) continue;
     if (fresh.data?.course !== courseId) continue;
-    await db.putSyncData('_system', dataKey, { ...fresh.data, course: null }, fresh.version || 0);
+    // This is a new edit, so an earlier authoring operation must not acknowledge
+    // this version and let its next queued save restore the deleted course.
+    await db.putSyncData('_system', dataKey, { ...fresh.data, course: null, authoringOperationId: null }, fresh.version || 0);
   }
 
   return c.json({ ok: true });

@@ -496,10 +496,24 @@ const db = {
     return rows.map(r => ({ ...r, data: JSON.parse(r.data) }));
   },
 
-  async putSyncData(userId, dataKey, data, expectedVersion) {
+  async putSyncData(userId, dataKey, data, expectedVersion, { strictVersion = false } = {}) {
     const now = new Date().toISOString();
     const newVersion = (expectedVersion || 0) + 1;
     const jsonData = JSON.stringify(data);
+
+    if (strictVersion) {
+      // Keep the revision check and write in one SQL statement, including when
+      // another local server process uses the same database.
+      const result = expectedVersion === 0
+        ? sqlite.prepare(
+          'INSERT INTO sync_data (userId, dataKey, data, version, updatedAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(userId, dataKey) DO NOTHING'
+        ).run(userId, dataKey, jsonData, newVersion, now)
+        : sqlite.prepare(
+          'UPDATE sync_data SET data = ?, version = ?, updatedAt = ? WHERE userId = ? AND dataKey = ? AND version = ?'
+        ).run(jsonData, newVersion, now, userId, dataKey, expectedVersion);
+      if (result.changes !== 1) throw conditionalCheckFailed('Version mismatch');
+      return { version: newVersion, updatedAt: now };
+    }
 
     if (expectedVersion) {
       // Optimistic locking: only update if version matches or item doesn't exist

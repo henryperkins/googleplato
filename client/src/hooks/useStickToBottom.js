@@ -66,7 +66,11 @@ export function isOverflowing(el) {
  *
  * @param {Element[]} scrollers  candidates from `collectScrollers`
  */
-export function computeAtBottom(scrollers = [], epsilon = BOTTOM_EPSILON) {
+export function computeAtBottom(scrollers = [], epsilon = BOTTOM_EPSILON, target = null) {
+  if (target) {
+    return scrollers.every(el => Math.abs(targetScrollTop(el, target) - el.scrollTop) <= epsilon)
+      && Math.abs(targetScrollTop(null, target) - window.scrollY) <= epsilon;
+  }
   const live = scrollers.filter(isOverflowing);
   const docScrolls = document.documentElement.scrollHeight > window.innerHeight + 1;
   if (live.length === 0) return docScrolls ? isAtBottom(null, epsilon) : true;
@@ -107,7 +111,22 @@ export function collectScrollers(node) {
  *
  * @param {Element[]} scrollers  candidates from `collectScrollers`
  */
-export function scrollToBottom(scrollers = []) {
+function targetScrollTop(el, target) {
+  const top = el ? el.scrollTop : window.scrollY;
+  const height = el ? el.clientHeight : window.innerHeight;
+  const edge = el ? el.getBoundingClientRect().top + (el.clientTop || 0) + height : height;
+  const max = Math.max(0, (el ? el.scrollHeight : document.documentElement.scrollHeight) - height);
+  return Math.max(0, Math.min(max, top + target.getBoundingClientRect().bottom - edge + 16));
+}
+
+export function scrollToBottom(scrollers = [], target = null) {
+  // Embedded authoring has a preview after the composer. Align its explicit
+  // composer endpoint; learner chat keeps the full-scrollport behavior below.
+  if (target) {
+    for (const el of scrollers) el.scrollTop = targetScrollTop(el, target);
+    window.scrollTo({ top: targetScrollTop(null, target), behavior: 'auto' });
+    return;
+  }
   for (const el of scrollers) el.scrollTop = el.scrollHeight;
   // The document may be the real scrollport (see `collectScrollers`); scrolling
   // it when it isn't is a no-op.
@@ -141,7 +160,7 @@ export function containsNewUserMessage(record) {
 /**
  * @param {React.RefObject} logRef  the chat log element (content container)
  */
-export function useStickToBottom(logRef) {
+export function useStickToBottom(logRef, scrollTargetRef) {
   // Start stuck: a freshly-opened lesson should sit at the latest message.
   const atBottomRef = useRef(true);
 
@@ -158,11 +177,11 @@ export function useStickToBottom(logRef) {
     // so re-assert on the next frame once heights are final.
     let raf = null;
     const pinToBottom = () => {
-      scrollToBottom(scrollers());
+      scrollToBottom(scrollers(), scrollTargetRef?.current);
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         raf = null;
-        scrollToBottom(scrollers());
+        scrollToBottom(scrollers(), scrollTargetRef?.current);
       });
     };
 
@@ -174,7 +193,7 @@ export function useStickToBottom(logRef) {
       // Ignore scrollers unrelated to the log (a dropdown, the markdown preview
       // pane) — they say nothing about the reader's position in the chat.
       if (!isDocTarget && target?.nodeType === 1 && !target.contains(log)) return;
-      atBottomRef.current = computeAtBottom(scrollers());
+      atBottomRef.current = computeAtBottom(scrollers(), BOTTOM_EPSILON, scrollTargetRef?.current);
     };
     const scrollListenerOptions = { capture: true, passive: true };
     window.addEventListener('scroll', handleScroll, scrollListenerOptions);
@@ -202,6 +221,7 @@ export function useStickToBottom(logRef) {
       if (atBottomRef.current) pinToBottom();
     });
     resizeObserver.observe(log);
+    if (scrollTargetRef?.current?.parentElement) resizeObserver.observe(scrollTargetRef.current.parentElement);
 
     // Land at the bottom on first mount (resumed conversation).
     pinToBottom();
@@ -212,5 +232,5 @@ export function useStickToBottom(logRef) {
       resizeObserver.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [logRef]);
+  }, [logRef, scrollTargetRef]);
 }
