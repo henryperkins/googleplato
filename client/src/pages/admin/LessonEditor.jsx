@@ -155,8 +155,18 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
 
   const blocked = !!busy || snapshot.finalizePending || saveState.error?.status === 409;
   const previewCurrent = !!snapshot.previewMarkdown && snapshot.previewRevision === snapshot.revision;
+  const previewSaved = !isDraft && snapshot.previewMarkdown === initialMarkdown;
+  const saveRejected = saveState.error?.status === 400 && snapshot.finalizePending;
   const chatMessages = draining ? snapshot.conversation.slice(0, -1) : snapshot.conversation;
   const saveLabel = isDraft ? 'Create Lesson' : 'Update Lesson';
+  const previewAction = snapshot.previewMarkdown ? 'Refresh preview' : 'Generate preview';
+  const previewSaveHint = snapshot.finalizePending
+    ? (busy === 'saving' ? 'Saving this lesson…'
+      : saveState.error?.status === 400 ? 'This preview could not be saved. Choose “Revise lesson” to make changes.'
+        : 'Saving is not confirmed. “Retry saving lesson” saves this same preview.')
+    : previewSaved ? 'This is the saved lesson. Describe any changes in the conversation, then refresh the preview.'
+      : isDraft ? 'Review this preview, then choose “Create Lesson”. Your new lesson starts private.'
+        : 'Review this preview, then choose “Update Lesson” to save your changes.';
 
   function handleSend({ text }) {
     if (!text?.trim() || busyRef.current || blocked || snapshot.failedReply) return;
@@ -256,10 +266,10 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
 
   const statusText = saveState.error
     ? (saveState.error.status === 409 || saveState.error.status === 400 ? saveState.error.message
-      : `Changes could not be saved to the server. ${saveState.localError ? 'Keep this page open.' : 'A recovery copy is kept in this tab.'}`)
-    : saveState.saving ? 'Saving changes…'
-      : saveState.localError ? 'Recovery storage is unavailable. Save your changes before leaving.'
-        : saveState.version ? 'Conversation and course saved.' : 'Draft not saved yet.';
+      : `Saving is not confirmed. ${saveState.localError ? 'Keep this page open and retry saving.' : 'Your work is kept in this tab. Retry saving before closing it.'}`)
+    : saveState.saving ? (snapshot.finalizePending ? 'Saving lesson…' : 'Saving conversation and course…')
+      : saveState.localError ? 'A backup is unavailable in this tab. Check that changes are saved before leaving.'
+        : saveState.version ? 'Conversation and course saved automatically.' : 'Conversation not saved yet.';
 
   return (
     <div className="lesson-editor min-w-0">
@@ -275,17 +285,12 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
       )}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <p className={`text-sm ${saveState.error || saveState.localError ? 'text-warning-foreground' : 'text-muted-foreground'}`} role="status">{statusText}</p>
-        {saveState.error && (saveState.error.status === 409
+        {saveState.error && !saveRejected && (saveState.error.status === 409
           ? <Button variant="outline" size="sm" className={actionClass} onClick={() => setConfirmReload(true)}>Load saved lesson</Button>
           : <Button variant="outline" size="sm" className={actionClass} disabled={!!busy} focusableWhenDisabled onClick={retrySaving}>Retry saving</Button>)}
-        {saveState.error?.status === 400 && snapshot.finalizePending && (
-          <Button variant="outline" size="sm" className={actionClass} onClick={() => {
-            if (queue.discardRejected()) update({ finalizePending: false, previewRevision: -1 });
-          }}>Revise lesson</Button>
-        )}
       </div>
       <div className="flex flex-wrap items-center gap-3 min-w-0 mb-4">
-        <label htmlFor="lesson-course" className="text-sm text-muted-foreground">Course</label>
+        <label htmlFor="lesson-course" className="text-sm font-medium">Course <span className="font-normal text-muted-foreground">(optional)</span></label>
         <select id="lesson-course" value={snapshot.course}
           aria-disabled={blocked}
           onChange={event => { if (!blocked) update({ course: event.target.value }, { save: true }); }}
@@ -296,23 +301,30 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
           {courses.map(course => <option key={course.courseId} value={course.courseId}>{course.name}</option>)}
         </select>
       </div>
-      <div className="lesson-editor-actions admin-sticky-bar sticky top-0 z-20 -mx-1 px-1 py-2 bg-background flex flex-wrap items-end gap-3 mb-4">
+      <div className="lesson-editor-actions admin-sticky-bar sticky top-0 z-20 -mx-1 px-1 py-2 bg-background flex flex-wrap items-center gap-3 mb-4">
         <div className="flex-[1_1_10rem] min-w-0" role="progressbar" aria-valuemin={0} aria-valuemax={10}
           aria-valuenow={snapshot.readiness} aria-label={`Lesson readiness: ${snapshot.readiness} out of 10`}>
-          <div className="flex justify-between text-xs text-muted-foreground mb-1" aria-hidden="true"><span>Not ready</span><span>Ready</span></div>
+          <div className="flex flex-wrap justify-between gap-x-3 text-sm text-muted-foreground mb-2" aria-hidden="true">
+            <span>Lesson readiness</span><span className="tabular-nums">{snapshot.readiness}/10</span>
+          </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <div className="progress-fill h-full rounded-full" style={{ transform: `scaleX(${snapshot.readiness / 10})`, backgroundColor: readinessFill(snapshot.readiness) }} />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
           <Button variant="outline" size="sm" className={actionClass} onClick={() => setConfirmRestart(true)} disabled={blocked} focusableWhenDisabled>Start over</Button>
-          <Button size="sm" className={actionClass} onClick={handleSave} focusableWhenDisabled
-            disabled={!!busy || previewLoading || saveState.error?.status === 409 || !!snapshot.failedReply || (isDraft && snapshot.readiness < 3)}
+          <Button size="sm" className={actionClass} onClick={saveRejected ? () => {
+            if (queue.discardRejected()) update({ finalizePending: false, previewRevision: -1 });
+          } : handleSave} focusableWhenDisabled
+            disabled={!!busy || previewLoading || saveState.error?.status === 409 || !!snapshot.failedReply
+              || (!previewCurrent && !snapshot.conversation.length) || (isDraft && previewCurrent && snapshot.readiness < 3)}
             aria-describedby={isDraft && snapshot.readiness < 3 ? 'create-lesson-hint' : undefined}>
-            {busy === 'saving' ? 'Saving…' : snapshot.finalizePending ? 'Retry saving lesson' : previewCurrent ? saveLabel : 'Review lesson'}
+            {busy === 'saving' ? 'Saving…' : saveRejected ? 'Revise lesson' : snapshot.finalizePending ? 'Retry saving lesson'
+              : previewLoading ? (snapshot.previewMarkdown ? 'Refreshing preview…' : 'Generating preview…')
+                : previewCurrent ? saveLabel : previewAction}
           </Button>
         </div>
-        {isDraft && snapshot.readiness < 3 && <p id="create-lesson-hint" className="basis-full text-xs text-muted-foreground">Keep chatting until readiness is at least 3 of 10 before creating the lesson.</p>}
+        {isDraft && snapshot.readiness < 3 && <p id="create-lesson-hint" className="basis-full text-sm text-muted-foreground">Keep refining the lesson in the conversation. You can create it once readiness reaches 3/10.</p>}
       </div>
       <ConfirmModal open={confirmRestart} onOpenChange={setConfirmRestart} title="Start over?"
         message="This clears the conversation, preview and readiness score. It cannot be undone."
@@ -329,12 +341,14 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
                   ? <UserMessage key={index} content={message.content} />
                   : <AssistantMessage key={index} content={message.content} />)}
                 {displayText != null && displayText.length > 0 && <AssistantMessage content={displayText} streaming />}
-                {(busy === 'starting' || busy === 'reply') && !displayText && <ThinkingSpinner text={busy === 'starting' ? 'Starting…' : undefined} />}
+                {(busy === 'starting' || busy === 'reply') && !displayText && <ThinkingSpinner text={busy === 'starting' ? 'Starting the lesson conversation…' : undefined} />}
               </ChatArea>
             </div>
             {snapshot.failedReply && !busy && (
               <div className="flex flex-wrap items-center gap-2 mb-3 px-4">
-                <p className="text-sm text-muted-foreground">The reply did not finish. Your message is kept.</p>
+                <p className="text-sm text-muted-foreground">{snapshot.failedReply === 'opening'
+                  ? 'The conversation could not start. Try again when you’re ready.'
+                  : 'The reply did not finish. Your message is still in the conversation.'}</p>
                 <Button variant="outline" size="sm" className={actionClass} disabled={blocked} onClick={() => requestReply(snapshot.failedReply === 'opening')}>Retry reply</Button>
               </div>
             )}
@@ -347,6 +361,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
         <div className="flex-[2_1_22rem] min-w-0" ref={previewRef} tabIndex={-1} aria-label="Lesson preview">
           <MarkdownPreviewPane markdown={snapshot.previewMarkdown} loading={previewLoading} error={previewError}
             stale={!!snapshot.previewMarkdown && !previewCurrent} saveLabel={saveLabel}
+            saved={previewSaved && !snapshot.finalizePending} saveHint={previewSaveHint}
             refreshDisabled={previewLoading || blocked || !!snapshot.failedReply || !snapshot.conversation.length}
             onRefresh={refreshPreview} />
         </div>

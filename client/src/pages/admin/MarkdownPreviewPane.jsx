@@ -6,8 +6,8 @@ import { renderMd } from '../../lib/helpers.js';
  * Read-only markdown preview pane for the conversational admin editors (lesson
  * creator + knowledge base editor). Presentational only — all state is owned by
  * the parent view. The preview is refreshed manually (onRefresh runs the
- * relevant extractor agent); it is never persisted until the admin clicks the
- * parent's save button.
+ * relevant extractor agent); generated changes are persisted when the admin
+ * clicks the parent's save button. The parent identifies already-saved content.
  *
  * Copy is parametrized so the same pane serves both editors; the defaults
  * preserve the original lesson-editor behavior.
@@ -18,19 +18,21 @@ export default function MarkdownPreviewPane({
   error,
   stale,
   saveLabel = 'Create Lesson',
+  saved = false,
+  saveHint = `Review this preview, then choose “${saveLabel}” to save it.`,
   onRefresh,
   refreshDisabled,
   title = 'Lesson preview',
   ariaLabel = 'Lesson markdown preview',
   noun = 'lesson',
-  emptyHint = 'No preview yet. Keep chatting with the editor, then click “Generate preview” to see the generated lesson markdown.',
+  emptyHint = 'Describe the skill and what learners should be able to do in the conversation. Then generate a preview to review your lesson.',
 }) {
   const hasContent = !!markdown?.trim();
   // Before the first extraction there is nothing to refresh — it's a generate.
   const refreshLabel = loading
     ? (hasContent ? 'Refreshing…' : 'Generating…')
     : (hasContent ? 'Refresh preview' : 'Generate preview');
-  const showStaleHint = stale && !loading;
+  const showStaleHint = hasContent && stale && !loading;
 
   // Announce refresh start/finish to screen readers. Errors are announced by
   // the role="alert" region below, so the status region stays quiet on
@@ -51,7 +53,7 @@ export default function MarkdownPreviewPane({
       aria-label={ariaLabel}
       className="flex min-w-0 flex-col rounded-2xl bg-muted/40 border border-border p-4"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h2 className="text-sm font-semibold">{title}</h2>
         <Button
           variant="outline"
@@ -70,25 +72,28 @@ export default function MarkdownPreviewPane({
           Linked to the refresh button via aria-describedby so a screen-reader
           user hears why a refresh is worthwhile when the button is focused. */}
       {showStaleHint && (
-        <p id="md-preview-stale-hint" className="text-xs text-muted-foreground mb-2">
-          Preview may be outdated — refresh to update.
+        <p id="md-preview-stale-hint" className="text-sm text-muted-foreground mb-3">
+          The conversation has changed. Refresh the preview to include your changes.
         </p>
       )}
 
-      {/* Persistent reminder: the preview is not saved. */}
-      <p
-        role="note"
-        className="text-xs rounded-md bg-warning text-warning-foreground px-3 py-2 mb-3"
-      >
-        This preview is not saved. Click &ldquo;{saveLabel}&rdquo; to save your changes.
-      </p>
+      {hasContent && !stale && !loading && (
+        <p
+          role="note"
+          className={saved
+            ? 'text-sm text-muted-foreground mb-3'
+            : 'text-sm rounded-md bg-warning text-warning-foreground px-3 py-2 mb-3'}
+        >
+          {saveHint}
+        </p>
+      )}
 
       {/* Screen-reader announcements for async refresh outcomes. */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
 
-      <div className="flex-1 max-h-[70dvh] overflow-auto overscroll-contain">
+      <div className="flex-1 max-h-[70dvh] overflow-auto overscroll-contain" aria-busy={loading}>
         {error ? (
           <div
             role="alert"
@@ -97,7 +102,7 @@ export default function MarkdownPreviewPane({
             {error}
           </div>
         ) : loading ? (
-          <div className="text-sm text-muted-foreground">Generating preview…</div>
+          <div className="text-sm text-muted-foreground">{hasContent ? 'Refreshing preview…' : 'Generating preview…'}</div>
         ) : hasContent ? (
           <div
             className="coach-copy"
