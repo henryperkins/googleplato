@@ -256,6 +256,20 @@ describe('db-sqlite', () => {
       );
     });
 
+    it('strict authoring writes cannot replace a concurrent creation or recreate a deletion', async () => {
+      await db.putSyncData(userId, 'lesson:strict', { name: 'First' }, 0, { strictVersion: true });
+      await assert.rejects(
+        db.putSyncData(userId, 'lesson:strict', { name: 'Stale creator' }, 0, { strictVersion: true }),
+        { name: 'ConditionalCheckFailedException' }
+      );
+      assert.equal((await db.getSyncData(userId, 'lesson:strict')).data.name, 'First');
+      await db.deleteSyncData(userId, 'lesson:strict');
+      await assert.rejects(
+        db.putSyncData(userId, 'lesson:strict', { name: 'Deleted' }, 1, { strictVersion: true }),
+        { name: 'ConditionalCheckFailedException' }
+      );
+    });
+
     it('gets all sync data for a user', async () => {
       await db.putSyncData(userId, 'preferences', { name: 'Test' }, 0);
       const all = await db.getAllSyncData(userId);

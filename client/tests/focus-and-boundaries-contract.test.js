@@ -38,8 +38,8 @@ describe('Focus survives async work', () => {
 
     const chat = read('pages/LessonChat.jsx');
     assert.match(chat, /disabled=\{impersonating\}\s*\n\s*busy=\{busy\}/);
-    for (const rel of ['pages/admin/AdminLessons.jsx', 'pages/admin/KnowledgeBaseEditor.jsx']) {
-      assert.match(read(rel), /busy=\{isBusy\}/, `${rel} should hold sending, not disable the composer`);
+    for (const rel of ['pages/admin/LessonEditor.jsx', 'pages/admin/KnowledgeBaseEditor.jsx']) {
+      assert.match(read(rel), /<ComposeBar[\s\S]*?busy=\{/, `${rel} should hold sending, not disable the composer`);
     }
   });
 

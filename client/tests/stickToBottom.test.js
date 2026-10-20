@@ -55,6 +55,27 @@ const {
   collectScrollers, computeAtBottom, isOverflowing, BOTTOM_EPSILON,
 } = await import('../src/hooks/useStickToBottom.js');
 
+it('authoring scrolls to the composer instead of the preview below it', () => {
+  stubDocument({ scrollHeight: 800, scrollY: 0, innerHeight: 800 });
+  let windowTarget;
+  window.scrollTo = ({ top }) => { windowTarget = top; };
+  const main = elementScroller({ scrollHeight: 2400, scrollTop: 0, clientHeight: 700 });
+  main.getBoundingClientRect = () => ({ top: 80 });
+  const composer = { getBoundingClientRect: () => ({ bottom: 1000 }) };
+  scrollToBottom([main], composer);
+  assert.equal(main.scrollTop, 236, 'align composer bottom with padding; do not jump to 2400');
+  assert.equal(windowTarget, 0, 'the document does not scroll in the admin shell');
+});
+
+it('authoring stops following when the reader scrolls away from the composer', () => {
+  stubDocument({ scrollHeight: 800, scrollY: 0, innerHeight: 800 });
+  const main = elementScroller({ scrollHeight: 2400, scrollTop: 300, clientHeight: 700 });
+  main.getBoundingClientRect = () => ({ top: 80 });
+  assert.equal(computeAtBottom([main], 16, { getBoundingClientRect: () => ({ bottom: 764 }) }), true);
+  assert.equal(computeAtBottom([main], 16, { getBoundingClientRect: () => ({ bottom: 1064 }) }), false);
+  assert.equal(computeAtBottom([main], 16, { getBoundingClientRect: () => ({ bottom: 164 }) }), false);
+});
+
 /** Fake DOM element with just the two methods the detector calls. */
 function el({ matches = false, contains = false } = {}) {
   return {

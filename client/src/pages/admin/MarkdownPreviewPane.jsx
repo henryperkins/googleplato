@@ -49,16 +49,17 @@ export default function MarkdownPreviewPane({
   return (
     <aside
       aria-label={ariaLabel}
-      className="flex flex-col rounded-2xl bg-muted/40 border border-border p-4"
+      className="flex min-w-0 flex-col rounded-2xl bg-muted/40 border border-border p-4"
     >
-      <div className="flex items-center justify-between gap-2 mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <h2 className="text-sm font-semibold">{title}</h2>
         <Button
           variant="outline"
           size="sm"
-          className="shrink-0"
+          className="h-auto min-h-9 max-w-full whitespace-normal py-2"
           onClick={onRefresh}
           disabled={refreshDisabled}
+          focusableWhenDisabled
           aria-describedby={showStaleHint ? 'md-preview-stale-hint' : undefined}
         >
           {refreshLabel}

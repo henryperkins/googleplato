@@ -1,10 +1,21 @@
 /**
  * Lesson creation engine helpers used by the Lesson Creator, Customizer, and
- * KB Setup chat views. The actual creation flow lives inline in each view's
- * NewLessonView/equivalent — this file only exports shared parsing utilities.
+ * KB Setup chat views. The actual creation flow lives in LessonEditor and the
+ * knowledge-base editor — this file only exports shared parsing utilities.
  */
 
+import { MIN_OBJECTIVES, MAX_OBJECTIVES } from './constants.js';
+
 const READINESS_REGEX = /\[READINESS:\s*(\d+)\]\s*$/;
+
+/** Match the server's objective format before offering a preview for saving. */
+export function lessonObjectiveError(markdown) {
+  const section = markdown.split(/^## Learning Objectives$/m)[1]?.split(/^## /m)[0];
+  const count = (section?.match(/^- Can .+/gm) || []).length;
+  return count < MIN_OBJECTIVES || count > MAX_OBJECTIVES
+    ? `The preview needs ${MIN_OBJECTIVES}–${MAX_OBJECTIVES} measurable learning objectives. Generate it again, or refine the lesson in chat.`
+    : null;
+}
 
 /** Strip the readiness tag from a response and return { text, readiness }. */
 export function parseResponse(raw) {

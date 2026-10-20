@@ -308,6 +308,24 @@ html {
   }
 }
 
+/* Authoring adapts to usable space, including enlarged text beside the sidebar. */
+.lesson-editor {
+  container-type: inline-size;
+}
+
+@container (max-width: 32rem) {
+  .lesson-editor-actions {
+    position: static;
+  }
+  .lesson-editor-chat,
+  .lesson-editor-chat [role="log"] {
+    padding: 0.5rem;
+  }
+  .lesson-editor-composer {
+    padding-inline: 0;
+  }
+}
+
 /* Keep desktop density; give touch users real, nonoverlapping hit areas. */
 @media (pointer: coarse) {
   button:not(.compose-chip-remove), select, [role="menuitem"] {

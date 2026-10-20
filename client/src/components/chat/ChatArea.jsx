@@ -2,7 +2,7 @@ import { useRef, useCallback, forwardRef } from 'react';
 import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav.js';
 import { useStickToBottom } from '../../hooks/useStickToBottom.js';
 
-const ChatArea = forwardRef(function ChatArea({ children, announcement }, ref) {
+const ChatArea = forwardRef(function ChatArea({ children, announcement, scrollTargetRef }, ref) {
   const logRef = useRef(null);
 
   // Merge the forwarded ref with our internal logRef
@@ -16,7 +16,7 @@ const ChatArea = forwardRef(function ChatArea({ children, announcement }, ref) {
 
   // Stay pinned to the bottom as content streams in — unless the reader has
   // scrolled up. See the hook for why this watches the DOM, not React state.
-  useStickToBottom(logRef);
+  useStickToBottom(logRef, scrollTargetRef);
 
   return (
     <>

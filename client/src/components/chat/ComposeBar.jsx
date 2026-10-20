@@ -34,6 +34,7 @@ function ComposeBar({
   allowLinks = false,
   elevated = false,
   storageKey = null,
+  className = '',
   text: textProp,
   onTextChange,
   images: imagesProp,
@@ -270,7 +271,7 @@ function ComposeBar({
     : (fetchingLink ? 'Fetching link…' : (busy ? busyNotice : ''));
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div className={`px-4 pb-4 pt-2 ${className}`}>
       <div className={`mx-auto max-w-3xl rounded-lg border border-input bg-background ${elevated ? 'shadow-lg' : ''}`}>
         {images.length > 0 && (
           <div className="m-2 space-y-2">
