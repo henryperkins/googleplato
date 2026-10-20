@@ -19,6 +19,7 @@ const MESSAGES = {
 // Missing or rejected credentials, no model access, or an unknown model ID.
 // None of these clear up on retry; an operator has to fix configuration.
 const UNAVAILABLE = new Set([
+  'AiConfigurationError',
   'CredentialsProviderError',
   'AccessDeniedException',
   'UnrecognizedClientException',
@@ -35,16 +36,26 @@ const NETWORK = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN',
 /** @returns {{ code: string, message: string }} */
 export function classifyAiError(err) {
   const name = err?.name || '';
-  const status = err?.$metadata?.httpStatusCode;
+  const status = err?.$metadata?.httpStatusCode ?? err?.status;
   let code = 'ai_error';
 
-  if (UNAVAILABLE.has(name) || status === 401 || status === 403) code = 'ai_unavailable';
+  if (UNAVAILABLE.has(name) || status === 401 || status === 403 || status === 404) code = 'ai_unavailable';
   else if (RATE_LIMITED.has(name) || status === 429) code = 'ai_rate_limited';
   // Before the generic 5xx check: a model timeout can arrive as a 408 or 5xx.
-  else if (TIMEOUT.has(name) || /timed out/i.test(String(err?.message || ''))) code = 'ai_timeout';
+  else if (TIMEOUT.has(name) || status === 408 || status === 504 || /timed out/i.test(String(err?.message || ''))) code = 'ai_timeout';
   else if (name === 'ValidationException' || status === 400) code = 'ai_invalid_request';
   else if (OVERLOADED.has(name) || status >= 500) code = 'ai_overloaded';
-  else if (NETWORK.has(err?.code)) code = 'ai_unavailable';
+  else if (NETWORK.has(err?.code) || NETWORK.has(err?.cause?.code)) code = 'ai_unavailable';
 
   return { code, message: MESSAGES[code] };
+}
+
+export function aiErrorStatus(code) {
+  return ({
+    ai_unavailable: 503,
+    ai_rate_limited: 429,
+    ai_overloaded: 503,
+    ai_timeout: 504,
+    ai_invalid_request: 400,
+  })[code] || 502;
 }

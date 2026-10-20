@@ -12,6 +12,7 @@ import { pluginRegistry } from '../lib/plugins/registry.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { classifyCache, kickoffAsyncRefresh } from '../lib/lesson-stats-cache.js';
 import { normalizeStatus, publicLessonIds } from '../lib/lesson-visibility.js';
+import aiSettings from './ai-settings.js';
 import {
   readWaitlistConfig, writeWaitlistConfig, generateWaitlistApiKey, validateWaitlistEntry,
 } from '../lib/waitlist.js';
@@ -82,6 +83,7 @@ function validateLessonMarkdown(markdown) {
 // `publicLessonIds` are the single source of that rule (lesson-visibility.js).
 
 admin.use('/v1/admin/*', authenticate, requireAdmin);
+admin.route('/', aiSettings);
 
 // GET /v1/admin/users
 // Pass `?include=stats` to enrich each row with `lessonsCompleted`,

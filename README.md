@@ -75,7 +75,7 @@ cd client && npm run build && cd ..
 
 # Configure your environment
 cd server && cp .env.example .env
-# Edit .env, then make AWS credentials with Bedrock access available (see "AI provider")
+# Edit .env with credentials for your AI provider (see "AI provider")
 
 # Start the dev server (uses SQLite for data — no Docker needed)
 node dev-sqlite.js
@@ -87,32 +87,50 @@ On first visit you'll name your classroom and create an admin account. Prompts a
 
 ### AI provider
 
-plato runs a single **open source** model on Amazon Bedrock — [Qwen3-VL 235B
-A22B](https://huggingface.co/Qwen/Qwen3-VL-235B-A22B-Instruct), under the
-OSI-approved **Apache-2.0** license. All nine agents share it; there is no
-per-agent routing.
+Open **Admin → AI Settings** (`/plato/ai`) to choose **Amazon Bedrock** or
+**Cloudflare Workers AI**. The saved choice applies to all nine agents and
+plugin AI calls on the next request, including streaming conversations and
+lesson extraction. There is no automatic fallback to another provider.
 
-The license is a requirement, not a preference: plato is AGPL-3.0, so the model
-has to be open source, not merely open weight. That rules out models under
-bespoke community licenses (Llama 4, Gemma) even where they benchmark well.
+- **Bedrock** is the default for existing installations. It uses
+  `qwen.qwen3-vl-235b-a22b` and the server's standard AWS credential chain.
+  Provide `bedrock:InvokeModel` / `bedrock:InvokeModelWithResponseStream`
+  permissions and model access in `AWS_REGION` (default `us-east-2`).
+  See the [Bedrock setup guide](https://docs.aws.amazon.com/bedrock/latest/userguide/getting-started.html)
+  and [model access guide](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
+- **Workers AI** defaults to Cloudflare-hosted
+  [DeepSeek V4.1 Flash 1017](https://developers.cloudflare.com/workers-ai/models/deepseek-v4.1-flash-1017/)
+  (`@cf/deepseek-ai/deepseek-v4.1-flash-1017`) with **maximum reasoning**
+  (`reasoning_effort: max`). It supports text and images and requires
+  Workers Paid or prepaid AI Gateway credits. Mistral Small 3.1 24B is also selectable.
+  Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in `server/.env` or
+  the server environment, then restart. Use an account-scoped token with
+  Workers AI Read and Edit permissions; see the
+  [Cloudflare setup guide](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
+  These credentials never go to the browser or the settings database.
 
-Bedrock is the only backend, in production and in local dev. Provide AWS
-credentials with `bedrock:InvokeModel` / `bedrock:InvokeModelWithResponseStream`
-permission and enable model access for `qwen.qwen3-vl-235b-a22b` in the Bedrock
-console. Any standard credential source works locally — `AWS_PROFILE`, `aws sso
-login`, or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `server/.env`. Set
-`AWS_REGION` if the model isn't enabled in `us-east-2`.
+The **Active configuration** summary shows the saved provider, model, and Bedrock
+region. **Pending changes** lists everything Save will persist, including a
+Cloudflare model preference retained while Bedrock is selected. Use **Test
+connection** to send a short inference request with the selected provider/model,
+then **Save AI settings** to apply the changes. Test results identify the exact
+configuration and record that request only; editing the selection clears them.
+**Discard changes and reload** replaces the draft only after settings load
+successfully. A failed reload keeps the draft.
 
-Without credentials the app is fully navigable, but lesson conversations won't
-start.
+After configuring credentials, restart the server, **Reload settings**, and
+**Test connection**. Learning administrators can share the setup checklist in
+the dashboard with their server owner. Credential presence alone does not prove
+model access, and a successful test is not an ongoing health guarantee. Tests incur normal
+provider usage. Maximum reasoning can take longer; requests time out after
+115 seconds and receive an extra 8,192 completion tokens for reasoning.
 
-To run a different model, change the single `LLM` constant in
-`server/src/lib/ai-provider.js` (and the matching one in `client/js/api.js`).
-Anthropic model IDs are still wired up, so falling back to Claude is a one-line
-change — though anything other than an OSI-licensed model gives up the open
-source property above. See [`docs/MODEL_SELECTION.md`](docs/MODEL_SELECTION.md)
-for why this model — the four constraints, the benchmarks, and what a replacement
-has to satisfy.
+Before the first admin save, `AI_PROVIDER` (`bedrock` or `workers-ai`) and
+`WORKERS_AI_MODEL` can set the initial defaults. Saved settings take precedence.
+For Lambda, supply the optional `CloudflareAccountId` and `CloudflareApiToken`
+SAM parameters through your deployment secret configuration; both API and
+streaming functions receive them. Do not commit tokens in SAM config files.
+The historical Bedrock evaluation is in [`docs/MODEL_SELECTION.md`](docs/MODEL_SELECTION.md).
 
 Then log in and navigate to `/plato` to see the admin dashboard, or `/lessons` to start learning.
 

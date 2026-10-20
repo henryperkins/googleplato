@@ -27,6 +27,7 @@ const NAV_LINKS = [
   { to: '/plato/lessons', label: 'Lessons' },
   { to: '/plato/users', label: 'Users' },
   { to: '/plato/customizer', label: 'Customizer' },
+  { to: '/plato/ai', label: 'AI Settings' },
   { to: '/plato/plugins', label: 'Plugins' },
 ];
 
@@ -85,13 +86,13 @@ export default function AdminLayout() {
       <div className="flex h-dvh flex-col overflow-hidden md:h-auto md:min-h-dvh md:flex-row md:overflow-visible">
         {/* Mobile: compact top bar with brand, classroom shortcut, and drawer trigger */}
         <header
-          className="md:hidden shrink-0 bg-sidebar text-sidebar-foreground flex items-center justify-between gap-2 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]"
+          className="md:hidden shrink-0 bg-sidebar text-sidebar-foreground flex flex-wrap items-center justify-between gap-2 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]"
           style={{ '--ring': 'var(--sidebar-foreground)' }}
         >
           <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center rounded-sm shrink-0">
             <img src="/assets/logo-white.svg" alt="plato" width="50" height="20" className="h-5 w-auto" />
           </a>
-          <div className="flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1">
             <Button
               variant="secondary"
               size="xs"
@@ -224,7 +225,7 @@ export default function AdminLayout() {
           </div>
         </main>
 
-        {/* Mobile bottom tab bar: exposes the 5 primary admin destinations directly without requiring the drawer */}
+        {/* Mobile bottom tab bar exposes admin destinations without requiring the drawer. */}
         <nav
           className="admin-bottom-nav md:hidden shrink-0 flex flex-wrap items-center justify-around border-t bg-background pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
           aria-label="Admin primary navigation"

@@ -10,6 +10,16 @@ Parameters:
       - prod
       - playground
     Description: Deployment stage (prod or playground)
+  CloudflareAccountId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-fA-F0-9]{32}$'
+    Description: Cloudflare account for the optional Workers AI provider
+  CloudflareApiToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Server-only Cloudflare API token with Workers AI Read and Edit permissions
 
 Conditions:
   IsProd: !Equals [!Ref Stage, prod]
@@ -44,6 +54,8 @@ Resources:
           ADMIN_PASSWORD: !Sub '{{resolve:ssm:/plato/${Stage}/admin-password}}'
           SES_FROM_EMAIL: !Sub '{{resolve:ssm:/plato/${Stage}/ses-from-email}}'
           APP_URL: !Sub '{{resolve:ssm:/plato/${Stage}/app-url}}'
+          CLOUDFLARE_ACCOUNT_ID: !Ref CloudflareAccountId
+          CLOUDFLARE_API_TOKEN: !Ref CloudflareApiToken
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
@@ -97,6 +109,7 @@ Resources:
   PlatoStreamFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Timeout: 120
       Handler: src/index.streamHandler
       CodeUri: .
       Environment:
@@ -112,6 +125,8 @@ Resources:
           ADMIN_PASSWORD: !Sub '{{resolve:ssm:/plato/${Stage}/admin-password}}'
           SES_FROM_EMAIL: !Sub '{{resolve:ssm:/plato/${Stage}/ses-from-email}}'
           APP_URL: !Sub '{{resolve:ssm:/plato/${Stage}/app-url}}'
+          CLOUDFLARE_ACCOUNT_ID: !Ref CloudflareAccountId
+          CLOUDFLARE_API_TOKEN: !Ref CloudflareApiToken
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable

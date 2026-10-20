@@ -1,33 +1,98 @@
-import { BedrockRuntimeClient, InvokeModelCommand, InvokeModelWithResponseStreamCommand } from '@aws-sdk/client-bedrock-runtime';
+/** Amazon Bedrock adapter. Callers use ai-provider.js to honor the admin selection. */
+
+import {
+  BedrockRuntimeClient,
+  InvokeModelCommand,
+  InvokeModelWithResponseStreamCommand,
+  ConverseCommand,
+  ConverseStreamCommand,
+} from '@aws-sdk/client-bedrock-runtime';
+import { toConverseRequest, fromConverseResponse, fromConverseStreamEvent } from './converse.js';
+
+// Timeout for Bedrock requests — set just under the Lambda function timeout
+// (120 s) so errors propagate cleanly rather than causing a hard Lambda kill.
+const BEDROCK_TIMEOUT_MS = 115_000;
 
 const client = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-east-2' });
 
-const bedrock = {
-  async invoke(modelId, body) {
-    const command = new InvokeModelCommand({
-      modelId,
-      contentType: 'application/json',
-      accept: 'application/json',
-      body: JSON.stringify(body),
-    });
-    const response = await client.send(command);
-    return JSON.parse(new TextDecoder().decode(response.body));
+// Map friendly model IDs to Bedrock model / inference-profile IDs. Open-weight
+// models are invoked by bare model ID (no `us.` cross-region prefix); Anthropic
+// models need the inference-profile prefix.
+const MODEL_MAP = {
+  'qwen3-vl-235b': 'qwen.qwen3-vl-235b-a22b',
+  'claude-haiku-4-5-20251001': 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+  'claude-sonnet-4-6': 'us.anthropic.claude-sonnet-4-6',
+};
+
+/** Anthropic models use the legacy InvokeModel body; everything else Converse. */
+function usesLegacyInvoke(modelId) {
+  return modelId.includes('anthropic.');
+}
+
+function withTimeout(label, signal) {
+  const abortController = new AbortController();
+  const timer = setTimeout(
+    () => abortController.abort(new Error(`Bedrock ${label} timed out after ${BEDROCK_TIMEOUT_MS}ms`)),
+    BEDROCK_TIMEOUT_MS,
+  );
+  return {
+    abortSignal: signal ? AbortSignal.any([signal, abortController.signal]) : abortController.signal,
+    clear: () => clearTimeout(timer),
+  };
+}
+
+const ai = {
+  async invoke(model, body) {
+    const modelId = MODEL_MAP[model] || model;
+    const { abortSignal, clear } = withTimeout('invoke');
+    try {
+      if (usesLegacyInvoke(modelId)) {
+        const command = new InvokeModelCommand({
+          modelId,
+          contentType: 'application/json',
+          accept: 'application/json',
+          body: JSON.stringify({ anthropic_version: 'bedrock-2023-05-31', ...body }),
+        });
+        const response = await client.send(command, { abortSignal });
+        return JSON.parse(new TextDecoder().decode(response.body));
+      }
+
+      const response = await client.send(new ConverseCommand(toConverseRequest(modelId, body)), { abortSignal });
+      return fromConverseResponse(response);
+    } finally {
+      clear();
+    }
   },
 
-  async *invokeStream(modelId, body) {
-    const command = new InvokeModelWithResponseStreamCommand({
-      modelId,
-      contentType: 'application/json',
-      accept: 'application/json',
-      body: JSON.stringify(body),
-    });
-    const response = await client.send(command);
-    for await (const event of response.body) {
-      if (event.chunk) {
-        yield JSON.parse(new TextDecoder().decode(event.chunk.bytes));
+  async *invokeStream(model, body, { signal } = {}) {
+    const modelId = MODEL_MAP[model] || model;
+    const { abortSignal, clear } = withTimeout('stream', signal);
+    try {
+      if (usesLegacyInvoke(modelId)) {
+        const command = new InvokeModelWithResponseStreamCommand({
+          modelId,
+          contentType: 'application/json',
+          accept: 'application/json',
+          body: JSON.stringify({ anthropic_version: 'bedrock-2023-05-31', ...body }),
+        });
+        const response = await client.send(command, { abortSignal });
+        for await (const event of response.body) {
+          if (event.chunk) {
+            yield JSON.parse(new TextDecoder().decode(event.chunk.bytes));
+          }
+        }
+        return;
       }
+
+      const response = await client.send(new ConverseStreamCommand(toConverseRequest(modelId, body)), { abortSignal });
+      for await (const event of response.stream) {
+        const translated = fromConverseStreamEvent(event);
+        if (translated) yield translated;
+      }
+    } finally {
+      clear();
     }
   },
 };
 
-export default bedrock;
+export default ai;

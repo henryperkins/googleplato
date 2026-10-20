@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
 import { authenticate } from '../middleware/authenticate.js';
 import ai from '../lib/ai-provider.js';
-import { classifyAiError } from '../lib/ai-errors.js';
+import { classifyAiError, aiErrorStatus } from '../lib/ai-errors.js';
 
 const aiRoute = new Hono();
 
@@ -29,8 +29,13 @@ aiRoute.post('/v1/ai/messages', async (c) => {
   };
 
   if (!isStream) {
-    const responseBody = await ai.invoke(model, aiBody);
-    return c.json(responseBody);
+    try {
+      const responseBody = await ai.invoke(model, aiBody);
+      return c.json(responseBody);
+    } catch (err) {
+      const { code, message } = classifyAiError(err);
+      return c.json({ code, error: message }, aiErrorStatus(code));
+    }
   }
 
   c.header('Content-Type', 'text/event-stream');
@@ -38,17 +43,23 @@ aiRoute.post('/v1/ai/messages', async (c) => {
   c.header('Connection', 'keep-alive');
 
   return stream(c, async (s) => {
+    const controller = new AbortController();
+    s.onAbort(() => controller.abort());
     try {
-      for await (const event of ai.invokeStream(model, aiBody)) {
+      for await (const event of ai.invokeStream(model, aiBody, { signal: controller.signal })) {
+        if (s.aborted) break;
         await s.write(`data: ${JSON.stringify(event)}\n\n`);
       }
-      await s.write('data: [DONE]\n\n');
+      if (!s.aborted) await s.write('data: [DONE]\n\n');
     } catch (err) {
+      if (s.aborted) return;
       console.error('Streaming error:', err);
       // A stable code and a generic message, never the raw provider text,
       // which can include the AWS account ID and IAM role name.
       const { code, message } = classifyAiError(err);
       await s.write(`data: ${JSON.stringify({ type: 'error', error: { code, message } })}\n\n`);
+    } finally {
+      controller.abort();
     }
   });
 });

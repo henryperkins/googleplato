@@ -71,17 +71,22 @@ export default function Privacy() {
           <section>
             <h2 className="text-lg font-semibold mb-2">AI Provider</h2>
             <p className="text-muted-foreground mb-2">
-              plato uses Amazon Bedrock to power the AI coach and other lesson features. Bedrock is Amazon’s
-              managed AI service that provides access to foundation models.
+              Your classroom admin chooses Amazon Bedrock or Cloudflare Workers AI to power the AI coach
+              and other lesson features. Ask your admin which service your classroom uses.
             </p>
             <p className="text-muted-foreground">
-              Your conversation messages are sent to Bedrock to generate coaching responses. Amazon states that
-              Bedrock does not use your prompts or responses to train AI models. Review Amazon’s <a
+              Your conversation messages are sent to the selected service to generate responses.
+              Review Amazon’s <a
                 href="https://aws.amazon.com/bedrock/data-privacy/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-foreground"
-              >Bedrock data privacy documentation</a> for details.
+              >Bedrock data privacy documentation</a> or Cloudflare’s <a
+                href="https://developers.cloudflare.com/workers-ai/platform/data-usage/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-foreground"
+              >Workers AI data usage documentation</a> for details.
             </p>
           </section>
 
@@ -93,7 +98,7 @@ export default function Privacy() {
             <ul className="list-disc pl-6 space-y-1 text-muted-foreground">
               <li>The image is compressed automatically to reduce storage size.</li>
               <li>It is stored in a separate database record and referenced by your conversation.</li>
-              <li>The image is sent to Amazon Bedrock along with your message so the AI coach can see and
+              <li>The image is sent to the selected AI service along with your message so the AI coach can see and
                 discuss what you’ve shared.</li>
               <li>Images remain accessible when you resume a lesson later.</li>
             </ul>

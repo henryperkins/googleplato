@@ -3,8 +3,8 @@
  * All API calls go through the server proxy (authenticatedFetch).
  */
 
-// The single model behind every agent. Must match `LLM` in
-// server/src/lib/ai-provider.js, which resolves it to a Bedrock model ID.
+// Compatibility hint for older servers. The server's saved admin provider/model
+// takes precedence for every agent; browsers never choose the active backend.
 export const LLM = 'qwen3-vl-235b';
 
 export class ApiError extends Error {
@@ -42,6 +42,9 @@ export async function parseResponse(resp) {
     const code = body?.code || body?.error?.code;
 
     if (status === 401) throw new ApiError('invalid_key', 'Session expired. Please sign in again.', status, code);
+    // A configuration failure needs an admin, not the orchestrator's automatic
+    // overload retries. Preserve its stable code and surface-specific guidance.
+    if (code === 'ai_unavailable') throw new ApiError('api', msg, status, code);
     if (status === 429) throw new ApiError('rate_limit', 'Rate limited. Try again in a moment.', status, code);
     if (status === 503 || status === 529) throw new ApiError('overloaded', 'API is temporarily overloaded. Retrying...', status, code);
     if (status === 500) throw new ApiError('api', 'Internal server error. This may be a temporary issue.', status, code);

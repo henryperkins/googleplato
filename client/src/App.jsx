@@ -16,6 +16,7 @@ const AdminHome = lazy(() => import('./pages/admin/AdminHome.jsx'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers.jsx'));
 const AdminLessons = lazy(() => import('./pages/admin/AdminLessons.jsx'));
 const AdminCustomizer = lazy(() => import('./pages/admin/AdminCustomizer.jsx'));
+const AdminAI = lazy(() => import('./pages/admin/AdminAI.jsx'));
 const AdminPlugins = lazy(() => import('./pages/admin/AdminPlugins.jsx'));
 const AdminKBSetup = lazy(() => import('./pages/admin/AdminKBSetup.jsx'));
 
@@ -142,6 +143,7 @@ export default function App() {
               link from the prior standalone-page iteration. */}
           <Route path="courses" element={<Navigate to="/plato/lessons" replace />} />
           <Route path="customizer" element={<Suspense fallback={<PageFallback />}><AdminCustomizer /></Suspense>} />
+          <Route path="ai" element={<Suspense fallback={<PageFallback />}><AdminAI /></Suspense>} />
           <Route path="customizer/knowledge" element={<Suspense fallback={<PageFallback />}><AdminCustomizer /></Suspense>} />
           <Route path="customizer/knowledge/edit" element={<Suspense fallback={<PageFallback />}><AdminCustomizer /></Suspense>} />
           <Route path="plugins" element={<Suspense fallback={<PageFallback />}><AdminPlugins /></Suspense>} />
