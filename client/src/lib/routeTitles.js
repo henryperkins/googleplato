@@ -36,6 +36,7 @@ export function routePageName(path, { lessons = [], lessonsLoaded = false } = {}
   return { name: null, pending: true };
 }
 
-export function pageTitle(name) {
-  return `${name} — plato`;
+export function pageTitle(name, classroomName) {
+  const brand = typeof classroomName === 'string' && classroomName.trim() ? classroomName.trim() : 'plato';
+  return `${name} — ${brand}`;
 }

@@ -51,7 +51,10 @@ describe('routePageName', () => {
     assert.deepEqual(routePageName('/plato'), { name: null, pending: false });
   });
 
-  it('formats the document title', () => {
+  it('formats the document title with the classroom name when configured', () => {
     assert.equal(pageTitle('Write a Project Status Email'), 'Write a Project Status Email — plato');
+    assert.equal(pageTitle('Write a Project Status Email', ''), 'Write a Project Status Email — plato');
+    assert.equal(pageTitle('Write a Project Status Email', '   '), 'Write a Project Status Email — plato');
+    assert.equal(pageTitle('Write a Project Status Email', 'AI Leaders Academy'), 'Write a Project Status Email — AI Leaders Academy');
   });
 });

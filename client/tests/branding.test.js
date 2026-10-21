@@ -1,6 +1,26 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildThemeVars, contrastRatio, contrastText, hexToOklch, luminance, normalizeHex, readableColor } from '../src/lib/branding.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  DEFAULT_PRIMARY,
+  DEFAULT_ACCENT,
+  applyThemeVarsToRoot,
+  buildThemeVars,
+  contrastRatio,
+  contrastText,
+  generateFavicon,
+  hexToOklch,
+  luminance,
+  normalizeHex,
+  readableColor,
+  setFavicon,
+} from '../src/lib/branding.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SRC_DIR = path.resolve(__dirname, '../src');
+const readSrc = (rel) => fs.readFileSync(path.join(SRC_DIR, rel), 'utf8').replace(/\r\n/g, '\n');
 
 describe('classroom color contrast', () => {
   it('keeps brand colors while selecting readable text for midtone backgrounds', () => {
@@ -83,6 +103,109 @@ it('derived branding text meets normal-text contrast for configurable colors', (
 });
 
 it('default brand and very light backgrounds preserve their foregrounds', () => {
+  assert.equal(DEFAULT_PRIMARY, '#470d99');
+  assert.equal(DEFAULT_ACCENT, '#470d99');
   assert.equal(contrastText('#470d99'), '#ffffff');
   assert.equal(contrastText('#ffffff'), '#1a1a1a');
+});
+
+describe('root theme application, favicons, and customizer parity', () => {
+  it('applies .classroom-theme and CSS vars to documentElement so portaled modals inherit them, then restores on cleanup', () => {
+    const props = new Map([['--primary', 'existing-primary']]);
+    const classes = new Set();
+    const prevDocument = globalThis.document;
+    globalThis.document = {
+      documentElement: {
+        classList: {
+          contains: (c) => classes.has(c),
+          add: (c) => classes.add(c),
+          remove: (c) => classes.delete(c),
+        },
+        style: {
+          getPropertyValue: (k) => props.get(k) || '',
+          setProperty: (k, v) => props.set(k, v),
+          removeProperty: (k) => props.delete(k),
+        },
+      },
+    };
+    try {
+      const cleanup = applyThemeVarsToRoot({ primary: '#8b1a1a', accent: '#dc2626' });
+      assert.equal(classes.has('classroom-theme'), true);
+      assert.equal(props.get('--classroom-header-bg'), '#8b1a1a');
+      assert.equal(props.get('--primary'), hexToOklch('#8b1a1a'));
+      assert.ok(props.get('--ring'));
+
+      cleanup();
+      assert.equal(classes.has('classroom-theme'), false);
+      assert.equal(props.get('--primary'), 'existing-primary');
+      assert.equal(props.has('--classroom-header-bg'), false);
+    } finally {
+      globalThis.document = prevDocument;
+    }
+  });
+
+  it('generates a text-initial favicon when no logo is uploaded and restores the original favicon on cleanup', async () => {
+    const drawnTexts = [];
+    const fills = [];
+    const linkEl = { rel: 'icon', type: 'image/svg+xml', href: '/assets/favicon.svg' };
+    const prevDocument = globalThis.document;
+    globalThis.document = {
+      createElement: (tag) => {
+        if (tag === 'canvas') {
+          return {
+            width: 0,
+            height: 0,
+            getContext: () => ({
+              beginPath() {},
+              moveTo() {},
+              lineTo() {},
+              quadraticCurveTo() {},
+              closePath() {},
+              fill() { fills.push(this.fillStyle); },
+              fillText(text) { drawnTexts.push({ text, color: this.fillStyle }); },
+            }),
+            toDataURL: () => 'data:image/png;base64,FAVICON',
+          };
+        }
+        return {};
+      },
+      querySelector: () => linkEl,
+      head: { appendChild() {} },
+    };
+    try {
+      const dataUrl = await generateFavicon(null, '#8b1a1a', 'AI Leaders Academy');
+      assert.equal(dataUrl, 'data:image/png;base64,FAVICON');
+      assert.equal(fills[0], '#8b1a1a');
+      assert.deepEqual(drawnTexts[0], { text: 'A', color: '#ffffff' });
+
+      const restore = setFavicon(dataUrl);
+      assert.equal(linkEl.href, 'data:image/png;base64,FAVICON');
+      assert.equal(linkEl.type, 'image/png');
+      restore();
+      assert.equal(linkEl.href, '/assets/favicon.svg');
+      assert.equal(linkEl.type, 'image/svg+xml');
+    } finally {
+      globalThis.document = prevDocument;
+    }
+  });
+
+  it('aligns default colors, workspace preview surface, text fallback, and favicon wiring across branding consumers', () => {
+    const customizer = readSrc('pages/admin/AdminCustomizer.jsx');
+    const brandingCtx = readSrc('contexts/BrandingContext.jsx');
+    const publicHook = readSrc('hooks/usePublicBranding.js');
+
+    // Default purple shared via branding.js; no hardcoded #8b1a1a fallback in client hooks/customizer
+    assert.equal(/#8b1a1a/.test(customizer), false);
+    assert.equal(/#8b1a1a/.test(publicHook), false);
+    assert.match(customizer, /bg-workspace text-sm space-y-2/);
+    assert.match(customizer, /\{classroomName \|\| 'plato'\}/);
+    assert.equal(/Your Classroom/.test(customizer), false);
+
+    // Both BrandingContext and usePublicBranding apply vars to :root and pass classroomName to generateFavicon
+    assert.match(brandingCtx, /applyThemeVarsToRoot\(branding\.theme\)/);
+    assert.match(brandingCtx, /generateFavicon\(branding\.logoBase64,\s*primaryColor,\s*branding\.classroomName\)/);
+    assert.equal(/isAdmin/.test(brandingCtx), false);
+    assert.match(publicHook, /applyThemeVarsToRoot\(branding\?\.theme\)/);
+    assert.match(publicHook, /generateFavicon\(branding\.logoBase64,\s*primaryColor,\s*branding\.classroomName\)/);
+  });
 });

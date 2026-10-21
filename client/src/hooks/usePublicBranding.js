@@ -1,13 +1,23 @@
 import { useState, useEffect, useLayoutEffect } from 'react';
-import { buildThemeVars, contrastText, generateFavicon, setFavicon } from '../lib/branding.js';
-import { cachedPublicBranding, loadPublicBranding } from '../lib/publicBranding.js';
+import {
+  DEFAULT_PRIMARY,
+  applyThemeVarsToRoot,
+  contrastText,
+  generateFavicon,
+  normalizeHex,
+  setFavicon,
+} from '../lib/branding.js';
+import { cachedPublicBranding, loadPublicBranding, subscribePublicBranding } from '../lib/publicBranding.js';
+import { pageTitle } from '../lib/routeTitles.js';
 
 /**
  * Classroom branding for public pages (login, signup, forgot/reset password).
  * Applies CSS vars to :root, sets favicon, and returns branding data.
  */
-export default function usePublicBranding(pageTitle) {
+export default function usePublicBranding(title) {
   const [branding, setBranding] = useState(cachedPublicBranding);
+
+  useEffect(() => subscribePublicBranding(setBranding), []);
 
   useEffect(() => {
     if (branding) return;
@@ -19,49 +29,38 @@ export default function usePublicBranding(pageTitle) {
   // Set document title using classroom name
   useEffect(() => {
     if (!branding) return;
-    const name = branding.classroomName || 'plato';
-    document.title = `${pageTitle} — ${name}`;
-  }, [branding, pageTitle]);
+    document.title = pageTitle(title, branding.classroomName);
+  }, [branding, title]);
 
   // Apply CSS vars to :root so buttons/links use classroom colors. A layout
   // effect runs before paint, so the page never shows a frame of the default
   // purple first.
   useLayoutEffect(() => {
-    if (!branding?.theme) return;
-    const vars = buildThemeVars(branding.theme);
-    const root = document.documentElement;
-    const hadThemeClass = root.classList.contains('classroom-theme');
-    root.classList.add('classroom-theme');
-    const originals = {};
-    for (const [key, value] of Object.entries(vars)) {
-      originals[key] = root.style.getPropertyValue(key);
-      root.style.setProperty(key, value);
-    }
-    return () => {
-      if (!hadThemeClass) root.classList.remove('classroom-theme');
-      for (const [key, value] of Object.entries(originals)) {
-        if (value) root.style.setProperty(key, value);
-        else root.style.removeProperty(key);
-      }
-    };
+    return applyThemeVarsToRoot(branding?.theme);
   }, [branding?.theme]);
 
-  // Generate and set favicon — only when classroom has a logo image; otherwise use plato default
+  // Generate and set favicon when classroom has custom branding (logo, name, or primary color)
   useEffect(() => {
-    if (!branding?.logoBase64 || !branding?.theme?.primary) return;
+    const hasCustomBranding = Boolean(
+      branding?.logoBase64 || branding?.classroomName?.trim() || branding?.theme?.primary
+    );
+    if (!hasCustomBranding) return;
     let cancelled = false;
     let restoreFn;
-    generateFavicon(branding.logoBase64, branding.theme.primary).then(dataUrl => {
+    const primaryColor = normalizeHex(branding?.theme?.primary) || DEFAULT_PRIMARY;
+    generateFavicon(branding.logoBase64, primaryColor, branding.classroomName).then(dataUrl => {
       if (dataUrl && !cancelled) restoreFn = setFavicon(dataUrl);
     });
     return () => { cancelled = true; restoreFn?.(); };
-  }, [branding?.logoBase64, branding?.theme?.primary]);
+  }, [branding?.logoBase64, branding?.theme?.primary, branding?.classroomName]);
 
   if (!branding) return null;
 
+  const primary = normalizeHex(branding.theme?.primary) || DEFAULT_PRIMARY;
+
   return {
-    primary: branding.theme?.primary || '#8b1a1a',
-    foreground: contrastText(branding.theme?.primary || '#8b1a1a'),
+    primary,
+    foreground: contrastText(primary),
     logo: branding.logoBase64 || null,
     classroomName: branding.classroomName || 'plato',
     theme: branding.theme,
