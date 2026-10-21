@@ -1,4 +1,5 @@
 import { workersAiCredentials } from './cloudflare-oauth.js';
+import { observeInference } from './inference-telemetry.js';
 
 const TIMEOUT_MS = 115_000;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -67,14 +68,16 @@ function fromResponse(data) {
   };
 }
 
-async function request(model, body, stream, signal) {
+async function request(model, body, stream, signal, observe) {
   signal?.throwIfAborted();
   const credentials = await workersAiCredentials();
   signal?.throwIfAborted();
+  const requestBody = JSON.stringify(toWorkersAiRequest(model, body, stream));
+  observeInference(observe, { attempts: 1, retryDelayMs: 0 });
   const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${credentials.accountId}/ai/v1/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${credentials.apiToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(toWorkersAiRequest(model, body, stream)),
+    body: requestBody,
     redirect: 'error',
     signal,
   });
@@ -121,28 +124,32 @@ async function* readEvents(body) {
 }
 
 const workersAi = {
-  async invoke(model, body) {
+  async invoke(model, body, { observe } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      const response = await request(model, body, false, controller.signal);
-      return fromResponse(await response.json());
+      const response = await request(model, body, false, controller.signal, observe);
+      const data = await response.json();
+      observeInference(observe, { format: 'workers-ai', usage: data?.usage, finalUsage: true });
+      return fromResponse(data);
     } finally {
       clearTimeout(timer);
     }
   },
 
-  async *invokeStream(model, body, { signal } = {}) {
+  async *invokeStream(model, body, { signal, observe } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     let finished = false;
     let hasText = false;
     let tokenUsage = usage();
     try {
-      const response = await request(model, body, true, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal);
+      const response = await request(model, body, true, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, observe);
       if (!response.headers.get('content-type')?.includes('text/event-stream')) throw providerError();
       yield { type: 'message_start', message: { role: 'assistant', content: [] } };
       for await (const event of readEvents(response.body)) {
+        observeInference(observe, { format: 'workers-ai', usage: event.usage,
+          finalUsage: finished || Boolean(event.choices?.[0]?.finish_reason) });
         if (event.error || event.success === false) throw providerError(event.error?.status || 502);
         const choice = event.choices?.[0];
         const text = choice?.delta?.content;

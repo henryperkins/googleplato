@@ -1,5 +1,13 @@
 # Model selection: choosing an open source model for plato
 
+**2026-10-21 measurement note:** the Bedrock selection below records the original
+institutional evaluation. The current shared provider also supports admin-selected
+Workers AI; see [architecture](ARCHITECTURE.md#ai-provider--model-choice).
+[Inference telemetry](INFERENCE_TELEMETRY.md) now measures the existing settings,
+including reasoning/output usage, server TTFT, retries, and abandoned-lesson
+spend. This instrumentation does not tune reasoning or change model selection;
+production baselines and controlled quality benchmarks must precede those changes.
+
 **Status:** decided — `qwen.qwen3-vl-235b-a22b`, the only candidate satisfying all four constraints
 **Date:** 2026-07-28
 **Supersedes:** Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`)

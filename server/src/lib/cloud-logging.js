@@ -35,6 +35,7 @@ export async function fetchCloudLoggingLogs({
   projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
   serviceName = process.env.CLOUD_RUN_SERVICE || process.env.K_SERVICE,
   location = process.env.CLOUD_RUN_REGION,
+  codes,
 } = {}, { request = requestPage, maxPages = 100, maxEntries = 10000, maxDurationMs = 30_000 } = {}) {
   const result = { entries: [], projectId, serviceName, location, since, until, complete: false, error: null };
   const deadline = Date.now() + maxDurationMs;
@@ -45,11 +46,14 @@ export async function fetchCloudLoggingLogs({
     }
     const start = Date.parse(since), end = Date.parse(until);
     if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) throw new Error('Invalid Cloud Logging time window');
+    if (codes !== undefined && (!Array.isArray(codes) || !codes.length || codes.length > 20
+      || codes.some(code => typeof code !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(code)))) throw new Error('Invalid Cloud Logging event codes');
     const filter = [
       'resource.type="cloud_run_revision"', `resource.labels.service_name=${JSON.stringify(serviceName)}`,
       ...(location ? [`resource.labels.location=${JSON.stringify(location)}`] : []),
       `timestamp>=${JSON.stringify(new Date(start).toISOString())}`, `timestamp<=${JSON.stringify(new Date(end).toISOString())}`,
-      '(severity>=WARNING OR jsonPayload.level="warn" OR jsonPayload.level="error" OR jsonPayload.code="client_save_recovered")',
+      codes ? `(${codes.map(code => `jsonPayload.code=${JSON.stringify(code)}`).join(' OR ')})`
+        : '(severity>=WARNING OR jsonPayload.level="warn" OR jsonPayload.level="error" OR jsonPayload.code="client_save_recovered")',
     ].join(' AND ');
     result.filter = filter;
     const seen = new Set();

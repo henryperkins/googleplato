@@ -5,6 +5,7 @@ import { adminAiSettings, BEDROCK_MODEL, readAiSettings, validateAiSettings } fr
 import { classifyAiError, aiErrorStatus } from '../lib/ai-errors.js';
 import cloudflareOAuth from './cloudflare-oauth.js';
 import { requireCurrentClient } from '../middleware/clientCompatibility.js';
+import { inferenceContext } from '../lib/inference-telemetry.js';
 
 // Mounted inside admin.js after its authentication and admin middleware.
 const settings = new Hono();
@@ -44,7 +45,7 @@ settings.post('/v1/admin/ai-settings/test', requireCurrentClient, async (c) => {
     const reply = await ai.invokeWithSettings(body, {
       max_tokens: 64,
       messages: [{ role: 'user', content: 'Reply with exactly: Connection OK' }],
-    });
+    }, { context: inferenceContext(c.get('userId'), { agentRole: 'admin-test' }) });
     if (!reply.content?.some(block => block.type === 'text' && block.text?.trim())) throw new Error('Empty AI test response.');
     return c.json({ ok: true, provider: body.provider, model: body.provider === 'workers-ai' ? body.workersAiModel : BEDROCK_MODEL });
   } catch (err) {

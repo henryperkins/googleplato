@@ -39,6 +39,13 @@ read-only; it needs neither app-admin credentials nor hosted GitHub Actions.
 See [save observability](SAVE_OBSERVABILITY.md) for schemas, delivery limits,
 configuration, monitoring exit codes, and the deployment boundary.
 
+The shared AI provider also emits content-free invocation start/outcome events
+and the atomic lesson save boundary emits attempt status. The read-only
+`scripts/inference-report.js` joins those Cloud Logging events to measure usage,
+timings, retries, enrichment frequency, and lesson cost estimates including
+abandoned attempts. Missing provider usage remains unknown. See
+[inference telemetry](INFERENCE_TELEMETRY.md) for definitions and coverage limits.
+
 ## Google sign-in and canonical server storage
 
 Google sign-in uses Firebase Auth's popup. The server verifies the Firebase ID
