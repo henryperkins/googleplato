@@ -40,9 +40,23 @@ deployment configuration names only the Plato database. It does not target
 `event-manager`, create a `(default)` database, disable the shared project's
 Firestore API, or modify Firebase Auth.
 
+A read-only project database listing on October 21, 2026 returned only the named
+Plato database and `event-manager`; no `(default)` database exists at that
+snapshot. The removed `(default)` deployment entry did not identify an existing
+store. Repeat that metadata check before publication with
+`gcloud firestore databases list --project=idk-4e9b9`. If `(default)` or another
+unexpected database appears, stop and establish its ownership and rules policy
+separately. Do not create a default database or extend this cutover to another
+application's data.
+
 **Publication boundary:** this is the implementation and local-validation slice.
 The checked-in rules and client changes must still be published in the cutover.
 This implementation task does not publish Firestore rules or deploy Cloud Run.
+
+The [privacy page screenshot](reviews/firestore-retirement-privacy-2026-10-21.png)
+shows the built client in local Chromium with synthetic public branding and
+setup-status responses. It verifies the displayed storage and recovery text;
+it does not exercise live OAuth or production data.
 
 ## Local validation
 
@@ -90,8 +104,9 @@ rules source contains a deny statement.
 ## Cutover and rollback
 
 1. Immediately before publication, repeat the read-only named-database inventory
-   at a common read time. If any record or missing-parent path appears, retain
-   it and stop the empty-source cutover. Reconcile content lineage, timestamps,
+   at a common read time and confirm the project database list above. If any
+   record or missing-parent path appears, retain it and stop the empty-source
+   cutover. Reconcile content lineage, timestamps,
    attachment references and reset/deletion evidence; independent version
    counters do not authorize overwriting the server.
 2. Confirm the serving API and rollback artifact keep protocol `1`, shared epoch

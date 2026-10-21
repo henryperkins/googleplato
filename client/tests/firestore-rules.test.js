@@ -34,7 +34,7 @@ describe('retired Firestore client access', { skip: !process.env.FIRESTORE_EMULA
   const identities = [
     ['anonymous', null],
     ['verified owner', { uid: 'owner', email: 'owner@example.test', email_verified: true }],
-    ['bootstrap admin', { uid: 'bootstrap', email: 'allthesecrushes@gmail.com', email_verified: true }],
+    ['bootstrap admin', { uid: 'bootstrap', email: 'bootstrap-admin@example.test', email_verified: true }],
     ['marker admin', { uid: 'admin', email: 'admin@example.test', email_verified: true }],
   ];
   for (const [name, identity] of identities) {
