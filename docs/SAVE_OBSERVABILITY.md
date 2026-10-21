@@ -67,6 +67,10 @@ client event codes and exact content-free fields, limits the body to 16 KiB and
 no learner-data writes or inference. It is deliberately outside the client
 compatibility fence so an outdated page can report an upgrade rejection. It is
 not a global rate-limit or deduplication store.
+The route is mounted in the Cloud Run HTTP entrypoint, Lambda, and both local
+development launchers. HTTP startup regressions verify authentication, accepted
+reports from clients without compatibility headers, and structured failure and
+recovery output from the actual HTTP launchers.
 
 ## Run the monitor
 
@@ -131,7 +135,9 @@ its service account only if this admin endpoint needs it.
 
 Lambda installations retain CloudWatch and `cloudwatch=0`. The monitor's legacy
 `LOG_WATCH_SOURCE=api` mode uses `PLATO_API_URL`, `PLATO_ADMIN_EMAIL`, and
-`PLATO_ADMIN_PASSWORD` and refuses remote-reader failures. Its historical grouped
+`PLATO_ADMIN_PASSWORD` and refuses remote-reader failures. The base URL must use
+HTTPS without embedded credentials, a query, or a fragment. Login and log reads
+reject redirects so admin credentials stay on the configured origin. Its historical grouped
 API can hide a sync error behind a different sample with the same code; use the
 direct Cloud Logging mode on Cloud Run. Recovery severity is retained by both
 readers. Neither deployment stores logs in the learner database.

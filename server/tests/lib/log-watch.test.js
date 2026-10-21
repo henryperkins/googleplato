@@ -25,3 +25,31 @@ test('legacy grouped responses still recognize write-path failures and new save 
     { code: 'sync_conflict' }, { code: 'client_save_recovered' },
   ] }).length, 2);
 });
+
+test('legacy monitor rejects unsafe URLs before sending admin credentials', async t => {
+  const requests = t.mock.method(globalThis, 'fetch', async () => new Response('{}'));
+  for (const url of ['http://example.test', 'not a URL', 'https://user:secret@example.test',
+    'https://example.test/?token=secret', 'https://example.test/#secret']) {
+    await assert.rejects(runWatch({ env: { LOG_WATCH_SOURCE: 'api', PLATO_API_URL: url,
+      PLATO_ADMIN_EMAIL: 'admin@example.test', PLATO_ADMIN_PASSWORD: 'private-password' } }), /HTTPS base URL/);
+  }
+  assert.equal(requests.mock.callCount(), 0);
+});
+
+test('legacy monitor keeps credential requests on the configured HTTPS origin', async t => {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url, options });
+    assert.equal(options.redirect, 'error');
+    return new Response(JSON.stringify(url.endsWith('/login')
+      ? { accessToken: 'test-access-token' }
+      : { groups: [{ code: 'sync_conflict', count: 2 }] }));
+  });
+  const report = await runWatch({ env: { LOG_WATCH_SOURCE: 'api', PLATO_API_URL: 'https://example.test/',
+    PLATO_ADMIN_EMAIL: 'admin@example.test', PLATO_ADMIN_PASSWORD: 'private-password' } });
+  assert.equal(report.failureCount, 2);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].url, 'https://example.test/v1/auth/login');
+  assert.match(requests[1].url, /^https:\/\/example.test\/v1\/admin\/logs\?/);
+  assert.equal(requests[1].options.headers.Authorization, 'Bearer test-access-token');
+});

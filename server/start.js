@@ -58,7 +58,7 @@ app.use('*', async (c, next) => {
   c.header('X-Plato-Commit', process.env.RELEASE_COMMIT || 'unknown');
   await next();
 });
-for (const name of ['health', 'auth', 'me', 'admin', 'sync', 'ai', 'content', 'links', 'waitlist']) {
+for (const name of ['health', 'auth', 'me', 'admin', 'sync', 'client-events', 'ai', 'content', 'links', 'waitlist']) {
   app.route('/', (await import(`./src/routes/${name}.js`)).default);
 }
 app.all('/v1/plugins/:pluginId/*', makePluginDispatcher(pluginRegistry));

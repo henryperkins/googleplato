@@ -41,15 +41,22 @@ export function summarizeSaveLogs(entries) {
 
 async function readLegacyApi(env, since) {
   if (!env.PLATO_API_URL || !env.PLATO_ADMIN_EMAIL || !env.PLATO_ADMIN_PASSWORD) throw new Error('Legacy API source requires PLATO_API_URL and admin credentials');
-  const login = await fetch(`${env.PLATO_API_URL}/v1/auth/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(15000),
+  let baseUrl;
+  try {
+    const url = new URL(env.PLATO_API_URL);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error();
+    baseUrl = url.href.replace(/\/$/, '');
+  } catch { throw new Error('PLATO_API_URL must be an HTTPS base URL without credentials, query, or fragment'); }
+  // Never follow a redirect carrying the admin password or access token.
+  const login = await fetch(`${baseUrl}/v1/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(15000), redirect: 'error',
     body: JSON.stringify({ email: env.PLATO_ADMIN_EMAIL, password: env.PLATO_ADMIN_PASSWORD }),
   });
   if (!login.ok) throw new Error(`login failed: ${login.status}`);
   const { accessToken } = await login.json();
   if (!accessToken) throw new Error('login returned no accessToken');
-  const response = await fetch(`${env.PLATO_API_URL}/v1/admin/logs?view=groups&since=${encodeURIComponent(since)}`, {
-    headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(30000),
+  const response = await fetch(`${baseUrl}/v1/admin/logs?view=groups&since=${encodeURIComponent(since)}`, {
+    headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(30000), redirect: 'error',
   });
   if (!response.ok) throw new Error(`logs API failed: ${response.status}`);
   const logs = await response.json();

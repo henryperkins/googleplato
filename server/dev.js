@@ -18,6 +18,7 @@ const { default: auth } = await import('./src/routes/auth.js');
 const { default: me } = await import('./src/routes/me.js');
 const { default: admin } = await import('./src/routes/admin.js');
 const { default: sync } = await import('./src/routes/sync.js');
+const { default: clientEvents } = await import('./src/routes/client-events.js');
 const { default: ai } = await import('./src/routes/ai.js');
 const { default: app } = await import('./src/routes/app.js');
 const { default: db } = await import('./src/lib/db.js');
@@ -60,6 +61,7 @@ server.route('/', auth);
 server.route('/', me);
 server.route('/', admin);
 server.route('/', sync);
+server.route('/', clientEvents);
 server.route('/', ai);
 server.route('/', app);
 
