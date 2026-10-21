@@ -120,7 +120,7 @@ export default function AppShell({ children }) {
         <nav className="mx-auto max-w-5xl flex items-center gap-2" aria-label="Main navigation">
           <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="touch-target flex min-w-0 max-w-[60%] items-center rounded-sm" aria-label={`${classroomName} — Lessons`}>
             {classroomLogo ? (
-              <img src={classroomLogo} alt="" width="32" height="32" fetchPriority="high" className="h-8 max-w-full object-contain" />
+              <img src={classroomLogo} alt="" width="32" height="32" fetchPriority="high" className="h-8 w-8 max-w-full object-contain" />
             ) : (
               <span className="text-sm font-semibold truncate">{classroomName}</span>
             )}

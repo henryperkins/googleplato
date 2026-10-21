@@ -1,7 +1,13 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import { useAuth } from './AuthContext.jsx';
-import { buildThemeVars, generateFavicon, setFavicon } from '../lib/branding.js';
-import { cachedPublicBranding, loadPublicBranding } from '../lib/publicBranding.js';
+import { createContext, useContext, useState, useEffect, useLayoutEffect } from 'react';
+import {
+  DEFAULT_PRIMARY,
+  applyThemeVarsToRoot,
+  buildThemeVars,
+  generateFavicon,
+  normalizeHex,
+  setFavicon,
+} from '../lib/branding.js';
+import { cachedPublicBranding, loadPublicBranding, subscribePublicBranding } from '../lib/publicBranding.js';
 
 const EMPTY_BRANDING = { theme: null, logoBase64: null, classroomName: '' };
 
@@ -12,14 +18,18 @@ const BrandingContext = createContext(null);
  * The plato dashboard is never affected.
  */
 export function BrandingProvider({ children }) {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
-
   // Usually already loaded: App requests branding at boot (lib/publicBranding.js).
   const [branding, setBranding] = useState(() => {
     const cached = cachedPublicBranding();
     return cached ? { ...EMPTY_BRANDING, ...cached, loaded: true } : { ...EMPTY_BRANDING, loaded: false };
   });
+
+  useEffect(() => {
+    return subscribePublicBranding((data) => {
+      if (data) setBranding({ ...EMPTY_BRANDING, ...data, loaded: true });
+      else setBranding({ ...EMPTY_BRANDING, loaded: false });
+    });
+  }, []);
 
   useEffect(() => {
     if (branding.loaded) return;
@@ -30,16 +40,26 @@ export function BrandingProvider({ children }) {
     return () => { cancelled = true; };
   }, [branding.loaded]);
 
-  // Generate and set favicon — only when classroom has a logo image; otherwise use plato default
+  // Apply CSS vars to :root as well so portaled dialogs/modals on document.body
+  // inherit the classroom theme while classroom routes are active.
+  useLayoutEffect(() => {
+    return applyThemeVarsToRoot(branding.theme);
+  }, [branding.theme]);
+
+  // Generate and set favicon when classroom has custom branding (logo, name, or primary color)
   useEffect(() => {
-    if (!branding.logoBase64 || !branding.theme?.primary || isAdmin) return;
+    const hasCustomBranding = Boolean(
+      branding.logoBase64 || branding.classroomName?.trim() || branding.theme?.primary
+    );
+    if (!hasCustomBranding) return;
     let cancelled = false;
     let restoreFn;
-    generateFavicon(branding.logoBase64, branding.theme.primary).then(dataUrl => {
+    const primaryColor = normalizeHex(branding.theme?.primary) || DEFAULT_PRIMARY;
+    generateFavicon(branding.logoBase64, primaryColor, branding.classroomName).then(dataUrl => {
       if (dataUrl && !cancelled) restoreFn = setFavicon(dataUrl);
     });
     return () => { cancelled = true; restoreFn?.(); };
-  }, [branding.logoBase64, branding.theme?.primary, isAdmin]);
+  }, [branding.logoBase64, branding.theme?.primary, branding.classroomName]);
 
   const classroomStyle = buildThemeVars(branding.theme);
 

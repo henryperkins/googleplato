@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import { useBranding } from '../contexts/BrandingContext.jsx';
 import { useStreamedText } from '../hooks/useStreamedText.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeyboardOffset.js';
@@ -10,6 +11,7 @@ import { useLessonDraft } from '../hooks/useLessonDraft.js';
 import { isClientUpgradeRequired, onClientUpgrade } from '../../js/clientCompatibility.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
+import { pageTitle } from '../lib/routeTitles.js';
 import {
   deleteLessonProgress,
   getUserLessonMarkdown, deleteUserLesson,
@@ -93,8 +95,9 @@ function LessonConversation() {
   const srClearTimeoutRef = useRef(null);
   const srRafRef = useRef(null);
   const chatAreaRef = useRef(null);
+  const branding = useBranding();
   const notifyTitle = useTitleNotification(
-    lesson ? `${lesson.name} — plato` : 'Lesson — plato'
+    pageTitle(lesson ? lesson.name : 'Lesson', branding?.classroomName)
   );
 
   // Confirm modal state

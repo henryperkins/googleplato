@@ -10,9 +10,19 @@
 
 let cached = null;
 let pending = null;
+const listeners = new Set();
+
+function notify() {
+  for (const fn of listeners) fn(cached);
+}
 
 export function cachedPublicBranding() {
   return cached;
+}
+
+export function subscribePublicBranding(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
 }
 
 /** Resolves to the branding record, or `{}` when it can't be loaded. */
@@ -24,7 +34,10 @@ export function loadPublicBranding() {
       .catch(() => null)
       .then((data) => {
         pending = null;
-        if (data) cached = data;
+        if (data) {
+          cached = data;
+          notify();
+        }
         return data || {};
       });
   }
@@ -35,4 +48,5 @@ export function loadPublicBranding() {
 export function invalidatePublicBranding() {
   cached = null;
   pending = null;
+  notify();
 }

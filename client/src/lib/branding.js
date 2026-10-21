@@ -1,5 +1,8 @@
 /** Shared branding utilities — used by BrandingContext and public auth pages. */
 
+export const DEFAULT_PRIMARY = '#470d99';
+export const DEFAULT_ACCENT = '#470d99';
+
 /**
  * Normalize a CSS color to `#rrggbb`, or return null when it cannot be parsed.
  * Accepts `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, bare hex, and
@@ -115,6 +118,33 @@ export function buildThemeVars(theme) {
 }
 
 /**
+ * Apply `.classroom-theme` and theme CSS variables to `:root` (`document.documentElement`)
+ * so both the page and portaled dialogs/modals inherit the classroom theme.
+ * Returns a cleanup function that restores the previous class and inline variables.
+ */
+export function applyThemeVarsToRoot(theme) {
+  if (typeof document === 'undefined' || !document.documentElement || !theme) return () => {};
+  const vars = buildThemeVars(theme);
+  const entries = Object.entries(vars);
+  if (entries.length === 0) return () => {};
+  const root = document.documentElement;
+  const hadThemeClass = root.classList?.contains('classroom-theme');
+  root.classList?.add('classroom-theme');
+  const originals = {};
+  for (const [key, value] of entries) {
+    originals[key] = root.style.getPropertyValue(key);
+    root.style.setProperty(key, value);
+  }
+  return () => {
+    if (!hadThemeClass) root.classList?.remove('classroom-theme');
+    for (const [key, value] of Object.entries(originals)) {
+      if (value) root.style.setProperty(key, value);
+      else root.style.removeProperty(key);
+    }
+  };
+}
+
+/**
  * Generate a favicon: classroom logo (or text initial) on a rounded-rect background.
  * Returns a data URL suitable for <link rel="icon">.
  * @param {string|null} logoBase64 - logo image data URL, or null for text-based
@@ -123,6 +153,7 @@ export function buildThemeVars(theme) {
  */
 export function generateFavicon(logoBase64, primaryColor, classroomName = '') {
   return new Promise((resolve) => {
+    const bg = normalizeHex(primaryColor) || DEFAULT_PRIMARY;
     const size = 32;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -142,7 +173,7 @@ export function generateFavicon(logoBase64, primaryColor, classroomName = '') {
     ctx.lineTo(0, radius);
     ctx.quadraticCurveTo(0, 0, radius, 0);
     ctx.closePath();
-    ctx.fillStyle = primaryColor;
+    ctx.fillStyle = bg;
     ctx.fill();
 
     if (logoBase64) {
@@ -161,8 +192,8 @@ export function generateFavicon(logoBase64, primaryColor, classroomName = '') {
       img.src = logoBase64;
     } else {
       // Draw text initial
-      const initial = (classroomName || 'P').charAt(0).toUpperCase();
-      const textColor = contrastText(primaryColor);
+      const initial = ((classroomName || '').trim() || 'P').charAt(0).toUpperCase();
+      const textColor = contrastText(bg);
       ctx.fillStyle = textColor;
       ctx.font = 'bold 20px system-ui, sans-serif';
       ctx.textAlign = 'center';
@@ -176,10 +207,14 @@ export function generateFavicon(logoBase64, primaryColor, classroomName = '') {
 /** Set (or restore) the favicon link element. Returns a cleanup function. */
 export function setFavicon(dataUrl) {
   const link = document.querySelector("link[rel='icon']") || document.createElement('link');
-  const original = link.href;
+  const originalHref = link.href;
+  const originalType = link.type;
   link.rel = 'icon';
   link.type = 'image/png';
   link.href = dataUrl;
   document.head.appendChild(link);
-  return () => { link.href = original; };
+  return () => {
+    link.href = originalHref;
+    if (originalType) link.type = originalType;
+  };
 }

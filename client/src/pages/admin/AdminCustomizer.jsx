@@ -7,13 +7,11 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { renderMd } from '../../lib/helpers.js';
-import { buildThemeVars, contrastText, normalizeHex } from '../../lib/branding.js';
+import { DEFAULT_PRIMARY, DEFAULT_ACCENT, buildThemeVars, contrastText, normalizeHex } from '../../lib/branding.js';
 import { invalidatePublicBranding } from '../../lib/publicBranding.js';
 import KnowledgeBaseEditor from './KnowledgeBaseEditor.jsx';
 
-const DEFAULT_PRIMARY = '#8b1a1a';
-const DEFAULT_ACCENT = '#dc2626';
-const HEX_COLOR_ERROR = 'Enter a hex color like #8b1a1a.';
+const HEX_COLOR_ERROR = 'Enter a hex color like #470d99.';
 
 export default function AdminCustomizer() {
   const location = useLocation();
@@ -69,8 +67,9 @@ export default function AdminCustomizer() {
         adminApi('GET', '/v1/admin/knowledge-base'),
       ]);
       const t = themeData.theme || {};
-      setPrimary(normalizeHex(t.primary) || DEFAULT_PRIMARY);
-      setAccent(normalizeHex(t.accent) || DEFAULT_ACCENT);
+      const loadedPrimary = normalizeHex(t.primary) || DEFAULT_PRIMARY;
+      setPrimary(loadedPrimary);
+      setAccent(normalizeHex(t.accent) || loadedPrimary || DEFAULT_ACCENT);
       setLogoBase64(themeData.logoBase64 || null);
       setClassroomName(themeData.classroomName || '');
       setKbContent(kbData.content || '');
@@ -242,7 +241,7 @@ export default function AdminCustomizer() {
                   <span className="font-semibold">Header Preview</span>
                   <span className="ml-auto">Nav Item</span>
                 </div>
-                <div className="px-4 py-3 bg-background text-sm space-y-2">
+                <div className="px-4 py-3 bg-workspace text-sm space-y-2">
                   <p>Body text on the page background.</p>
                   <a href="#" onClick={e => e.preventDefault()} className="text-link underline">Accent link</a>
                   <div className="flex gap-2 mt-2">
@@ -277,9 +276,9 @@ export default function AdminCustomizer() {
               </div>
               <div className="p-4 rounded-lg text-center" style={{ backgroundColor: safePrimary, color: contrastText(safePrimary) }}>
                 {logoBase64 ? (
-                  <img src={logoBase64} alt={classroomName || 'Logo preview'} width="48" height="48" className="max-h-12 w-auto inline-block object-contain" />
+                  <img src={logoBase64} alt={classroomName || 'plato'} width="48" height="48" className="h-12 w-12 inline-block object-contain" />
                 ) : (
-                  <span className="text-lg font-semibold">{classroomName || 'Your Classroom'}</span>
+                  <span className="text-lg font-semibold">{classroomName || 'plato'}</span>
                 )}
               </div>
               {logoBase64 && (

@@ -39,6 +39,7 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
       'pages/Waitlist.jsx',
       'pages/ForgotPassword.jsx',
       'pages/ResetPassword.jsx',
+      'pages/Privacy.jsx',
     ];
 
     for (const rel of authPages) {
