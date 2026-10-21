@@ -7,8 +7,8 @@ describe('capabilityLabel', () => {
     assert.equal(capabilityLabel('server.routes'), 'Add server API routes');
     assert.equal(capabilityLabel('settings.read'), 'Read its own settings');
     assert.equal(capabilityLabel('settings.write'), 'Update its own settings');
-    assert.equal(capabilityLabel('user.metadata.read'), 'Read per-user records');
-    assert.equal(capabilityLabel('user.metadata.write'), 'Write per-user records');
+    assert.equal(capabilityLabel('user.metadata.read'), 'Read this plugin’s records for any user');
+    assert.equal(capabilityLabel('user.metadata.write'), 'Create, change, or delete this plugin’s records for any user');
     assert.equal(capabilityLabel('lessonEnrichment'), 'Add reference material when a lesson starts');
     assert.equal(capabilityLabel('agent'), 'Provide AI agents');
     assert.equal(capabilityLabel('kpi'), 'Contribute dashboard metrics');
@@ -31,6 +31,27 @@ describe('capabilityLabel', () => {
 
   it('keeps unrecognized capabilities visible as their raw token', () => {
     assert.equal(capabilityLabel('future.thing'), 'future.thing');
+  });
+
+  it('keeps inherited object property names visible as raw tokens', () => {
+    for (const capability of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      assert.equal(capabilityLabel(capability), capability, capability);
+    }
+  });
+
+  it('humanizes inherited object property names in hooks and slots', () => {
+    const cases = [
+      ['hook.toString', 'Run on the to string event'],
+      ['hook.constructor', 'Run on the constructor event'],
+      ['hook.hasOwnProperty', 'Run on the has own property event'],
+      ['ui.slot.toString', 'Render in the to string area'],
+      ['ui.slot.constructor', 'Render in the constructor area'],
+      ['ui.slot.valueOf', 'Render in the value of area'],
+    ];
+
+    for (const [capability, expected] of cases) {
+      assert.equal(capabilityLabel(capability), expected, capability);
+    }
   });
 
   it('returns empty text for missing input', () => {

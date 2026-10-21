@@ -12,8 +12,8 @@ const STATIC_LABELS = {
   'settings.read': 'Read its own settings',
   'settings.write': 'Update its own settings',
   'ui.adminNav': 'Add an admin navigation entry',
-  'user.metadata.read': 'Read per-user records',
-  'user.metadata.write': 'Write per-user records',
+  'user.metadata.read': 'Read this plugin’s records for any user',
+  'user.metadata.write': 'Create, change, or delete this plugin’s records for any user',
   'kpi': 'Contribute dashboard metrics',
   'agent': 'Provide AI agents',
   'syncData.namespace': 'Store per-user data',
@@ -49,10 +49,18 @@ function humanize(name) {
 
 export function capabilityLabel(capability) {
   if (typeof capability !== 'string' || !capability) return '';
-  if (STATIC_LABELS[capability]) return STATIC_LABELS[capability];
+  if (Object.hasOwn(STATIC_LABELS, capability)) return STATIC_LABELS[capability];
   const hook = /^hook\.([a-zA-Z][a-zA-Z0-9]*)$/.exec(capability);
-  if (hook) return HOOK_LABELS[hook[1]] || `Run on the ${humanize(hook[1])} event`;
+  if (hook) {
+    return Object.hasOwn(HOOK_LABELS, hook[1])
+      ? HOOK_LABELS[hook[1]]
+      : `Run on the ${humanize(hook[1])} event`;
+  }
   const slot = /^ui\.slot\.([a-zA-Z][a-zA-Z0-9]*)$/.exec(capability);
-  if (slot) return SLOT_LABELS[slot[1]] || `Render in the ${humanize(slot[1])} area`;
+  if (slot) {
+    return Object.hasOwn(SLOT_LABELS, slot[1])
+      ? SLOT_LABELS[slot[1]]
+      : `Render in the ${humanize(slot[1])} area`;
+  }
   return capability;
 }
