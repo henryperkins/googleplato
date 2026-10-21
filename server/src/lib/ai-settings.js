@@ -1,4 +1,5 @@
 import db from './db.js';
+import { cloudflareCredentialStatus, environmentCredentialStatus } from './cloudflare-oauth.js';
 
 export const BEDROCK_MODEL = 'qwen3-vl-235b';
 export const WORKERS_AI_MODELS = [
@@ -27,18 +28,14 @@ export async function readAiSettings() {
   return { ...settings, version: item?.version || 0 };
 }
 
-export function workersAiCredentialStatus() {
-  const accountId = /^[a-f0-9]{32}$/i.test(process.env.CLOUDFLARE_ACCOUNT_ID || '');
-  const apiToken = Boolean(process.env.CLOUDFLARE_API_TOKEN?.trim());
-  return { accountId, apiToken, configured: accountId && apiToken };
-}
+export const workersAiCredentialStatus = environmentCredentialStatus;
 
-export function adminAiSettings(settings) {
+export async function adminAiSettings(settings, userId) {
   return {
     ...settings,
     bedrockModel: BEDROCK_MODEL,
     awsRegion: process.env.AWS_REGION || 'us-east-2',
     workersAiModels: WORKERS_AI_MODELS,
-    workersAiCredentials: workersAiCredentialStatus(),
+    ...await cloudflareCredentialStatus(userId),
   };
 }

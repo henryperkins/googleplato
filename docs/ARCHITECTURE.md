@@ -138,11 +138,41 @@ Cloudflare, with **`reasoning_effort: 'max'`** on every request. Mistral Small 3
 allowlist in `ai-settings.js`; model IDs cannot redirect inference to external
 providers. Both choices support images.
 
-`workers-ai.js` calls Cloudflare's Chat Completions endpoint using
-`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the server environment.
-Settings responses expose only credential-presence booleans. Tokens are never
-stored in synced settings or sent to the browser. SAM passes the optional
-Cloudflare credentials to both Lambda functions.
+`workers-ai.js` calls Cloudflare's Chat Completions endpoint using the connected
+OAuth account, or `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the
+server environment when no browser connection is active. An expired or invalid
+OAuth connection fails explicitly instead of switching accounts through the
+environment fallback. Settings responses expose credential-presence booleans,
+connection state and authorized account names/IDs; they never expose tokens.
+SAM passes the optional manual and OAuth configuration to both Lambda functions.
+
+The browser connection begins with an authenticated admin POST. Cloudflare's
+public redirect callback at `/v1/oauth/cloudflare/callback` validates a random
+state, a host-only HttpOnly SameSite=Lax cookie and an expiring server transaction,
+then rechecks the initiating user's admin role. A strict version write consumes
+the transaction before the PKCE code exchange. All provider endpoints and return
+paths are fixed. Invalid callbacks cannot clear another attempt's cookie.
+The account selector accepts only accounts returned by Cloudflare for that grant.
+
+`cloudflare-oauth.js` stores AES-256-GCM encrypted tokens and PKCE verifiers under
+the reserved `_integrations` database principal, separately from `_system:ai-settings`
+and user sync records. The stable encryption key is supplied by the server owner;
+there is no development-key fallback. Database reads are strongly consistent and
+all writes use strict versions. A database lease coordinates refresh-token rotation
+across instances. Ambiguous refresh failures require reconnect rather than retrying
+a potentially rotated token. Failed refresh credentials remain encrypted solely
+for explicit revocation. Disconnect first disables local access with a versioned
+tombstone, then revokes the grant; failed revocation remains visible and retryable.
+Late callbacks and refresh completions cannot restore a disconnected connection.
+Issued credentials have a unique encrypted cleanup record until ownership passes
+to the active connection. Replacement and disconnect preserve independent copies
+before changing that connection; failed and late revocations remain retryable.
+Account activation claims its flow conditionally, and cleanup must claim that
+same flow before revoking an expired pending grant. Cleanup rechecks active
+ownership after taking its lease and never disconnects a newer connection. The
+user-sync view-as-user API rejects reserved server principals, including
+`_integrations` and `_system`.
+See [Cloudflare OAuth setup](CLOUDFLARE_OAUTH.md) for registration and deployment.
 
 The adapter translates system prompts, text, and base64 images into Chat
 Completions messages and converts responses/SSE back into the existing Messages

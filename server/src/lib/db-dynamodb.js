@@ -417,12 +417,13 @@ const db = {
   // and payload scale with the matched set, NOT the whole partition). Used by
   // admin stats to read `lessonKB:*` without dragging the large `screenshot:*`
   // / `messages:*` records.
-  async getSyncDataByPrefix(userId, prefix) {
+  async getSyncDataByPrefix(userId, prefix, { consistentRead = false } = {}) {
     const items = [];
     let lastKey;
     do {
       const result = await doc.send(new QueryCommand({
         TableName: SYNC_DATA_TABLE,
+        ...(consistentRead ? { ConsistentRead: true } : {}),
         KeyConditionExpression: 'userId = :uid AND begins_with(dataKey, :p)',
         ExpressionAttributeValues: { ':uid': userId, ':p': prefix },
         ExclusiveStartKey: lastKey,
