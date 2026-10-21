@@ -340,8 +340,8 @@ export default function AdminAI() {
                 <CardContent className="space-y-3 text-sm">
                   <p><strong>Model:</strong> {aiModelName(candidate)}</p>
                   <p><strong>AWS region:</strong> {settings.awsRegion}</p>
-                  <p className="text-muted-foreground">The model and region are managed on the server. Access uses the server’s AWS credential chain or IAM role; it has not been verified by loading this page.</p>
-                  <p className="text-muted-foreground">The server owner must grant model invocation access in this region. After server changes, reload these settings and test the connection.</p>
+                  <p className="text-muted-foreground">The model and region are set on the server. Loading this page does not confirm the server can use the model — use Test connection to check.</p>
+                  <p className="text-muted-foreground">The server owner must grant the server access to this model in this region. After server changes, reload these settings and test the connection.</p>
                   <div className="flex flex-wrap gap-x-4 gap-y-2">
                     <a className="touch-target inline-flex max-w-full items-center underline underline-offset-4" href="https://docs.aws.amazon.com/bedrock/latest/userguide/getting-started.html" target="_blank" rel="noopener noreferrer">Bedrock setup guide</a>
                     <a className="touch-target inline-flex max-w-full items-center underline underline-offset-4" href="https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html" target="_blank" rel="noopener noreferrer">Model access guide</a>

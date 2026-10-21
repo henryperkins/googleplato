@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { settingLabel } from '@/lib/plugins/settingLabels.js';
 
 function fieldId(pluginId, key) {
   return `plugin-${pluginId}-${key}`;
@@ -18,7 +19,9 @@ function fieldId(pluginId, key) {
 
 function PrimitiveField({ pluginId, propKey, schema, value, onChange }) {
   const id = fieldId(pluginId, propKey);
-  const label = propKey;
+  // Schema title when the plugin provides one, otherwise a humanized key —
+  // never the raw property name.
+  const label = settingLabel(propKey, schema);
   const desc = schema.description;
 
   if (schema.type === 'boolean') {

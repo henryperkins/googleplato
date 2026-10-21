@@ -659,7 +659,7 @@ function LessonConversation() {
             <div className="space-y-2">
               <h3 className="text-sm font-medium">Additional Context</h3>
               <p className="text-xs text-muted-foreground">
-                Reference material gathered for this lesson from enabled plugins
+                Reference material gathered for this lesson
               </p>
               {lessonKB.enrichments.map((enrichment, idx) => (
                 <section

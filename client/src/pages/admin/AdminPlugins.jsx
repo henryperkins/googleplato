@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { initPluginRegistry, settingsPanelFor, refreshActivation } from '@/lib/plugins/registry.js';
+import { capabilityLabel } from '@/lib/plugins/capabilityLabels.js';
 import SettingsForm from '@/lib/plugins/SettingsForm.jsx';
 
 /**
@@ -210,11 +211,13 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
               <span className="group-open:hidden">Show {plugin.capabilities.length} permission{plugin.capabilities.length === 1 ? '' : 's'}</span>
               <span className="hidden group-open:inline">Hide permissions</span>
             </summary>
-            <div className="mt-2 flex flex-wrap gap-1">
+            {/* Plain-language labels: the raw capability tokens are the
+                developer-facing contract, not something an admin acts on. */}
+            <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {plugin.capabilities.map((cap) => (
-                <code key={cap} className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{cap}</code>
+                <li key={cap}>{capabilityLabel(cap)}</li>
               ))}
-            </div>
+            </ul>
           </details>
         </CardContent>
       )}

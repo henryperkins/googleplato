@@ -120,7 +120,9 @@ export default function AdminLayout() {
           style={{ '--ring': 'var(--sidebar-foreground)' }}
         >
           <DialogTitle className="sr-only">Admin menu</DialogTitle>
-          <DialogDescription className="sr-only">Sign out or open the classroom. Admin pages are in the tabs at the bottom of the screen.</DialogDescription>
+          {/* The visible hint below already tells sighted users about the
+              bottom tabs; the description only needs to cover this drawer. */}
+          <DialogDescription className="sr-only">Sign out or open the classroom.</DialogDescription>
           <div className="flex items-center justify-between px-4 py-3">
             <img src="/assets/logo-white.svg" alt="plato" width="60" height="24" className="h-6 w-auto" />
             <DialogClose
