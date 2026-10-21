@@ -6,6 +6,7 @@ import { APP_URL } from '../config.js';
 
 const PRINCIPAL = '_integrations';
 const CONNECTION_KEY = 'cloudflare-ai';
+const REVOCATION_PREFIX = 'cloudflare-revoke:';
 const FLOW_TTL = 10 * 60_000;
 const CALLBACK = '/v1/oauth/cloudflare/callback';
 export const CLOUDFLARE_OAUTH_COOKIE = 'plato_cf_oauth';
@@ -19,7 +20,7 @@ const ERRORS = {
   changed: 'The Cloudflare connection changed in another session. Reload AI settings before trying again.',
   'invalid-account': 'Choose one of the accounts authorized through Cloudflare.',
   'reconnect-required': 'Reconnect Cloudflare in AI settings to restore Workers AI access.',
-  busy: 'Cloudflare credentials are being renewed. Try again shortly.',
+  busy: 'A Cloudflare connection is being updated. Try again shortly.',
 };
 
 function failure(code, status = 400) {
@@ -151,6 +152,8 @@ export function cloudflareReturnUrl(result) {
 export async function beginCloudflareOAuth(userId) {
   const { clientId, origin } = configuration();
   const [connection, previousFlow] = await Promise.all([read(CONNECTION_KEY), read(flowKey(userId))]);
+  if (previousFlow?.data.status === 'activating'
+    && previousFlow.data.connectionVersion === (connection?.version || 0)) throw failure('busy', 409);
   const state = randomBytes(32).toString('base64url');
   const verifier = randomBytes(48).toString('base64url');
   const cookie = seal({ userId, nonce: randomBytes(32).toString('base64url') }, 'browser');
@@ -158,6 +161,7 @@ export async function beginCloudflareOAuth(userId) {
     status: 'pending', flowId: randomUUID(), clientId, origin, stateHash: hash(state), cookieHash: hash(cookie),
     verifier: seal(verifier, 'verifier'), expiresAt: Date.now() + FLOW_TTL, connectionVersion: connection?.version || 0,
   }, previousFlow?.version || 0);
+  await retryCloudflareRevocations();
   const url = new URL('https://dash.cloudflare.com/oauth2/auth');
   url.search = new URLSearchParams({
     client_id: clientId, redirect_uri: origin + CALLBACK, response_type: 'code',
@@ -174,13 +178,24 @@ async function activateAccount(userId, flow, accountId) {
   if (!account) throw failure('invalid-account');
   const connection = await read(CONNECTION_KEY);
   if ((connection?.version || 0) !== flow.data.connectionVersion) throw failure('changed', 409);
+  if (connection?.data.sealedTokens) await retainCredentials(connection.data);
   // Consume before activation. A stale tab cannot select again or resurrect a
   // connection after disconnect; connection tombstones retain their version.
-  await compareAndWrite(flowKey(userId), { status: 'consumed' }, flow.version);
-  await compareAndWrite(CONNECTION_KEY, {
-    status: 'connected', account, clientId: configuration().clientId, sealedTokens: flow.data.sealedTokens,
-    expiresAt: flow.data.expiresAtToken, connectedAt: new Date().toISOString(), connectedBy: userId,
-  }, connection?.version || 0);
+  await compareAndWrite(flowKey(userId), { ...flow.data, status: 'activating' }, flow.version);
+  try {
+    await compareAndWrite(CONNECTION_KEY, {
+      status: 'connected', account, clientId: configuration().clientId, sealedTokens: flow.data.sealedTokens,
+      connectionId: flow.data.flowId,
+      expiresAt: flow.data.expiresAtToken, connectedAt: new Date().toISOString(), connectedBy: userId,
+    }, connection?.version || 0);
+  } catch (error) {
+    error.activationConsumed = error.name === 'CloudflareOAuthError' && error.code === 'changed';
+    throw error;
+  }
+  try { await write(flowKey(userId), { ...flow.data, status: 'consumed' }, flow.version + 1); }
+  catch { /* The canonical connection now owns the credentials. */ }
+  await releaseCredentials(flow.data.revocationKey);
+  await retryCloudflareRevocations();
 }
 
 export async function finishCloudflareOAuth({ cookie, state, code, error }) {
@@ -193,8 +208,10 @@ export async function finishCloudflareOAuth({ cookie, state, code, error }) {
   const user = await db.getUserById(userId);
   if (user?.role !== 'admin') throw failure('invalid-state');
   if (flow.data.clientId !== configuration().clientId || flow.data.origin !== configuration().origin) throw failure('changed', 409);
-  try { await write(flowKey(userId), { status: 'exchanging' }, flow.version); }
+  try { await write(flowKey(userId), { ...flow.data, status: 'exchanging' }, flow.version); }
   catch (err) { if (conflict(err)) throw failure('invalid-state'); throw err; }
+  let revocationKey;
+  let activating = false;
   try {
     if (error) throw failure(error === 'access_denied' ? 'denied' : 'failed');
     const connection = await read(CONNECTION_KEY);
@@ -204,19 +221,26 @@ export async function finishCloudflareOAuth({ cookie, state, code, error }) {
       grant_type: 'authorization_code', code, redirect_uri: configuration().origin + CALLBACK,
       code_verifier: unseal(flow.data.verifier, 'verifier'),
     });
+    const sealedTokens = seal(tokens, 'tokens');
+    revocationKey = await retainIssuedCredentials({ clientId: flow.data.clientId, connectionId: flow.data.flowId, sealedTokens }, {
+      userId, flowId: flow.data.flowId, connectionVersion: flow.data.connectionVersion, expiresAt: flow.data.expiresAt,
+    });
     const accounts = await authorizedAccounts(tokens.accessToken);
     if (!accounts.length) throw failure('failed');
     const pending = {
-      status: 'select-account', flowId: flow.data.flowId, clientId: flow.data.clientId, origin: flow.data.origin, accounts, sealedTokens: seal(tokens, 'tokens'),
+      status: 'select-account', flowId: flow.data.flowId, clientId: flow.data.clientId, origin: flow.data.origin, accounts, sealedTokens, revocationKey,
       expiresAtToken: tokens.expiresAt, expiresAt: Date.now() + FLOW_TTL, connectionVersion: flow.data.connectionVersion,
     };
     const saved = await compareAndWrite(flowKey(userId), pending, flow.version + 1);
     if (accounts.length === 1) {
+      activating = true;
       await activateAccount(userId, { data: pending, version: saved.version }, accounts[0].id);
       return 'connected';
     }
     return 'select-account';
   } catch (err) {
+    if (revocationKey && (!activating || err.activationConsumed)) await abandonCredentials(revocationKey);
+    try { await retryCloudflareRevocations(); } catch { /* Encrypted cleanup records remain retryable. */ }
     // Only a consumed, browser-matched callback may clear its cookie. An old
     // callback must not invalidate the cookie of a newer attempt in this tab.
     err.flowConsumed = true;
@@ -227,7 +251,12 @@ export async function finishCloudflareOAuth({ cookie, state, code, error }) {
 export async function selectCloudflareAccount(userId, { accountId, flowId } = {}) {
   const flow = await read(flowKey(userId));
   if (!flow || flow.data.status !== 'select-account' || flow.data.expiresAt <= Date.now() || flow.data.flowId !== flowId) throw failure('invalid-state');
-  await activateAccount(userId, flow, accountId);
+  try { await activateAccount(userId, flow, accountId); }
+  catch (error) {
+    if (error.activationConsumed) await abandonCredentials(flow.data.revocationKey);
+    try { await retryCloudflareRevocations(); } catch { /* Preserve the cleanup records. */ }
+    throw error;
+  }
 }
 
 async function revoke(tokens) {
@@ -243,24 +272,114 @@ async function revoke(tokens) {
   }
 }
 
+const connectionIdentity = data => data?.connectionId || (data?.sealedTokens ? hash(data.sealedTokens) : null);
+
+async function retainCredentials(data, flow) {
+  // Every handoff gets its own record. A late operation can release its record
+  // without deleting another operation's independent copy of the same tokens.
+  const key = REVOCATION_PREFIX + randomUUID();
+  await write(key, {
+    sealedTokens: data.sealedTokens, clientId: data.clientId, connectionId: connectionIdentity(data),
+    ...(flow ? { flow } : {}),
+  }, 0);
+  return key;
+}
+
+async function retainIssuedCredentials(data, flow) {
+  try { return await retainCredentials(data, flow); }
+  catch (error) {
+    try { await revoke(unseal(data.sealedTokens, 'tokens')); }
+    catch { /* If both services are unavailable, revoke in the Cloudflare profile. */ }
+    throw error;
+  }
+}
+
+async function releaseCredentials(key) {
+  if (!key) return;
+  try { await db.deleteSyncData(PRINCIPAL, key); }
+  catch { /* Ownership has already transferred to the active connection. */ }
+}
+
+async function abandonCredentials(key) {
+  if (!key) return;
+  const row = await read(key);
+  if (!row) return;
+  try { await write(key, { ...row.data, abandoned: true }, row.version); }
+  catch (error) { if (!conflict(error)) throw error; }
+}
+
+async function pendingRevocations(connection) {
+  const rows = await db.getSyncDataByPrefix(PRINCIPAL, REVOCATION_PREFIX, { consistentRead: true });
+  const pending = [];
+  for (const row of rows) {
+    if (connection?.data.status === 'connected' && connectionIdentity(connection.data) === row.data.connectionId) continue;
+    const owner = row.data.flow;
+    if (owner && !row.data.abandoned && owner.connectionVersion === (connection?.version || 0)) {
+      const flow = await read(flowKey(owner.userId));
+      // Keep the activation gap protected after the one-use flow is consumed.
+      // A disconnect changes the connection version, making cleanup eligible.
+      if (flow?.data.flowId === owner.flowId
+        && (flow.data.status === 'activating' || flow.data.expiresAt > Date.now())) continue;
+    }
+    pending.push(row);
+  }
+  return pending;
+}
+
+async function claimRevocationOwnership(row) {
+  const owner = row.data.flow;
+  const flow = owner ? await read(flowKey(owner.userId)) : null;
+  const connection = await read(CONNECTION_KEY);
+  if (connection?.data.status === 'connected' && connectionIdentity(connection.data) === row.data.connectionId) return false;
+  if (flow?.data.flowId === owner?.flowId && owner) {
+    if (!row.data.abandoned && owner.connectionVersion === (connection?.version || 0)
+      && (flow.data.status === 'activating' || flow.data.expiresAt > Date.now())) return false;
+    // Selection and cleanup must compete on this same flow version. Checking
+    // expiry alone would let a paused selector activate already revoked tokens.
+    try { await write(flowKey(owner.userId), { ...flow.data, status: 'revoking' }, flow.version); }
+    catch (error) { if (conflict(error)) return false; throw error; }
+  }
+  // The flow may have been replaced after activation while the earlier scan
+  // was pending. Never revoke based solely on that scan's connection snapshot.
+  const current = await read(CONNECTION_KEY);
+  return !(current?.data.status === 'connected' && connectionIdentity(current.data) === row.data.connectionId);
+}
+
+export async function retryCloudflareRevocations() {
+  const pending = await pendingRevocations(await read(CONNECTION_KEY));
+  let attempts = 0;
+  for (const row of pending) {
+    if (attempts === 3) break;
+    if (row.data.lease?.until > Date.now()) continue;
+    try {
+      if (row.data.clientId !== configuration().clientId) continue;
+      await write(row.dataKey, { ...row.data, lease: { until: Date.now() + 30_000 } }, row.version);
+      attempts++;
+    } catch (error) { if (conflict(error) || error.name === 'CloudflareOAuthError') continue; throw error; }
+    try {
+      if (!await claimRevocationOwnership(row)) {
+        try { await write(row.dataKey, { ...row.data, lease: null }, row.version + 1); }
+        catch (error) { if (!conflict(error)) throw error; }
+        continue;
+      }
+      await revoke(unseal(row.data.sealedTokens, 'tokens'));
+      await db.deleteSyncData(PRINCIPAL, row.dataKey);
+    } catch {
+      try { await write(row.dataKey, { ...row.data, lease: null }, row.version + 1); }
+      catch (error) { if (!conflict(error)) throw error; }
+      break;
+    }
+  }
+  return { revocationPending: (await pendingRevocations(await read(CONNECTION_KEY))).length > 0 };
+}
+
 export async function disconnectCloudflareOAuth(version) {
   if (!Number.isSafeInteger(version) || version < 0) throw failure('changed', 409);
   const connection = await read(CONNECTION_KEY);
   if ((connection?.version || 0) !== version) throw failure('changed', 409);
-  const tombstone = {
-    status: 'disconnected', revocationPending: Boolean(connection?.data.sealedTokens),
-    ...(connection?.data.sealedTokens ? { sealedTokens: connection.data.sealedTokens, clientId: connection.data.clientId } : {}),
-  };
-  const saved = await compareAndWrite(CONNECTION_KEY, tombstone, version);
-  if (!connection?.data.sealedTokens) return { revocationPending: false };
-  try {
-    if (connection.data.clientId !== configuration().clientId) return { revocationPending: true };
-    await revoke(unseal(connection.data.sealedTokens, 'tokens'));
-    try { await write(CONNECTION_KEY, { status: 'disconnected', revocationPending: false }, saved.version); }
-    catch (err) { if (!conflict(err)) throw err; }
-    return { revocationPending: false };
-  }
-  catch { return { revocationPending: true }; }
+  if (connection?.data.sealedTokens) await retainCredentials(connection.data);
+  await compareAndWrite(CONNECTION_KEY, { status: 'disconnected' }, version);
+  return retryCloudflareRevocations();
 }
 
 export function environmentCredentialStatus() {
@@ -287,7 +406,10 @@ export async function cloudflareCredentialStatus(userId) {
     workersAiCredentials: connected ? { accountId: true, apiToken: true, configured: true, source: 'oauth' }
       : needsReconnect ? { accountId: false, apiToken: false, configured: false, source: 'oauth' } : environmentCredentialStatus(),
     workersAiOAuth: {
-      available, connected, needsReconnect, revocationPending: Boolean(connection?.data.revocationPending), version: connection?.version || 0,
+      available, connected, needsReconnect,
+      connectionPending: flow?.data.status === 'activating' && flow.data.connectionVersion === (connection?.version || 0),
+      revocationPending: Boolean(connection?.data.revocationPending)
+        || (await pendingRevocations(connection)).length > 0, version: connection?.version || 0,
       account: connection?.data.account || null,
       pendingAccounts: pending ? flow.data.accounts : [], pendingFlowId: pending ? flow.data.flowId : null,
     },
@@ -323,10 +445,15 @@ async function oauthCredentials() {
       catch (err) { if (!conflict(err)) throw err; }
       throw failure('reconnect-required', 503);
     }
+    const sealedTokens = seal(renewed, 'tokens');
+    const connectionId = connectionIdentity(connection.data);
+    const revocationKey = await retainIssuedCredentials({ ...connection.data, sealedTokens, connectionId });
     try {
-      await write(CONNECTION_KEY, { ...connection.data, sealedTokens: seal(renewed, 'tokens'), expiresAt: renewed.expiresAt, refreshLease: null }, connection.version + 1);
+      await write(CONNECTION_KEY, { ...connection.data, sealedTokens, connectionId, expiresAt: renewed.expiresAt, refreshLease: null }, connection.version + 1);
+      await releaseCredentials(revocationKey);
       return { accountId: connection.data.account.id, apiToken: renewed.accessToken };
     } catch (err) { if (!conflict(err)) throw err; }
+    await retryCloudflareRevocations();
     // A disconnect/reconnect won the race. Read that decision; do not use or
     // persist the old token and do not resurrect its connection.
   }

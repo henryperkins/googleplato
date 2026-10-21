@@ -39,15 +39,55 @@ consent or model access.
 
 ## Release validation
 
-- Full `npm test`: 922 passing tests (355 client, 567 server), no failures or
+- Full `npm test`: 934 passing tests (355 client, 579 server), no failures or
   skips. The real PostgreSQL 17 persistence and concurrent-writer suite ran
   against a disposable local container and schema.
 - `npm run build:client`: passed.
 - `npm run lint`: passed; server has no findings, client retains its 21 existing
   warnings and has no errors.
-- Focused OAuth client/server run: 31 tests passed, including both new regression
+- Focused OAuth routes: 38 tests passed, including the new malformed-request,
+  elapsed-time, synchronization-boundary and credential-ownership regression
   cases. `git diff --check` passed.
 - Hosted GitHub test/lint jobs have not started because the GitHub account is
-  locked for a billing issue. Local validation is recorded separately and does
-  not represent a hosted CI pass. PR #4 must not merge until checks can run and
-  the repository's approval requirement is satisfied.
+  locked for a billing issue. The operator confirmed this lock will never be
+  removed. Release validation therefore uses the full local checks and
+  independent technical review; no hosted CI pass is claimed.
+
+## Independent review and credential ownership fixes
+
+The initial independent review found three important issues: reserved integration
+records could be read through admin user-sync impersonation; reconnect could
+overwrite tokens awaiting revocation; and late callback/refresh credentials lacked
+a reliable cleanup path. The follow-up fixes block reserved sync principals and
+retain credentials in independent encrypted cleanup records before handoff.
+An independent retry endpoint preserves any newer active classroom connection.
+
+The review of this new handoff found activation/cleanup races and an old-client
+cleanup starvation case. Regression tests reproduced these before the fixes.
+Activation now owns an explicit conditional flow state, while cleanup conditionally
+invalidates expired flows and rereads active ownership after acquiring its lease.
+Rows for a retired OAuth client cannot consume the batch budget for grants the
+current client can revoke. Late operations only release their own unique record.
+
+Additional checks cover account-discovery failure, abandoned selection, immediate
+revocation if durable retention fails, late-authorization cleanup retry, and a
+late refresh completing after a replacement connection. A simultaneous database
+outage and provider revocation outage can still require manual revocation through
+the Cloudflare profile; the application cannot durably record credentials while
+its database is unavailable.
+
+The independent reviewer approved the final ownership follow-up with no remaining
+actionable findings and independently reran the three adversarial activation and
+cleanup schedules using strict in-memory version checks and stubbed providers.
+This is a technical approval, not a GitHub approving review or live qualification.
+
+Desktop (1280 × 900) and phone (390 × 844) Chromium checks used the real local
+application, authentication and SQLite with synthetic Cloudflare transport. They
+verified draft restoration, explicit account selection, testing and saving,
+failed revocation followed by reconnect, and keyboard retry through the dedicated
+revocation endpoint. Retry sent no disconnect request, preserved the replacement
+account and cleared the pending warning. No phone horizontal overflow occurred.
+This is viewport emulation, not physical-device or screen-reader qualification.
+
+- [Desktop cleanup with the replacement connection](cloudflare-oauth-2026-10-21/retry-with-new-connection-desktop.png)
+- [Phone cleanup with the replacement connection](cloudflare-oauth-2026-10-21/retry-with-new-connection-phone.png)

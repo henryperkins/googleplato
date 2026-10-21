@@ -87,6 +87,9 @@ function resolveReadUserId(c) {
   if (c.get('role') !== 'admin') {
     return { error: c.json({ error: 'Admin access required to read as another user' }, 403) };
   }
+  if (asUserId.startsWith('_')) {
+    return { error: c.json({ error: 'Server records are not available through user sync' }, 403) };
+  }
   return { userId: asUserId, impersonating: true };
 }
 

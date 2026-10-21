@@ -164,6 +164,14 @@ a potentially rotated token. Failed refresh credentials remain encrypted solely
 for explicit revocation. Disconnect first disables local access with a versioned
 tombstone, then revokes the grant; failed revocation remains visible and retryable.
 Late callbacks and refresh completions cannot restore a disconnected connection.
+Issued credentials have a unique encrypted cleanup record until ownership passes
+to the active connection. Replacement and disconnect preserve independent copies
+before changing that connection; failed and late revocations remain retryable.
+Account activation claims its flow conditionally, and cleanup must claim that
+same flow before revoking an expired pending grant. Cleanup rechecks active
+ownership after taking its lease and never disconnects a newer connection. The
+user-sync view-as-user API rejects reserved server principals, including
+`_integrations` and `_system`.
 See [Cloudflare OAuth setup](CLOUDFLARE_OAUTH.md) for registration and deployment.
 
 The adapter translates system prompts, text, and base64 images into Chat

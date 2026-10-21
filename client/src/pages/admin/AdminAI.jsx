@@ -213,13 +213,18 @@ export default function AdminAI() {
     clearFeedback();
     let updated = false;
     try {
-      const result = await adminApi(action === 'disconnect' ? 'DELETE' : 'POST', `/v1/admin/ai-settings/cloudflare${action === 'account' ? '/account' : ''}`, body);
+      const suffix = action === 'account' ? '/account' : action === 'revoke' ? '/revoke' : '';
+      const result = await adminApi(action === 'disconnect' ? 'DELETE' : 'POST', `/v1/admin/ai-settings/cloudflare${suffix}`, body);
       updated = true;
       const data = await adminApi('GET', '/v1/admin/ai-settings');
       // Updating access must not silently rebase an unsaved provider/model form
       // onto a different administrator's settings version.
       setSettings(current => ({ ...current, workersAiCredentials: data.workersAiCredentials, workersAiOAuth: data.workersAiOAuth }));
-      setMessage(action === 'account' ? cloudflareReturnFeedback('connected', data.workersAiOAuth) : {
+      setMessage(action === 'account' ? cloudflareReturnFeedback('connected', data.workersAiOAuth) : action === 'revoke' ? {
+        text: result.revocationPending
+          ? 'Previous Cloudflare access still needs to be revoked. Try again later or use Manage Cloudflare authorizations.'
+          : 'Previous Cloudflare access was revoked. Your current classroom connection was kept.',
+      } : {
         text: result.revocationPending
           ? 'Cloudflare was disconnected from Plato. Access could not be revoked at Cloudflare; remove Plato under Manage OAuth authorizations in your Cloudflare profile.'
           : 'Cloudflare was disconnected. The saved AI provider and model have been kept.',
@@ -248,6 +253,7 @@ export default function AdminAI() {
     : busy === 'connect' ? 'Opening Cloudflare sign-in…'
     : busy === 'account' ? 'Connecting the selected Cloudflare account…'
     : busy === 'disconnect' ? 'Disconnecting Cloudflare…'
+    : busy === 'revoke' ? 'Revoking previous Cloudflare access…'
     : loadError ? 'AI settings could not be reloaded. Your selections have been kept. Try reloading again.'
     : message?.text;
   const saveDescription = pending ? 'ai-feedback' : missingCredentials ? 'workers-credentials-help'
@@ -324,6 +330,7 @@ export default function AdminAI() {
                     onConnect={connectCloudflare}
                     onSelectAccount={accountId => changeCloudflareConnection('account', { accountId, flowId: settings.workersAiOAuth.pendingFlowId })}
                     onDisconnect={() => changeCloudflareConnection('disconnect', { version: settings.workersAiOAuth.version })}
+                    onRevoke={() => changeCloudflareConnection('revoke', {})}
                   />
                 </CardContent>
               </Card>

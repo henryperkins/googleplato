@@ -3,12 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import ConfirmModal from '@/components/modals/ConfirmModal';
 
-export default function CloudflareConnection({ settings, pending, busy, connectRef, onConnect, onSelectAccount, onDisconnect }) {
+export default function CloudflareConnection({ settings, pending, busy, connectRef, onConnect, onSelectAccount, onDisconnect, onRevoke }) {
   const oauth = settings.workersAiOAuth || {};
   const credentials = settings.workersAiCredentials;
   const [selectedAccount, setSelectedAccount] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const hasConnection = oauth.connected || oauth.needsReconnect;
+  const hasConnection = oauth.connected || oauth.needsReconnect || oauth.connectionPending;
   const environmentAccess = credentials.source === 'environment' || (!hasConnection && credentials.configured);
 
   return (
@@ -18,7 +18,8 @@ export default function CloudflareConnection({ settings, pending, busy, connectR
         {oauth.connected ? <>
           <p>Connected to <strong>{oauth.account?.name || 'Cloudflare'}</strong>.</p>
           <p className="text-muted-foreground">This account is shared by the classroom’s AI requests. Test the selected model to check access.</p>
-        </> : oauth.needsReconnect ? <p>Cloudflare needs to be reconnected before new Workers AI requests can run.</p>
+        </> : oauth.connectionPending ? <p>A Cloudflare connection is finishing. You can disconnect it if it does not complete.</p>
+          : oauth.needsReconnect ? <p>Cloudflare needs to be reconnected before new Workers AI requests can run.</p>
           : environmentAccess ? <p>Workers AI credentials are configured on the server. You can also connect an account through your browser.</p>
           : <p>Connect your Cloudflare account to use Workers AI. You’ll sign in on Cloudflare and choose the account Plato can access.</p>}
       </div>
@@ -53,9 +54,9 @@ export default function CloudflareConnection({ settings, pending, busy, connectR
       {!oauth.available ? <p id="cloudflare-oauth-setup" className="text-muted-foreground">Browser connection requires a one-time server setup. Ask the server owner to register Plato as a Cloudflare OAuth application.</p> : null}
 
       {oauth.revocationPending ? <div className="space-y-2">
-        <p>Cloudflare is disconnected from Plato, but access still needs to be revoked at Cloudflare.</p>
+        <p>{oauth.connected ? 'Previous Cloudflare access still needs to be revoked. Your current classroom connection is kept.' : 'Cloudflare access still needs to be revoked for a previous connection.'}</p>
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" variant="outline" onClick={onDisconnect} disabled={pending}>Retry revoking access</Button>
+          <Button type="button" variant="outline" onClick={onRevoke} disabled={pending} focusableWhenDisabled>Retry revoking access</Button>
           <a className="touch-target-inline underline underline-offset-4" href="https://dash.cloudflare.com/?to=/profile/access-management/authorization" target="_blank" rel="noopener noreferrer">Manage Cloudflare authorizations</a>
         </div>
       </div> : null}

@@ -89,6 +89,15 @@ disabled credentials for **Retry revoking access**. You can also revoke Plato in
 Neither a delayed authorization callback nor an in-flight refresh can restore a
 disconnected connection. The selected AI provider and model stay saved.
 
+Cleanup records are independent of the active connection. Connecting another
+account does not discard a previous failed revocation, and **Retry revoking
+access** preserves the newer classroom connection. Credentials returned after a
+disconnect, failed account discovery, or abandoned account selection are revoked
+or retained encrypted for retry. Cleanup uses its own conditional ownership and
+lease so it cannot revoke credentials that are being activated or are active.
+If a connection is still finishing, another Connect attempt waits; explicit
+disconnect can cancel the pending activation.
+
 After explicit disconnect, manual `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`
 credentials, if configured, are available again. Disconnect does not remove those
 environment settings. A successful OAuth connection does not establish model or
@@ -107,5 +116,7 @@ transmission, then redirect to AI settings with a fixed result code.
 Only account identity, connection state and credential-presence flags reach the
 settings page. Credentials are encrypted in the server database under the reserved
 `_integrations` principal, outside user synchronization and `_system` settings.
+User synchronization rejects reserved server principals, including administrators'
+view-as-user requests. Cleanup records never enter a browser sync response.
 The callback has no application bearer header, so it checks the browser binding,
 one-use state, expiry and current administrator role before exchanging a code.

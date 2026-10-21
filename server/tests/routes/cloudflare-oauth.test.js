@@ -13,8 +13,9 @@ process.env.SQLITE_PATH = join(directory, 'test.db');
 const { default: db } = await import('../../src/lib/db.js');
 const { default: admin } = await import('../../src/routes/admin.js');
 const { default: aiRoute } = await import('../../src/routes/ai.js');
+const { default: syncRoute } = await import('../../src/routes/sync.js');
 const { signAccessToken } = await import('../../src/lib/jwt.js');
-const app = new Hono().route('/', admin).route('/', aiRoute);
+const app = new Hono().route('/', admin).route('/', aiRoute).route('/', syncRoute);
 app.get('/unrelated-health', c => c.json({ ok: true }));
 const base = 'https://plato.example';
 const path = '/v1/admin/ai-settings/cloudflare';
@@ -114,11 +115,25 @@ describe('Cloudflare browser connection', () => {
   });
 
   it('requires an administrator for starting, selecting an account and disconnecting', async () => {
-    for (const [method, suffix] of [['POST', '/connect'], ['POST', '/account'], ['DELETE', '']]) {
+    for (const [method, suffix] of [['POST', '/connect'], ['POST', '/account'], ['POST', '/revoke'], ['DELETE', '']]) {
       assert.equal((await request(method, suffix, {}, 'usr_learner')).status, 403);
       assert.equal((await app.request(base + path + suffix, { method })).status, 401);
     }
     assert.equal(calls.length, 0);
+  });
+
+  it('keeps reserved integration and system principals outside administrator user sync', async () => {
+    await connect();
+    const token = await signAccessToken('usr_admin', 'admin');
+    for (const principal of ['_integrations', '_system']) {
+      for (const suffix of ['', '/profile', '/lesson-turn/test']) {
+        const response = await app.request(base + '/v1/sync' + suffix + '?asUserId=' + principal, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        assert.equal(response.status, 403);
+        assert.doesNotMatch(await response.text(), /sealedTokens|cloudflare-flow/);
+      }
+    }
   });
 
   it('rejects malformed connection requests without changing an existing connection', async () => {
@@ -241,6 +256,106 @@ describe('Cloudflare browser connection', () => {
     const responses = await Promise.all([callback(flow), callback(flow)]);
     assert.deepEqual(responses.map(response => new URL(response.headers.get('location')).searchParams.get('cloudflare')).sort(), ['connected', 'invalid-state']);
     assert.equal(calls.filter(call => call.url.pathname.endsWith('/token')).length, 1);
+  });
+
+  it('keeps an activation owned when another browser tab tries connecting in its commit gap', async () => {
+    const flow = await start();
+    const originalWrite = db.putSyncData.bind(db);
+    let release;
+    let announce;
+    const committing = new Promise(resolve => { announce = resolve; });
+    mock.method(db, 'putSyncData', async (principal, key, data, ...args) => {
+      if (key === 'cloudflare-ai' && data.status === 'connected') {
+        announce();
+        await new Promise(resolve => { release = resolve; });
+      }
+      return originalWrite(principal, key, data, ...args);
+    });
+    const pending = callback(flow);
+    await committing;
+    const during = await settings();
+    const another = await request('POST', '/connect', {});
+    release();
+    const response = await pending;
+    assert.equal(another.status, 409);
+    assert.equal(during.workersAiOAuth.connectionPending, true);
+    assert.equal(new URL(response.headers.get('location')).searchParams.get('cloudflare'), 'connected');
+    assert.equal((await infer()).status, 200);
+    assert.equal((await settings()).workersAiOAuth.connectionPending, false);
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 0);
+  });
+
+  it('makes expired-flow cleanup and a paused account selection share the same conditional claim', async () => {
+    accounts = [account, secondAccount];
+    await callback(await start());
+    const before = await settings();
+    const originalRead = db.getSyncData.bind(db);
+    let release;
+    let announce;
+    let pause = true;
+    const waiting = new Promise(resolve => { announce = resolve; });
+    mock.method(db, 'getSyncData', async (...args) => {
+      if (args[1] === 'cloudflare-ai' && pause) {
+        pause = false;
+        announce();
+        await new Promise(resolve => { release = resolve; });
+      }
+      return originalRead(...args);
+    });
+    const selecting = request('POST', '/account', { accountId: account.id, flowId: before.workersAiOAuth.pendingFlowId });
+    await waiting;
+    const now = Date.now() + 11 * 60_000;
+    mock.method(Date, 'now', () => now);
+    const cleanup = await request('POST', '/revoke', {});
+    release();
+    const selection = await selecting;
+    assert.equal(cleanup.status, 200);
+    assert.equal(selection.status, 409);
+    assert.equal((await settings()).workersAiOAuth.connected, false);
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
+  });
+
+  it('rechecks active ownership when a cleanup scan resumes with an older connection snapshot', async () => {
+    accounts = [account, secondAccount];
+    await callback(await start());
+    const before = await settings();
+    const originalRead = db.getSyncData.bind(db);
+    const originalDelete = db.deleteSyncData.bind(db);
+    let resumeScan;
+    let announceScan;
+    let pauseScan = true;
+    const scanning = new Promise(resolve => { announceScan = resolve; });
+    mock.method(db, 'getSyncData', async (...args) => {
+      const data = await originalRead(...args);
+      if (args[1] === 'cloudflare-ai' && pauseScan) {
+        pauseScan = false;
+        announceScan();
+        await new Promise(resolve => { resumeScan = resolve; });
+      }
+      return data;
+    });
+    const cleanup = request('POST', '/revoke', {});
+    await scanning;
+    let finishTransfer;
+    let announceTransfer;
+    const transferring = new Promise(resolve => { announceTransfer = resolve; });
+    mock.method(db, 'deleteSyncData', async (...args) => {
+      if (args[1].startsWith('cloudflare-revoke:')) {
+        announceTransfer();
+        await new Promise(resolve => { finishTransfer = resolve; });
+      }
+      return originalDelete(...args);
+    });
+    const selecting = request('POST', '/account', { accountId: account.id, flowId: before.workersAiOAuth.pendingFlowId });
+    await transferring;
+    assert.equal((await request('POST', '/connect', {})).status, 200);
+    resumeScan();
+    assert.equal((await cleanup).status, 200);
+    finishTransfer();
+    assert.equal((await selecting).status, 200);
+    assert.equal((await settings()).workersAiOAuth.connected, true);
+    assert.equal((await infer()).status, 200);
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 0);
   });
 
   it('keeps manual credentials available before OAuth and after explicit disconnect', async () => {
@@ -399,6 +514,98 @@ describe('Cloudflare browser connection', () => {
     assert.equal((await settings()).workersAiOAuth.revocationPending, false);
   });
 
+  it('keeps failed revocation retryable after reconnect without disconnecting the newer account', async () => {
+    await connect();
+    const old = (await db.getAllSyncData('_integrations')).find(row => row.data.status === 'connected').data.sealedTokens;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (url, options) => String(url).endsWith('/revoke')
+      ? Promise.reject(new Error('Provider temporarily unavailable')) : originalFetch(url, options);
+    await request('DELETE', '', { version: (await settings()).workersAiOAuth.version });
+    tokenReply = { ...tokenReply, access_token: 'new-account-access', refresh_token: 'new-account-refresh' };
+    accounts = [secondAccount];
+    await connect();
+    const current = await settings();
+    assert.equal(current.workersAiOAuth.connected, true);
+    assert.equal(current.workersAiOAuth.revocationPending, true);
+    assert.ok((await db.getAllSyncData('_integrations')).some(row => row.data.sealedTokens === old));
+    globalThis.fetch = originalFetch;
+    const response = await request('POST', '/revoke', {});
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).revocationPending, false);
+    const after = await settings();
+    assert.equal(after.workersAiOAuth.version, current.workersAiOAuth.version);
+    assert.deepEqual(after.workersAiOAuth.account, secondAccount);
+    assert.equal(after.workersAiOAuth.connected, true);
+    assert.equal(after.workersAiOAuth.revocationPending, false);
+    const revoked = calls.filter(call => call.url.pathname.endsWith('/revoke')).map(call => new URLSearchParams(call.options.body).get('token'));
+    assert.ok(revoked.includes('oauth-refresh-do-not-return'));
+    assert.ok(!revoked.includes('new-account-refresh'));
+  });
+
+  it('does not let old-client cleanup records starve a revocable current grant', async () => {
+    await connect();
+    const sealedTokens = (await db.getAllSyncData('_integrations')).find(row => row.data.status === 'connected').data.sealedTokens;
+    for (let index = 0; index < 3; index++) {
+      await db.putSyncData('_integrations', `cloudflare-revoke:00000-${index}`, {
+        clientId: 'retired-client', connectionId: 'retired-connection', sealedTokens,
+      }, 0, { strictVersion: true });
+    }
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (url, options) => String(url).endsWith('/revoke')
+      ? Promise.reject(new Error('Temporary provider outage')) : originalFetch(url, options);
+    await request('DELETE', '', { version: (await settings()).workersAiOAuth.version });
+    globalThis.fetch = originalFetch;
+    const response = await request('POST', '/revoke', {});
+    assert.equal(response.status, 200);
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
+    const retained = await db.getSyncDataByPrefix('_integrations', 'cloudflare-revoke:');
+    assert.equal(retained.length, 3);
+    assert.ok(retained.every(row => row.data.clientId === 'retired-client'));
+  });
+
+  it('revokes the previous account when a successful connection replaces it', async () => {
+    await connect();
+    tokenReply = { ...tokenReply, access_token: 'replacement-access', refresh_token: 'replacement-refresh' };
+    accounts = [secondAccount];
+    await connect();
+    const revoked = calls.filter(call => call.url.pathname.endsWith('/revoke')).map(call => new URLSearchParams(call.options.body).get('token'));
+    assert.deepEqual(revoked, ['oauth-refresh-do-not-return', 'oauth-access-do-not-return']);
+    assert.equal((await settings()).workersAiOAuth.connected, true);
+    assert.deepEqual((await settings()).workersAiOAuth.account, secondAccount);
+  });
+
+  it('revokes issued credentials if account discovery fails before activation', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (url, options) => String(url).includes('/client/v4/accounts')
+      ? Promise.reject(new Error('Account discovery failed')) : originalFetch(url, options);
+    const response = await callback(await start());
+    assert.equal(new URL(response.headers.get('location')).searchParams.get('cloudflare'), 'failed');
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
+    assert.equal((await settings()).workersAiOAuth.connected, false);
+  });
+
+  it('attempts immediate revocation if issued credentials cannot be retained durably', async () => {
+    const flow = await start();
+    const originalWrite = db.putSyncData.bind(db);
+    mock.method(db, 'putSyncData', (principal, key, ...args) => {
+      if (key.startsWith('cloudflare-revoke:')) throw new Error('Storage unavailable');
+      return originalWrite(principal, key, ...args);
+    });
+    const response = await callback(flow);
+    assert.equal(new URL(response.headers.get('location')).searchParams.get('cloudflare'), 'failed');
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
+    assert.equal((await settings()).workersAiOAuth.connected, false);
+  });
+
+  it('revokes an abandoned account-selection grant when the administrator starts again', async () => {
+    accounts = [account, secondAccount];
+    await callback(await start());
+    assert.equal((await settings()).workersAiOAuth.pendingAccounts.length, 2);
+    await start();
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
+    assert.deepEqual((await settings()).workersAiOAuth.pendingAccounts, []);
+  });
+
   it('does not resurrect disconnected credentials when a refresh completes late', async () => {
     tokenReply.expires_in = 90;
     await connect();
@@ -423,6 +630,7 @@ describe('Cloudflare browser connection', () => {
     release();
     assert.equal((await pendingInference).status, 503);
     assert.equal((await settings()).workersAiOAuth.connected, false);
+    assert.ok(calls.some(call => call.url.pathname.endsWith('/revoke') && new URLSearchParams(call.options.body).get('token') === 'late-access'));
     assert.equal(calls.filter(call => call.url.pathname.includes('/chat/completions')).length, 0);
   });
 
@@ -447,6 +655,74 @@ describe('Cloudflare browser connection', () => {
     assert.equal(new URL(response.headers.get('location')).searchParams.get('cloudflare'), 'changed');
     assert.equal((await settings()).workersAiOAuth.connected, false);
     assert.deepEqual((await settings()).workersAiOAuth.pendingAccounts, []);
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
+  });
+
+  it('retains failed cleanup of a late authorization for an independent retry', async () => {
+    const flow = await start();
+    const originalFetch = globalThis.fetch;
+    let release;
+    let announce;
+    const started = new Promise(resolve => { announce = resolve; });
+    globalThis.fetch = async (url, options) => {
+      if (String(url).endsWith('/token')) {
+        announce();
+        await new Promise(resolve => { release = resolve; });
+      }
+      if (String(url).endsWith('/revoke')) throw new Error('Revocation unavailable');
+      return originalFetch(url, options);
+    };
+    const pending = callback(flow);
+    await started;
+    await request('DELETE', '', { version: 0 });
+    release();
+    await pending;
+    const disabled = await settings();
+    assert.equal(disabled.workersAiOAuth.connected, false);
+    assert.equal(disabled.workersAiOAuth.revocationPending, true);
+    assert.ok((await db.getSyncDataByPrefix('_integrations', 'cloudflare-revoke:')).length);
+    globalThis.fetch = originalFetch;
+    const response = await request('POST', '/revoke', {});
+    assert.equal((await response.json()).revocationPending, false);
+    assert.equal((await settings()).workersAiOAuth.version, disabled.workersAiOAuth.version);
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
+  });
+
+  it('cleans up a late refresh without revoking or disconnecting a replacement connection', async () => {
+    tokenReply.expires_in = 90;
+    await connect();
+    const now = Date.now() + 60_000;
+    mock.method(Date, 'now', () => now);
+    const originalFetch = globalThis.fetch;
+    let release;
+    let announce;
+    const started = new Promise(resolve => { announce = resolve; });
+    globalThis.fetch = async (url, options) => {
+      if (String(url).endsWith('/token') && new URLSearchParams(options.body).get('grant_type') === 'refresh_token') {
+        announce();
+        await new Promise(resolve => { release = resolve; });
+        return Response.json({ ...tokenReply, access_token: 'late-access', refresh_token: 'late-refresh', expires_in: 3600 });
+      }
+      return originalFetch(url, options);
+    };
+    const pending = infer();
+    await started;
+    await request('DELETE', '', { version: (await settings()).workersAiOAuth.version });
+    tokenReply = { ...tokenReply, access_token: 'replacement-access', refresh_token: 'replacement-refresh', expires_in: 3600 };
+    accounts = [secondAccount];
+    await connect();
+    const current = await settings();
+    release();
+    await pending;
+    const after = await settings();
+    assert.equal(after.workersAiOAuth.connected, true);
+    assert.equal(after.workersAiOAuth.version, current.workersAiOAuth.version);
+    assert.deepEqual(after.workersAiOAuth.account, secondAccount);
+    const revoked = calls.filter(call => call.url.pathname.endsWith('/revoke')).map(call => new URLSearchParams(call.options.body).get('token'));
+    assert.ok(revoked.includes('late-refresh'));
+    assert.ok(revoked.includes('late-access'));
+    assert.ok(!revoked.includes('replacement-refresh'));
+    assert.ok(!revoked.includes('replacement-access'));
   });
 
   it('does not retry a refresh token after an abandoned lease expires, but can still revoke it', async () => {

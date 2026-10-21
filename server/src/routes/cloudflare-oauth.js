@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import {
   beginCloudflareOAuth, cloudflareOAuthCookieName, cloudflareReturnUrl, disconnectCloudflareOAuth,
-  finishCloudflareOAuth, selectCloudflareAccount,
+  finishCloudflareOAuth, retryCloudflareRevocations, selectCloudflareAccount,
 } from '../lib/cloudflare-oauth.js';
 
 // Admin paths inherit authenticate/requireAdmin from admin.js. The callback is
@@ -66,6 +66,10 @@ oauth.post('/v1/admin/ai-settings/cloudflare/account', async c => {
 oauth.delete('/v1/admin/ai-settings/cloudflare', async c => {
   const { version } = await connectionBody(c);
   return c.json({ ok: true, ...await disconnectCloudflareOAuth(version) });
+});
+
+oauth.post('/v1/admin/ai-settings/cloudflare/revoke', async c => {
+  return c.json({ ok: true, ...await retryCloudflareRevocations() });
 });
 
 export default oauth;
