@@ -17,6 +17,7 @@ const _serverVersions = new Map();
 
 globalThis.fetch = async (url, opts) => {
   const path = new URL(url, 'http://localhost').pathname;
+  if (path === '/v1/sync/status') return { ok: true, json: async () => ({ protocol: '1', epoch: 'test' }) };
   const syncMatch = path.match(/^\/v1\/sync\/(.+)/);
   if (!syncMatch) return { ok: false, status: 404 };
   const key = decodeURIComponent(syncMatch[1]);
@@ -68,6 +69,8 @@ const {
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 
+beforeEach(() => { sessionStorage.removeItem('plato_impersonation'); });
+
 describe('saveScreenshot / getScreenshot', () => {
   beforeEach(() => {
     clearCache();
@@ -88,6 +91,23 @@ describe('saveScreenshot / getScreenshot', () => {
 
   it('returns null for an unknown key', async () => {
     assert.equal(await getScreenshot('does-not-exist'), null);
+  });
+
+  it('does not expose unsaved screenshot bytes when verification fails', async () => {
+    const originalFetch = globalThis.fetch;
+    for (const failure of ['missing', 'rejected', 'network', 'invalid-json']) {
+      const key = `unconfirmed-${failure}`;
+      try {
+        globalThis.fetch = async (_url, options) => {
+          if (options.method === 'PUT') return { ok: false, status: 503 };
+          if (failure === 'network') throw new TypeError('Offline');
+          if (failure === 'invalid-json') return { ok: true, json: async () => { throw new SyntaxError('Invalid response'); } };
+          return { ok: false, status: failure === 'missing' ? 404 : 503 };
+        };
+        assert.equal(await saveScreenshot(key, PNG), false);
+      } finally { globalThis.fetch = originalFetch; }
+      assert.equal(await getScreenshot(key), null, 'unsaved optimistic data must not hydrate other messages');
+    }
   });
 
   it('deleteScreenshot removes the record', async () => {
@@ -175,6 +195,27 @@ describe('migrateLegacyImages — heals pre-#193 conversations', () => {
     ]);
     const twice = await migrateLegacyImages('wp-3', once);
     assert.equal(twice, once, 'already-migrated input is returned unchanged');
+  });
+
+  it('resumes an interrupted migration by reusing an identical saved screenshot', async () => {
+    const legacy = [{ role: 'user', content: '[image]', metadata: { imageDataUrls: [PNG] } }];
+    await saveLessonMessages('partial', legacy);
+    await saveScreenshot('partial-legacy-0-0', PNG);
+    clearCache();
+    const migrated = await migrateLegacyImages('partial', await getLessonMessages('partial'));
+    assert.deepEqual(migrated[0].metadata.imageKeys, ['partial-legacy-0-0']);
+    assert.equal(_serverVersions.get('screenshot:partial-legacy-0-0'), 1, 'identical immutable content needs no rewrite');
+    assert.deepEqual(_serverStore.get('messages:partial'), migrated);
+  });
+
+  it('never overwrites a different screenshot at a colliding legacy key', async () => {
+    const legacy = [{ role: 'user', content: '[image]', metadata: { imageDataUrls: [PNG] } }];
+    await saveScreenshot('collision-legacy-0-0', 'data:image/png;base64,b3RoZXI=');
+    const migrated = await migrateLegacyImages('collision', legacy);
+    assert.deepEqual(migrated, legacy);
+    assert.equal(_serverStore.get('screenshot:collision-legacy-0-0'), 'data:image/png;base64,b3RoZXI=');
+    assert.equal(_serverVersions.get('screenshot:collision-legacy-0-0'), 1);
+    assert.equal(await getScreenshot('collision-legacy-0-0'), 'data:image/png;base64,b3RoZXI=', 'cache must retain the server image');
   });
 
   it('leaves key-based and text-only messages untouched', async () => {

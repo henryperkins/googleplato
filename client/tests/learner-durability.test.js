@@ -30,6 +30,7 @@ beforeEach(async () => {
   mode = 'reject'; aiCalls = 0; commits = 0; coachText = 'Keep this useful feedback.\n[PROGRESS: 6]';
   globalThis.fetch = async (url, options = {}) => {
     const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/v1/sync/status') return json({ protocol: '1', epoch: 'test' });
     if (path.startsWith('/v1/prompts/')) return json({ content: path.split('/').at(-1) });
     if (path === '/v1/knowledge-base') return json({ content: '' });
     if (path === '/v1/lessons') return json([]);
@@ -45,6 +46,7 @@ beforeEach(async () => {
       if (options.method !== 'POST') return json(snapshot());
       commits += 1;
       const turn = JSON.parse(options.body);
+      if (mode === 'upgrade') return json({ code: 'client_upgrade_required', protocol: '1', epoch: 'next', error: 'Update this page.' }, 409);
       if (mode === 'reject' || mode === 'reject-turn') return json({ error: 'Save unavailable' }, 503);
       if (mode === 'conflict') return json({ error: 'Lesson changed elsewhere' }, 409);
       const state = snapshot();
@@ -69,6 +71,83 @@ beforeEach(async () => {
     }
     throw new Error(`Unexpected request: ${path}`);
   };
+});
+
+test('upgrade preparation preserves the reply and an account-scoped draft with attachments', async () => {
+  await engine.sendMessage('lesson-1', lesson, 'My answer', null, null, () => {});
+  const userId = (await storage.getAuthUser()).userId;
+  const draft = { text: 'My next thought', images: [{ dataUrl: 'data:image/png;base64,AA==', name: 'example.png' }], links: [{ url: 'https://example.test', title: 'Reference', text: 'Context' }] };
+  assert.equal(typeof engine.prepareLessonUpgrade, 'function');
+  assert.equal(await engine.prepareLessonUpgrade(userId, 'lesson-1', draft), true);
+  const { lessonDrafts } = await import('../src/lib/lessonDrafts.js');
+  assert.deepEqual(lessonDrafts.read(userId, 'lesson-1'), draft);
+  assert.deepEqual(lessonDrafts.read('other-account', 'lesson-1'), { text: '', images: [], links: [] });
+  assert.equal(aiCalls, 1);
+  assert.equal(commits, 1);
+  assert.equal((await engine.resumeLesson('lesson-1')).messages.at(-1).content, 'Keep this useful feedback.');
+});
+
+test('upgrade preparation refuses reload if the only reply or attachment copy is in memory', async () => {
+  await engine.sendMessage('lesson-1', lesson, 'My answer', null, null, () => {});
+  const userId = (await storage.getAuthUser()).userId;
+  const setItem = sessionStorage.setItem;
+  sessionStorage.setItem = () => { throw new Error('Full'); };
+  try {
+    assert.equal(typeof engine.prepareLessonUpgrade, 'function');
+    assert.equal(await engine.prepareLessonUpgrade(userId, 'lesson-1', { text: 'Draft', images: [], links: [] }), false);
+    assert.equal((await engine.resumeLesson('lesson-1')).messages.at(-1).content, 'Keep this useful feedback.');
+    assert.equal(aiCalls, 1);
+  } finally { sessionStorage.setItem = setItem; }
+});
+
+test('account switch prevents an upgrade action from saving a draft under the next account', async () => {
+  const oldUser = (await storage.getAuthUser()).userId;
+  localStorage.setItem('plato_auth', JSON.stringify({ accessToken: 'other', user: { userId: 'other-account' } }));
+  assert.equal(typeof engine.prepareLessonUpgrade, 'function');
+  await assert.rejects(engine.prepareLessonUpgrade(oldUser, 'lesson-1', { text: 'Private draft', images: [], links: [] }), /original account/);
+});
+
+test('reloading another lesson cannot discard a previous account\'s memory-only reply', async () => {
+  const userId = (await storage.getAuthUser()).userId;
+  const write = sessionStorage.setItem;
+  sessionStorage.setItem = (key, value) => {
+    if (key.startsWith(`plato_generated_turn:${userId}:`)) throw new Error('Quota');
+    write(key, value);
+  };
+  try {
+    const result = await engine.sendMessage('lesson-1', lesson, 'My answer', null, null, () => {});
+    assert.equal(result.persistence.persistedLocally, false);
+    localStorage.setItem('plato_auth', JSON.stringify({ accessToken: 'other', user: { userId: 'new-account' } }));
+    assert.equal(await engine.prepareLessonUpgrade('new-account', 'another-lesson', { text: 'Draft', images: [], links: [] }), false);
+    sessionStorage.setItem = write;
+    assert.equal(await engine.prepareLessonUpgrade('new-account', 'another-lesson', { text: 'Draft', images: [], links: [] }), true);
+    const { createGeneratedTurnStore } = await import('../src/lib/generatedTurns.js');
+    const restored = createGeneratedTurnStore().read(userId, 'lesson-1');
+    assert.equal(restored.turn.messages.at(-1).content, 'Keep this useful feedback.');
+    assert.equal(aiCalls, 1);
+    assert.equal(commits, 1);
+  } finally { sessionStorage.setItem = write; }
+});
+
+test('upgrade preparation cannot reload during generation before the reply is staged', async () => {
+  const realFetch = globalThis.fetch;
+  let release;
+  let started;
+  const arrived = new Promise(resolve => { started = resolve; });
+  const pause = new Promise(resolve => { release = resolve; });
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/v1/ai/messages')) { started(); await pause; }
+    return realFetch(url, options);
+  };
+  const generating = engine.sendMessage('lesson-1', lesson, 'My answer', null, null, () => {});
+  await arrived;
+  try {
+    const userId = (await storage.getAuthUser()).userId;
+    await assert.rejects(engine.prepareLessonUpgrade(userId, 'lesson-1', { text: '', images: [], links: [] }), /current reply/);
+    await assert.rejects(engine.prepareLessonUpgrade(userId, 'another-lesson', { text: '', images: [], links: [] }), /current reply/);
+  } finally { release(); }
+  await generating;
+  assert.equal(aiCalls, 1);
 });
 
 test('a failed save retains the generated reply and retries storage without another model call', async () => {
@@ -186,4 +265,21 @@ test('a stalled screenshot read cannot indefinitely hide a retained reply or sav
   mode = 'ok';
   assert.equal((await engine.retryLessonSave('lesson-1')).persistence.status, 'saved');
   assert.equal(aiCalls, 1);
+});
+
+// A page-wide upgrade latch deliberately survives every account switch.
+test('an upgrade rejection preserves a generated turn and does not turn Retry saving into generation', async () => {
+  mode = 'upgrade';
+  const result = await engine.sendMessage('lesson-1', lesson, 'My answer', null, null, () => {});
+  assert.equal(result.persistence.status, 'upgrade_required');
+  assert.equal(result.persistence.persistedLocally, true);
+  const identities = result.messages.map(message => message.id);
+  assert.equal(result.messages.at(-1).content, 'Keep this useful feedback.');
+  const recovered = await engine.resumeLesson('lesson-1');
+  assert.deepEqual(recovered.messages.slice(-2).map(message => message.id), identities);
+  const retry = await engine.retryLessonSave('lesson-1');
+  assert.equal(retry.persistence.status, 'upgrade_required');
+  assert.equal(aiCalls, 1);
+  assert.equal(commits, 1, 'the old page cannot retry under a newly discovered epoch');
+  assert.equal(records.get('messages:lesson-1').data.length, 1);
 });

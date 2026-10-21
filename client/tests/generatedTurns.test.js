@@ -36,3 +36,39 @@ test('an acknowledgement for an older turn cannot remove a newer recovery copy',
   store.clear('learner-a', 'lesson-1', 'turn-2');
   assert.equal(createGeneratedTurnStore({ storage: () => storage }).read('learner-a', 'lesson-1'), null);
 });
+
+test('reload requires a readable recovery copy even if storage was cleared after staging', () => {
+  const storage = disk();
+  const store = createGeneratedTurnStore({ storage: () => storage });
+  const entry = store.stage(turn);
+  storage.setItem = () => { throw new Error('Quota exceeded'); };
+  storage.getItem = () => null;
+  assert.equal(typeof store.preserveForReload, 'function');
+  assert.equal(store.preserveForReload(turn.userId, turn.lessonId), false);
+  assert.equal(entry.persistedLocally, false);
+  assert.deepEqual(store.read(turn.userId, turn.lessonId).turn, turn);
+});
+
+test('reload re-persists an in-memory reply when browser storage becomes available', () => {
+  let storage;
+  const store = createGeneratedTurnStore({ storage: () => storage });
+  assert.equal(store.stage(turn).persistedLocally, false);
+  storage = disk();
+  assert.equal(typeof store.preserveForReload, 'function');
+  assert.equal(store.preserveForReload(turn.userId, turn.lessonId), true);
+  assert.deepEqual(createGeneratedTurnStore({ storage: () => storage }).read(turn.userId, turn.lessonId).turn, turn);
+});
+
+test('reload verifies every retained reply, including other lessons and accounts', () => {
+  const storage = disk();
+  const store = createGeneratedTurnStore({ storage: () => storage });
+  const other = { ...turn, userId: 'previous-account', lessonId: 'other-lesson', turnId: 'other-turn' };
+  store.stage(turn);
+  store.stage(other);
+  const write = storage.setItem;
+  storage.setItem = (key, value) => { if (key.includes('previous-account')) throw new Error('Quota'); write(key, value); };
+  assert.equal(store.preserveAllForReload(), false);
+  storage.setItem = write;
+  assert.equal(store.preserveAllForReload(), true);
+  assert.deepEqual(createGeneratedTurnStore({ storage: () => storage }).read(other.userId, other.lessonId).turn, other);
+});

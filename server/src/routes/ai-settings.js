@@ -4,6 +4,7 @@ import ai from '../lib/ai-provider.js';
 import { adminAiSettings, BEDROCK_MODEL, readAiSettings, validateAiSettings } from '../lib/ai-settings.js';
 import { classifyAiError, aiErrorStatus } from '../lib/ai-errors.js';
 import cloudflareOAuth from './cloudflare-oauth.js';
+import { requireCurrentClient } from '../middleware/clientCompatibility.js';
 
 // Mounted inside admin.js after its authentication and admin middleware.
 const settings = new Hono();
@@ -35,7 +36,7 @@ settings.put('/v1/admin/ai-settings', async (c) => {
   }
 });
 
-settings.post('/v1/admin/ai-settings/test', async (c) => {
+settings.post('/v1/admin/ai-settings/test', requireCurrentClient, async (c) => {
   const body = await c.req.json();
   const error = validateAiSettings(body);
   if (error) return c.json({ error }, 400);

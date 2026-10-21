@@ -3,6 +3,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { CLIENT_COMPATIBILITY_HEADERS, clientCompatibility } from './src/middleware/clientCompatibility.js';
 import { installShutdown } from './src/lib/shutdown.js';
 
 if (!['postgres', 'dynamodb'].includes(process.env.DB_BACKEND)) {
@@ -14,6 +15,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 if (!process.env.APP_URL?.startsWith('https://')) {
   throw new Error('Production requires an HTTPS APP_URL');
 }
+clientCompatibility();
 
 // Capture the one-time credential before config.js or plugins can retain it.
 // Existing databases must not expose it either, even though bootstrap is skipped.
@@ -48,7 +50,7 @@ await pluginRegistry.boot();
 const app = new Hono();
 app.use('*', cors({ origin: process.env.APP_URL,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
   exposeHeaders: ['X-Plato-Revision', 'X-Plato-Commit'],
 }));
 app.use('*', async (c, next) => {

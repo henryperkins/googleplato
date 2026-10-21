@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
 import { authenticate } from '../middleware/authenticate.js';
+import { requireCurrentClient } from '../middleware/clientCompatibility.js';
 import ai from '../lib/ai-provider.js';
 import { classifyAiError, aiErrorStatus } from '../lib/ai-errors.js';
 
 const aiRoute = new Hono();
 
 aiRoute.use('/v1/ai/*', authenticate);
+aiRoute.use('/v1/ai/*', requireCurrentClient);
 
 aiRoute.post('/v1/ai/messages', async (c) => {
   const body = await c.req.json();

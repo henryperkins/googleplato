@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { isDeepStrictEqual } from 'node:util';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
+import { clientCompatibility, requireCurrentClient } from '../middleware/clientCompatibility.js';
 import { isPublicLessonRecord } from '../lib/lesson-visibility.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
@@ -11,6 +12,13 @@ const sync = new Hono();
 
 sync.use('/v1/sync', authenticate);
 sync.use('/v1/sync/*', authenticate);
+sync.use('/v1/sync', requireCurrentClient);
+sync.use('/v1/sync/*', requireCurrentClient);
+
+sync.get('/v1/sync/status', (c) => {
+  c.header('Cache-Control', 'no-store');
+  return c.json(clientCompatibility());
+});
 
 const VALID_DATA_KEYS = /^(profile|profileSummary|preferences|work|progress:.+|courseProgress:.+|lessonKB:.+|activities:.+|activityKBs:.+|drafts:.+|messages:.+|screenshot:.+|lessons:.+|onboardingComplete)$/;
 
@@ -22,8 +30,10 @@ async function syncNameIfNeeded(userId, dataKey, data) {
 }
 
 function validateDataKey(dataKey) {
-  return VALID_DATA_KEYS.test(dataKey);
+  return typeof dataKey === 'string' && VALID_DATA_KEYS.test(dataKey);
 }
+
+const validVersion = version => Number.isSafeInteger(version) && version >= 0 && version < Number.MAX_SAFE_INTEGER;
 
 // Maintain denormalized activity counters on the user record (#136). Called
 // after each successful sync write. `oldStatus` is the lessonKB status as
@@ -231,6 +241,15 @@ sync.put('/v1/sync/batch', async (c) => {
     return c.json({ error: 'Maximum 25 items per batch' }, 400);
   }
 
+  // Check every precondition before starting any write in this best-effort
+  // batch. Zero explicitly means absent; a missing version is not creation.
+  if (items.some(item => !item || !validVersion(item.version))) {
+    return c.json({ code: 'sync_validation_failure', error: 'Each item requires a nonnegative safe integer version.' }, 400);
+  }
+  if (new Set(items.map(item => item.dataKey)).size !== items.length) {
+    return c.json({ code: 'sync_validation_failure', error: 'Duplicate data keys are not allowed in a batch.' }, 400);
+  }
+
   const results = await Promise.all(items.map(async (item) => {
     if (!validateDataKey(item.dataKey) || item.data === undefined) {
       return { dataKey: item.dataKey, status: 'error', error: 'Invalid item' };
@@ -250,7 +269,7 @@ sync.put('/v1/sync/batch', async (c) => {
     }
     try {
       const oldStatus = await readOldLessonKBStatus(userId, item.dataKey);
-      const result = await db.putSyncData(userId, item.dataKey, item.data, item.version || 0);
+      const result = await db.putSyncData(userId, item.dataKey, item.data, item.version, { strictVersion: true });
       await syncNameIfNeeded(userId, item.dataKey, item.data);
       await applyActivityEffects(userId, item.dataKey, oldStatus, item.data);
       return { dataKey: item.dataKey, status: 'ok', version: result.version };
@@ -258,8 +277,8 @@ sync.put('/v1/sync/batch', async (c) => {
       if (err.name === 'ConditionalCheckFailedException') {
         const current = await db.getSyncData(userId, item.dataKey);
         return {
-          dataKey: item.dataKey, status: 'conflict',
-          serverVersion: current?.version || null,
+          dataKey: item.dataKey, status: 'conflict', code: 'sync_conflict',
+          serverVersion: current?.version ?? null,
         };
       }
       throw err;
@@ -284,6 +303,9 @@ sync.put('/v1/sync/:dataKey', async (c) => {
   if (data === undefined) {
     return c.json({ error: 'data is required' }, 400);
   }
+  if (!validVersion(version)) {
+    return c.json({ code: 'sync_validation_failure', error: 'A nonnegative safe integer version is required.' }, 400);
+  }
 
   // Defense-in-depth size check: reject items that will exceed DynamoDB's
   // 400 KB limit. Screenshots should be compressed client-side, but if
@@ -303,7 +325,7 @@ sync.put('/v1/sync/:dataKey', async (c) => {
 
   try {
     const oldStatus = await readOldLessonKBStatus(userId, dataKey);
-    const result = await db.putSyncData(userId, dataKey, data, version || 0);
+    const result = await db.putSyncData(userId, dataKey, data, version, { strictVersion: true });
     await syncNameIfNeeded(userId, dataKey, data);
     await applyActivityEffects(userId, dataKey, oldStatus, data);
     return c.json({ dataKey, version: result.version, updatedAt: result.updatedAt });
@@ -311,8 +333,9 @@ sync.put('/v1/sync/:dataKey', async (c) => {
     if (err.name === 'ConditionalCheckFailedException') {
       const current = await db.getSyncData(userId, dataKey);
       return c.json({
+        code: 'sync_conflict',
         error: 'Version conflict',
-        serverVersion: current?.version || null,
+        serverVersion: current?.version ?? null,
       }, 409);
     }
     throw err;

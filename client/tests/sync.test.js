@@ -11,7 +11,7 @@ const response = items => new Response(JSON.stringify(items), { headers: { 'Cont
 beforeEach(() => {
   clearCache();
   globalThis.localStorage = {
-    getItem: () => JSON.stringify({ accessToken: 'test-token', provider: 'password' }),
+    getItem: () => JSON.stringify({ accessToken: 'test-token', provider: 'password', user: { userId: 'sync-test' } }),
   };
 });
 
@@ -23,7 +23,7 @@ afterEach(() => {
 describe('sync load cancellation', () => {
   it('replaces the cached collection with the current server response', async () => {
     _populateCache('lessons:old', { lessonId: 'old' }, 1);
-    globalThis.fetch = async () => response([savedLesson('current')]);
+    globalThis.fetch = async url => url.endsWith('/status') ? response({ protocol: '1', epoch: 'test' }) : response([savedLesson('current')]);
     await loadAll();
     assert.deepEqual((await getUserLessons()).map(lesson => lesson.lessonId), ['current']);
   });

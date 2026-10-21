@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 import { useApp } from '../contexts/AppContext.jsx';
@@ -6,9 +6,10 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { useStreamedText } from '../hooks/useStreamedText.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeyboardOffset.js';
+import { useLessonDraft } from '../hooks/useLessonDraft.js';
+import { isClientUpgradeRequired, onClientUpgrade } from '../../js/clientCompatibility.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
-import { lessonDrafts } from '../lib/lessonDrafts.js';
 import {
   deleteLessonProgress,
   getUserLessonMarkdown, deleteUserLesson,
@@ -74,6 +75,9 @@ function LessonConversation() {
   const [error, setError] = useState('');
   const [persistence, setPersistence] = useState(null);
   const [resuming, setResuming] = useState(true);
+  const upgradeRequired = useSyncExternalStore(onClientUpgrade, isClientUpgradeRequired, () => false);
+  const [upgradeError, setUpgradeError] = useState('');
+  const reloadingRef = useRef(false);
   const savingRef = useRef(false);
   const pendingSave = !!persistence && persistence.status !== 'saved';
   // A failed lesson start has no conversation to fall back on, so it offers
@@ -98,16 +102,25 @@ function LessonConversation() {
   const [showObjectives, setShowObjectives] = useState(false);
   const objectivesTitleRef = useRef(null);
   const keyboardOffset = useVisualViewportKeyboardOffset();
-  const draftOwnerId = impersonating ? null : user?.userId;
-  const [composeText, setComposeText] = useState(() => lessonDrafts.read(draftOwnerId, lessonGroupId));
-  const [composeImages, setComposeImages] = useState([]);
-  const [composeLinks, setComposeLinks] = useState([]);
+  const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
+  const { text: composeText, images: composeImages, links: composeLinks } = draft;
 
-  // LessonChat remounts this component for every account, lesson or read-only
-  // view change. Initialize from that owner's draft, then persist only its edits.
-  useEffect(() => {
-    lessonDrafts.write(draftOwnerId, lessonGroupId, composeText);
-  }, [draftOwnerId, lessonGroupId, composeText]);
+  const reloadForUpgrade = async () => {
+    if (loading || resuming || savingRef.current || impersonating) return;
+    setUpgradeError('');
+    try {
+      const safe = await engine.prepareLessonUpgrade(user?.userId, lessonGroupId, draft);
+      if (activeView.current !== viewKey) return;
+      if (safe) {
+        reloadingRef.current = true;
+        window.location.reload();
+      }
+      else setUpgradeError('Keep this tab open. Your reply or draft could not be stored for reload. Copy your work before leaving.');
+    } catch (error) {
+      reloadingRef.current = false;
+      setUpgradeError(error.message);
+    }
+  };
 
   useEffect(() => {
     if (displayText === null && pendingAfterStreamRef.current) {
@@ -155,7 +168,11 @@ function LessonConversation() {
 
   useEffect(() => {
     if (!pendingSave && !loading) return;
-    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    const warn = event => {
+      if (reloadingRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [pendingSave, loading]);
@@ -303,7 +320,7 @@ function LessonConversation() {
       setStreamingText(null);
       setLoading('');
     }
-  }, [lessonGroupId, lesson, viewKey]);
+  }, [lessonGroupId, lesson, viewKey, setComposeText, setComposeImages, setComposeLinks]);
 
   const retrySave = async () => {
     if (savingRef.current) return;
@@ -412,7 +429,7 @@ function LessonConversation() {
       </div>
     );
   }
-  const busy = !!loading || pendingSave || resuming;
+  const busy = !!loading || pendingSave || resuming || upgradeRequired;
   const composePlaceholder = phase === LESSON_PHASES.COMPLETED
     ? 'Share feedback about this lesson...'
     : 'Chat with your coach...';
@@ -518,6 +535,13 @@ function LessonConversation() {
         </div>
       </div>
 
+      {upgradeRequired && (
+        <div className="space-y-2 border-b px-4 py-3" role="alert">
+          <p className="text-sm">Update this page to continue. Your retained reply will be restored so you can retry saving it without generating another reply.</p>
+          <Button variant="outline" size="sm" onClick={reloadForUpgrade} disabled={!!loading || resuming || impersonating}>Preserve work and reload</Button>
+          {upgradeError && <p className="text-sm text-destructive">{upgradeError}</p>}
+        </div>
+      )}
       <div className="flex-1">
       {resuming && !loading ? (
         <p className="px-4 py-8 text-sm text-muted-foreground" role="status">Loading your saved conversation…</p>
@@ -538,7 +562,7 @@ function LessonConversation() {
               )}
               {pendingSave && (
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={retrySave} disabled={!!loading}>
+                  <Button variant="outline" size="sm" onClick={retrySave} disabled={!!loading || upgradeRequired}>
                     {loading === 'saving' ? 'Saving…' : 'Retry saving'}
                   </Button>
                   <Button variant="ghost" size="sm" disabled={!!loading} onClick={async () => {
@@ -556,7 +580,7 @@ function LessonConversation() {
             <div className="space-y-2 px-3 py-2">
               <p className="text-sm text-destructive" role="alert">{error}</p>
               {startFailed && (
-                <Button variant="outline" size="sm" onClick={retryStart}>Try again</Button>
+                <Button variant="outline" size="sm" onClick={retryStart} disabled={upgradeRequired}>Try again</Button>
               )}
             </div>
           )}
@@ -703,7 +727,11 @@ function LessonConversation() {
           title={confirmModal.title}
           message={confirmModal.message}
           confirmLabel={confirmModal.confirmLabel}
-          onConfirm={() => { setConfirmModal(null); confirmModal.onConfirm(); }}
+          onConfirm={async () => {
+            setConfirmModal(null);
+            try { await confirmModal.onConfirm(); }
+            catch (error) { setError(error.message || 'The lesson could not be deleted. Please try again.'); }
+          }}
         />
       )}
     </div>

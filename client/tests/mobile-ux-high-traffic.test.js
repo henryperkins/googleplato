@@ -60,7 +60,7 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
       { file: 'pages/Setup.jsx', key: 'plato_setup_draft' },
       { file: 'pages/Waitlist.jsx', key: 'plato_waitlist_draft' },
       { file: 'pages/ForgotPassword.jsx', key: 'plato_forgot_password_draft' },
-      { file: 'lib/lessonDrafts.js', key: 'plato_compose_draft' },
+      // Lesson drafts have executable recovery/account-isolation tests in lesson-drafts.test.js.
       { file: 'pages/Settings.jsx', key: 'plato_settings_fields_draft' },
       { file: 'pages/Settings.jsx', key: 'plato_profile_feedback_draft' },
       { file: 'components/ProfileCompletionGate.jsx', key: 'plato_profile_gate_draft' },

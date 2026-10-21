@@ -15,6 +15,7 @@ const _serverVersions = new Map();
 // Mock fetch before any imports that use it
 globalThis.fetch = async (url, opts) => {
   const path = new URL(url, 'http://localhost').pathname;
+  if (path === '/v1/sync/status') return { ok: true, json: async () => ({ protocol: '1', epoch: 'test' }) };
   const syncMatch = path.match(/^\/v1\/sync\/(.+)/);
   if (!syncMatch) return { ok: false, status: 404 };
   const key = decodeURIComponent(syncMatch[1]);

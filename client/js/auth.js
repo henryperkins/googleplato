@@ -7,6 +7,7 @@ import {
   getAuthTokens, saveAuthTokens, clearAuth,
   saveAuthUser, saveAuthProvider, usesFirebase,
 } from './storage.js';
+import { compatibilityHeaders, isCompatibilityPath, requireClientUpgrade } from './clientCompatibility.js';
 
 // When served from the same origin (Lambda), use relative paths.
 // Falls back to the Lambda Function URL for local development.
@@ -237,33 +238,34 @@ export { getAuthUser as getCurrentUser } from './storage.js';
  * Refresh the access token using the stored refresh token.
  * Returns true on success, false on failure (user must re-login).
  */
-async function isCurrentSession(tokens) {
-  const current = await getAuthTokens();
-  return !!current && current.accessToken === tokens.accessToken && current.refreshToken === tokens.refreshToken;
-}
+const sameSession = (left, right) => left?.user?.userId === right?.user?.userId
+  && left?.accessToken === right?.accessToken && left?.refreshToken === right?.refreshToken;
 
-async function refreshAccessToken(tokens, generation) {
-  if (!tokens?.refreshToken || !await isCurrentSession(tokens) || generation !== sessionGeneration) return false;
+async function refreshAccessToken(tokens, generation, signal) {
+  if (!tokens?.refreshToken) return false;
+  if (!sameSession(tokens, await getAuthTokens()) || generation !== sessionGeneration) return false;
   try {
     const res = await fetch(`${SERVICE_URL}/v1/auth/refresh`, {
       method: 'POST',
+      signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: tokens.refreshToken }),
     });
+    if (signal?.aborted) throw signal.reason;
     if (!res.ok) {
       // Don't clear auth silently — the user's data should be preserved.
       // Notify listeners so the UI can prompt re-login.
-      if (await isCurrentSession(tokens) && generation === sessionGeneration) _notifySessionExpired();
+      if (sameSession(tokens, await getAuthTokens()) && generation === sessionGeneration) _notifySessionExpired();
       return false;
     }
     const { accessToken, refreshToken } = await res.json();
-    // Check the generation after the asynchronous snapshot comparison, in the
-    // same turn as the synchronous storage write. Logout may have run while
-    // that comparison's promise was settling.
-    if (!await isCurrentSession(tokens) || generation !== sessionGeneration) return false;
-    await saveAuthTokens({ accessToken, refreshToken });
-    return true;
+    if (signal?.aborted) throw signal.reason;
+    // Compare and replace synchronously inside storage, after all awaits.
+    // A late response must never merge account A's tokens into account B.
+    if (generation !== sessionGeneration) return false;
+    return await saveAuthTokens({ accessToken, refreshToken }, tokens);
   } catch {
+    if (signal?.aborted) throw signal.reason || new DOMException('Request cancelled.', 'AbortError');
     return false;
   }
 }
@@ -281,32 +283,64 @@ export async function authenticatedFetch(path, options = {}) {
   // ?asUserId=<id> to reads. Writes never carry it — both as a client guard
   // and to match the server-side write rejection in /v1/sync.
   const method = (options.method || 'GET').toUpperCase();
+  const protectedPath = isCompatibilityPath(path);
+  const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  if (protectedPath && mutation && readImpersonatedUserId()) throw new Error('Writes are not allowed while viewing as another user.');
   let effectivePath = path;
   if (method === 'GET') {
     const asUserId = readImpersonatedUserId();
     if (asUserId) effectivePath = appendQueryParam(path, 'asUserId', asUserId);
   }
 
-  const doFetch = (token) => fetch(`${SERVICE_URL}${effectivePath}`, {
-    ...options,
-    headers: { ...options.headers, Authorization: `Bearer ${token}` },
-  });
-
-  let res = await doFetch(tokens.accessToken);
-
-  if (res.status === 401) {
-    if (generation !== sessionGeneration) throw new Error('Session expired');
-    const refreshed = await refreshAccessToken(tokens, generation);
-    const newTokens = await getAuthTokens();
-    // A sibling request may have already rotated this session's credentials.
-    // Reuse its access token, while still rejecting a logout or account change.
-    if (!newTokens || generation !== sessionGeneration || newTokens.user?.userId !== tokens.user?.userId ||
-        (!refreshed && newTokens.accessToken === tokens.accessToken)) {
-      throw new Error('Session expired');
+  const ownerOf = value => value?.user?.userId || value?.refreshToken || value?.accessToken;
+  const owner = ownerOf(tokens);
+  const fetchAsOwner = async (requestPath, requestOptions) => {
+    let requestTokens;
+    const doFetch = async () => {
+      const current = await getAuthTokens();
+      if (!current?.accessToken || ownerOf(current) !== owner || generation !== sessionGeneration) throw new Error('The signed-in account changed. Return to the original account.');
+      const headers = new Headers(requestOptions.headers);
+      headers.set('Authorization', `Bearer ${current.accessToken}`);
+      requestTokens = current;
+      return fetch(`${SERVICE_URL}${requestPath}`, { ...requestOptions, headers });
+    };
+    let response = await doFetch();
+    if (response.status === 401) {
+      const refreshed = await refreshAccessToken(requestTokens, generation, requestOptions.signal);
+      const current = await getAuthTokens();
+      // Reuse a sibling request's rotation only within this same login.
+      if (!current || generation !== sessionGeneration || ownerOf(current) !== owner
+        || (!refreshed && current.accessToken === requestTokens.accessToken)) throw new Error('Session expired');
+      response = await doFetch();
     }
-    res = await doFetch(newTokens.accessToken);
+    if (ownerOf(await getAuthTokens()) !== owner || generation !== sessionGeneration) throw new Error('The signed-in account changed. Return to the original account.');
+    return response;
+  };
+  const headers = new Headers(options.headers);
+  if (protectedPath) {
+    const compatibility = await compatibilityHeaders(async () => {
+      // Use AbortController rather than newer AbortSignal composition helpers.
+      const controller = new AbortController();
+      const abort = () => controller.abort(options.signal.reason);
+      if (options.signal?.aborted) abort();
+      else options.signal?.addEventListener('abort', abort, { once: true });
+      const timeout = setTimeout(() => controller.abort(new DOMException('Checking for updates took too long.', 'TimeoutError')), 10_000);
+      try {
+        const response = await fetchAsOwner('/v1/sync/status', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('Could not check for updates. Keep this page open and try again.');
+        return await response.json();
+      } finally {
+        clearTimeout(timeout);
+        options.signal?.removeEventListener('abort', abort);
+      }
+    }, { mutation });
+    for (const [key, value] of Object.entries(compatibility)) headers.set(key, value);
   }
-
+  const res = await fetchAsOwner(effectivePath, { ...options, headers });
+  if (protectedPath && res.status === 409) {
+    const body = await (res.clone?.() || res).json().catch(() => null);
+    if (body?.code === 'client_upgrade_required') requireClientUpgrade();
+  }
   return res;
 }
 
