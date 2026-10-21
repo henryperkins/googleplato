@@ -8,6 +8,7 @@ import {
   ConverseStreamCommand,
 } from '@aws-sdk/client-bedrock-runtime';
 import { toConverseRequest, fromConverseResponse, fromConverseStreamEvent } from './converse.js';
+import { observeInference } from './inference-telemetry.js';
 
 // Timeout for Bedrock requests — set just under the Lambda function timeout
 // (120 s) so errors propagate cleanly rather than causing a hard Lambda kill.
@@ -42,7 +43,7 @@ function withTimeout(label, signal) {
 }
 
 const ai = {
-  async invoke(model, body) {
+  async invoke(model, body, { observe } = {}) {
     const modelId = MODEL_MAP[model] || model;
     const { abortSignal, clear } = withTimeout('invoke');
     try {
@@ -54,17 +55,25 @@ const ai = {
           body: JSON.stringify({ anthropic_version: 'bedrock-2023-05-31', ...body }),
         });
         const response = await client.send(command, { abortSignal });
-        return JSON.parse(new TextDecoder().decode(response.body));
+        recordAttempts(observe, response);
+        const data = JSON.parse(new TextDecoder().decode(response.body));
+        observeInference(observe, { format: 'anthropic', usage: data.usage, finalUsage: true });
+        return data;
       }
 
       const response = await client.send(new ConverseCommand(toConverseRequest(modelId, body)), { abortSignal });
+      recordAttempts(observe, response);
+      observeInference(observe, { format: 'converse', usage: response.usage, finalUsage: true });
       return fromConverseResponse(response);
+    } catch (error) {
+      recordAttempts(observe, error);
+      throw error;
     } finally {
       clear();
     }
   },
 
-  async *invokeStream(model, body, { signal } = {}) {
+  async *invokeStream(model, body, { signal, observe } = {}) {
     const modelId = MODEL_MAP[model] || model;
     const { abortSignal, clear } = withTimeout('stream', signal);
     try {
@@ -76,23 +85,36 @@ const ai = {
           body: JSON.stringify({ anthropic_version: 'bedrock-2023-05-31', ...body }),
         });
         const response = await client.send(command, { abortSignal });
+        recordAttempts(observe, response);
         for await (const event of response.body) {
           if (event.chunk) {
-            yield JSON.parse(new TextDecoder().decode(event.chunk.bytes));
+            const data = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
+            observeInference(observe, { format: 'anthropic', usage: data.message?.usage || data.usage,
+              finalUsage: data.type === 'message_delta' });
+            yield data;
           }
         }
         return;
       }
 
       const response = await client.send(new ConverseStreamCommand(toConverseRequest(modelId, body)), { abortSignal });
+      recordAttempts(observe, response);
       for await (const event of response.stream) {
+        observeInference(observe, { format: 'converse', usage: event.metadata?.usage, finalUsage: true });
         const translated = fromConverseStreamEvent(event);
         if (translated) yield translated;
       }
+    } catch (error) {
+      recordAttempts(observe, error);
+      throw error;
     } finally {
       clear();
     }
   },
 };
+
+function recordAttempts(observe, response) {
+  observeInference(observe, { attempts: response.$metadata?.attempts, retryDelayMs: response.$metadata?.totalRetryDelay });
+}
 
 export default ai;

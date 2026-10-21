@@ -8,6 +8,7 @@ import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
 import { logger } from '../lib/logger.js';
 import { observeSyncSave } from '../middleware/saveObservability.js';
+import { inferenceContext, recordLessonAttemptSaved, withInferenceContext } from '../lib/inference-telemetry.js';
 
 const sync = new Hono();
 
@@ -160,7 +161,11 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
     && messages.every(message => state.messages.data.some(saved => saved.id === message.id && isDeepStrictEqual(saved, message)))
     && state.lessonKB.data?.startedAt === lessonKB.startedAt;
   const current = await db.getLessonState(userId, lessonId);
-  if (replay(current)) return c.json(current);
+  const acknowledge = state => {
+    recordLessonAttemptSaved(userId, lessonId, turnId, state);
+    return c.json(state);
+  };
+  if (replay(current)) return acknowledge(current);
   if (!isDeepStrictEqual(current, base)) return conflict();
   // Existing identities may never be reassigned, even if a client supplies
   // a fresh base snapshot with a different reply under an old turn ID.
@@ -174,13 +179,13 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
   try {
     const saved = await db.commitLessonTurn(userId, lessonId, base, desired);
     await applyActivityEffects(userId, `lessonKB:${lessonId}`, base.lessonKB.data?.status, lessonKB);
-    return c.json(saved);
+    return acknowledge(saved);
   } catch (error) {
     if (error.name !== 'ConditionalCheckFailedException') throw error;
     // Two retries can race after a lost acknowledgement. Only one commits;
     // the other acknowledges its exact output without repeating any effects.
     const latest = await db.getLessonState(userId, lessonId);
-    return replay(latest) ? c.json(latest) : conflict();
+    return replay(latest) ? acknowledge(latest) : conflict();
   }
 });
 
@@ -411,7 +416,7 @@ sync.post('/v1/sync/lesson-started', async (c) => {
   const reject = rejectWriteIfImpersonating(c);
   if (reject) return reject;
   const userId = c.get('userId');
-  const { lessonId, lesson, lessonKB } = await c.req.json();
+  const { lessonId, lesson, lessonKB, telemetry } = await c.req.json();
 
   if (!lessonId || !lesson || !lessonKB) {
     return c.json({ error: 'lessonId, lesson, and lessonKB are required' }, 400);
@@ -446,7 +451,7 @@ sync.post('/v1/sync/lesson-started', async (c) => {
   // the client's fail-open handler treats any non-200 as "no enrichment".
   const ENRICHMENT_TIMEOUT_MS = 30_000;
   const enrichments = await Promise.race([
-    emitHook('lessonStarted', {
+    withInferenceContext(inferenceContext(userId, { ...telemetry, lessonId, agentRole: 'lesson-enrichment' }), () => emitHook('lessonStarted', {
       userId,
       lessonId,
       lesson: {
@@ -457,7 +462,7 @@ sync.post('/v1/sync/lesson-started', async (c) => {
         coachDirective: lesson.coachDirective,
       },
       lessonKB
-    }),
+    })),
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error('lessonStarted enrichment timed out')), ENRICHMENT_TIMEOUT_MS)
     ),

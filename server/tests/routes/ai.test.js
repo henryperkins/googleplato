@@ -7,6 +7,7 @@ import aiProvider from '../../src/lib/ai-provider.js';
 import { fromConverseResponse, fromConverseStreamEvent } from '../../src/lib/converse.js';
 import db from '../../src/lib/db.js';
 import { signAccessToken } from '../../src/lib/jwt.js';
+import { inferenceContext } from '../../src/lib/inference-telemetry.js';
 
 async function authedReq(app, method, path, body) {
   const token = await signAccessToken('usr_test', 'user');
@@ -28,6 +29,20 @@ function unauthReq(app, method, path, body) {
 describe('POST /v1/ai/messages', () => {
   beforeEach(() => {
     db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
+  });
+
+  it('binds lesson metadata to the authenticated owner without sending it to the model', async () => {
+    const telemetry = { lessonId: 'lesson-1', generation: null, turnId: 'turn-1', agentRole: 'coach', operationId: 'operation-1', retryIndex: 2,
+      userId: 'forged', lesson_attempt_status: 'completed', prompt_tokens: 999 };
+    aiProvider.invoke = async (_model, body, options) => {
+      assert.equal(body.telemetry, undefined);
+      assert.deepEqual(options?.context, inferenceContext('usr_test', telemetry));
+      return { content: [{ type: 'text', text: 'ok' }] };
+    };
+    const res = await authedReq(new Hono().route('/', ai), 'POST', '/v1/ai/messages', {
+      model: 'model', messages: [{ role: 'user', content: 'Work' }], telemetry,
+    });
+    assert.equal(res.status, 200);
   });
 
   it('proxies valid request and returns response', async () => {

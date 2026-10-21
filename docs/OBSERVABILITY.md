@@ -9,6 +9,10 @@ and scheduled Actions pipeline below is historical context, not the active
 Cloud Run monitoring setup. A protected conflict or unconfirmed save is a
 signal to inspect, not proof of irrecoverable data loss.
 
+Inference usage and lesson economics have a separate read-only
+[inference telemetry report](INFERENCE_TELEMETRY.md), backed by INFO events in
+Cloud Logging. It does not add individual inference events to save alarms.
+
 How plato notices when something is wrong, and the framework for adding new
 checks. Read this before adding any new error detection or alert.
 

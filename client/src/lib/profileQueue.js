@@ -82,11 +82,11 @@ export function updateProfileInBackground(lessonId, assessmentResult) {
 /**
  * Deep profile update on lesson completion (LLM call).
  */
-export function updateProfileOnCompletionInBackground(lessonKB, lesson) {
+export function updateProfileOnCompletionInBackground(lessonKB, lesson, context) {
   queueProfileUpdate(async () => {
     const profile = await ensureProfileExists();
     const result = await orchestrator.updateProfileOnCompletion(
-      profile, lessonKB, lesson.name, lesson.lessonId, lessonKB.activitiesCompleted
+      profile, lessonKB, lesson.name, lesson.lessonId, lessonKB.activitiesCompleted, context
     );
     // masteredLessons is system-managed (no longer echoed by the agent —
     // see orchestrator.profileForAgent). Record the completion in code so
@@ -101,12 +101,12 @@ export function updateProfileOnCompletionInBackground(lessonKB, lesson) {
 /**
  * Profile update from a coach observation (LLM call).
  */
-export function updateProfileFromObservation(lessonKB, observation) {
+export function updateProfileFromObservation(lessonKB, observation, context) {
   queueProfileUpdate(async () => {
     const profile = await ensureProfileExists();
     const result = await orchestrator.updateProfileFromFeedback(profile, observation, {
       lessonName: lessonKB.name || 'Lesson', activityType: 'coaching', activityGoal: 'Coach observation',
-    });
+    }, context);
     await saveProfileResult(profile, result);
   });
 }
