@@ -16,6 +16,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { dataLossGroups } from './log-watch.js';
 
 const ISSUE_REF_RE = /(?:fixes|closes|resolves)\s+#(\d+)/gi;
 
@@ -199,8 +201,16 @@ async function collectLogs(apiUrl, token) {
   return res.json();
 }
 
-function formatGroups(logs) {
-  if (!logs.groups?.length) return 'No errors or warnings in the last 24h.';
+function remoteLogsIncomplete(logs) {
+  return logs.remoteSource === 'cloud-logging'
+    ? logs.cloudlogging?.complete !== true || !!logs.cloudlogging?.error
+    : !!logs.cloudwatch?.error;
+}
+
+export function formatGroups(logs) {
+  if (!logs.groups?.length) return remoteLogsIncomplete(logs)
+    ? 'No entries available; remote logging is incomplete. Save health is unknown.'
+    : 'No errors or warnings in the queried window.';
   const rows = logs.groups.map((g) => {
     const sample = g.sample?.meta?.error || g.sample?.meta?.message || '';
     // Escape pipes so error messages containing `|` don't break the markdown
@@ -219,33 +229,27 @@ function formatGroups(logs) {
 // This callout is deliberately prominent and uses fixed wording the pilot's
 // "severity interrupt" rule keys off — a failed `/v1/sync` write is silent
 // learner data loss with no named author to file an issue for it (#195).
-function formatDataLossWatch(logs) {
-  const hits = (logs.groups || []).filter((g) => {
-    if (g.code !== 'unhandled_error') return false;
-    const m = g.sample?.meta || {};
-    const method = String(m.method || '').toUpperCase();
-    return (method === 'PUT' || method === 'POST') && String(m.path || '').startsWith('/v1/sync');
-  });
+export function formatDataLossWatch(logs) {
+  const hits = dataLossGroups(logs);
   if (!hits.length) {
-    return '_No write-path (`/v1/sync`) server errors in the window._';
+    return remoteLogsIncomplete(logs)
+      ? '_No save signals in available entries; remote logging is incomplete. Save health is unknown._'
+      : '_No save-failure signals in the queried window._';
   }
-  const lines = hits.map((g) => {
-    const m = g.sample?.meta || {};
-    const err = String(m.error || '').replace(/\s+/g, ' ').slice(0, 140);
-    return `- ⚠️ \`${g.code}\` ×${g.count} — \`${m.method} ${m.path}\` — _${err}_ (first ${g.firstSeen}, last ${g.lastSeen})`;
-  });
   return [
-    '**SEVERITY INTERRUPT — possible data loss.** Write requests are failing server-side; a learner\'s saved work may not be persisting. Per the pilot picking rules this outranks the entire issue queue — fix it or escalate it (loud SKIP), never defer.',
-    ...lines,
+    '**Save failures need investigation.** These are event signals, not a count of lost replies. Conflicts may be protective rejections; recoveries do not cancel failures.',
+    ...hits.map(g => `- ${g.code} ×${g.count} (first ${g.firstSeen}, last ${g.lastSeen})`),
+    ...(remoteLogsIncomplete(logs) ? ['Remote logging is incomplete; additional failures may be missing.'] : []),
   ].join('\n');
 }
 
-function formatCloudWatchStatus(logs) {
-  if (logs.cloudwatch?.error) {
-    return `⚠️ CloudWatch fetch failed: \`${logs.cloudwatch.error}\`. In-process buffer errors above are still reliable; Lambda runtime errors (timeouts, uncaught panics before onError) may be missing.`;
+export function formatLogSourceStatus(logs) {
+  if (logs.remoteSource === 'cloud-logging') {
+    if (remoteLogsIncomplete(logs)) return 'Cloud Logging read is incomplete or disabled. Save health is unknown; inspect cloudlogging.error and reader configuration.';
+    return `Cloud Logging read complete for ${logs.cloudlogging.projectId}/${logs.cloudlogging.serviceName}.`;
   }
-  const groupCount = logs.cloudwatch?.logGroups?.length ?? 0;
-  return `CloudWatch lane queried ${groupCount} log group(s) successfully.`;
+  if (logs.cloudwatch?.error) return 'CloudWatch read is incomplete. Save health is unknown; inspect cloudwatch.error.';
+  return `CloudWatch lane queried ${logs.cloudwatch?.logGroups?.length ?? 0} log group(s) successfully.`;
 }
 
 async function main() {
@@ -264,7 +268,6 @@ async function main() {
     '--json', 'number,title,state,body,createdAt,mergedAt,closedAt',
     '--search', `created:>=${thirtyDaysAgo.slice(0, 10)}`,
   ]);
-  const openPilotPrs = pilotPrs.filter((p) => p.state === 'OPEN');
   const closedPilotPrs = pilotPrs.filter((p) => p.state === 'CLOSED');
 
   // Blocklist construction needs every open PR that references an issue,
@@ -331,9 +334,9 @@ Errors: ${logs.counts?.error ?? 0} · Warnings: ${logs.counts?.warn ?? 0} · Buf
 
 ${formatGroups(logs)}
 
-## CloudWatch lane status
+## Remote log source status
 
-${formatCloudWatchStatus(logs)}
+${formatLogSourceStatus(logs)}
 
 ## Open PRs claiming issues (BLOCKLIST)
 
@@ -351,7 +354,9 @@ ${formatReadyIssues(readyIssues, closedPilotPrs)}
   process.stdout.write(report);
 }
 
-main().catch((err) => {
-  console.error('pilot-report failed:', err.message);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error('pilot-report failed:', err.message);
+    process.exit(1);
+  });
+}

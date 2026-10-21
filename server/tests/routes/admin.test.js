@@ -932,6 +932,31 @@ describe('GET /v1/admin/logs', () => {
     assert.deepEqual(data.cloudwatch.logGroups, []);
   });
 
+  it('deduplicates repeated client observations by account and event identity', async () => {
+    const meta = { source: 'client', actorRef: 'account', eventId: 'event', operation: 'lesson_turn' };
+    logger.warn('client_save_unconfirmed', meta);
+    logger.warn('client_save_unconfirmed', meta);
+    const app = new Hono(); app.route('/', admin);
+    const data = await (await adminReq(app, 'GET', '/v1/admin/logs?cloudwatch=0')).json();
+    assert.equal(data.counts.warn, 1);
+  });
+
+  it('uses Cloud Logging on Cloud Run and exposes a reader failure without AWS fallback', async () => {
+    const previous = process.env.K_SERVICE;
+    process.env.K_SERVICE = 'invalid service'; // reject before credentials/network
+    try {
+      const app = new Hono(); app.route('/', admin);
+      const data = await (await adminReq(app, 'GET', '/v1/admin/logs')).json();
+      assert.equal(data.remoteSource, 'cloud-logging');
+      assert.match(data.cloudlogging.error, /Cloud Logging/);
+      assert.equal(data.cloudlogging.complete, false);
+      assert.deepEqual(data.cloudwatch.logGroups, []);
+      assert.equal(data.cloudwatch.error, null);
+    } finally {
+      if (previous === undefined) delete process.env.K_SERVICE; else process.env.K_SERVICE = previous;
+    }
+  });
+
   it('cloudwatch=0 skips the AWS call', async () => {
     const app = new Hono(); app.route('/', admin);
     const res = await adminReq(app, 'GET', '/v1/admin/logs?cloudwatch=0');

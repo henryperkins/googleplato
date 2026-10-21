@@ -8,6 +8,7 @@ import { validateUsername } from './auth.js';
 import { MIN_OBJECTIVES, MAX_OBJECTIVES, MAX_EXCHANGES, MINS_PER_EXCHANGE } from '../lib/lesson-limits.js';
 import { logger } from '../lib/logger.js';
 import { fetchCloudWatchLogs } from '../lib/cloudwatch-logs.js';
+import { fetchCloudLoggingLogs, logEntryIdentity } from '../lib/cloud-logging.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { classifyCache, kickoffAsyncRefresh } from '../lib/lesson-stats-cache.js';
@@ -1557,8 +1558,9 @@ admin.get('/v1/admin/users/:userId/stats', async (c) => {
 });
 
 // GET /v1/admin/logs — recent server errors/warnings for the pilot agent.
-// Merges in-process ring buffer with CloudWatch (default on). Failures from
-// CloudWatch populate `cloudwatch.error` rather than silently returning empty.
+// Merges the diagnostic buffer with the runtime log service. Cloud Run reads
+// Cloud Logging across revisions; Lambda retains CloudWatch. Reader errors are
+// explicit and never fall back to a different deployment or a healthy status.
 admin.get('/v1/admin/logs', async (c) => {
   const url = new URL(c.req.url);
   const rawSince = url.searchParams.get('since');
@@ -1567,9 +1569,10 @@ admin.get('/v1/admin/logs', async (c) => {
   const cloudwatchParam = url.searchParams.get('cloudwatch');
   const view = url.searchParams.get('view') || 'both';
 
-  const level = levelParam === 'error' || levelParam === 'warn' ? levelParam : undefined;
+  const level = ['error', 'warn', 'info'].includes(levelParam) ? levelParam : undefined;
   const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 200, 1), 1000);
-  const includeCloudWatch = cloudwatchParam !== '0';
+  const remoteSource = process.env.K_SERVICE ? 'cloud-logging' : 'cloudwatch';
+  const includeRemote = remoteSource === 'cloud-logging' ? url.searchParams.get('cloudlogging') !== '0' : cloudwatchParam !== '0';
 
   let since;
   if (rawSince) {
@@ -1583,8 +1586,14 @@ admin.get('/v1/admin/logs', async (c) => {
   const bufferEntries = logger.recent({ since, level, limit: logger._bufferSize() }).map((e) => ({ ...e, source: 'buffer' }));
 
   let cloudwatch = { logGroups: [], error: null };
+  let cloudlogging = null;
   let cwEntries = [];
-  if (includeCloudWatch) {
+  if (includeRemote && remoteSource === 'cloud-logging') {
+    const result = await fetchCloudLoggingLogs({ since });
+    const { entries, ...status } = result;
+    cloudlogging = status;
+    cwEntries = entries.filter(e => !level || e.level === level);
+  } else if (includeRemote) {
     const cw = await fetchCloudWatchLogs({ since });
     cloudwatch = { logGroups: cw.logGroups, error: cw.error };
     cwEntries = (cw.entries || []).filter((e) => !level || e.level === level);
@@ -1601,21 +1610,23 @@ admin.get('/v1/admin/logs', async (c) => {
     set.add(source);
   }
   for (const e of bufferEntries) {
-    byLogId.set(e.logId, e); // buffer wins on meta
-    recordSource(e.logId, 'buffer');
+    const identity = logEntryIdentity(e);
+    byLogId.set(identity, e); // buffer wins on meta
+    recordSource(identity, 'buffer');
   }
   for (const e of cwEntries) {
-    if (!byLogId.has(e.logId)) byLogId.set(e.logId, e);
-    recordSource(e.logId, 'cloudwatch');
+    const identity = logEntryIdentity(e);
+    if (!byLogId.has(identity)) byLogId.set(identity, e);
+    recordSource(identity, remoteSource);
   }
   const entries = [...byLogId.values()]
-    .map((e) => ({ ...e, source: [...sourcesByLogId.get(e.logId)].join('+') }))
+    .map((e) => ({ ...e, source: [...sourcesByLogId.get(logEntryIdentity(e))].join('+') }))
     .sort((a, b) => b.ts.localeCompare(a.ts));
 
   // Build groups across both sources.
   const groups = new Map();
   for (const e of entries) {
-    const srcSet = sourcesByLogId.get(e.logId);
+    const srcSet = sourcesByLogId.get(logEntryIdentity(e));
     const g = groups.get(e.code);
     if (!g) {
       groups.set(e.code, {
@@ -1636,9 +1647,9 @@ admin.get('/v1/admin/logs', async (c) => {
   }
   const groupsList = [...groups.values()].sort((a, b) => b.count - a.count);
 
-  const counts = { error: 0, warn: 0 };
+  const counts = { error: 0, warn: 0, info: 0 };
   for (const e of entries) {
-    if (e.level === 'error' || e.level === 'warn') counts[e.level]++;
+    if (Object.hasOwn(counts, e.level)) counts[e.level]++;
   }
 
   const windowMs = Date.now() - new Date(since).getTime();
@@ -1648,6 +1659,8 @@ admin.get('/v1/admin/logs', async (c) => {
     counts,
     buffer: { size: logger._bufferSize(), used: bufferEntries.length },
     cloudwatch,
+    cloudlogging,
+    remoteSource,
   };
   if (view !== 'entries') response.groups = groupsList;
   if (view !== 'groups') response.entries = entries.slice(0, limit);

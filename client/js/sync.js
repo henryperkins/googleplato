@@ -3,6 +3,7 @@
  * Individual writes are handled directly by storage.js via putSyncData.
  */
 
+import { flushSaveEvents } from './saveObservability.js';
 import { authenticatedFetch } from './auth.js';
 import { clearCache, _populateCache } from './storage.js';
 
@@ -12,6 +13,7 @@ import { clearCache, _populateCache } from './storage.js';
  * A superseded load must not replace the active session's cached data.
  */
 export async function loadAll({ isCurrent = () => true } = {}) {
+  flushSaveEvents();
   const res = await authenticatedFetch('/v1/sync');
   if (!res.ok || !isCurrent()) return;
 

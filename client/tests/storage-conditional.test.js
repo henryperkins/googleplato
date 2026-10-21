@@ -9,6 +9,41 @@ beforeEach(() => {
   clearCache();
 });
 
+test('telemetry owner lookup cannot move a save into the next account', async () => {
+  let tokens = { accessToken: 'access-a', user: { userId: 'account-a' } };
+  globalThis.localStorage = { getItem: () => JSON.stringify(tokens) };
+  const writes = [];
+  globalThis.fetch = async (url, options = {}) => {
+    if (url.endsWith('/status')) return json({ protocol: '1', epoch: 'test' });
+    if (options.method === 'PUT') writes.push(options);
+    return json({ version: 1 });
+  };
+  const saving = putSyncData('profile', { name: 'Account A private draft' });
+  tokens = { accessToken: 'access-b', user: { userId: 'account-b' } };
+  assert.equal(await saving, false);
+  assert.equal(writes.length, 0);
+});
+
+test('failure telemetry never waits for an unfinished rejected-save body', async () => {
+  let stream;
+  globalThis.fetch = async url => {
+    if (url.endsWith('/status')) return json({ protocol: '1', epoch: 'test' });
+    return new Response(new ReadableStream({ start(controller) { stream = controller; controller.enqueue(new TextEncoder().encode('{"error":')); } }), { status: 503 });
+  };
+  const saving = putSyncData('profile', { name: 'Retain this draft' });
+  let outcome;
+  try {
+    outcome = await Promise.race([saving, new Promise(resolve => setTimeout(() => resolve('stalled'), 50))]);
+  } finally { stream?.close(); }
+  await saving;
+  assert.equal(outcome, false);
+});
+
+test('an invalid save acknowledgement cannot be reported as recovered', async () => {
+  globalThis.fetch = async url => url.endsWith('/status') ? json({ protocol: '1', epoch: 'test' }) : json({});
+  assert.equal(await putSyncData('profile', { name: 'Learner' }), false);
+});
+
 for (const code of ['sync_conflict', 'client_upgrade_required']) {
   test(`${code} retains the original write without fetching a new version and overwriting`, async () => {
     const writes = [];

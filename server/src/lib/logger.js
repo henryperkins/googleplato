@@ -1,8 +1,6 @@
-// Ring-buffer logger. Primary consumer is the plato-pilot agent via /v1/admin/logs.
-// Logs are keyed by a stable snake_case `code` (not free-form messages) so the
-// agent can group and count errors. Each call also writes structured JSON to
-// stdout, which Lambda forwards to CloudWatch — that's the second source the
-// endpoint merges in.
+// Structured process output is the durable logging surface: Cloud Run collects
+// it in Cloud Logging; Lambda collects it in CloudWatch. The ring buffer is only
+// a local diagnostic cache, never a complete view across instances.
 
 const DEFAULT_SIZE = 500;
 const MAX_META_BYTES = 2048;
@@ -62,12 +60,13 @@ function push(level, rawCode, rawMeta) {
     cursor = (cursor + 1) % size;
   }
 
-  // Mirror to stdout as structured JSON so Lambda → CloudWatch captures the
-  // same shape. logId is included so the endpoint can dedupe when the same
-  // event is retrieved from both the buffer and CloudWatch.
-  const payload = JSON.stringify({ logId: entry.logId, level, code, ...meta });
+  // Mirror structured output for Cloud Logging/CloudWatch. Stable logId and
+  // client event identities let readers deduplicate buffer and remote copies.
+  const payload = JSON.stringify({ ...meta, logId: entry.logId, timestamp: entry.ts,
+    severity: { error: 'ERROR', warn: 'WARNING', info: 'INFO' }[level], level, code, event: code });
   if (level === 'error') console.error(payload);
-  else console.warn(payload);
+  else if (level === 'warn') console.warn(payload);
+  else console.log(payload);
 
   // Surface code coercion as a separate warn event so misuse is visible.
   if (originalCode && originalCode !== code) {
@@ -78,6 +77,7 @@ function push(level, rawCode, rawMeta) {
 export const logger = {
   error(code, meta) { push('error', code, meta); },
   warn(code, meta) { push('warn', code, meta); },
+  info(code, meta) { push('info', code, meta); },
 
   recent({ since, level, limit = 200 } = {}) {
     const sinceMs = since ? new Date(since).getTime() : 0;

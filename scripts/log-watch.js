@@ -1,145 +1,107 @@
 #!/usr/bin/env node
-
-/**
- * log-watch — scheduled data-loss alerting.
- *
- * Polls plato's `/v1/admin/logs` for write-path server errors — an
- * `unhandled_error` on a PUT/POST to `/v1/sync` means a learner's saved work
- * (conversation, lesson progress) is failing to persist server-side — and
- * opens a GitHub issue when one is firing.
- *
- * Runs every couple of hours via `.github/workflows/log-watch.yml`,
- * independent of the once-weekday plato-pilot. The pilot is a fix-proposer,
- * not a monitor: a 400 KB write-size bug lost learner conversations in prod
- * for 8 days before anyone noticed (#195). This is the missing alarm.
- *
- * Required env:
- *   PLATO_API_URL          — e.g. https://plato.courses
- *   PLATO_ADMIN_EMAIL      — admin email for API login
- *   PLATO_ADMIN_PASSWORD   — admin password for API login
- *   GH_TOKEN               — for the `gh` CLI (set by the workflow)
- *
- * Usage: node scripts/log-watch.js
- */
-
+// Read-only by default. Run from any local or external scheduler with Google
+// ADC; hosted GitHub Actions is not required. See docs/SAVE_OBSERVABILITY.md.
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fetchCloudLoggingLogs } from '../server/src/lib/cloud-logging.js';
 
-// One open issue carries the signal; while it is open the alert is already
-// raised, so further detections must not pile on duplicates.
+const FAILURE_CODES = new Set(['sync_conflict', 'sync_validation_failure', 'client_save_unconfirmed']);
 const DEDUP_LABEL = 'data-loss';
-
-function gh(args) {
-  return execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+function isSaveFailure(code, meta = {}) {
+  return FAILURE_CODES.has(code) || (code === 'unhandled_error'
+    && ['PUT', 'POST', 'DELETE'].includes(String(meta.method).toUpperCase())
+    && /^\/v1\/sync(?:\/|$)/.test(meta.path || ''));
 }
-
-async function login(apiUrl) {
-  const res = await fetch(`${apiUrl}/v1/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: process.env.PLATO_ADMIN_EMAIL,
-      password: process.env.PLATO_ADMIN_PASSWORD,
-    }),
-  });
-  if (!res.ok) throw new Error(`login failed: ${res.status}`);
-  const { accessToken } = await res.json();
-  if (!accessToken) throw new Error('login returned no accessToken');
-  return accessToken;
-}
-
-/**
- * The write-path data-loss signature: an `unhandled_error` whose sample is a
- * PUT/POST to `/v1/sync` (the learner-data persistence surface). Matches the
- * "Data-loss watch" callout in scripts/pilot-report.js — keep the two in sync.
- * Exported for testing.
- */
 export function dataLossGroups(logs) {
-  return (logs?.groups || []).filter((g) => {
-    if (g.code !== 'unhandled_error') return false;
-    const m = g.sample?.meta || {};
-    const method = String(m.method || '').toUpperCase();
-    return (method === 'PUT' || method === 'POST') && String(m.path || '').startsWith('/v1/sync');
-  });
+  return (logs?.groups || []).filter(group => isSaveFailure(group.code, group.sample?.meta));
 }
-
-function ensureLabels() {
-  const labels = [
-    [DEDUP_LABEL, 'B60205', 'Server-side write failure — learner data may not be saving'],
-    ['ready-for-pilot', '1F883D', 'Triaged: enough info for plato-pilot or a human to act on'],
-  ];
-  for (const [name, color, description] of labels) {
-    try {
-      gh(['label', 'create', name, '--color', color, '--description', description]);
-    } catch { /* already exists */ }
+export function summarizeSaveLogs(entries) {
+  const groups = new Map();
+  let failureCount = 0, recoveryCount = 0;
+  for (const entry of entries) {
+    const failure = isSaveFailure(entry.code, entry.meta);
+    if (!failure && entry.code !== 'client_save_recovered') continue;
+    if (failure) failureCount++; else recoveryCount++;
+    let group = groups.get(entry.code);
+    if (!group) {
+      group = { code: entry.code, count: 0, firstSeen: entry.ts, lastSeen: entry.ts };
+      groups.set(entry.code, group);
+    }
+    group.count++;
+    if (entry.ts < group.firstSeen) group.firstSeen = entry.ts;
+    if (entry.ts > group.lastSeen) group.lastSeen = entry.ts;
+    // Preserve only the write classification; never publish error text or IDs.
+    if (entry.code === 'unhandled_error') group.sample = { meta: { method: 'PUT', path: '/v1/sync' } };
   }
+  return { groups: [...groups.values()], failureCount, recoveryCount };
 }
 
-function buildIssueBody(logs, hits, total) {
-  const lines = hits.map((g) => {
-    const m = g.sample?.meta || {};
-    const err = String(m.error || '').replace(/\s+/g, ' ').slice(0, 160);
-    return `- \`${g.code}\` ×${g.count} — \`${m.method} ${m.path}\` — _${err}_ (first ${g.firstSeen}, last ${g.lastSeen})`;
+async function readLegacyApi(env, since) {
+  if (!env.PLATO_API_URL || !env.PLATO_ADMIN_EMAIL || !env.PLATO_ADMIN_PASSWORD) throw new Error('Legacy API source requires PLATO_API_URL and admin credentials');
+  const login = await fetch(`${env.PLATO_API_URL}/v1/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(15000),
+    body: JSON.stringify({ email: env.PLATO_ADMIN_EMAIL, password: env.PLATO_ADMIN_PASSWORD }),
   });
-  return [
-    '**Automated data-loss alert** — raised by `log-watch` (`.github/workflows/log-watch.yml`).',
-    '',
-    `Write requests to \`/v1/sync\` are failing server-side in the last ${logs.windowHours ?? 24}h. `
-      + "A failed sync write means a learner's saved work — conversation, lesson progress — may not be persisting.",
-    '',
-    `**${total} failure(s)** across ${hits.length} endpoint group(s):`,
-    ...lines,
-    '',
-    'Investigate via `GET /v1/admin/logs` or CloudWatch (`/aws/lambda/plato-*`). '
-      + 'The original instance of this class of bug — base64 screenshots blowing the '
-      + "DynamoDB 400 KB item limit — is #195.",
-    '',
-    '_Close this issue once the underlying failure is fixed. While it stays open, '
-      + 'log-watch suppresses duplicate alerts._',
-  ].join('\n');
-}
-
-async function main() {
-  const apiUrl = process.env.PLATO_API_URL;
-  if (!apiUrl) throw new Error('PLATO_API_URL is required');
-
-  const token = await login(apiUrl);
-  const res = await fetch(`${apiUrl}/v1/admin/logs?view=groups`, {
-    headers: { Authorization: `Bearer ${token}` },
+  if (!login.ok) throw new Error(`login failed: ${login.status}`);
+  const { accessToken } = await login.json();
+  if (!accessToken) throw new Error('login returned no accessToken');
+  const response = await fetch(`${env.PLATO_API_URL}/v1/admin/logs?view=groups&since=${encodeURIComponent(since)}`, {
+    headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(30000),
   });
-  if (!res.ok) throw new Error(`logs API failed: ${res.status}`);
-  const logs = await res.json();
-
+  if (!response.ok) throw new Error(`logs API failed: ${response.status}`);
+  const logs = await response.json();
+  if (logs.cloudwatch?.error || logs.cloudlogging?.error) throw new Error('Remote log source is unavailable');
+  // Grouped legacy responses cannot recover errors hidden by a mixed sample.
+  // Kept only for Lambda installations; Cloud Run always uses the direct reader.
   const hits = dataLossGroups(logs);
-  if (!hits.length) {
-    console.log('log-watch: no write-path data-loss errors in the window.');
-    return;
-  }
-
-  // Idempotent: only one open data-loss issue at a time.
-  const open = JSON.parse(
-    gh(['issue', 'list', '--label', DEDUP_LABEL, '--state', 'open', '--json', 'number']) || '[]',
-  );
-  if (open.length) {
-    console.log(`log-watch: data-loss detected; issue #${open[0].number} already open — not duplicating.`);
-    return;
-  }
-
-  const total = hits.reduce((n, g) => n + (g.count || 0), 0);
-  ensureLabels();
-  const out = gh([
-    'issue', 'create',
-    '--title', `Data-loss alert: ${total} failed /v1/sync write(s) in the last ${logs.windowHours ?? 24}h`,
-    '--body', buildIssueBody(logs, hits, total),
-    '--label', DEDUP_LABEL,
-    '--label', 'ready-for-pilot',
-  ]);
-  console.log(`log-watch: opened data-loss issue — ${out.trim()}`);
+  return { groups: hits.map(({ code, count, firstSeen, lastSeen }) => ({ code, count, firstSeen, lastSeen })),
+    failureCount: hits.reduce((n, group) => n + group.count, 0),
+    recoveryCount: (logs.groups || []).filter(g => g.code === 'client_save_recovered').reduce((n, g) => n + g.count, 0) };
+}
+export async function runWatch({ env = process.env, readCloud = fetchCloudLoggingLogs, now = Date.now() } = {}) {
+  const hours = Number(env.LOG_WATCH_HOURS || 24);
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 168) throw new Error('LOG_WATCH_HOURS must be greater than zero and at most 168');
+  const since = new Date(now - hours * 3600000).toISOString(), until = new Date(now).toISOString();
+  const source = env.LOG_WATCH_SOURCE || 'cloud-logging';
+  if (source === 'api') return { source, since, until, ...await readLegacyApi(env, since) };
+  if (source !== 'cloud-logging') throw new Error('LOG_WATCH_SOURCE must be cloud-logging or api');
+  const logs = await readCloud({ since, until, projectId: env.GOOGLE_CLOUD_PROJECT || env.GCLOUD_PROJECT,
+    serviceName: env.CLOUD_RUN_SERVICE || env.K_SERVICE, location: env.CLOUD_RUN_REGION });
+  if (logs.error || logs.complete !== true) throw new Error(logs.error || 'Incomplete Cloud Logging scan');
+  return { source, since, until, projectId: logs.projectId, serviceName: logs.serviceName,
+    ...summarizeSaveLogs(logs.entries) };
 }
 
-// Allow `import` for unit tests without running main().
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((err) => {
-    console.error('log-watch failed:', err.message);
-    process.exit(1);
-  });
+function createIssue(report) {
+  const repo = process.env.GH_REPO;
+  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('Set GH_REPO=owner/repository for issue creation');
+  const gh = args => execFileSync('gh', [...args, '--repo', repo], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const open = JSON.parse(gh(['issue', 'list', '--label', DEDUP_LABEL, '--state', 'open', '--json', 'number']));
+  if (open.length) { console.log(`log-watch: issue #${open[0].number} already open`); return; }
+  gh(['label', 'create', DEDUP_LABEL, '--color', 'B60205', '--description', 'Learner saves need investigation', '--force']);
+  const dir = mkdtempSync(join(tmpdir(), 'plato-log-watch-'));
+  try {
+    const body = join(dir, 'body.md');
+    writeFileSync(body, ['Automated save-observability alert from `log-watch`.', '',
+      `Window: ${report.since} to ${report.until}. Source: ${report.source}.`,
+      `${report.failureCount} failure signals; ${report.recoveryCount} client-reported recoveries.`,
+      'Counts are events, not unique lost replies. Conflicts can be protective rejections; recoveries do not cancel failures.', '',
+      ...report.groups.map(g => `- ${g.code}: ${g.count}`), '',
+      'Investigate the structured Cloud Logging events. See docs/SAVE_OBSERVABILITY.md.',
+    ].join('\n'));
+    console.log(gh(['issue', 'create', '--title', `Save alert: ${report.failureCount} failure signals`, '--body-file', body, '--label', DEDUP_LABEL]).trim());
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  (async () => {
+    const flags = process.argv.slice(2);
+    if (flags.some(flag => !['--dry-run', '--create-issue'].includes(flag)) || (flags.includes('--dry-run') && flags.includes('--create-issue'))) throw new Error('Use --dry-run (default) or --create-issue');
+    const report = await runWatch();
+    console.log(JSON.stringify(report, null, 2));
+    if (report.failureCount && flags.includes('--create-issue')) createIssue(report);
+    process.exitCode = report.failureCount ? 2 : 0;
+  })().catch(error => { console.error(`log-watch failed: ${error.message}`); process.exitCode = 1; });
 }

@@ -12,7 +12,7 @@ const engine = await import('../src/lib/lessonEngine.js');
 const { queueProfileUpdate } = await import('../src/lib/profileQueue.js');
 const { queueCourseProgressUpdate } = await import('../src/lib/courseProgressQueue.js');
 const records = new Map();
-let mode, aiCalls, commits, coachText;
+let mode, aiCalls, commits, coachText, saveEvents, telemetryFails;
 const lesson = { lessonId: 'lesson-1', name: 'A lesson', exemplar: 'Explain the idea', learningObjectives: ['Explain'], markdown: '# Lesson' };
 const initialKB = { lessonId: 'lesson-1', name: lesson.name, startedAt: 100, progress: 2, status: 'learning', activitiesCompleted: 1, insights: [] };
 const opening = { id: 'opening:0', role: 'assistant', content: 'Tell me what you think.', timestamp: 100 };
@@ -27,11 +27,16 @@ beforeEach(async () => {
   records.set('lessonKB:lesson-1', { data: structuredClone(initialKB), version: 1 });
   records.set('messages:lesson-1', { data: [structuredClone(opening)], version: 1 });
   records.set('profile', { data: { name: 'Learner', masteredLessons: [], activeLessons: [] }, version: 1 });
+  saveEvents = []; telemetryFails = false;
   mode = 'reject'; aiCalls = 0; commits = 0; coachText = 'Keep this useful feedback.\n[PROGRESS: 6]';
   globalThis.fetch = async (url, options = {}) => {
     const path = new URL(url, 'http://localhost').pathname;
     if (path === '/v1/sync/status') return json({ protocol: '1', epoch: 'test' });
     if (path.startsWith('/v1/prompts/')) return json({ content: path.split('/').at(-1) });
+    if (path === '/v1/client-events') {
+      if (telemetryFails) throw new TypeError('Telemetry offline');
+      saveEvents.push(...JSON.parse(options.body).events); return json({ accepted: true }, 202);
+    }
     if (path === '/v1/knowledge-base') return json({ content: '' });
     if (path === '/v1/lessons') return json([]);
     if (path === '/v1/sync/lesson-started') return json({ enrichments: [] });
@@ -269,6 +274,36 @@ test('a stalled screenshot read cannot indefinitely hide a retained reply or sav
 });
 
 // A page-wide upgrade latch deliberately survives every account switch.
+
+const { saveObserver } = await import('../js/saveObservability.js');
+test('lost acknowledgement emits failure then confirmed recovery without invoking another model', async () => {
+  mode = 'lost-ack';
+  const result = await engine.sendMessage('lesson-1', lesson, 'PRIVATE LEARNER WORK', null, null, () => {});
+  assert.equal(result.persistence.status, 'pending');
+  const userId = (await storage.getAuthUser()).userId;
+  await saveObserver.flush(userId);
+  assert.equal(saveEvents.at(-1).code, 'client_save_unconfirmed');
+  const calls = aiCalls;
+  assert.equal((await engine.retryLessonSave('lesson-1')).persistence.status, 'saved');
+  await saveObserver.flush(userId);
+  assert.equal(aiCalls, calls);
+  assert.deepEqual(saveEvents.map(e => e.code), ['client_save_unconfirmed', 'client_save_recovered']);
+  assert.equal(saveEvents[0].incidentId, saveEvents[1].incidentId);
+  assert.doesNotMatch(JSON.stringify(saveEvents), /PRIVATE LEARNER WORK|Keep this useful/);
+});
+test('telemetry outages never prevent saving or persistence-only recovery', async () => {
+  telemetryFails = true;
+  assert.equal((await engine.sendMessage('lesson-1', lesson, 'Answer', null, null, () => {})).persistence.status, 'pending');
+  mode = 'ok'; const calls = aiCalls;
+  assert.equal((await engine.retryLessonSave('lesson-1')).persistence.status, 'saved');
+  assert.equal(aiCalls, calls);
+  const userId = (await storage.getAuthUser()).userId;
+  await saveObserver.flush(userId);
+  assert.equal(saveEvents.length, 0);
+  telemetryFails = false; await saveObserver.flush(userId);
+  assert.deepEqual(saveEvents.map(e => e.code), ['client_save_unconfirmed', 'client_save_recovered']);
+});
+
 test('an upgrade rejection preserves a generated turn and does not turn Retry saving into generation', async () => {
   mode = 'upgrade';
   const result = await engine.sendMessage('lesson-1', lesson, 'My answer', null, null, () => {});

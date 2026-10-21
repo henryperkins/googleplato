@@ -6,6 +6,8 @@
  */
 
 import { authenticatedFetch } from './auth.js';
+import { isClientUpgradeRequired } from './clientCompatibility.js';
+import { saveObserver, saveFailureReason } from './saveObservability.js';
 
 // -- In-memory cache ----------------------------------------------------------
 
@@ -44,6 +46,12 @@ async function fetchSyncData(syncKey) {
  * migration) check this rather than assuming the cache write stuck.
  */
 export async function putSyncData(syncKey, data, { createOnly = false } = {}) {
+  // Snapshot both owners before yielding. Awaiting telemetry's owner lookup
+  // here could let an account switch bind this payload to the next account.
+  const owner = getAuthUser();
+  const observe = outcome => {
+    void owner.then(user => saveObserver.record({ userId: user?.userId, operation: 'sync_write', key: syncKey, ...outcome })).catch(() => {});
+  };
   _cache.set(syncKey, data);
   const version = createOnly ? 0 : _versions.get(syncKey) || 0;
   try {
@@ -54,9 +62,18 @@ export async function putSyncData(syncKey, data, { createOnly = false } = {}) {
     });
     if (res.ok) {
       const result = await res.json();
+      if (!Number.isSafeInteger(result?.version) || result.version <= version) {
+        throw Object.assign(new Error('Save acknowledgement is invalid'), { code: 'invalid_ack' });
+      }
       _versions.set(syncKey, result.version);
+      observe({ ok: true, status: res.status });
       return true;
-    } else if (res.status === 409) {
+    }
+    // Do not read a rejected response body for telemetry: it may never finish.
+    // authenticatedFetch already records an authoritative upgrade rejection.
+    observe({ ok: false, status: res.status, reason: saveFailureReason({ status: res.status,
+      code: res.status === 409 && isClientUpgradeRequired() ? 'client_upgrade_required' : undefined }) });
+    if (res.status === 409) {
       // A fresh version never authorizes overwriting newer data with this
       // payload. Keep the original base and local work for reconciliation.
       // Upgrade-required responses must not enter a conflict retry either.
@@ -71,6 +88,7 @@ export async function putSyncData(syncKey, data, { createOnly = false } = {}) {
       return false;
     }
   } catch (err) {
+    observe({ ok: false, reason: saveFailureReason(err) });
     // Network failure — cache is still updated for this session but the
     // write did not reach the server. Log so the loss isn't invisible.
     console.error('[storage] sync write failed for %s:', syncKey, err);

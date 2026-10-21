@@ -1,5 +1,13 @@
 # plato Automation — CI/CD & agentic workflows
 
+**Cloud Run status:** GitHub-hosted Actions are permanently unavailable here.
+Do not retry or troubleshoot their billing. The workflow descriptions below
+are historical/portable deployment context. Current save monitoring reads Cloud
+Logging using ADC from a local or external scheduler; `log-watch` is read-only
+by default and creates an issue only with `--create-issue`. See
+[Save observability](SAVE_OBSERVABILITY.md) for configuration and exit codes.
+
+
 How plato's GitHub Actions ecosystem works: the agentic workflows (pilot,
 intake, review, revise), the data-loss alarm, deploy dispatch, branch
 protection, and versioning. For the *error-reporting* side of monitoring (tiers,
@@ -78,19 +86,16 @@ tightening, `extendedLessons` is informational only.
 > Pilot revision commits can stack: the pilot's "Address review feedback" can
 > stack on top without reverting — always check the cumulative diff against base.
 
-## log-watch (`log-watch.yml`)
+## log-watch (current CLI; historical hosted workflow)
 
-Runs every 2 hours — plato's **data-loss alarm**, separate from the pilot.
-`scripts/log-watch.js` logs into the admin API, reads
-`GET /v1/admin/logs?view=groups`, and if any `unhandled_error` group's sample is
-a `PUT`/`POST` to `/v1/sync` (a learner-data write failing server-side) it opens
-a GitHub issue labelled `data-loss` + `ready-for-pilot`. Idempotent: while a
-`data-loss` issue is open it suppresses duplicates — close the issue once the
-failure is fixed. No AWS credentials (the endpoint proxies CloudWatch); uses the
-same `PLATO_API_URL` / `PLATO_ADMIN_EMAIL` / `PLATO_ADMIN_PASSWORD` secrets as
-the pilot. Exists because a write-size bug lost learner conversations for 8 days
-unnoticed (#195). See [`OBSERVABILITY.md`](OBSERVABILITY.md) for the tier model
-and how to add a detector.
+`node scripts/log-watch.js --dry-run` reads structured save events directly from
+Cloud Logging using ADC. It returns 0 for a complete window with no failures, 2
+for failure signals, and 1 for incomplete/unavailable monitoring. Recovery
+signals are counted separately. Issue creation is opt-in with `--create-issue`
+and an explicit `GH_REPO`. Use a local or external scheduler; the old two-hour
+Actions workflow is not running for this deployment. The admin-password API
+source remains explicit legacy mode for Lambda installations only.
+See [Save observability](SAVE_OBSERVABILITY.md) for the full configuration.
 
 ## Issue intake (`issue-intake.yml` + `issue-intake-sweep.yml`)
 
