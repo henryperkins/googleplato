@@ -478,7 +478,7 @@ function LessonConversation() {
                           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                         </svg>
                         <span className="truncate" aria-hidden="true">{link.title || host}</span>
-                        <span className="shrink-0 opacity-80" aria-hidden="true">{host}</span>
+                        {link.title && link.title !== host && <span className="shrink-0 opacity-80" aria-hidden="true">{host}</span>}
                       </a>
                     );
                   })}
@@ -512,7 +512,7 @@ function LessonConversation() {
                 aria-expanded={showObjectives}
                 aria-controls="lesson-objectives-dialog"
               >
-                Overview ({lesson.learningObjectives.length})
+                View outline
               </button>
             </div>
             <ProgressBar lessonKB={lessonKB} celebrate={celebratedLessonId === lessonGroupId} />
@@ -537,7 +537,7 @@ function LessonConversation() {
 
       {upgradeRequired && (
         <div className="space-y-2 border-b px-4 py-3" role="alert">
-          <p className="text-sm">Update this page to continue. Your retained reply will be restored so you can retry saving it without generating another reply.</p>
+          <p className="text-sm">Reload this page to continue. Your reply will be restored so you can retry saving it without generating another reply.</p>
           <Button variant="outline" size="sm" onClick={reloadForUpgrade} disabled={!!loading || resuming || impersonating}>Preserve work and reload</Button>
           {upgradeError && <p className="text-sm text-destructive">{upgradeError}</p>}
         </div>
@@ -657,10 +657,7 @@ function LessonConversation() {
           </div>
           {lessonKB?.enrichments && lessonKB.enrichments.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium">Additional Context</h3>
-              <p className="text-xs text-muted-foreground">
-                Reference material gathered for this lesson
-              </p>
+              <h3 className="text-sm font-medium">Reference material</h3>
               {lessonKB.enrichments.map((enrichment, idx) => (
                 <section
                   key={idx}

@@ -264,7 +264,7 @@ export default function AdminAI() {
       <div>
         <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold mb-2">AI Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Choose the AI service for the lesson creator, coach, knowledge base editor, and other agents.
+          Choose the AI service for coaching, lesson creation, and other AI tools.
         </p>
       </div>
 
@@ -318,8 +318,8 @@ export default function AdminAI() {
                       {settings.workersAiModels.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                     </select>
                     <p id="workers-model-description" className="text-sm text-muted-foreground">
-                      {model === DEEPSEEK_MODEL ? <>Text and images with <strong>Maximum (max) reasoning</strong>. Choose this mode when you want the model to reason before replying; replies may take longer.</>
-                        : model === MISTRAL_MODEL ? 'Text and images without a reasoning mode. Choose this model when you do not need maximum reasoning.' : selectedModel?.description}
+                      {model === DEEPSEEK_MODEL ? <>Text and image input with <strong>maximum reasoning</strong>. Replies may take longer.</>
+                        : model === MISTRAL_MODEL ? 'Text and image input without a reasoning mode.' : selectedModel?.description}
                     </p>
                     {model === DEEPSEEK_MODEL && <p className="text-sm text-muted-foreground">Requires Workers Paid or prepaid AI Gateway credits.</p>}
                     <p className="text-xs text-muted-foreground break-all">Model ID: {model}</p>
@@ -340,8 +340,7 @@ export default function AdminAI() {
                 <CardContent className="space-y-3 text-sm">
                   <p><strong>Model:</strong> {aiModelName(candidate)}</p>
                   <p><strong>AWS region:</strong> {settings.awsRegion}</p>
-                  <p className="text-muted-foreground">The model and region are set on the server. Loading this page does not confirm the server can use the model — use Test connection to check.</p>
-                  <p className="text-muted-foreground">The server owner must grant the server access to this model in this region. After server changes, reload these settings and test the connection.</p>
+                  <p className="text-muted-foreground">Your server owner manages the model, region, and access. After server changes, reload settings and use Test connection to check model access.</p>
                   <div className="flex flex-wrap gap-x-4 gap-y-2">
                     <a className="touch-target inline-flex max-w-full items-center underline underline-offset-4" href="https://docs.aws.amazon.com/bedrock/latest/userguide/getting-started.html" target="_blank" rel="noopener noreferrer">Bedrock setup guide</a>
                     <a className="touch-target inline-flex max-w-full items-center underline underline-offset-4" href="https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html" target="_blank" rel="noopener noreferrer">Model access guide</a>

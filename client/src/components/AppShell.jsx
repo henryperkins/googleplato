@@ -139,7 +139,7 @@ export default function AppShell({ children }) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => navigate('/settings')}>
-                User Settings
+                Settings
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"

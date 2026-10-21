@@ -37,7 +37,7 @@ const STATUS_TEXT = {
   pending: 'not started',
 };
 
-function BuildStep({ label, status, detail, enrichments }) {
+function BuildStep({ label, status, enrichments }) {
   const isEnrichment = enrichments !== undefined;
 
   return (
@@ -50,11 +50,6 @@ function BuildStep({ label, status, detail, enrichments }) {
           <span aria-hidden="true">{label}</span>
           <span className="sr-only">{`${label}: ${STATUS_TEXT[status]}`}</span>
         </div>
-        {detail && (
-          <div className="text-sm text-muted-foreground mt-0.5">
-            {detail}
-          </div>
-        )}
         {isEnrichment && enrichments.length > 0 && status === 'in_progress' && (
           <div className="mt-2 space-y-1">
             {enrichments.map((e, i) => (
@@ -79,7 +74,6 @@ export default function LessonLoadingView({ step, enrichments = [] }) {
     {
       key: STEPS.INITIALIZING,
       label: 'Planning the lesson',
-      detail: 'Reviewing the objectives and tailoring the plan to you',
       status: step === STEPS.INITIALIZING
         ? 'in_progress'
         : (step === STEPS.ENRICHING || step === STEPS.STARTING ? 'completed' : 'pending'),
@@ -91,7 +85,6 @@ export default function LessonLoadingView({ step, enrichments = [] }) {
     steps.push({
       key: STEPS.ENRICHING,
       label: 'Adding context',
-      detail: 'Gathering resources for this lesson',
       status: step === STEPS.ENRICHING
         ? 'in_progress'
         : (step === STEPS.STARTING ? 'completed' : 'pending'),
@@ -102,7 +95,6 @@ export default function LessonLoadingView({ step, enrichments = [] }) {
   steps.push({
     key: STEPS.STARTING,
     label: 'Starting conversation',
-    detail: 'Your coach is preparing to begin',
     status: step === STEPS.STARTING ? 'in_progress' : 'pending',
   });
 
@@ -123,7 +115,6 @@ export default function LessonLoadingView({ step, enrichments = [] }) {
               key={s.key}
               label={s.label}
               status={s.status}
-              detail={s.detail}
               enrichments={s.enrichments}
             />
           ))}

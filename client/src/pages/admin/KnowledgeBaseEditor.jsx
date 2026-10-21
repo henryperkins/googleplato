@@ -277,7 +277,7 @@ export default function KnowledgeBaseEditor({
             title="Knowledge base preview"
             ariaLabel="Knowledge base markdown preview"
             noun="knowledge base"
-            emptyHint="No preview yet. Keep chatting with the editor, then click “Generate preview” to see the generated knowledge base."
+            emptyHint="Chat about your program, then generate a preview to review the knowledge base."
           />
         </div>
       </div>

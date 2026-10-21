@@ -99,7 +99,7 @@ function LearnerEngagementSection({ stats }) {
           targetCopy={`Over ${targetStartedPct}% of learners have started at least one lesson`}
         />
         <EngagementWidget
-          label="Completed 50%+ of lessons"
+          label="Completed more than half of lessons"
           valuePct={pctCompletedHalf}
           count={learnersCompletedHalf}
           total={activeLearners}
@@ -143,11 +143,11 @@ function PacingSection({ stats }) {
     } else if (rate >= 50) {
       cardClasses = STATUS_CARD_CLASSES.warning;
       signal = 'Some lessons are running long — review objectives or coach pacing';
-      signalDetail = 'Common causes: too many learning objectives, an exemplar that sets a very high bar, or a lesson topic that requires more scaffolding exchanges. Try simplifying objectives to 2–3 focused outcomes or tightening the exemplar scope.';
+      signalDetail = 'Try 2–3 focused objectives or narrow the exemplar. Some topics need more coaching exchanges.';
     } else {
       cardClasses = STATUS_CARD_CLASSES.danger;
-      signal = 'Most lessons exceed the target — simplify objectives or raise the target';
-      signalDetail = 'Most learners are taking significantly more exchanges than the target. Review your lessons for scope creep: each lesson should target one narrow skill. Consider splitting broad lessons into two focused ones.';
+      signal = 'Most lessons exceed the target — review lesson scope';
+      signalDetail = 'Focus each lesson on one skill. Narrow the exemplar or split broad lessons into two.';
     }
   }
 
@@ -245,7 +245,7 @@ function PacingSection({ stats }) {
             <div className="text-2xl font-bold tabular-nums">{extendedLessons}</div>
             <div className="text-sm text-muted-foreground">Extended lessons</div>
             <div className="text-xs text-muted-foreground mt-1">
-              Completed past 2&times; target ({extendedThreshold}+ exchanges)
+              Completed in {extendedThreshold}+ exchanges (2&times; target)
             </div>
           </CardContent>
         </Card>
@@ -253,7 +253,6 @@ function PacingSection({ stats }) {
           <CardContent>
             <div className="text-2xl font-bold tabular-nums">{activeLessons}</div>
             <div className="text-sm text-muted-foreground">Lessons in progress</div>
-            <div className="text-xs text-muted-foreground mt-1">Started, not yet completed</div>
           </CardContent>
         </Card>
       </div>

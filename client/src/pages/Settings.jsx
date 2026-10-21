@@ -193,7 +193,7 @@ export default function Settings() {
 
   return (
     <div className="mx-auto max-w-lg space-y-6 p-4">
-      <h1 className="text-xl font-semibold">User Settings</h1>
+      <h1 className="text-xl font-semibold">Settings</h1>
 
       <Card>
         <CardHeader>
@@ -479,7 +479,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={submitting || !text.trim()} focusableWhenDisabled>
-            {submitting ? 'Updating...' : 'Submit'}
+            {submitting ? 'Updating...' : 'Update profile'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -225,7 +225,7 @@ export default function Waitlist() {
           {groups.length > 0 && (
             <div className="space-y-2">
               <Label htmlFor="waitlist-group">
-                User Group <span className="text-muted-foreground text-xs">(optional)</span>
+                Group <span className="text-muted-foreground text-xs">(optional)</span>
               </Label>
               <select
                 id="waitlist-group"

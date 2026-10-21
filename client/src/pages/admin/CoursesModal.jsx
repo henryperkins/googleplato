@@ -123,7 +123,7 @@ export default function CoursesModal({ open, onOpenChange, onMutated }) {
           <DialogHeader>
             <DialogTitle>Courses</DialogTitle>
             <DialogDescription>
-              Group lessons under named courses. The coach receives the course name as part of its context when a lesson is assigned to one.
+              Group related lessons into courses. Course names also give the coach context.
             </DialogDescription>
           </DialogHeader>
 

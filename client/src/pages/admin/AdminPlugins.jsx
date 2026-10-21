@@ -82,21 +82,19 @@ export default function AdminPlugins() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-2">Plugins</h1>
+      <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-2xl font-bold">Plugins</h1>
+        <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="touch-target-inline underline underline-offset-4 text-sm">
+          Build a plugin
+        </a>
+      </div>
       {error && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-4 text-sm text-danger-foreground" role="alert">
           <span>{error}</span>
           <Button variant="outline" size="sm" onClick={load}>Retry</Button>
         </div>
       )}
-      <p className="text-sm text-muted-foreground mb-6">
-        Enable, disable, and configure plato plugins.{' '}
-        <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="touch-target-inline underline underline-offset-4">
-          Build your own.
-        </a>
-      </p>
-
-      {plugins.length === 0 && (
+      {!error && plugins.length === 0 && (
         <p className="text-sm text-muted-foreground">No plugins installed.</p>
       )}
 

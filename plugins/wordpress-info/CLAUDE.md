@@ -30,8 +30,8 @@ Three-agent pipeline triggered by the `lessonStarted` hook:
 
 The final enrichment data (`{ context, sources, reasoning, pluginId, label }`)
 is returned from the `lessonStarted` hook handler, stored on `lessonKB.enrichments`,
-and injected into the coach's system context. The learner sees it in the "Additional
-Context" section of the lesson overview dialog (alongside exemplar and objectives),
+and injected into the coach's system context. The learner sees it in the "Reference
+material" section of the lesson outline dialog (alongside exemplar and objectives),
 accessible throughout the lesson.
 
 ## Local invariants

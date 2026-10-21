@@ -173,7 +173,7 @@ export default function AdminCustomizer() {
         </TabsList>
 
         <TabsContent value="styles">
-          <p className="text-sm text-muted-foreground mb-4">Classroom style and branding. These settings only affect the learner-facing classroom.</p>
+          <p className="text-sm text-muted-foreground mb-4">These settings only affect the learner-facing classroom.</p>
 
           <Card className="mb-6">
             <CardHeader><CardTitle as="h2">Colors</CardTitle></CardHeader>
@@ -260,7 +260,7 @@ export default function AdminCustomizer() {
               <div className="space-y-2">
                 <Label htmlFor="classroom-name">Classroom Name</Label>
                 <Input id="classroom-name" type="text" value={classroomName} placeholder="e.g. AI Leaders Academy" onChange={e => setClassroomName(e.target.value)} />
-                <p className="text-xs text-muted-foreground">Appears in the header, login pages, and browser tab. Used as the logo text when no image is uploaded.</p>
+                <p className="text-xs text-muted-foreground">Appears in the header, login pages, and browser tab.</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="logo-file">Logo image (optional)</Label>
@@ -359,7 +359,7 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground max-w-prose">
-            The knowledge base provides context to the Coach and Lesson Creator agents about your program.
+            The coach and lesson creator use this knowledge base to understand your program.
           </p>
           {updatedAt && (
             <p className="text-xs text-muted-foreground mt-1">
@@ -377,11 +377,7 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <p>No knowledge base yet. Click &quot;Create Knowledge Base&quot; to get started with the AI editor.</p>
-          </CardContent>
-        </Card>
+        <p className="text-sm text-muted-foreground">No knowledge base yet.</p>
       )}
     </div>
   );

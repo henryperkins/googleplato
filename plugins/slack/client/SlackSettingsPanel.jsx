@@ -41,7 +41,7 @@ export default function SlackSettingsPanel({ settings, onSave }) {
       const data = await postSlackTest(token.trim());
       if (data.ok) {
         setWorkspaceName(data.team);
-        setMessage({ text: `Connected to ${data.team}`, type: 'success' });
+        setMessage({ text: `Connection test passed for ${data.team}. Connect to save.`, type: 'success' });
       } else {
         setMessage({ text: 'Connection failed', type: 'error' });
       }
@@ -140,7 +140,7 @@ export default function SlackSettingsPanel({ settings, onSave }) {
         <span
           role="status"
           aria-live="polite"
-          className={`text-sm ${message.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}
+          className={`block text-sm ${message.type === 'error' ? 'text-destructive' : 'text-success-foreground'}`}
         >
           {message.text}
         </span>
