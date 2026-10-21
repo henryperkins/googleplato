@@ -329,6 +329,7 @@ export async function deleteUserLesson(lessonId) {
 const AUTH_STORAGE_KEY = 'plato_auth';
 // Memo for usesFirebase(); null until known for this page session.
 let _firebaseSession = null;
+let _firebaseSessionGeneration = 0;
 
 export async function getAuthTokens() {
   try {
@@ -353,6 +354,7 @@ export async function saveAuthTokens({ accessToken, refreshToken }) {
 export async function clearAuth() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
   _firebaseSession = null;
+  _firebaseSessionGeneration += 1;
   clearCache();
 }
 
@@ -366,6 +368,7 @@ export function saveAuthProvider(provider) {
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...existing, provider }));
   } catch { /* storage full or disabled */ }
   _firebaseSession = provider === 'firebase';
+  _firebaseSessionGeneration += 1;
 }
 
 /**
@@ -375,19 +378,22 @@ export function saveAuthProvider(provider) {
  */
 export async function usesFirebase() {
   if (_firebaseSession !== null) return _firebaseSession;
+  const generation = _firebaseSessionGeneration;
+  let firebaseSession;
   let provider = null;
   try { provider = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}').provider || null; } catch { /* ignore */ }
   if (provider) {
-    _firebaseSession = provider === 'firebase';
+    firebaseSession = provider === 'firebase';
   } else {
     try {
       const databases = await indexedDB.databases();
-      _firebaseSession = databases.some((d) => d.name === 'firebaseLocalStorageDb');
+      firebaseSession = databases.some((d) => d.name === 'firebaseLocalStorageDb');
     } catch {
-      _firebaseSession = false;
+      firebaseSession = false;
     }
   }
-  return _firebaseSession;
+  if (generation === _firebaseSessionGeneration) _firebaseSession = firebaseSession;
+  return firebaseSession;
 }
 
 export async function getAuthUser() {

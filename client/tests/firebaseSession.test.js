@@ -62,4 +62,20 @@ describe('usesFirebase', () => {
     await usesFirebase();
     assert.equal(probes, 2);
   });
+
+  it('does not cache an old detection result over a newer session’s provider', async () => {
+    const originalProbe = indexedDB.databases;
+    let release;
+    indexedDB.databases = () => new Promise(resolve => { release = resolve; });
+    try {
+      const previous = usesFirebase();
+      await clearAuth();
+      saveAuthProvider('firebase');
+      release([]);
+      assert.equal(await previous, false, 'the result still describes the original probe');
+      assert.equal(await usesFirebase(), true, 'the newer session keeps its recorded provider');
+    } finally {
+      indexedDB.databases = originalProbe;
+    }
+  });
 });

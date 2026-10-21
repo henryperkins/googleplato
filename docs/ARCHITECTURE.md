@@ -65,6 +65,21 @@ changes. `firestore.rules` holds the validation; the bounds in
   reset would change a credential plato never reads, and a second email would
   compete with the one that works.
 
+Sign-out removes plato's local credentials and protected React state before
+waiting for any remote work. Server refresh-token revocation is best effort,
+uses the old token snapshot, and aborts after five seconds. In-flight refreshes
+check the session generation immediately before writing replacement credentials
+or notifying session expiry, so they cannot restore a logged-out account or
+overwrite the next account. A delayed 401 can retry with credentials already
+refreshed by another request in the same account and session generation.
+Legacy Firebase-provider probing cannot delay local
+sign-out or overwrite a newer provider decision. Firebase detection/import is
+bounded to five seconds, and stale cleanup is skipped after another login
+starts. Once an SDK sign-out has actually started, another Google popup is
+rejected with a retry message until that SDK operation settles; password login
+remains available. This prevents late SDK cleanup from signing out a new Google
+account without delaying local sign-out.
+
 ## Client loading
 
 The login page, lesson list, and lesson conversation ship in the entry bundle.
@@ -343,6 +358,16 @@ from an AI call keep their own message. Add a surface there when a new page
 calls an agent.
 
 ## Image & conversation persistence (#191, #193)
+
+Unsent composer text is stored in the current tab under an encoded account and
+lesson key (`plato_compose_draft_v2:<userId>:<lessonId>`). The versioned namespace
+cannot collide with legacy lesson-only keys, including IDs containing colons.
+`LessonChat` remounts when
+the account, impersonated account, or lesson changes and initializes from only
+that owner's draft. Read-only impersonation never reads or writes a composer
+draft. Sign-out preserves these drafts for the owner's next login in the same
+tab. Older lesson-only draft keys have no reliable owner: they remain intact in
+storage but are never automatically restored or assigned to an account.
 
 A learner's chat history for a lesson lives in one `messages:<lessonId>`
 sync-data record; progress lives separately in `lessonKB:<lessonId>`.

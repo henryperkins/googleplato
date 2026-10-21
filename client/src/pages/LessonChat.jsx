@@ -8,6 +8,7 @@ import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeyboardOffset.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
+import { lessonDrafts } from '../lib/lessonDrafts.js';
 import {
   deleteLessonProgress,
   getUserLessonMarkdown, deleteUserLesson,
@@ -97,28 +98,16 @@ function LessonConversation() {
   const [showObjectives, setShowObjectives] = useState(false);
   const objectivesTitleRef = useRef(null);
   const keyboardOffset = useVisualViewportKeyboardOffset();
-  const draftStorageKey = lessonGroupId ? `plato_compose_draft:${lessonGroupId}` : null;
-  const [composeText, setComposeText] = useState(() => {
-    if (!draftStorageKey) return '';
-    try { return sessionStorage.getItem(draftStorageKey) || ''; } catch { return ''; }
-  });
+  const draftOwnerId = impersonating ? null : user?.userId;
+  const [composeText, setComposeText] = useState(() => lessonDrafts.read(draftOwnerId, lessonGroupId));
   const [composeImages, setComposeImages] = useState([]);
   const [composeLinks, setComposeLinks] = useState([]);
 
-  // Sync draft text when switching between lessons and persist edits to sessionStorage
-  // so mobile background tab discards do not wipe an in-progress reflection.
+  // LessonChat remounts this component for every account, lesson or read-only
+  // view change. Initialize from that owner's draft, then persist only its edits.
   useEffect(() => {
-    if (!draftStorageKey) return;
-    try { setComposeText(sessionStorage.getItem(draftStorageKey) || ''); } catch { setComposeText(''); }
-  }, [draftStorageKey]);
-
-  useEffect(() => {
-    if (!draftStorageKey) return;
-    try {
-      if (composeText) sessionStorage.setItem(draftStorageKey, composeText);
-      else sessionStorage.removeItem(draftStorageKey);
-    } catch { /* ignore storage quota errors */ }
-  }, [draftStorageKey, composeText]);
+    lessonDrafts.write(draftOwnerId, lessonGroupId, composeText);
+  }, [draftOwnerId, lessonGroupId, composeText]);
 
   useEffect(() => {
     if (displayText === null && pendingAfterStreamRef.current) {

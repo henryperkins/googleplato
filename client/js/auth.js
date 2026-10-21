@@ -11,6 +11,8 @@ import {
 // When served from the same origin (Lambda), use relative paths.
 // Falls back to the Lambda Function URL for local development.
 const SERVICE_URL = globalThis.__SERVICE_URL || '';
+const LOGOUT_CLEANUP_TIMEOUT_MS = 5000;
+let sessionGeneration = 0;
 
 // "View as User" admin feature: when an admin starts an impersonation session,
 // the target's userId is stashed in sessionStorage (per-tab, doesn't survive
@@ -80,6 +82,7 @@ function _notifySessionExpired() {
  * Returns the user object on success, throws on failure.
  */
 export async function login(email, password) {
+  sessionGeneration += 1;
   const res = await fetch(`${SERVICE_URL}/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -116,6 +119,7 @@ export function preloadFirebase() {
  * initializes the user's Firestore profile.
  */
 export async function loginWithGoogle(options = {}) {
+  sessionGeneration += 1;
   const { signInWithGooglePopup, signOutFirebase } = await import('./firebaseAuth.js');
   const { idToken } = await signInWithGooglePopup();
 
@@ -158,27 +162,62 @@ export async function loginWithGoogle(options = {}) {
 }
 
 /**
- * Log out — clears local tokens, signs out of Firebase Auth, and notifies the server.
+ * End local access before best-effort revocation. Retained drafts and generated
+ * turns stay in their owner-scoped session storage for that owner's next login.
  */
 export async function logout() {
-  const tokens = await getAuthTokens();
-  if (tokens?.refreshToken) {
-    try {
-      await fetch(`${SERVICE_URL}/v1/auth/logout`, {
+  const generation = ++sessionGeneration;
+  const previousTokens = getAuthTokens();
+  // Start detection while the old provider is still available, without waiting
+  // for legacy IndexedDB probing before clearing the local session.
+  const firebaseSession = typeof window !== 'undefined' ? usesFirebase() : Promise.resolve(false);
+  // Both storage calls execute synchronously before their promises settle.
+  // Do not yield between taking the snapshot and removing the old credentials.
+  await clearAuth();
+  const tokens = await previousTokens;
+  if (tokens?.refreshToken) void revokeSession(tokens.refreshToken);
+  void signOutPreviousFirebase(firebaseSession, generation);
+}
+
+async function revokeSession(refreshToken) {
+  const controller = new AbortController();
+  let timeout;
+  try {
+    await Promise.race([
+      fetch(`${SERVICE_URL}/v1/auth/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-      });
-    } catch { /* best-effort server notification */ }
-  }
-  // Ask before clearAuth(), which forgets how this session signed in.
-  if (typeof window !== 'undefined' && await usesFirebase()) {
-    try {
-      const { signOutFirebase } = await import('./firebaseAuth.js');
-      await signOutFirebase();
-    } catch { /* best-effort firebase sign-out */ }
-  }
-  await clearAuth();
+        body: JSON.stringify({ refreshToken }),
+        signal: controller.signal,
+        keepalive: true,
+      }),
+      new Promise(resolve => {
+        timeout = setTimeout(() => { controller.abort(); resolve(); }, LOGOUT_CLEANUP_TIMEOUT_MS);
+      }),
+    ]);
+  } catch { /* Local access has already ended, even if revocation fails. */ }
+  finally { clearTimeout(timeout); }
+}
+
+async function signOutPreviousFirebase(firebaseSession, generation) {
+  let timeout;
+  let expired = false;
+  try {
+    const sdk = await Promise.race([
+      firebaseSession.then(async wasFirebase => {
+        if (!wasFirebase || expired || generation !== sessionGeneration) return null;
+        return import('./firebaseAuth.js');
+      }),
+      new Promise(resolve => {
+        timeout = setTimeout(() => { expired = true; resolve(null); }, LOGOUT_CLEANUP_TIMEOUT_MS);
+      }),
+    ]);
+    if (!sdk) return;
+    const currentTokens = await getAuthTokens();
+    if (currentTokens || generation !== sessionGeneration) return;
+    await sdk.signOutFirebase();
+  } catch { /* Best effort; never clear credentials belonging to a new login. */ }
+  finally { clearTimeout(timeout); }
 }
 
 /**
@@ -198,9 +237,13 @@ export { getAuthUser as getCurrentUser } from './storage.js';
  * Refresh the access token using the stored refresh token.
  * Returns true on success, false on failure (user must re-login).
  */
-async function refreshAccessToken() {
-  const tokens = await getAuthTokens();
-  if (!tokens?.refreshToken) return false;
+async function isCurrentSession(tokens) {
+  const current = await getAuthTokens();
+  return !!current && current.accessToken === tokens.accessToken && current.refreshToken === tokens.refreshToken;
+}
+
+async function refreshAccessToken(tokens, generation) {
+  if (!tokens?.refreshToken || !await isCurrentSession(tokens) || generation !== sessionGeneration) return false;
   try {
     const res = await fetch(`${SERVICE_URL}/v1/auth/refresh`, {
       method: 'POST',
@@ -210,10 +253,14 @@ async function refreshAccessToken() {
     if (!res.ok) {
       // Don't clear auth silently — the user's data should be preserved.
       // Notify listeners so the UI can prompt re-login.
-      _notifySessionExpired();
+      if (await isCurrentSession(tokens) && generation === sessionGeneration) _notifySessionExpired();
       return false;
     }
     const { accessToken, refreshToken } = await res.json();
+    // Check the generation after the asynchronous snapshot comparison, in the
+    // same turn as the synchronous storage write. Logout may have run while
+    // that comparison's promise was settling.
+    if (!await isCurrentSession(tokens) || generation !== sessionGeneration) return false;
     await saveAuthTokens({ accessToken, refreshToken });
     return true;
   } catch {
@@ -226,6 +273,7 @@ async function refreshAccessToken() {
  * Automatically refreshes the access token on 401.
  */
 export async function authenticatedFetch(path, options = {}) {
+  const generation = sessionGeneration;
   const tokens = await getAuthTokens();
   if (!tokens?.accessToken) throw new Error('Not logged in');
 
@@ -247,9 +295,15 @@ export async function authenticatedFetch(path, options = {}) {
   let res = await doFetch(tokens.accessToken);
 
   if (res.status === 401) {
-    const refreshed = await refreshAccessToken();
-    if (!refreshed) throw new Error('Session expired');
+    if (generation !== sessionGeneration) throw new Error('Session expired');
+    const refreshed = await refreshAccessToken(tokens, generation);
     const newTokens = await getAuthTokens();
+    // A sibling request may have already rotated this session's credentials.
+    // Reuse its access token, while still rejecting a logout or account change.
+    if (!newTokens || generation !== sessionGeneration || newTokens.user?.userId !== tokens.user?.userId ||
+        (!refreshed && newTokens.accessToken === tokens.accessToken)) {
+      throw new Error('Session expired');
+    }
     res = await doFetch(newTokens.accessToken);
   }
 
