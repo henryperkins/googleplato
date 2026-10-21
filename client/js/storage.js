@@ -55,7 +55,6 @@ export async function putSyncData(syncKey, data, { createOnly = false } = {}) {
     if (res.ok) {
       const result = await res.json();
       _versions.set(syncKey, result.version);
-      mirrorToFirestore((fb) => fb.mirrorSyncDataToFirestore(syncKey, data));
       return true;
     } else if (res.status === 409) {
       // A fresh version never authorizes overwriting newer data with this
@@ -88,27 +87,13 @@ async function deleteSyncData(syncKey) {
   }
   _cache.delete(syncKey);
   _versions.delete(syncKey);
-  mirrorToFirestore((fb) => fb.deleteSyncDataFromFirestore(syncKey));
 }
 
-/**
- * Best-effort Firestore mirror for sessions that signed in with Google.
- * Password sessions return before the Firebase SDK is ever requested.
- */
-function mirrorToFirestore(operation) {
-  if (typeof window === 'undefined') return;
-  usesFirebase()
-    .then((firebaseSession) => (firebaseSession ? import('./firebaseClient.js') : null))
-    .then((fb) => fb && operation(fb))
-    .catch(() => {});
-}
-
-/** Cache/mirror only the server's acknowledged atomic lesson commit. */
+/** Cache only the server's acknowledged atomic lesson commit. */
 export function acceptSavedLessonState(lessonId, state) {
   for (const name of ['messages', 'lessonKB']) {
     const key = `${name}:${lessonId}`;
     _populateCache(key, state[name].data, state[name].version);
-    mirrorToFirestore(fb => fb.mirrorSyncDataToFirestore(key, state[name].data));
   }
 }
 

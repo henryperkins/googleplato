@@ -27,46 +27,34 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
 - Classroom branding (colors, logo, name) stored in `_system` settings, fetched
   via `/v1/branding` (public, no auth).
 
-## Google sign-in and the Firestore copy
+## Google sign-in and canonical server storage
 
 Google sign-in uses Firebase Auth's popup. The server verifies the Firebase ID
-token at `POST /v1/auth/firebase` and answers with plato's own access and
-refresh tokens, so from then on a Google session is an ordinary plato session.
+token at `POST /v1/auth/firebase` and returns plato access and refresh tokens.
 A verified email that matches an existing account signs in to it. Any other
-verified Google account gets a new learner account: a pending invite or
-wait-list entry for that email supplies its profile, but neither is required.
+verified Google account gets a new learner account; a pending invite or wait-list
+entry for that email supplies its profile, but neither is required.
 
-For Google sessions only, `client/js/firebaseClient.js` also keeps a copy in
-Cloud Firestore: a profile at `users/{uid}` (email isolated in
-`users/{uid}/private/info`) and each sync record at `users/{uid}/syncData/{id}`.
-plato's server stays the source of truth. Mirror writes are fire-and-forget
-after the server write succeeds. `loadAll` (`client/js/sync.js`) now hydrates
-the cache exclusively from the server: Firestore backfill and subscription
-updates are disconnected so a compatible client cannot write mirror-derived
-stale state back to the server. The mirror writes, Google profile side effects,
-SDK, and rules remain pending the separate Firestore retirement cutover.
-`firestore.rules` still holds the mirror validation; the bounds in
-`firebaseClient.js` mirror it.
+Google and password sessions use the same server storage paths. `storage.js`
+only writes through the API and caches acknowledged atomic lesson commits.
+`sync.js` replaces cached state with the current server response; no Firestore
+backfill, subscription, profile initialization, or mirror write remains.
+The retired `firebaseClient.js` module is removed. `firestore.rules` denies all
+client access, including former owners/admins, and `firebase.json` targets only
+the named Plato database. Keep the Firebase project and its unrelated databases.
+See [Firestore retirement](FIRESTORE_RETIREMENT.md) for inventory evidence,
+local rules testing, cutover order, and publication status.
 
-- **Authentication and Firestore load separately.** Neither SDK ships in the
-  entry bundle. Login, Signup, and Setup preload only `firebaseAuth.js` at idle
-  (`preloadFirebase`) so the popup opens promptly. The larger Firestore layer,
-  `firebaseClient.js`, loads after a successful Google sign-in or for a restored
-  Google session. Both modules share the same Firebase app and Auth instance. After
-  sign-in, `usesFirebase()` in `storage.js` decides: it reads the provider
-  recorded at sign-in (`saveAuthProvider`, stored in `plato_auth`), and for
-  sessions from before that flag existed it checks IndexedDB for Firebase's
-  persisted session (`firebaseLocalStorageDb`). Password sessions never request
-  Firestore; auth pages intentionally prewarm the smaller authentication SDK.
-- **Wait for the restored session.** Right after a lazy import,
-  `auth.currentUser` is `null` until Firebase restores its persisted session.
-  Every Firestore helper awaits `auth.authStateReady()` first (`restoredUser`);
-  reading `currentUser` directly makes mirroring skip silently.
-- **Password reset is plato's.** `/forgot-password` calls
-  `POST /v1/auth/forgot-password`, which emails a plato reset link. Firebase's
-  reset email isn't sent: plato checks its own password hash, so a Firebase
-  reset would change a credential plato never reads, and a second email would
-  compete with the one that works.
+- **Firebase Auth stays lazy.** Login, Signup and Setup preload `firebaseAuth.js`
+  at idle (`preloadFirebase`) so the Google popup can open directly from the click.
+  The production browser bundle has no Firestore SDK data path. The Firebase
+  package remains necessary for Auth.
+- **Provider detection is for sign-out.** `usesFirebase()` reads the provider in
+  `plato_auth`; for older sessions it probes `firebaseLocalStorageDb`. This keeps
+  Google cleanup and account-switch protection without loading a data mirror.
+- **Password reset is plato's.** `/forgot-password` uses the server's
+  `POST /v1/auth/forgot-password` endpoint. Firebase resets are not used for
+  plato password accounts.
 
 Sign-out removes plato's local credentials and protected React state before
 waiting for any remote work. Server refresh-token revocation is best effort,
@@ -80,8 +68,9 @@ sign-out or overwrite a newer provider decision. Firebase detection/import is
 bounded to five seconds, and stale cleanup is skipped after another login
 starts. Once an SDK sign-out has actually started, another Google popup is
 rejected with a retry message until that SDK operation settles; password login
-remains available. This prevents late SDK cleanup from signing out a new Google
-account without delaying local sign-out.
+remains available. Cleanup first awaits Firebase Auth restoration, so a cold SDK cannot skip a
+persisted Google user that is still loading. This prevents late SDK cleanup from
+signing out a new Google account without delaying local sign-out.
 
 ## Client loading
 
@@ -396,8 +385,8 @@ Send, and restores the retained conversation after navigation or reload in the
 same tab. `retryLessonSave` only submits that retained turn; it never calls any
 model, reapplies tags, or rebuilds the reply. Unknown save outcomes retain the
 same IDs. Conflicts preserve the copy and require an explicit discard to load
-the current saved conversation. The browser cache and optional Firestore mirror
-receive a generated turn only after the authoritative API acknowledges it.
+the current saved conversation. The browser cache receives a generated turn only
+after the authoritative API acknowledges it.
 
 Recovery is limited to the current browser tab/session. If browser storage is
 unavailable or full, the UI warns that only the in-memory copy is available and
@@ -439,8 +428,8 @@ enrichment operation to its original session; that pre-existing gap is tracked i
 instances and any compatible rollback build. It is a coordinated upgrade
 boundary, not a deployment revision or an authentication mechanism. The first
 deployment of this gate rejects legacy clients that omit the headers; changing
-the epoch later fences already-open compatible pages. This code change does not
-perform the deployment or retire the remaining Firestore mirror paths.
+the epoch later fences already-open compatible pages. Application and rules
+publication are separate operations; see [Firestore retirement](FIRESTORE_RETIREMENT.md).
 All four server entrypoints validate the epoch before serving or running their
 application bootstrap, so invalid configuration cannot report a healthy server.
 

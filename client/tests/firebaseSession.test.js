@@ -1,7 +1,7 @@
 /**
- * Which sessions load the Firebase SDK (client/js/storage.js `usesFirebase`).
- * The SDK is ~170 KB gzipped and only Google sign-ins have a Firestore copy,
- * so password sessions must never request it.
+ * Which sessions need Firebase Auth cleanup (storage.js `usesFirebase`).
+ * Provider detection and legacy IndexedDB probing are retained for Google
+ * sign-out; learner storage never uses this to load a data mirror.
  */
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';

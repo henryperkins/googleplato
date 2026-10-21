@@ -116,8 +116,8 @@ export function preloadFirebase() {
 
 /**
  * Log in or onboard using Google Sign-In via Firebase Auth.
- * Bridges the verified Firebase ID token with `/v1/auth/firebase` and
- * initializes the user's Firestore profile.
+ * Exchanges the verified Firebase ID token at `/v1/auth/firebase` for the
+ * same server-owned account and tokens used by password sessions.
  */
 export async function loginWithGoogle(options = {}) {
   sessionGeneration += 1;
@@ -151,13 +151,6 @@ export async function loginWithGoogle(options = {}) {
   await saveAuthTokens({ accessToken, refreshToken });
   await saveAuthUser(user);
   saveAuthProvider('firebase');
-
-  try {
-    const { ensureFirestoreUserProfile } = await import('./firebaseClient.js');
-    await ensureFirestoreUserProfile(user);
-  } catch (err) {
-    console.error('Firestore profile initialization failed:', err);
-  }
 
   return user;
 }

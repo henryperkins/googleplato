@@ -1,0 +1,54 @@
+{
+  "project": "idk-4e9b9",
+  "database": "ai-studio-plato-196eecf7-5744-4762-b19b-47cbd67015e6",
+  "read_time": "2026-10-21T04:46:33.320290Z",
+  "observed_at": "2026-10-21T04:46:34.233436+00:00",
+  "root_collections": [],
+  "root_pages": 1,
+  "root_pagination_exhausted": true,
+  "collection_groups": {
+    "users": {
+      "present": false,
+      "read_times": [
+        "2026-10-21T04:46:33.320290Z"
+      ]
+    },
+    "private": {
+      "present": false,
+      "read_times": [
+        "2026-10-21T04:46:33.320290Z"
+      ]
+    },
+    "syncData": {
+      "present": false,
+      "read_times": [
+        "2026-10-21T04:46:33.320290Z"
+      ]
+    },
+    "admins": {
+      "present": false,
+      "read_times": [
+        "2026-10-21T04:46:33.320290Z"
+      ]
+    }
+  },
+  "direct_collections": {
+    "users": {
+      "documents": 0,
+      "missing_parent_paths": 0,
+      "pages": 1,
+      "pagination_exhausted": true
+    },
+    "admins": {
+      "documents": 0,
+      "missing_parent_paths": 0,
+      "pages": 1,
+      "pagination_exhausted": true
+    }
+  },
+  "empty": true,
+  "document_payloads_collected": false,
+  "data_or_rules_writes": 0,
+  "other_databases_inspected": false,
+  "import_required": false
+}
