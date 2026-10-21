@@ -40,7 +40,7 @@ test('logs failed batch items even though the HTTP envelope succeeds', async () 
   assert.equal(response.status, 200);
   assert.deepEqual(logger.recent().map(e => e.code).sort(), ['sync_conflict', 'sync_validation_failure']);
 });
-test('generated-turn conflicts and oversized requests emit events, while replay success stays quiet', async () => {
+test('generated-turn conflicts and oversized requests emit save alarms, while replay success emits only lifecycle INFO', async () => {
   const base = { generation: null, messages: { version: 0, data: [] }, lessonKB: { version: 0, data: null } };
   db.getLessonState = async () => structuredClone(base);
   const turn = { userId: 'usr_private', turnId: 'turn-1', base,
@@ -54,5 +54,6 @@ test('generated-turn conflicts and oversized requests emit events, while replay 
   logger._reset();
   db.getLessonState = async () => ({ ...base, messages: { version: 1, data: turn.messages }, lessonKB: { version: 1, data: turn.lessonKB } });
   assert.equal((await send(turn)).status, 200);
-  assert.equal(logger.recent().length, 0);
+  assert.equal(logger.recent().filter(event => event.level !== 'info').length, 0);
+  assert.deepEqual(logger.recent().map(event => event.code), ['lesson_attempt_saved']);
 });

@@ -156,7 +156,8 @@ async function generateTurn(lessonId, kind, generate) {
   }
   const promise = (async () => {
     const base = await readLessonState(userId, lessonId);
-    return generate({ userId, base, turnId: crypto.randomUUID() });
+    const turnId = crypto.randomUUID();
+    return generate({ userId, base, turnId, telemetry: { userId, lessonId, generation: base.generation, turnId } });
   })();
   generations.set(key, { kind, promise });
   try { return await promise; } finally { generations.delete(key); }
@@ -219,7 +220,7 @@ export async function discardLessonReply(lessonId) {
  *   Steps: 'initializing', 'enriching', 'starting'
  */
 export async function startLesson(lessonId, lesson, onStream, onProgress) {
-  return generateTurn(lessonId, 'start', async ({ userId, base, turnId }) => {
+  return generateTurn(lessonId, 'start', async ({ userId, base, turnId, telemetry }) => {
     if (base.messages.data.length) {
       return { messages: await hydrateMessageImages(base.messages.data), lessonKB: base.lessonKB.data,
         phase: base.lessonKB.data?.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING };
@@ -229,7 +230,7 @@ export async function startLesson(lessonId, lesson, onStream, onProgress) {
 
     // Lesson Owner generates the KB
     if (onProgress) onProgress('initializing');
-    const lessonKB = await orchestrator.initializeLessonKB(lesson, profileSummary);
+    const lessonKB = await orchestrator.initializeLessonKB(lesson, profileSummary, telemetry);
     lessonKB.lessonId = lessonId;
     lessonKB.name = lesson.name;
     lessonKB.progress = 0;
@@ -252,6 +253,7 @@ export async function startLesson(lessonId, lesson, onStream, onProgress) {
             coachDirective: lesson.coachDirective,
           },
           lessonKB,
+          telemetry: { generation: base.generation, turnId },
         }),
       });
       if (res.ok) {
@@ -277,7 +279,7 @@ export async function startLesson(lessonId, lesson, onStream, onProgress) {
       'coach',
       [{ role: 'user', content: context }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: 'Start the lesson.' }],
       cleanStream(onStream),
-      1024
+      1024, telemetry
     );
 
     const { text, progress } = parseCoachResponse(coachMsg);
@@ -341,7 +343,7 @@ export function buildUserParts(text, imageDataUrls = [], links = []) {
  *   text is sent to the coach this turn but only `{ url, title }` is persisted.
  */
 export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, onStream) {
-  return generateTurn(lessonId, 'send', async ({ userId, base, turnId }) => {
+  return generateTurn(lessonId, 'send', async ({ userId, base, turnId, telemetry }) => {
     let lessonKB = base.lessonKB.data;
     if (!lessonKB) throw new Error('Reload the lesson before sending your answer.');
     const profileSummary = await getLearnerProfileSummary();
@@ -386,7 +388,7 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, o
       'coach',
       messages,
       cleanStream(onStream),
-      1024
+      1024, telemetry
     );
 
     const parsed = parseCoachResponse(coachMsg);
@@ -418,11 +420,11 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, o
     // Recovery saves the authoritative completion but never runs any model.
     if (result.persistence.status === 'saved') {
       await assertTurnOwner(userId).then(() => {
-        if (parsed.profileUpdate?.observation) updateProfileFromObservation(lessonKB, parsed.profileUpdate.observation);
-        else if (parsed.kbUpdate?.insights?.length) updateProfileFromObservation(lessonKB, parsed.kbUpdate.insights.join('. '));
+        if (parsed.profileUpdate?.observation) updateProfileFromObservation(lessonKB, parsed.profileUpdate.observation, telemetry);
+        else if (parsed.kbUpdate?.insights?.length) updateProfileFromObservation(lessonKB, parsed.kbUpdate.insights.join('. '), telemetry);
         if (achieved) {
-          updateProfileOnCompletionInBackground(lessonKB, lesson);
-          if (lesson.course?.id) updateCourseProgressOnCompletionInBackground(lessonKB, lesson);
+          updateProfileOnCompletionInBackground(lessonKB, lesson, telemetry);
+          if (lesson.course?.id) updateCourseProgressOnCompletionInBackground(lessonKB, lesson, telemetry);
         }
       }).catch(() => {});
     }

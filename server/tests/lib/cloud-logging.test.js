@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 import { fetchCloudLoggingLogs } from '../../src/lib/cloud-logging.js';
 const options = { projectId: 'test-project', serviceName: 'plato', location: 'us-east1', since: '2026-10-21T00:00:00Z', until: '2026-10-21T01:00:00Z' };
 const entry = (id, code = 'sync_conflict', revision = 'a') => ({ insertId: id, timestamp: '2026-10-21T00:30:00Z', jsonPayload: { code, logId: id, level: code.endsWith('recovered') ? 'info' : 'warn' }, resource: { labels: { revision_name: revision } } });
+test('inference reports can request INFO events without changing the save-watch default', async () => {
+  const queries = [];
+  const request = async body => { queries.push(body.filter); return {}; };
+  await fetchCloudLoggingLogs({ ...options, codes: ['inference_started', 'inference_finished', 'lesson_attempt_saved'] }, { request });
+  assert.match(queries[0], /jsonPayload.code="inference_finished"/);
+  assert.doesNotMatch(queries[0], /severity>=WARNING/);
+  await fetchCloudLoggingLogs(options, { request });
+  assert.match(queries[1], /severity>=WARNING/);
+  const bad = await fetchCloudLoggingLogs({ ...options, codes: ['" OR true'] }, { request });
+  assert.equal(bad.complete, false);
+  assert.equal(queries.length, 2);
+});
 test('queries one service across revisions and follows empty pages, deduplicating deliveries', async () => {
   const calls = [];
   const pages = [{ entries: [entry('1')], nextPageToken: 'a' }, { nextPageToken: 'b' }, { entries: [entry('1'), entry('2', 'client_save_recovered', 'b')] }];

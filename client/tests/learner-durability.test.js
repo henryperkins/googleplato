@@ -12,7 +12,7 @@ const engine = await import('../src/lib/lessonEngine.js');
 const { queueProfileUpdate } = await import('../src/lib/profileQueue.js');
 const { queueCourseProgressUpdate } = await import('../src/lib/courseProgressQueue.js');
 const records = new Map();
-let mode, aiCalls, commits, coachText, saveEvents, telemetryFails;
+let mode, aiCalls, commits, coachText, saveEvents, telemetryFails, inferenceRequests;
 const lesson = { lessonId: 'lesson-1', name: 'A lesson', exemplar: 'Explain the idea', learningObjectives: ['Explain'], markdown: '# Lesson' };
 const initialKB = { lessonId: 'lesson-1', name: lesson.name, startedAt: 100, progress: 2, status: 'learning', activitiesCompleted: 1, insights: [] };
 const opening = { id: 'opening:0', role: 'assistant', content: 'Tell me what you think.', timestamp: 100 };
@@ -28,6 +28,7 @@ beforeEach(async () => {
   records.set('messages:lesson-1', { data: [structuredClone(opening)], version: 1 });
   records.set('profile', { data: { name: 'Learner', masteredLessons: [], activeLessons: [] }, version: 1 });
   saveEvents = []; telemetryFails = false;
+  inferenceRequests = [];
   mode = 'reject'; aiCalls = 0; commits = 0; coachText = 'Keep this useful feedback.\n[PROGRESS: 6]';
   globalThis.fetch = async (url, options = {}) => {
     const path = new URL(url, 'http://localhost').pathname;
@@ -43,6 +44,7 @@ beforeEach(async () => {
     if (path === '/v1/ai/messages') {
       aiCalls += 1;
       const body = JSON.parse(options.body);
+      inferenceRequests.push(body.telemetry);
       const text = body.system === 'lesson-owner' ? JSON.stringify({ exemplar: 'Explain', objectives: [{ objective: 'Explain', evidence: 'An explanation' }], learnerPosition: 'Starting', insights: [], activitiesCompleted: 0, status: 'learning' })
         : body.stream ? coachText : JSON.stringify({ profile: { name: 'Learner' }, summary: 'Learning' });
       return json({ content: [{ type: 'text', text }] });
@@ -76,6 +78,34 @@ beforeEach(async () => {
     }
     throw new Error(`Unexpected request: ${path}`);
   };
+});
+
+test('retained-reply recovery preserves inference attribution and never creates another invocation', async () => {
+  const result = await engine.sendMessage('lesson-1', lesson, 'Answer', null, null, () => {});
+  assert.equal(result.persistence.status, 'pending');
+  const [context] = inferenceRequests;
+  assert.equal(context?.lessonId, 'lesson-1');
+  assert.equal(context.generation, null);
+  assert.equal(context.agentRole, 'coach');
+  assert.equal(context.retryIndex, 0);
+  assert.ok(context.turnId && context.operationId);
+  assert.equal(context.userId, undefined);
+  mode = 'ok';
+  assert.equal((await engine.retryLessonSave('lesson-1')).persistence.status, 'saved');
+  assert.equal(inferenceRequests.length, 1);
+  assert.equal(records.get('messages:lesson-1').data.at(-1).id, `${context.turnId}:1`);
+});
+
+test('opening and post-completion enrichment carry the original lesson generation and turn', async () => {
+  mode = 'ok';
+  coachText = 'Goal achieved.\n[PROGRESS: 10]\n[PROFILE_UPDATE: {"observation":"Understands"}]';
+  await engine.sendMessage('lesson-1', { ...lesson, course: { id: 'course-1', name: 'Course' } }, 'Answer', null, null, () => {});
+  await queueProfileUpdate(() => {});
+  await queueCourseProgressUpdate(() => {});
+  assert.deepEqual(inferenceRequests.map(x => x?.agentRole).sort(), ['coach', 'course-progress-update', 'learner-profile-owner', 'learner-profile-update']);
+  assert.equal(new Set(inferenceRequests.map(x => x.turnId)).size, 1);
+  assert.ok(inferenceRequests.every(x => x.lessonId === 'lesson-1' && x.generation === null));
+  assert.equal(new Set(inferenceRequests.map(x => x.operationId)).size, 4);
 });
 
 test('upgrade preparation preserves the reply and an account-scoped draft with attachments', async () => {

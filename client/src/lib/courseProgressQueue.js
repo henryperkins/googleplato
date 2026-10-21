@@ -50,7 +50,7 @@ export function queueCourseProgressUpdate(fn) {
  * @param {object} lessonKB - the completed lesson's KB (learnerPosition, insights)
  * @param {object} lesson - the lesson (lessonId, name, course: { id, name })
  */
-export function updateCourseProgressOnCompletionInBackground(lessonKB, lesson) {
+export function updateCourseProgressOnCompletionInBackground(lessonKB, lesson, context) {
   const courseId = lesson?.course?.id;
   // No-op for standalone lessons; the lessonId guard keeps `undefined` out of
   // the persisted completedLessonIds array (defense-in-depth — the caller in
@@ -70,6 +70,7 @@ export function updateCourseProgressOnCompletionInBackground(lessonKB, lesson) {
       prior?.summary || '',
       completedLesson,
       prior?.completedLessonIds || [],
+      context,
     );
     if (!result?.summary) {
       console.error('[plato] Course progress agent returned no summary:', result);

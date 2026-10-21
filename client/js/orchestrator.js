@@ -6,6 +6,7 @@
 import { parseSSEStream, parseResponse, LLM, ApiError, withoutEmptyMessages } from './api.js';
 import { authenticatedFetch } from './auth.js';
 import { validateLessonKB } from './validators.js';
+import { createInferenceOperation } from './inferenceTelemetry.js';
 
 const promptCache = {};
 let knowledgeBase = null;
@@ -93,12 +94,14 @@ async function callWithValidation(agentFn, validator) {
   return retry;
 }
 
-async function callApi({ model, systemPrompt, messages, maxTokens = 1024 }) {
+async function callApi({ model, systemPrompt, messages, maxTokens = 1024, agentRole, context,
+  operation = createInferenceOperation(agentRole, context) }) {
   const attempt = async () => {
+    const telemetry = await operation.next();
     const resp = await authenticatedFetch('/v1/ai/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages, telemetry }),
     });
     return parseResponse(resp);
   };
@@ -125,7 +128,8 @@ export async function isReady() {
 
 // -- Streaming conversations --------------------------------------------------
 
-export async function converseStream(promptName, messages, onChunk, maxTokens = 512) {
+export async function converseStream(promptName, messages, onChunk, maxTokens = 512, context) {
+  const operation = createInferenceOperation(promptName, context);
   let systemPrompt = await loadPrompt(promptName);
   if (KB_AGENTS.includes(promptName)) {
     const kb = await loadKnowledgeBase();
@@ -139,10 +143,11 @@ export async function converseStream(promptName, messages, onChunk, maxTokens = 
     if (catalog) systemPrompt = `${systemPrompt}\n\n---\n\n## Lessons in This Classroom\n\n${catalog}`;
   }
 
+  const telemetry = await operation.next();
   const resp = await authenticatedFetch('/v1/ai/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: LLM, max_tokens: maxTokens, system: systemPrompt, messages: withoutEmptyMessages(messages), stream: true }),
+    body: JSON.stringify({ model: LLM, max_tokens: maxTokens, system: systemPrompt, messages: withoutEmptyMessages(messages), stream: true, telemetry }),
   });
   const contentType = resp.headers.get('content-type') || '';
   if (resp.ok && contentType.includes('text/event-stream')) {
@@ -161,7 +166,8 @@ export async function converseStream(promptName, messages, onChunk, maxTokens = 
 
 // -- Lesson Owner (LLM) -------------------------------------------------------
 
-export async function initializeLessonKB(lesson, profileSummary) {
+export async function initializeLessonKB(lesson, profileSummary, context) {
+  const operation = createInferenceOperation('lesson-owner', context);
   const systemPrompt = await loadPrompt('lesson-owner');
   const userContent = JSON.stringify({
     lessonId: lesson.lessonId, lessonName: lesson.name,
@@ -171,7 +177,7 @@ export async function initializeLessonKB(lesson, profileSummary) {
   });
   const callAgent = async () => {
     const { content } = await callApi({
-      model: LLM, systemPrompt,
+      model: LLM, systemPrompt, operation,
       messages: [{ role: 'user', content: userContent }], maxTokens: 1536,
     });
     return parseJSON(content);
@@ -195,11 +201,11 @@ function profileForAgent(profile) {
 
 // -- Learner Profile Owner (LLM — deep update on lesson completion) -----------
 
-export async function updateProfileOnCompletion(fullProfile, lessonKB, lessonName, lessonId, activitiesCompleted) {
+export async function updateProfileOnCompletion(fullProfile, lessonKB, lessonName, lessonId, activitiesCompleted, context) {
   const systemPrompt = await loadPrompt('learner-profile-owner');
   const userContent = JSON.stringify({ currentProfile: profileForAgent(fullProfile), lessonKB, activitiesCompleted, lessonName, lessonId });
   const { content } = await callApi({
-    model: LLM, systemPrompt,
+    model: LLM, systemPrompt, agentRole: 'learner-profile-owner', context,
     messages: [{ role: 'user', content: userContent }], maxTokens: 1024,
   });
   return parseJSON(content);
@@ -217,14 +223,14 @@ export function incrementalProfileUpdate(profile, lessonId) {
 
 // -- Profile feedback (LLM) --------------------------------------------------
 
-export async function updateProfileFromFeedback(fullProfile, feedbackText, activityContext) {
+export async function updateProfileFromFeedback(fullProfile, feedbackText, activityContext, context) {
   const systemPrompt = await loadPrompt('learner-profile-update');
   const userContent = JSON.stringify({
     currentProfile: profileForAgent(fullProfile), learnerFeedback: feedbackText,
     context: { lessonName: activityContext.lessonName, activityType: activityContext.activityType, activityGoal: activityContext.activityGoal, timestamp: Date.now() },
   });
   const { content } = await callApi({
-    model: LLM, systemPrompt,
+    model: LLM, systemPrompt, agentRole: 'learner-profile-update', context,
     messages: [{ role: 'user', content: userContent }], maxTokens: 1024,
   });
   return parseJSON(content);
@@ -232,7 +238,7 @@ export async function updateProfileFromFeedback(fullProfile, feedbackText, activ
 
 // -- Course Progress Updater (LLM — distill cross-lesson progress) ------------
 
-export async function updateCourseProgress(courseName, lessonsInCourse, priorSummary, completedLesson, completedLessonIds) {
+export async function updateCourseProgress(courseName, lessonsInCourse, priorSummary, completedLesson, completedLessonIds, context) {
   const systemPrompt = await loadPrompt('course-progress-update');
   const userContent = JSON.stringify({
     courseName,
@@ -242,7 +248,7 @@ export async function updateCourseProgress(courseName, lessonsInCourse, priorSum
     completedLessonIds: completedLessonIds || [],
   });
   const { content } = await callApi({
-    model: LLM, systemPrompt,
+    model: LLM, systemPrompt, agentRole: 'course-progress-update', context,
     messages: [{ role: 'user', content: userContent }], maxTokens: 1024,
   });
   return parseJSON(content);
@@ -253,7 +259,7 @@ export async function updateCourseProgress(courseName, lessonsInCourse, priorSum
 export async function extractLessonMarkdown(conversationText) {
   const systemPrompt = await loadPrompt('lesson-extractor');
   const { content } = await callApi({
-    model: LLM, systemPrompt,
+    model: LLM, systemPrompt, agentRole: 'lesson-extractor',
     messages: [{ role: 'user', content: conversationText }], maxTokens: 1536,
   });
   return content.trim();
@@ -267,7 +273,7 @@ export async function extractKBMarkdown(conversationText, existingKB = '') {
     ? `## EXISTING KNOWLEDGE BASE\n\n${existingKB}\n\n## CONVERSATION\n\n${conversationText}`
     : `## EXISTING KNOWLEDGE BASE\n\n(none — creating from scratch)\n\n## CONVERSATION\n\n${conversationText}`;
   const { content } = await callApi({
-    model: LLM, systemPrompt,
+    model: LLM, systemPrompt, agentRole: 'knowledge-base-extractor',
     messages: [{ role: 'user', content: userContent }], maxTokens: 4096,
   });
   return content.trim();

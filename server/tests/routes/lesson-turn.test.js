@@ -8,6 +8,8 @@ const { Hono } = await import('hono');
 const { default: db } = await import('../../src/lib/db.js');
 const { default: sync } = await import('../../src/routes/sync.js');
 const { signAccessToken } = await import('../../src/lib/jwt.js');
+const { logger } = await import('../../src/lib/logger.js');
+const { inferenceContext } = await import('../../src/lib/inference-telemetry.js');
 const app = new Hono().route('/', sync);
 const userId = 'usr_turn_test';
 const base = { generation: null, messages: { data: [], version: 0 }, lessonKB: { data: null, version: 0 } };
@@ -23,10 +25,27 @@ async function request(method, body, suffix = '') {
   });
 }
 beforeEach(async () => {
+  logger._reset();
   await db.deleteSyncData(userId, 'messages:lesson-1');
   await db.deleteSyncData(userId, 'lessonKB:lesson-1');
   await db.deleteSyncData(userId, 'lessonGeneration:lesson-1');
   if (!await db.getUserById(userId)) await db.createUser({ userId, email: 'turn@example.test', passwordHash: 'x', name: 'Learner', role: 'user' });
+});
+
+test('only committed completion emits the inference attempt outcome and replay keeps its identity', async () => {
+  const generated = turn();
+  generated.lessonKB.status = 'completed';
+  generated.lessonKB.progress = 10;
+  const context = inferenceContext(userId, { lessonId: 'lesson-1', generation: null, turnId: generated.turnId });
+  const invalid = { ...generated, base: { ...generated.base, generation: 'stale' } };
+  assert.equal((await request('POST', invalid)).status, 409);
+  assert.equal(logger.recent().filter(e => e.code === 'lesson_attempt_saved').length, 0);
+  for (let i = 0; i < 2; i++) assert.equal((await request('POST', generated)).status, 200);
+  const events = logger.recent().filter(e => e.code === 'lesson_attempt_saved');
+  assert.equal(events.length, 2, 'replay repairs a missing outcome log without inference');
+  assert.ok(events.every(e => e.meta.attempt_ref === context.attempt_ref && e.meta.turn_ref === context.turn_ref));
+  assert.ok(events.every(e => e.meta.lesson_attempt_status === 'completed'));
+  assert.doesNotMatch(JSON.stringify(events), /generated opening|usr_turn_test|lesson-1/);
 });
 
 test('commits the generated conversation and progress together, then acknowledges the same retry', async () => {

@@ -1,0 +1,155 @@
+import { test, beforeEach, afterEach, mock } from 'node:test';
+import assert from 'node:assert/strict';
+import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+import ai from '../../src/lib/ai-provider.js';
+import db from '../../src/lib/db.js';
+import { logger } from '../../src/lib/logger.js';
+import { Hono } from 'hono';
+import sync from '../../src/routes/sync.js';
+import { on } from '../../src/lib/plugins/hooks.js';
+import { signAccessToken } from '../../src/lib/jwt.js';
+import { inferenceContext } from '../../src/lib/inference-telemetry.js';
+import { currentClientHeaders } from '../helpers/clientCompatibility.js';
+
+const model = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
+const settings = { provider: 'workers-ai', workersAiModel: model };
+const body = { max_tokens: 512, messages: [{ role: 'user', content: 'secret learner content' }] };
+let active;
+const originalEnv = { ...process.env };
+beforeEach(() => {
+  active = settings;
+  mock.method(db, 'getSyncData', async (_user, key) => key === 'ai-settings' ? { data: active } : null);
+  process.env.CLOUDFLARE_ACCOUNT_ID = 'b'.repeat(32);
+  process.env.CLOUDFLARE_API_TOKEN = 'secret-provider-token';
+  logger._reset();
+  mock.method(console, 'log', () => {});
+});
+afterEach(() => {
+  mock.timers.reset();
+  mock.restoreAll();
+  for (const key of ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN']) {
+    if (originalEnv[key] === undefined) delete process.env[key]; else process.env[key] = originalEnv[key];
+  }
+});
+const finished = () => logger.recent().find(e => e.code === 'inference_finished')?.meta;
+
+test('real Workers adapter records reported usage without changing the reasoning or token budget', async () => {
+  mock.method(globalThis, 'fetch', async (_url, options) => {
+    const sent = JSON.parse(options.body);
+    assert.equal(sent.reasoning_effort, 'max');
+    assert.equal(sent.max_tokens, 8704);
+    assert.equal(sent.messages[0].content, 'secret learner content');
+    return Response.json({ choices: [{ message: { content: 'secret reply' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 100, completion_tokens: 60, completion_tokens_details: { reasoning_tokens: 40 } } });
+  });
+  const response = await ai.invoke('ignored', body);
+  assert.equal(response.content[0].text, 'secret reply');
+  assert.equal(finished()?.reasoning_tokens, 40);
+  assert.equal(finished().output_tokens, 60);
+  assert.equal(finished().visible_output_tokens, 20);
+  assert.equal(finished().usage_complete, true);
+  assert.equal(finished().provider_retries, 0);
+  assert.equal(finished().model, model);
+  assert.ok(finished().time_to_first_visible_token_ms >= 0);
+  assert.doesNotMatch(JSON.stringify(logger.recent()), /secret/);
+});
+
+test('Workers stream counts trailing usage, excluding reasoning and empty deltas from visible output', async () => {
+  mock.method(globalThis, 'fetch', async () => new Response([
+    { choices: [{ delta: { reasoning_content: 'secret thinking' } }] },
+    { choices: [{ delta: { content: 'Visible' } }] },
+    { choices: [{ delta: {}, finish_reason: 'stop' }] },
+    { choices: [], usage: { prompt_tokens: 20, completion_tokens: 30, completion_tokens_details: { reasoning_tokens: 24 } } },
+  ].map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n',
+  { headers: { 'Content-Type': 'text/event-stream' } }));
+  const events = [];
+  for await (const event of ai.invokeStream('ignored', body)) events.push(event);
+  assert.equal(finished()?.reasoning_tokens, 24);
+  assert.equal(finished().visible_output_tokens, 6);
+  assert.equal(finished().usage_complete, true);
+  assert.doesNotMatch(JSON.stringify(events), /thinking/);
+});
+
+test('missing usage and provider errors remain unknown rather than free requests', async () => {
+  mock.method(globalThis, 'fetch', async () => Response.json({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }));
+  await ai.invoke('ignored', body);
+  assert.equal(finished()?.output_tokens, null);
+  assert.equal(finished().usage_complete, false);
+  mock.method(globalThis, 'fetch', async () => new Response('secret error', { status: 503 }));
+  await assert.rejects(ai.invoke('ignored', body));
+  assert.equal(finished().outcome, 'error');
+  assert.equal(finished().provider_attempts, 1);
+  assert.doesNotMatch(JSON.stringify(logger.recent()), /secret/);
+});
+
+test('usage in an interrupted Workers stream is partial even when both token counts were reported', async () => {
+  mock.method(globalThis, 'fetch', async () => new Response([
+    { choices: [{ delta: { content: 'Partial' } }], usage: { prompt_tokens: 100, completion_tokens: 4 } },
+    { error: { status: 503 } },
+  ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'Content-Type': 'text/event-stream' } }));
+  await assert.rejects(async () => { for await (const _event of ai.invokeStream('ignored', body)) { /* drain */ } });
+  assert.equal(finished().output_tokens, 4);
+  assert.equal(finished().outcome, 'error');
+  assert.equal(finished().usage_complete, false);
+});
+
+test('Bedrock Converse usage and SDK retries survive the compatibility translation', async () => {
+  active = { ...settings, provider: 'bedrock' };
+  mock.method(BedrockRuntimeClient.prototype, 'send', async command => {
+    assert.equal(command.input.inferenceConfig.maxTokens, 512);
+    return { output: { message: { content: [{ text: 'Answer' }] } }, stopReason: 'end_turn',
+      usage: { inputTokens: 50, outputTokens: 10 }, $metadata: { attempts: 3, totalRetryDelay: 750 } };
+  });
+  await ai.invoke('ignored', body);
+  assert.equal(finished()?.prompt_tokens, 50);
+  assert.equal(finished().output_tokens, 10);
+  assert.equal(finished().reasoning_tokens, null);
+  assert.equal(finished().provider_retries, 2);
+  assert.equal(finished().provider_retry_delay_ms, 750);
+  assert.equal(finished().usage_complete, false);
+});
+
+test('Bedrock stream retains terminal metadata and logs cancellation when its consumer stops', async () => {
+  active = { ...settings, provider: 'bedrock' };
+  mock.method(BedrockRuntimeClient.prototype, 'send', async () => ({
+    $metadata: { attempts: 1, totalRetryDelay: 0 },
+    stream: (async function* () {
+      yield { contentBlockDelta: { delta: { text: 'hello' } } };
+      yield { metadata: { usage: { inputTokens: 90, outputTokens: 30 } } };
+    })(),
+  }));
+  for await (const _event of ai.invokeStream('ignored', body)) { /* drain */ }
+  assert.equal(finished()?.prompt_tokens, 90);
+  assert.equal(finished().usage_complete, true);
+  for await (const _event of ai.invokeStream('ignored', body)) break;
+  assert.equal(finished().outcome, 'cancelled');
+  assert.equal(finished().output_tokens, null);
+});
+
+test('a throwing telemetry sink never changes the provider reply or error', async () => {
+  mock.method(logger, 'info', () => { throw new Error('sink unavailable'); });
+  mock.method(globalThis, 'fetch', async () => Response.json({ choices: [{ message: { content: 'Retain me' }, finish_reason: 'stop' }] }));
+  assert.equal((await ai.invoke('ignored', body)).content[0].text, 'Retain me');
+});
+
+test('lesson-start enrichment inherits request context without changing plugin call signatures', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  mock.method(db, 'getUserById', async () => ({ userId: 'learner', role: 'user' }));
+  mock.method(globalThis, 'fetch', async () => Response.json({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }));
+  const unsubscribe = on('lessonStarted', async () => {
+    await ai.invoke('ignored', body);
+    return { context: 'An enrichment' };
+  });
+  const telemetry = { generation: 'reset-1', turnId: 'turn-1' };
+  try {
+    const response = await new Hono().route('/', sync).request('/v1/sync/lesson-started', {
+      method: 'POST', headers: { ...currentClientHeaders, Authorization: `Bearer ${await signAccessToken('learner', 'user')}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lessonId: 'lesson-1', lesson: {}, lessonKB: {}, telemetry }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(finished()?.attempt_ref, inferenceContext('learner', { ...telemetry, lessonId: 'lesson-1' }).attempt_ref);
+    assert.equal(finished().agent_role, 'lesson-enrichment');
+    await ai.invoke('ignored', body);
+    assert.equal(finished().attempt_ref, undefined, 'request context cannot leak into unrelated invocations');
+  } finally { unsubscribe(); }
+});

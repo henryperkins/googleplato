@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { requireCurrentClient } from '../middleware/clientCompatibility.js';
 import ai from '../lib/ai-provider.js';
 import { classifyAiError, aiErrorStatus } from '../lib/ai-errors.js';
+import { inferenceContext } from '../lib/inference-telemetry.js';
 
 const aiRoute = new Hono();
 
@@ -29,10 +30,11 @@ aiRoute.post('/v1/ai/messages', async (c) => {
     ...(system ? { system } : {}),
     messages,
   };
+  const context = inferenceContext(c.get('userId'), body.telemetry);
 
   if (!isStream) {
     try {
-      const responseBody = await ai.invoke(model, aiBody);
+      const responseBody = await ai.invoke(model, aiBody, { context });
       return c.json(responseBody);
     } catch (err) {
       const { code, message } = classifyAiError(err);
@@ -48,14 +50,14 @@ aiRoute.post('/v1/ai/messages', async (c) => {
     const controller = new AbortController();
     s.onAbort(() => controller.abort());
     try {
-      for await (const event of ai.invokeStream(model, aiBody, { signal: controller.signal })) {
+      for await (const event of ai.invokeStream(model, aiBody, { signal: controller.signal, context })) {
         if (s.aborted) break;
         await s.write(`data: ${JSON.stringify(event)}\n\n`);
       }
       if (!s.aborted) await s.write('data: [DONE]\n\n');
     } catch (err) {
       if (s.aborted) return;
-      console.error('Streaming error:', err);
+      // The shared provider records a content-free classified failure.
       // A stable code and a generic message, never the raw provider text,
       // which can include the AWS account ID and IAM role name.
       const { code, message } = classifyAiError(err);
