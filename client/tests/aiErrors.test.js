@@ -11,6 +11,11 @@ import { aiErrorKind, aiErrorMessage } from '../src/lib/aiErrors.js';
 const serverError = (code, status) => new ApiError('api', 'raw server text', status, code);
 
 describe('aiErrorMessage', () => {
+  it('explains an upgrade without suggesting another model request', () => {
+    const message = aiErrorMessage(serverError('client_upgrade_required', 409), 'coach-reply');
+    assert.match(message, /update|reload/i);
+    assert.doesNotMatch(message, /try again|raw server text/i);
+  });
   it('tells learners the coach is unavailable without technical detail', () => {
     assert.equal(
       aiErrorMessage(serverError('ai_unavailable'), 'coach-reply'),

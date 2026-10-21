@@ -29,10 +29,12 @@ async function requestState(userId, lessonId, turn) {
           ...(turn ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(turn) } : {}),
         });
         await assertTurnOwner(userId);
-        if (!response.ok) throw Object.assign(new Error(response.status === 409
+        const rejection = !response.ok ? await response.json().catch(() => ({})) : null;
+        if (!response.ok) throw Object.assign(new Error(rejection?.code === 'client_upgrade_required'
+          ? 'Update this page to save your retained reply. No new reply will be generated.' : response.status === 409
           ? 'This lesson changed in another session. Your reply is retained; the saved lesson has not been overwritten.'
           : response.status === 413 ? 'This lesson is too large to save. Your reply is retained; ask an administrator for help.'
-            : 'Your reply has not been confirmed saved. Retry saving when your connection is available.'), { status: response.status });
+            : 'Your reply has not been confirmed saved. Retry saving when your connection is available.'), { status: response.status, code: rejection?.code });
         const state = await response.json();
         await assertTurnOwner(userId);
         controller.signal.throwIfAborted();
@@ -68,7 +70,7 @@ export async function persistLessonTurn(entry) {
     return { status: 'saved', state, persistedLocally, message: 'Your reply is saved.' };
   } catch (error) {
     return {
-      status: error.status === 409 ? 'conflict' : 'pending', persistedLocally,
+      status: error.code === 'client_upgrade_required' ? 'upgrade_required' : error.status === 409 ? 'conflict' : 'pending', persistedLocally,
       message: error instanceof TypeError ? 'Your reply is retained. Retry saving when your connection is available.' : error.message,
     };
   }

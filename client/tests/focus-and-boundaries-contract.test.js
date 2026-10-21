@@ -45,7 +45,7 @@ describe('Focus survives async work', () => {
 
   it('offers a retry when a lesson fails to start', () => {
     const chat = read('pages/LessonChat.jsx');
-    assert.match(chat, /startFailed && \(\s*<Button[^>]*onClick=\{retryStart\}>Try again<\/Button>/);
+    assert.match(chat, /startFailed && \(\s*<Button[^>]*onClick=\{retryStart\}[^>]*>Try again<\/Button>/);
     assert.match(chat, /Lesson not found<\/h1>/);
   });
 

@@ -7,6 +7,7 @@ import {
   getAuthTokens, saveAuthTokens, clearAuth,
   saveAuthUser, saveAuthProvider, usesFirebase,
 } from './storage.js';
+import { compatibilityHeaders, isCompatibilityPath, requireClientUpgrade } from './clientCompatibility.js';
 
 // When served from the same origin (Lambda), use relative paths.
 // Falls back to the Lambda Function URL for local development.
@@ -198,9 +199,12 @@ export { getAuthUser as getCurrentUser } from './storage.js';
  * Refresh the access token using the stored refresh token.
  * Returns true on success, false on failure (user must re-login).
  */
-async function refreshAccessToken() {
-  const tokens = await getAuthTokens();
+const sameSession = (left, right) => left?.user?.userId === right?.user?.userId
+  && left?.accessToken === right?.accessToken && left?.refreshToken === right?.refreshToken;
+
+async function refreshAccessToken(tokens) {
   if (!tokens?.refreshToken) return false;
+  if (!sameSession(tokens, await getAuthTokens())) return false;
   try {
     const res = await fetch(`${SERVICE_URL}/v1/auth/refresh`, {
       method: 'POST',
@@ -210,12 +214,13 @@ async function refreshAccessToken() {
     if (!res.ok) {
       // Don't clear auth silently — the user's data should be preserved.
       // Notify listeners so the UI can prompt re-login.
-      _notifySessionExpired();
+      if (sameSession(tokens, await getAuthTokens())) _notifySessionExpired();
       return false;
     }
     const { accessToken, refreshToken } = await res.json();
-    await saveAuthTokens({ accessToken, refreshToken });
-    return true;
+    // Compare and replace synchronously inside storage, after all awaits.
+    // A late response must never merge account A's tokens into account B.
+    return await saveAuthTokens({ accessToken, refreshToken }, tokens);
   } catch {
     return false;
   }
@@ -233,26 +238,50 @@ export async function authenticatedFetch(path, options = {}) {
   // ?asUserId=<id> to reads. Writes never carry it — both as a client guard
   // and to match the server-side write rejection in /v1/sync.
   const method = (options.method || 'GET').toUpperCase();
+  const protectedPath = isCompatibilityPath(path);
+  const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  if (protectedPath && mutation && readImpersonatedUserId()) throw new Error('Writes are not allowed while viewing as another user.');
   let effectivePath = path;
   if (method === 'GET') {
     const asUserId = readImpersonatedUserId();
     if (asUserId) effectivePath = appendQueryParam(path, 'asUserId', asUserId);
   }
 
-  const doFetch = (token) => fetch(`${SERVICE_URL}${effectivePath}`, {
-    ...options,
-    headers: { ...options.headers, Authorization: `Bearer ${token}` },
-  });
-
-  let res = await doFetch(tokens.accessToken);
-
-  if (res.status === 401) {
-    const refreshed = await refreshAccessToken();
-    if (!refreshed) throw new Error('Session expired');
-    const newTokens = await getAuthTokens();
-    res = await doFetch(newTokens.accessToken);
+  const ownerOf = value => value?.user?.userId || value?.refreshToken || value?.accessToken;
+  const owner = ownerOf(tokens);
+  const fetchAsOwner = async (requestPath, requestOptions) => {
+    let requestTokens;
+    const doFetch = async () => {
+      const current = await getAuthTokens();
+      if (!current?.accessToken || ownerOf(current) !== owner) throw new Error('The signed-in account changed. Return to the original account.');
+      const headers = new Headers(requestOptions.headers);
+      headers.set('Authorization', `Bearer ${current.accessToken}`);
+      requestTokens = current;
+      return fetch(`${SERVICE_URL}${requestPath}`, { ...requestOptions, headers });
+    };
+    let response = await doFetch();
+    if (response.status === 401) {
+      if (!await refreshAccessToken(requestTokens)) throw new Error('Session expired');
+      response = await doFetch();
+    }
+    if (ownerOf(await getAuthTokens()) !== owner) throw new Error('The signed-in account changed. Return to the original account.');
+    return response;
+  };
+  const headers = new Headers(options.headers);
+  if (protectedPath) {
+    const compatibility = await compatibilityHeaders(async () => {
+      const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000);
+      const response = await fetchAsOwner('/v1/sync/status', { cache: 'no-store', signal });
+      if (!response.ok) throw new Error('Could not check for updates. Keep this page open and try again.');
+      return response.json();
+    }, { mutation });
+    for (const [key, value] of Object.entries(compatibility)) headers.set(key, value);
   }
-
+  const res = await fetchAsOwner(effectivePath, { ...options, headers });
+  if (protectedPath && res.status === 409) {
+    const body = await (res.clone?.() || res).json().catch(() => null);
+    if (body?.code === 'client_upgrade_required') requireClientUpgrade();
+  }
   return res;
 }
 

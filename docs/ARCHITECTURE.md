@@ -40,9 +40,12 @@ For Google sessions only, `client/js/firebaseClient.js` also keeps a copy in
 Cloud Firestore: a profile at `users/{uid}` (email isolated in
 `users/{uid}/private/info`) and each sync record at `users/{uid}/syncData/{id}`.
 plato's server stays the source of truth. Mirror writes are fire-and-forget
-after the server write succeeds. On load, `loadAll` (`client/js/sync.js`) adds
-only the Firestore records the server didn't return, then subscribes to
-changes. `firestore.rules` holds the validation; the bounds in
+after the server write succeeds. `loadAll` (`client/js/sync.js`) now hydrates
+the cache exclusively from the server: Firestore backfill and subscription
+updates are disconnected so a compatible client cannot write mirror-derived
+stale state back to the server. The mirror writes, Google profile side effects,
+SDK, and rules remain pending the separate Firestore retirement cutover.
+`firestore.rules` still holds the mirror validation; the bounds in
 `firebaseClient.js` mirror it.
 
 - **Authentication and Firestore load separately.** Neither SDK ships in the
@@ -83,7 +86,7 @@ Lesson loading distinguishes a successful empty classroom from an unavailable
 refresh, and manual retry. A failed refresh preserves the last rendered lessons
 and displays an error with **Try again**. Retry invalidates the lesson cache;
 failed requests are never cached as empty lists. Request generations prevent an
-older load or Firestore listener from replacing the active cache or updating state
+older load from replacing the active cache or updating state
 after logout. Optional course-agent catalog context falls back to an empty list
 during an outage, so it does not block completion updates. Retrying
 parks focus on the lesson heading so removing the error banner keeps focus in
@@ -347,6 +350,54 @@ save. A recovered turn saves authoritative progress/completion but skips these
 optional model calls and their derived profile/course summaries and bookkeeping.
 They are not durably queued or backfilled by recovery.
 
+### Client upgrades and conditional sync writes
+
+Authenticated mutations under `/v1/sync` and `/v1/ai` require both
+`X-Plato-Client-Protocol: 1` and an exact `X-Plato-Client-Epoch`. A mismatch
+returns HTTP 409 with `code: client_upgrade_required` before database writes,
+plugin lesson-start hooks, or model invocation. Reads and authentication remain
+available for recovery. `GET /v1/sync/status` supplies the protocol/epoch with
+`Cache-Control: no-store`. All server entry points allow these headers in CORS.
+
+The client negotiates once per loaded page. Its epoch and upgrade block survive
+logout and account changes; a rejected page cannot refresh its epoch and resume
+writes over old in-memory state. A fresh page is required. Requests also check
+account ownership, and token refresh compares the captured session before
+replacing credentials or reporting expiration.
+
+`CLIENT_COMPATIBILITY_EPOCH` defaults to `1` and must match across all serving
+instances and any compatible rollback build. It is a coordinated upgrade
+boundary, not a deployment revision or an authentication mechanism. The first
+deployment of this gate rejects legacy clients that omit the headers; changing
+the epoch later fences already-open compatible pages. This code change does not
+perform the deployment or retire the remaining Firestore mirror paths.
+
+`LessonChat` offers **Preserve work and reload** after rejection. Before reload,
+the engine refuses any active generation anywhere in the page, then writes and
+reads back every retained reply and draft, including other visited lessons and
+accounts. Draft text, image data, and fetched link context use account/lesson
+scoped `sessionStorage`. Failure leaves the tab open with a copy-work warning.
+After reload, the original turn IDs, base snapshot, reply, and progress restore;
+**Retry saving** only submits the original atomic commit. It neither generates
+a replacement nor runs optional profile/course models. A lost acknowledgement
+still reconciles through the existing idempotent commit contract.
+
+Already-open legacy bundles cannot acquire this UI retroactively. Their existing
+account-scoped generated-turn journal remains readable after manual reload, but
+legacy `plato_compose_draft:<lessonId>` text has no owner identity and is left
+untouched rather than assigned to whichever account signs in next. Copy that
+unsent text before upgrading a legacy tab. Recovery remains limited to the same
+tab/session, not browser closure or another device.
+
+Generic single and batch PUTs require an explicit nonnegative safe integer
+`version` below `Number.MAX_SAFE_INTEGER`: `0` creates only an absent key;
+positive values update only an existing exact version. Invalid input returns
+`sync_validation_failure` (400), and a failed condition returns `sync_conflict`
+(409). Batch metadata is validated before writes, while valid batches retain
+their existing per-item conflict results. The client retains an unsuccessful
+payload and its original base; it never fetches a new version and blindly
+resends that payload. Deletes clear the cache only after acknowledgement.
+
 **Pasted/uploaded images are NOT embedded in the messages record.** Each image
 is its own `screenshot:<key>` record, and the message stores only
 `metadata.imageKeys`. This is load-bearing:
@@ -378,6 +429,10 @@ is its own `screenshot:<key>` record, and the message stores only
   migration is **skipped while impersonating** (`resumeLesson` must stay
   read-only for the "View as User" audit — writes lack `?asUserId` and would
   land on the admin's own account).
+- Screenshots use immutable create-only writes. If creation fails, a fresh
+  authoritative read may confirm identical bytes already saved by an interrupted
+  migration or a lost acknowledgement. Different content at the same key is
+  never overwritten, including when its version is cached.
 - `putSyncData` returns a durability boolean and logs rejected/failed writes
   instead of swallowing them.
 - The `LessonChat` resume effect keys on stable values (`lessonGroupId`, lesson

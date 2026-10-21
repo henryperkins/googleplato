@@ -43,9 +43,9 @@ async function fetchSyncData(syncKey) {
  * `false` otherwise — callers that need durability (e.g. the legacy-image
  * migration) check this rather than assuming the cache write stuck.
  */
-export async function putSyncData(syncKey, data) {
+export async function putSyncData(syncKey, data, { createOnly = false } = {}) {
   _cache.set(syncKey, data);
-  const version = _versions.get(syncKey) || 0;
+  const version = createOnly ? 0 : _versions.get(syncKey) || 0;
   try {
     const res = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, {
       method: 'PUT',
@@ -58,23 +58,9 @@ export async function putSyncData(syncKey, data) {
       mirrorToFirestore((fb) => fb.mirrorSyncDataToFirestore(syncKey, data));
       return true;
     } else if (res.status === 409) {
-      // Version conflict — fetch latest version and retry once
-      const current = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`);
-      if (current.ok) {
-        const item = await current.json();
-        _versions.set(syncKey, item.version);
-        const retry = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data, version: item.version }),
-        });
-        if (retry.ok) {
-          const retryResult = await retry.json();
-          _versions.set(syncKey, retryResult.version);
-          mirrorToFirestore((fb) => fb.mirrorSyncDataToFirestore(syncKey, data));
-          return true;
-        }
-      }
+      // A fresh version never authorizes overwriting newer data with this
+      // payload. Keep the original base and local work for reconciliation.
+      // Upgrade-required responses must not enter a conflict retry either.
       console.error(`[storage] sync write conflict unresolved for "${syncKey}"`);
       return false;
     } else {
@@ -94,12 +80,15 @@ export async function putSyncData(syncKey, data) {
 }
 
 async function deleteSyncData(syncKey) {
+  const response = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const rejection = await response.json().catch(() => ({}));
+    throw Object.assign(new Error(rejection.error || 'The deletion could not be saved. Keep this page open and try again.'),
+      { status: response.status, code: rejection.code });
+  }
   _cache.delete(syncKey);
   _versions.delete(syncKey);
-  try {
-    await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, { method: 'DELETE' });
-    mirrorToFirestore((fb) => fb.deleteSyncDataFromFirestore(syncKey));
-  } catch { /* best effort */ }
+  mirrorToFirestore((fb) => fb.deleteSyncDataFromFirestore(syncKey));
 }
 
 /**
@@ -341,13 +330,16 @@ export async function getAuthTokens() {
   }
 }
 
-export async function saveAuthTokens({ accessToken, refreshToken }) {
+export async function saveAuthTokens({ accessToken, refreshToken }, expected = null) {
   try {
     const existing = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}');
+    if (expected && (existing.user?.userId !== expected.user?.userId
+      || existing.accessToken !== expected.accessToken || existing.refreshToken !== expected.refreshToken)) return false;
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
       ...existing, accessToken, refreshToken,
     }));
-  } catch { /* storage full or disabled */ }
+    return true;
+  } catch { return false; /* storage full or disabled */ }
 }
 
 export async function clearAuth() {
@@ -459,7 +451,19 @@ export async function deleteLessonProgress(lessonId) {
 // (issues #191, #193). One image per record keeps every record small.
 
 export async function saveScreenshot(key, dataUrl) {
-  return putSyncData(`screenshot:${key}`, dataUrl);
+  const syncKey = `screenshot:${key}`;
+  if (await putSyncData(syncKey, dataUrl, { createOnly: true })) return true;
+  // Screenshot identities are immutable. A partial migration or lost ACK can
+  // leave an identical image on the server. Verify that exact content with a
+  // fresh read, never the optimistic cache, and never overwrite a collision.
+  try {
+    const response = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`);
+    if (!response.ok) return false;
+    const item = await response.json();
+    if (item.data !== dataUrl) return false;
+    _populateCache(syncKey, item.data, item.version);
+    return true;
+  } catch { return false; }
 }
 
 export async function getScreenshot(key) {

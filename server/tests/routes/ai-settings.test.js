@@ -1,3 +1,4 @@
+import { currentClientHeaders } from '../helpers/clientCompatibility.js';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
@@ -17,7 +18,7 @@ async function request(method, path, body, role = 'admin') {
   const token = await signAccessToken(`usr_${role}`, role);
   return app.request(path, {
     method,
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { ...currentClientHeaders, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
@@ -161,7 +162,7 @@ describe('admin AI settings', () => {
           controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'));
           signal.addEventListener('abort', () => { wasAborted = true; controller.error(signal.reason); }, { once: true });
         },
-      }), { headers: { 'Content-Type': 'text/event-stream' } });
+      }), { headers: { ...currentClientHeaders, 'Content-Type': 'text/event-stream' } });
     };
     const res = await request('POST', '/v1/ai/messages', { model: 'qwen3-vl-235b', stream: true, messages: [{ role: 'user', content: 'Hello' }] });
     const reader = res.body.getReader();

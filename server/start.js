@@ -3,6 +3,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { CLIENT_COMPATIBILITY_HEADERS } from './src/middleware/clientCompatibility.js';
 import { installShutdown } from './src/lib/shutdown.js';
 
 if (!['postgres', 'dynamodb'].includes(process.env.DB_BACKEND)) {
@@ -48,7 +49,7 @@ await pluginRegistry.boot();
 const app = new Hono();
 app.use('*', cors({ origin: process.env.APP_URL,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
   exposeHeaders: ['X-Plato-Revision', 'X-Plato-Commit'],
 }));
 app.use('*', async (c, next) => {

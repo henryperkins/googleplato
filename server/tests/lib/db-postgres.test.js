@@ -152,7 +152,23 @@ test('PostgreSQL persistence and concurrent writers', { skip: !process.env.POSTG
 
   await t.test('production bootstrap keeps its password out of runtime configuration on every start', async () => {
     const start = password => runProduction(`
+      import assert from 'node:assert/strict';
+      import { Server } from 'node:net';
+      import { once } from 'node:events';
+      const originalListen = Server.prototype.listen;
+      let listener;
+      Server.prototype.listen = function (...args) { listener = this; return originalListen.apply(this, args); };
       await import('./start.js');
+      if (!listener.listening) await once(listener, 'listening');
+      const preflight = await fetch('http://127.0.0.1:' + listener.address().port + '/v1/sync/profile', {
+        method: 'OPTIONS', headers: { Origin: 'https://example.test',
+          'Access-Control-Request-Method': 'PUT',
+          'Access-Control-Request-Headers': 'X-Plato-Client-Protocol,X-Plato-Client-Epoch,Content-Type,Authorization' },
+      });
+      assert.equal(preflight.status, 204);
+      const allowed = preflight.headers.get('access-control-allow-headers').toLowerCase();
+      assert.ok(allowed.includes('x-plato-client-protocol'));
+      assert.ok(allowed.includes('x-plato-client-epoch'));
       const config = await import('./src/config.js');
       console.log(JSON.stringify({ event: 'bootstrap_credentials',
         environmentRetainsPassword: !!process.env.ADMIN_PASSWORD,

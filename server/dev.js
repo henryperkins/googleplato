@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { CLIENT_COMPATIBILITY_HEADERS } from './src/middleware/clientCompatibility.js';
 
 // Point DynamoDB at local instance
 process.env.AWS_REGION = 'us-east-1';
@@ -28,7 +29,7 @@ const server = new Hono();
 server.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
 }));
 
 // Admin bootstrap

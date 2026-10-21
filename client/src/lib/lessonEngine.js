@@ -18,6 +18,7 @@ import { authenticatedFetch } from '../../js/auth.js';
 import { compressImageDataUrl } from './imageCompression.js';
 import { readLessonState, persistLessonTurn, assertTurnOwner } from '../../js/turnPersistence.js';
 import { generatedTurns } from './generatedTurns.js';
+import { lessonDrafts } from './lessonDrafts.js';
 import { ensureProfileExists, updateProfileOnCompletionInBackground, updateProfileFromObservation } from './profileQueue.js';
 import { updateCourseProgressOnCompletionInBackground } from './courseProgressQueue.js';
 import { LESSON_PHASES, MSG_TYPES, MAX_EXCHANGES } from './constants.js';
@@ -182,6 +183,21 @@ export async function retryLessonSave(lessonId) {
   const entry = generatedTurns.read(user?.userId, lessonId);
   if (!entry) throw new Error('There is no retained reply to save. Reload the conversation.');
   return saveGeneratedTurn(entry);
+}
+
+// No reads from the API, inference, tag processing, or automatic save occurs
+// here. Only a verified local copy permits the UI's user-initiated reload.
+export async function prepareLessonUpgrade(userId, lessonId, draft) {
+  await assertTurnOwner(userId);
+  if (generations.size) throw new Error('Wait for the current reply to finish before updating this page.');
+  // Navigation and account changes can leave other lessons alive in memory.
+  // A reload destroys this whole page, so verify every retained local copy.
+  generatedTurns.read(userId, lessonId);
+  const replySafe = generatedTurns.preserveAllForReload();
+  lessonDrafts.write(userId, lessonId, draft);
+  const draftSafe = lessonDrafts.preserveAllForReload();
+  await assertTurnOwner(userId);
+  return replySafe && draftSafe;
 }
 
 export async function discardLessonReply(lessonId) {

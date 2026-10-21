@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 import { useApp } from '../contexts/AppContext.jsx';
@@ -6,6 +6,8 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { useStreamedText } from '../hooks/useStreamedText.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeyboardOffset.js';
+import { useLessonDraft } from '../hooks/useLessonDraft.js';
+import { isClientUpgradeRequired, onClientUpgrade } from '../../js/clientCompatibility.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
 import {
@@ -73,6 +75,8 @@ function LessonConversation() {
   const [error, setError] = useState('');
   const [persistence, setPersistence] = useState(null);
   const [resuming, setResuming] = useState(true);
+  const upgradeRequired = useSyncExternalStore(onClientUpgrade, isClientUpgradeRequired, () => false);
+  const [upgradeError, setUpgradeError] = useState('');
   const savingRef = useRef(false);
   const pendingSave = !!persistence && persistence.status !== 'saved';
   // A failed lesson start has no conversation to fall back on, so it offers
@@ -97,28 +101,19 @@ function LessonConversation() {
   const [showObjectives, setShowObjectives] = useState(false);
   const objectivesTitleRef = useRef(null);
   const keyboardOffset = useVisualViewportKeyboardOffset();
-  const draftStorageKey = lessonGroupId ? `plato_compose_draft:${lessonGroupId}` : null;
-  const [composeText, setComposeText] = useState(() => {
-    if (!draftStorageKey) return '';
-    try { return sessionStorage.getItem(draftStorageKey) || ''; } catch { return ''; }
-  });
-  const [composeImages, setComposeImages] = useState([]);
-  const [composeLinks, setComposeLinks] = useState([]);
+  const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
+  const { text: composeText, images: composeImages, links: composeLinks } = draft;
 
-  // Sync draft text when switching between lessons and persist edits to sessionStorage
-  // so mobile background tab discards do not wipe an in-progress reflection.
-  useEffect(() => {
-    if (!draftStorageKey) return;
-    try { setComposeText(sessionStorage.getItem(draftStorageKey) || ''); } catch { setComposeText(''); }
-  }, [draftStorageKey]);
-
-  useEffect(() => {
-    if (!draftStorageKey) return;
+  const reloadForUpgrade = async () => {
+    if (loading || resuming || savingRef.current || impersonating) return;
+    setUpgradeError('');
     try {
-      if (composeText) sessionStorage.setItem(draftStorageKey, composeText);
-      else sessionStorage.removeItem(draftStorageKey);
-    } catch { /* ignore storage quota errors */ }
-  }, [draftStorageKey, composeText]);
+      const safe = await engine.prepareLessonUpgrade(user?.userId, lessonGroupId, draft);
+      if (activeView.current !== viewKey) return;
+      if (safe) window.location.reload();
+      else setUpgradeError('Keep this tab open. Your reply or draft could not be stored for reload. Copy your work before leaving.');
+    } catch (error) { setUpgradeError(error.message); }
+  };
 
   useEffect(() => {
     if (displayText === null && pendingAfterStreamRef.current) {
@@ -314,7 +309,7 @@ function LessonConversation() {
       setStreamingText(null);
       setLoading('');
     }
-  }, [lessonGroupId, lesson, viewKey]);
+  }, [lessonGroupId, lesson, viewKey, setComposeText, setComposeImages, setComposeLinks]);
 
   const retrySave = async () => {
     if (savingRef.current) return;
@@ -423,7 +418,7 @@ function LessonConversation() {
       </div>
     );
   }
-  const busy = !!loading || pendingSave || resuming;
+  const busy = !!loading || pendingSave || resuming || upgradeRequired;
   const composePlaceholder = phase === LESSON_PHASES.COMPLETED
     ? 'Share feedback about this lesson...'
     : 'Chat with your coach...';
@@ -529,6 +524,13 @@ function LessonConversation() {
         </div>
       </div>
 
+      {upgradeRequired && (
+        <div className="space-y-2 border-b px-4 py-3" role="alert">
+          <p className="text-sm">Update this page to continue. Your retained reply will be restored so you can retry saving it without generating another reply.</p>
+          <Button variant="outline" size="sm" onClick={reloadForUpgrade} disabled={!!loading || resuming || impersonating}>Preserve work and reload</Button>
+          {upgradeError && <p className="text-sm text-destructive">{upgradeError}</p>}
+        </div>
+      )}
       <div className="flex-1">
       {resuming && !loading ? (
         <p className="px-4 py-8 text-sm text-muted-foreground" role="status">Loading your saved conversation…</p>
@@ -549,7 +551,7 @@ function LessonConversation() {
               )}
               {pendingSave && (
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={retrySave} disabled={!!loading}>
+                  <Button variant="outline" size="sm" onClick={retrySave} disabled={!!loading || upgradeRequired}>
                     {loading === 'saving' ? 'Saving…' : 'Retry saving'}
                   </Button>
                   <Button variant="ghost" size="sm" disabled={!!loading} onClick={async () => {
@@ -567,7 +569,7 @@ function LessonConversation() {
             <div className="space-y-2 px-3 py-2">
               <p className="text-sm text-destructive" role="alert">{error}</p>
               {startFailed && (
-                <Button variant="outline" size="sm" onClick={retryStart}>Try again</Button>
+                <Button variant="outline" size="sm" onClick={retryStart} disabled={upgradeRequired}>Try again</Button>
               )}
             </div>
           )}

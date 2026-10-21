@@ -1,3 +1,4 @@
+import { currentClientHeaders } from '../helpers/clientCompatibility.js';
 import { describe, it, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
@@ -47,7 +48,7 @@ describe('POST /v1/sync/lesson-started', () => {
 
     const req = new Request('http://localhost/v1/sync/lesson-started', {
       method: 'POST',
-      headers: {
+      headers: { ...currentClientHeaders,
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
@@ -103,7 +104,7 @@ describe('POST /v1/sync/lesson-started', () => {
 
     const req = new Request('http://localhost/v1/sync/lesson-started', {
       method: 'POST',
-      headers: {
+      headers: { ...currentClientHeaders,
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
@@ -143,7 +144,7 @@ describe('POST /v1/sync/lesson-started', () => {
 
     const req = new Request('http://localhost/v1/sync/lesson-started', {
       method: 'POST',
-      headers: {
+      headers: { ...currentClientHeaders,
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
@@ -169,7 +170,7 @@ describe('POST /v1/sync/lesson-started', () => {
   it('requires lessonId, lesson, and lessonKB', async () => {
     const req = new Request('http://localhost/v1/sync/lesson-started', {
       method: 'POST',
-      headers: {
+      headers: { ...currentClientHeaders,
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
@@ -201,7 +202,7 @@ describe('POST /v1/sync/lesson-started', () => {
 
     const req = new Request('http://localhost/v1/sync/lesson-started', {
       method: 'POST',
-      headers: {
+      headers: { ...currentClientHeaders,
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },

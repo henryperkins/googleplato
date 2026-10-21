@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { handle, streamHandle } from 'hono/aws-lambda';
 import { cors } from 'hono/cors';
+import { CLIENT_COMPATIBILITY_HEADERS } from './middleware/clientCompatibility.js';
 import health from './routes/health.js';
 import auth from './routes/auth.js';
 import me from './routes/me.js';
@@ -26,7 +27,7 @@ const server = new Hono();
 server.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
 }));
 
 // First-request initialization: admin bootstrap, content seeding

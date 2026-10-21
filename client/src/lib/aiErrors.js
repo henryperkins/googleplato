@@ -45,6 +45,7 @@ const withPeriod = (s) => (/[.!?]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 export function aiErrorKind(err) {
   if (!err) return 'unknown';
   switch (err.code) {
+    case 'client_upgrade_required': return 'upgrade';
     case 'ai_unavailable': return 'unavailable';
     case 'ai_rate_limited':
     case 'ai_overloaded': return 'busy';
@@ -76,6 +77,7 @@ export function aiErrorKind(err) {
 }
 
 function describe(kind, s) {
+  if (kind === 'upgrade') return 'Update this page before continuing. Keep your unsaved work until a recovery copy is confirmed.';
   const who = s.subject;
   const act = s.action;
   const retry = s.retry || DEFAULT_RETRY;

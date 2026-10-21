@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { CLIENT_COMPATIBILITY_HEADERS } from './src/middleware/clientCompatibility.js';
 
 // Load .env file if present
 const envPath = new URL('.env', import.meta.url).pathname;
@@ -50,7 +51,7 @@ const server = new Hono();
 server.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
 }));
 
 // Admin bootstrap

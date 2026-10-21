@@ -1,3 +1,4 @@
+import { currentClientHeaders } from '../helpers/clientCompatibility.js';
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
@@ -11,7 +12,7 @@ async function authedReq(app, method, path, body) {
   const token = await signAccessToken('usr_test', 'user');
   return app.request(path, {
     method,
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    headers: { ...currentClientHeaders, 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: body ? JSON.stringify(body) : undefined,
   });
 }
@@ -19,7 +20,7 @@ async function authedReq(app, method, path, body) {
 function unauthReq(app, method, path, body) {
   return app.request(path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...currentClientHeaders, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
 }

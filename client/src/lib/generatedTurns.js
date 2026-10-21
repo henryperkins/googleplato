@@ -30,6 +30,25 @@ export function createGeneratedTurnStore({ storage = () => sessionStorage } = {}
       } catch { /* No usable recovery record. */ }
       return null;
     },
+    preserveForReload(userId, lessonId) {
+      const entry = this.read(userId, lessonId);
+      if (!entry) return true;
+      entry.persistedLocally = false;
+      try {
+        const serialized = JSON.stringify(entry.turn);
+        const target = storage();
+        target.setItem(keyFor(userId, lessonId), serialized);
+        entry.persistedLocally = target.getItem(keyFor(userId, lessonId)) === serialized;
+      } catch { /* Keep the only copy in memory; the caller must not reload. */ }
+      return entry.persistedLocally;
+    },
+    preserveAllForReload() {
+      let safe = true;
+      for (const { turn } of memory.values()) {
+        if (!this.preserveForReload(turn.userId, turn.lessonId)) safe = false;
+      }
+      return safe;
+    },
     clear(userId, lessonId, turnId) {
       const key = keyFor(userId, lessonId);
       if (this.read(userId, lessonId)?.turn.turnId !== turnId) return;

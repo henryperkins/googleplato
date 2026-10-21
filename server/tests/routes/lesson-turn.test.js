@@ -1,3 +1,4 @@
+import { currentClientHeaders } from '../helpers/clientCompatibility.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -17,7 +18,7 @@ const turn = () => ({
 });
 async function request(method, body, suffix = '') {
   return app.request(`/v1/sync/lesson-turn/lesson-1${suffix}`, {
-    method, headers: { Authorization: `Bearer ${await signAccessToken(userId, 'user')}`, 'Content-Type': 'application/json' },
+    method, headers: { ...currentClientHeaders, Authorization: `Bearer ${await signAccessToken(userId, 'user')}`, 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 }
@@ -102,7 +103,7 @@ test('a lost opening acknowledgement cannot resurrect a lesson reset in another 
   assert.equal((await request('POST', opening)).status, 200);
   for (const name of ['lessonKB', 'messages']) {
     const response = await app.request(`/v1/sync/${name}:lesson-1`, {
-      method: 'DELETE', headers: { Authorization: `Bearer ${await signAccessToken(userId, 'user')}` },
+      method: 'DELETE', headers: { ...currentClientHeaders, Authorization: `Bearer ${await signAccessToken(userId, 'user')}` },
     });
     assert.equal(response.status, 200);
   }
