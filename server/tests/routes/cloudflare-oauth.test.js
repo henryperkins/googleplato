@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { Hono } from 'hono';
 
 const directory = mkdtempSync(join(tmpdir(), 'plato-oauth-test-'));
@@ -118,6 +119,24 @@ describe('Cloudflare browser connection', () => {
       assert.equal((await app.request(base + path + suffix, { method })).status, 401);
     }
     assert.equal(calls.length, 0);
+  });
+
+  it('rejects malformed connection requests without changing an existing connection', async () => {
+    await connect();
+    const before = await settings();
+    const providerCalls = calls.length;
+    const token = await signAccessToken('usr_admin', 'admin');
+    for (const [method, suffix] of [['POST', '/account'], ['DELETE', '']]) {
+      for (const body of ['', '{', 'null', '[]', '"invalid"']) {
+        const response = await app.request(base + path + suffix, {
+          method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body,
+        });
+        assert.equal(response.status, 400, `${method} ${suffix}: ${body}`);
+        assert.equal((await response.json()).code, 'invalid-request');
+      }
+    }
+    assert.deepEqual(await settings(), before);
+    assert.equal(calls.length, providerCalls);
   });
 
   it('starts a browser-bound flow with PKCE and fixed redirect and permissions', async () => {
@@ -292,6 +311,35 @@ describe('Cloudflare browser connection', () => {
     assert.equal(new URLSearchParams(refreshes[0].options.body).get('refresh_token'), 'oauth-refresh-do-not-return');
     assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer rotated-access');
     assert.doesNotMatch(JSON.stringify(await db.getAllSyncData('_integrations')), /rotated-access|rotated-refresh/);
+  });
+
+  it('stops waiting for another refresh when the elapsed-time budget is exhausted', async () => {
+    tokenReply.expires_in = 90;
+    await connect();
+    const now = Date.now() + 60_000;
+    const row = (await db.getAllSyncData('_integrations')).find(item => item.data.status === 'connected');
+    await db.putSyncData('_integrations', row.dataKey, {
+      ...row.data, refreshLease: { id: 'another-request', until: now + 30_000 },
+    }, row.version, { strictVersion: true });
+    mock.method(Date, 'now', () => now);
+    let elapsed = 0;
+    let connectionReads = 0;
+    mock.method(performance, 'now', () => elapsed);
+    const originalRead = db.getSyncData.bind(db);
+    mock.method(db, 'getSyncData', async (...args) => {
+      const data = await originalRead(...args);
+      if (args[0] === '_integrations' && args[1] === row.dataKey) {
+        connectionReads++;
+        elapsed += 16_000;
+        if (connectionReads > 1) throw new Error('Refresh wait exceeded its elapsed-time budget.');
+      }
+      return data;
+    });
+    assert.equal((await infer()).status, 503);
+    assert.equal(connectionReads, 1);
+    assert.equal(calls.filter(call => call.url.pathname.endsWith('/token')).length, 1);
+    mock.restoreAll();
+    assert.equal((await db.getSyncData('_integrations', row.dataKey)).data.status, 'connected');
   });
 
   it('disconnects before revocation and an older callback cannot restore the connection', async () => {

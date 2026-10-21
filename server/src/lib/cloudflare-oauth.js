@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { performance } from 'node:perf_hooks';
 import db from './db.js';
 import { APP_URL } from '../config.js';
 
@@ -296,7 +297,8 @@ export async function cloudflareCredentialStatus(userId) {
 async function oauthCredentials() {
   // A DB lease coordinates refresh-token rotation across processes, Lambda
   // functions and Cloud Run instances. Never retry a possibly rotated token.
-  for (let attempt = 0; attempt < 160; attempt++) {
+  const deadline = performance.now() + 15_000;
+  for (let attempt = 0; attempt < 160 && performance.now() < deadline; attempt++) {
     const connection = await read(CONNECTION_KEY);
     if (!connection || connection.data.status === 'disconnected') return null;
     if (connection.data.status !== 'connected' || connection.data.clientId !== configuration().clientId) throw failure('reconnect-required', 503);

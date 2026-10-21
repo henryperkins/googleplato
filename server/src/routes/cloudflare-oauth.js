@@ -24,6 +24,16 @@ oauth.onError((error, c) => {
   return c.json({ error: known ? error.message : 'Cloudflare could not be connected. Try again.', code: known ? error.code : 'failed' }, known ? error.status : 500);
 });
 
+async function connectionBody(c) {
+  try {
+    const body = await c.req.json();
+    if (body && typeof body === 'object' && !Array.isArray(body)) return body;
+  } catch { /* Invalid JSON must not change the classroom connection. */ }
+  throw Object.assign(new Error('Send a valid Cloudflare connection request.'), {
+    name: 'CloudflareOAuthError', code: 'invalid-request', status: 400,
+  });
+}
+
 oauth.post('/v1/admin/ai-settings/cloudflare/connect', async c => {
   const { authorizationUrl, cookie, cookieName, secure } = await beginCloudflareOAuth(c.get('userId'));
   setCookie(c, cookieName, cookie, { httpOnly: true, secure, sameSite: 'Lax', path: cookiePath, maxAge: 600 });
@@ -49,12 +59,12 @@ oauth.get('/v1/oauth/cloudflare/callback', async c => {
 });
 
 oauth.post('/v1/admin/ai-settings/cloudflare/account', async c => {
-  await selectCloudflareAccount(c.get('userId'), await c.req.json());
+  await selectCloudflareAccount(c.get('userId'), await connectionBody(c));
   return c.json({ ok: true });
 });
 
 oauth.delete('/v1/admin/ai-settings/cloudflare', async c => {
-  const { version } = await c.req.json();
+  const { version } = await connectionBody(c);
   return c.json({ ok: true, ...await disconnectCloudflareOAuth(version) });
 });
 
