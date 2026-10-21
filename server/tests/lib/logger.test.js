@@ -14,6 +14,21 @@ describe('logger', () => {
     delete process.env.LOG_BUFFER_SIZE;
   });
 
+  it('emits Cloud Logging severity and an unforgeable event envelope', () => {
+    const lines = [];
+    console.warn = line => lines.push(line);
+    try {
+      logger.warn('sync_conflict', { code: 'forged', level: 'info', severity: 'INFO', logId: 'forged', reason: 'version' });
+    } finally { console.warn = () => {}; }
+    const payload = JSON.parse(lines[0]);
+    assert.equal(payload.code, 'sync_conflict');
+    assert.equal(payload.event, 'sync_conflict');
+    assert.equal(payload.severity, 'WARNING');
+    assert.notEqual(payload.logId, 'forged');
+    assert.equal(payload.reason, 'version');
+    assert.ok(Number.isFinite(Date.parse(payload.timestamp)));
+  });
+
   it('stores entries in the ring buffer with stable code', () => {
     logger.error('unhandled_error', { path: '/x' });
     logger.warn('seed_failed', { error: 'oops' });

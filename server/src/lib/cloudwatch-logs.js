@@ -2,12 +2,11 @@
 // silently — a failure populates `error` in the returned shape so callers
 // (plato-pilot in particular) can treat the outage as a distinct signal.
 
-// CloudWatch filter patterns must have at least one required term; a pattern
-// where every term is optional (prefixed with `?`) matches ALL events. We run
-// two independent queries and merge — one for generic ERROR lines (which also
-// matches logger's structured emissions that Lambda prefixes with "ERROR"),
-// one for Lambda runtime timeouts that don't carry an ERROR prefix.
-const FILTER_PATTERNS = ['ERROR', '"Task timed out"'];
+// Every pattern has a required term. An all-optional pattern matches all logs.
+// Lambda prefixes console.error with ERROR and console.warn with WARN. Query
+// save codes explicitly so handled rejections remain visible outside the buffer.
+const FILTER_PATTERNS = ['ERROR', '"Task timed out"', '"client_save_recovered"',
+  '"sync_conflict"', '"sync_validation_failure"', '"client_save_unconfirmed"'];
 
 // FilterLogEvents page size, and a hard cap on total events pulled per
 // group+pattern query. The query is FULLY paginated (see filterAllPages) so
@@ -79,7 +78,7 @@ export function normalizeEvent(event, logGroupName) {
       // dedupe against the in-process ring buffer.
       logId: logId || `cw_${event.eventId}`,
       ts,
-      level: level === 'error' || level === 'warn' ? level : 'error',
+      level: ['error', 'warn', 'info'].includes(level) ? level : 'error',
       code,
       meta: { ...meta, logGroup: logGroupName, logStream: event.logStreamName },
       source: 'cloudwatch',

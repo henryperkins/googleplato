@@ -25,6 +25,7 @@ async function loadClient(provider = 'firebase') {
   let rejectWrites = false;
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url, method: options.method || 'GET', body: options.body && JSON.parse(options.body) });
+    if (url === '/v1/client-events') return json({ accepted: true }, 202);
     if (url === '/v1/auth/firebase') return json({ accessToken: 'google-access', refreshToken: 'google-refresh', user });
     if (url === '/v1/sync/status') return json({ protocol: '1', epoch: 'retired' });
     if (url === '/v1/sync') return json([...records].map(([dataKey, item]) => ({ dataKey, ...item })));
@@ -63,7 +64,7 @@ async function loadClient(provider = 'firebase') {
     subscribeToFirestoreSync: () => { effects.push('subscribe'); return () => {}; },
   });
   const modules = new Map();
-  for (const file of ['auth.js', 'storage.js', 'sync.js', 'clientCompatibility.js']) {
+  for (const file of ['auth.js', 'storage.js', 'sync.js', 'clientCompatibility.js', 'saveObservability.js']) {
     const url = new URL(`../../js/${file}`, import.meta.url);
     const source = await readFile(url, 'utf8');
     modules.set(url.href, new SourceTextModule(source, {

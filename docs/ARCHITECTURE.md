@@ -27,6 +27,18 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
 - Classroom branding (colors, logo, name) stored in `_system` settings, fetched
   via `/v1/branding` (public, no auth).
 
+## Save observability
+
+Cloud Run's structured JSON process logs are the durable operational record.
+Handled sync conflicts and validation failures, plus authenticated client reports
+of unconfirmed/recovered saves, are distinct from unexpected server errors.
+The client metadata outbox is bounded and cannot block persistence or trigger
+inference. `scripts/log-watch.js` reads Cloud Logging across all revisions using
+ADC, fully paginates, and fails explicitly on incomplete reads. Its default is
+read-only; it needs neither app-admin credentials nor hosted GitHub Actions.
+See [save observability](SAVE_OBSERVABILITY.md) for schemas, delivery limits,
+configuration, monitoring exit codes, and the deployment boundary.
+
 ## Google sign-in and canonical server storage
 
 Google sign-in uses Firebase Auth's popup. The server verifies the Firebase ID

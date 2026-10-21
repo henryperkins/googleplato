@@ -7,11 +7,14 @@ import { isPublicLessonRecord } from '../lib/lesson-visibility.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
 import { logger } from '../lib/logger.js';
+import { observeSyncSave } from '../middleware/saveObservability.js';
 
 const sync = new Hono();
 
 sync.use('/v1/sync', authenticate);
 sync.use('/v1/sync/*', authenticate);
+sync.use('/v1/sync', observeSyncSave);
+sync.use('/v1/sync/*', observeSyncSave);
 sync.use('/v1/sync', requireCurrentClient);
 sync.use('/v1/sync/*', requireCurrentClient);
 

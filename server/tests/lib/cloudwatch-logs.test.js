@@ -150,3 +150,30 @@ describe('logGroupPrefix', () => {
     assert.equal(logGroupPrefix(), '/aws/lambda/plato-playground-');
   });
 });
+
+it('preserves informational recovery severity from structured output', () => {
+  const entry = normalizeEvent({ eventId: 'recovery', timestamp: Date.now(), message: JSON.stringify({ code: 'client_save_recovered', level: 'info', severity: 'INFO', logId: 'saved' }) }, 'group');
+  assert.equal(entry.level, 'info');
+});
+
+it('retrieves new save failures emitted with Lambda WARN prefix', async () => {
+  const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
+  const { fetchCloudWatchLogs } = await import('../../src/lib/cloudwatch-logs.js');
+  const original = CloudWatchLogsClient.prototype.send;
+  const region = process.env.AWS_REGION;
+  process.env.AWS_REGION = 'us-east-1';
+  const codes = ['sync_conflict', 'sync_validation_failure', 'client_save_unconfirmed'];
+  const events = codes.map((code, i) => ({ eventId: String(i), timestamp: Date.now(), message: `WARN ${JSON.stringify({ code, level: 'warn', severity: 'WARNING', logId: String(i) })}` }));
+  CloudWatchLogsClient.prototype.send = async function (command) {
+    if (command.constructor.name === 'DescribeLogGroupsCommand') return { logGroups: [{ logGroupName: '/aws/lambda/plato-api' }] };
+    return { events: events.filter(event => event.message.includes(command.input.filterPattern.replaceAll('"', ''))) };
+  };
+  try {
+    const result = await fetchCloudWatchLogs({ since: new Date(Date.now() - 60000).toISOString() });
+    assert.equal(result.error, null);
+    assert.deepEqual(result.entries.map(entry => entry.code).sort(), codes.sort());
+  } finally {
+    CloudWatchLogsClient.prototype.send = original;
+    if (region === undefined) delete process.env.AWS_REGION; else process.env.AWS_REGION = region;
+  }
+});

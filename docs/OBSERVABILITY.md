@@ -1,5 +1,14 @@
 # Error Reporting & Alerting
 
+**Current Cloud Run operations:** use [Save observability](SAVE_OBSERVABILITY.md).
+It defines structured save failures/recoveries, the direct Cloud Logging reader,
+and read-only `log-watch` usage with ADC. Hosted GitHub Actions are permanently
+unavailable for this deployment. Monitoring requires a local or external
+scheduler; issue creation is opt-in with `--create-issue`. The Lambda/CloudWatch
+and scheduled Actions pipeline below is historical context, not the active
+Cloud Run monitoring setup. A protected conflict or unconfirmed save is a
+signal to inspect, not proof of irrecoverable data loss.
+
 How plato notices when something is wrong, and the framework for adding new
 checks. Read this before adding any new error detection or alert.
 
