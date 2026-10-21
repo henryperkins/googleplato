@@ -30,8 +30,9 @@ export default function Privacy() {
           <section>
             <h2 className="text-lg font-semibold mb-2">How Your Data is Stored</h2>
             <p className="text-muted-foreground mb-2">
-              plato stores your data securely in Amazon DynamoDB. Your account requires login, and all your
-              lesson data is stored server-side.
+              This deployment runs on Google Cloud Run and stores your account and lesson data in
+              PostgreSQL on Google Cloud SQL. The database is separate from the application instances,
+              so replacing an instance does not remove your saved work. Login is required to access your data.
             </p>
             <ul className="list-disc pl-6 space-y-1 text-muted-foreground">
               <li>
@@ -52,19 +53,24 @@ export default function Privacy() {
                 and stored as a separate record referenced by the conversation. Images are not embedded directly
                 in messages to stay within database size limits.
               </li>
+              <li>
+                <strong>Browser recovery:</strong> Sign-in tokens are stored in your browser. Unsent drafts,
+                attachments, and generated replies awaiting a confirmed save are kept in this tab’s session
+                storage so you can reload and retry saving. Keep the tab open if recovery storage is unavailable.
+              </li>
             </ul>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold mb-2">Google Sign-In and Firebase</h2>
             <p className="text-muted-foreground mb-2">
-              If you sign in with Google, plato uses Google Firebase Authentication to verify your sign-in. For
-              those accounts, plato also keeps a copy of your account details (name, username, email, role, and
-              group) and your lesson data (conversations, progress, learner profile, and screenshots) in Google
-              Cloud Firestore, alongside the main copy in Amazon DynamoDB.
+              If you sign in with Google, plato uses Firebase Authentication to verify your sign-in,
+              then creates a plato session. Your account and lesson data use the same server storage
+              as password sign-ins.
             </p>
             <p className="text-muted-foreground">
-              If you sign in with an email or username and password, plato doesn’t use Firebase.
+              Password sign-in and password resets are handled by plato’s server. Firebase Authentication
+              is used only for Google sign-in and sign-out.
             </p>
           </section>
 
@@ -112,9 +118,8 @@ export default function Privacy() {
           <section>
             <h2 className="text-lg font-semibold mb-2">Data Retention</h2>
             <p className="text-muted-foreground">
-              Your account, lessons, and chat history are retained as long as your account is active. If you wish
-              to delete your data, contact your plato administrator. If you signed in with Google, ask them to
-              delete the Firestore copy too; it isn’t removed along with your plato account.
+              Your account, lessons, and chat history are retained as long as your account is active.
+              To request deletion, contact your plato administrator.
             </p>
           </section>
 

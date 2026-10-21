@@ -1,4 +1,4 @@
-/** Firebase authentication, kept separate from the larger Firestore SDK. */
+/** Firebase Authentication for Google sign-in and sign-out. */
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
@@ -13,12 +13,6 @@ export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 let pendingSignOut = null;
-
-/** Wait for Firebase's persisted Google session before reading its user. */
-export async function restoredUser() {
-  await auth.authStateReady();
-  return auth.currentUser;
-}
 
 export async function signInWithGooglePopup() {
   if (pendingSignOut) {
@@ -36,6 +30,9 @@ export function signOutFirebase() {
   // safely by the outer logout deadline.
   pendingSignOut = (async () => {
     try {
+      // After reload, Firebase Auth may not have restored the persisted user
+      // yet. Keep the sign-out gate until that user is known and cleared.
+      await auth.authStateReady();
       if (auth.currentUser) await firebaseSignOut(auth);
     } catch { /* Non-fatal on logout. */ }
   })();

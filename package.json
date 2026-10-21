@@ -17,6 +17,7 @@
     "dev:server": "cd server && npm run dev:sqlite",
     "test:client": "cd client && npm test",
     "test:server": "cd server && npm test",
+    "test:firestore": "node --test client/tests/firestore-rules.test.js",
     "test": "npm run test:client && npm run test:server",
     "lint": "npm --prefix client run lint && npm --prefix server run lint",
     "deploy": "npm run build:client && npm run build:server && cd server && sam deploy"
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "@firebase/rules-unit-testing": "^6.0.0",
     "eslint": "^10.13.0"
   }
 }

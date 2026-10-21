@@ -87,12 +87,13 @@ concurrent optimistic writes, a losing competing turn, rollback after the second
 write fails, reset invalidation, same-version content edits, and replacing all
 application connections. Without `POSTGRES_TEST_URL`, that suite is explicitly
 skipped; mock-based tests alone do not qualify a new PostgreSQL deployment.
-The test workflow supplies PostgreSQL 17 so this suite runs in CI. Test and lint
-jobs use Node 24 and install from the repository's root dependency lockfile.
+Use Node 24 and install from the repository's root dependency lockfile. Run the
+PostgreSQL suite against an isolated local PostgreSQL 17 instance.
 Additional regression checks cover simultaneous content seeding, bootstrap
 credential removal, reset-token rejection by refresh lookup, and bounded server
-shutdown. An account-level GitHub billing lock can still prevent jobs from
-starting; record local results separately from hosted check status.
+shutdown. GitHub-hosted Actions are permanently unavailable for this repository.
+Use local validation and independent review; do not wait for, rerun, or
+investigate hosted jobs as a release prerequisite.
 
 For release verification, use a synthetic lesson and browser-intercepted model
 response while retaining real authenticated server writes. Force a save failure,
@@ -107,8 +108,10 @@ screenshot. Remove only the explicitly created verification records afterward.
 
 Use a clean database for this deployment; the operator declared the previous
 SQLite database disposable test data. Do not import old container database files
-or backfill from Firestore. Firestore retirement is a separate planned change;
-this release preserves the existing authentication and mirror behavior.
+or backfill from Firestore. Firebase Auth remains the Google sign-in boundary;
+learner data stays exclusively in the server database. The
+[Firestore retirement runbook](FIRESTORE_RETIREMENT.md) records the named-database
+scope and application/rules publication steps.
 
 Cloud SQL is independent of Cloud Run container lifetimes. Enable daily backups,
 seven days of point-in-time recovery and deletion protection. A small zonal shared

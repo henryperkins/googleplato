@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { SourceTextModule, SyntheticModule } from 'node:vm';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 
 function deferred() {
   let resolve;
@@ -10,10 +11,14 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-async function loadAuth() {
+async function loadAuth({ restoration } = {}) {
   const cleanup = deferred();
   const firebaseUser = { uid: 'b', getIdToken: async () => 'id-token-b' };
-  const auth = { currentUser: { uid: 'a' } };
+  const auth = {
+    currentUser: restoration ? null : { uid: 'a' },
+    authStateReady: () => restoration?.promise || Promise.resolve(),
+  };
+  if (restoration) void restoration.promise.then(() => { auth.currentUser = { uid: 'a' }; }, () => {});
   let popupCalls = 0;
   let signOutCalls = 0;
   const sdk = {
@@ -70,6 +75,7 @@ test('concurrent sign-outs share cleanup until its actual completion', async () 
   const first = api.signOutFirebase();
   const second = api.signOutFirebase();
   try {
+    await nextTurn();
     assert.equal(counts().signOutCalls, 1);
     await assert.rejects(api.signInWithGooglePopup());
   } finally {
@@ -78,6 +84,38 @@ test('concurrent sign-outs share cleanup until its actual completion', async () 
   }
   await api.signInWithGooglePopup();
   assert.equal(counts().popupCalls, 1);
+});
+
+test('Google sign-out waits for restoration before clearing the persisted session', async () => {
+  const restoration = deferred();
+  const { api, cleanup, auth, counts } = await loadAuth({ restoration });
+  const signOut = api.signOutFirebase();
+  try {
+    await nextTurn();
+    assert.equal(counts().signOutCalls, 0);
+    await assert.rejects(api.signInWithGooglePopup(), /sign-out.*finishing.*try again/i);
+    restoration.resolve();
+    await nextTurn();
+    assert.equal(counts().signOutCalls, 1);
+    await assert.rejects(api.signInWithGooglePopup(), /sign-out.*finishing.*try again/i);
+  } finally {
+    restoration.resolve();
+    cleanup.resolve();
+    await signOut;
+  }
+  assert.equal(auth.currentUser, null);
+  assert.equal((await api.signInWithGooglePopup()).idToken, 'id-token-b');
+});
+
+test('failed Firebase restoration releases the sign-out gate for another attempt', async () => {
+  const restoration = deferred();
+  const { api, cleanup, counts } = await loadAuth({ restoration });
+  cleanup.resolve();
+  const signOut = api.signOutFirebase();
+  restoration.reject(new Error('Persisted authentication unavailable'));
+  await signOut;
+  assert.equal(counts().signOutCalls, 0);
+  assert.equal((await api.signInWithGooglePopup()).idToken, 'id-token-b');
 });
 
 test('failed Firebase cleanup releases the gate for a recoverable new sign-in', async () => {

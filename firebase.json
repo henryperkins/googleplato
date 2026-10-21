@@ -3,10 +3,6 @@
     {
       "database": "ai-studio-plato-196eecf7-5744-4762-b19b-47cbd67015e6",
       "rules": "firestore.rules"
-    },
-    {
-      "database": "(default)",
-      "rules": "firestore.rules"
     }
   ]
 }
