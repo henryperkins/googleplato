@@ -20,6 +20,21 @@ Parameters:
     Default: ''
     NoEcho: true
     Description: Server-only Cloudflare API token with Workers AI Read and Edit permissions
+  CloudflareOAuthClientId:
+    Type: String
+    Default: ''
+    Description: Optional registered Cloudflare OAuth client for browser connections
+  CloudflareOAuthClientSecret:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Optional secret for a client_secret_post OAuth client; leave empty for PKCE with auth method none
+  CloudflareOAuthEncryptionKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    AllowedPattern: '^$|^[A-Za-z0-9+/]{43}=$'
+    Description: Stable base64-encoded 32-byte encryption key shared by API and streaming functions
 
 Conditions:
   IsProd: !Equals [!Ref Stage, prod]
@@ -56,6 +71,9 @@ Resources:
           APP_URL: !Sub '{{resolve:ssm:/plato/${Stage}/app-url}}'
           CLOUDFLARE_ACCOUNT_ID: !Ref CloudflareAccountId
           CLOUDFLARE_API_TOKEN: !Ref CloudflareApiToken
+          CLOUDFLARE_OAUTH_CLIENT_ID: !Ref CloudflareOAuthClientId
+          CLOUDFLARE_OAUTH_CLIENT_SECRET: !Ref CloudflareOAuthClientSecret
+          CLOUDFLARE_OAUTH_ENCRYPTION_KEY: !Ref CloudflareOAuthEncryptionKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
@@ -127,6 +145,9 @@ Resources:
           APP_URL: !Sub '{{resolve:ssm:/plato/${Stage}/app-url}}'
           CLOUDFLARE_ACCOUNT_ID: !Ref CloudflareAccountId
           CLOUDFLARE_API_TOKEN: !Ref CloudflareApiToken
+          CLOUDFLARE_OAUTH_CLIENT_ID: !Ref CloudflareOAuthClientId
+          CLOUDFLARE_OAUTH_CLIENT_SECRET: !Ref CloudflareOAuthClientSecret
+          CLOUDFLARE_OAUTH_ENCRYPTION_KEY: !Ref CloudflareOAuthEncryptionKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable

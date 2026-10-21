@@ -18,7 +18,7 @@ export function connectionTestErrorMessage(error, provider) {
       return `${service} did not respond in time. Try testing the connection again.`;
     case 'ai_unavailable':
       return provider === 'workers-ai'
-        ? 'Could not connect to Cloudflare Workers AI. Check the server’s Cloudflare account ID, API token permissions, and model access.'
+        ? 'Could not connect to Cloudflare Workers AI. Reconnect the account in AI Settings, or check the server’s Cloudflare account ID, API token permissions, and model access.'
         : 'Could not connect to Amazon Bedrock. Check the server’s AWS credentials, region, and Bedrock model access.';
     case 'ai_invalid_request':
       return `${service} could not process the connection test. Check the selected model’s supported settings, then test again.`;

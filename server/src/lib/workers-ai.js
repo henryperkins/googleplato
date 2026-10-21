@@ -1,4 +1,4 @@
-import { workersAiCredentialStatus } from './ai-settings.js';
+import { workersAiCredentials } from './cloudflare-oauth.js';
 
 const TIMEOUT_MS = 115_000;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -68,12 +68,12 @@ function fromResponse(data) {
 }
 
 async function request(model, body, stream, signal) {
-  if (!workersAiCredentialStatus().configured) {
-    throw Object.assign(new Error('Configure Cloudflare Workers AI credentials on the server.'), { name: 'AiConfigurationError' });
-  }
-  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions`, {
+  signal?.throwIfAborted();
+  const credentials = await workersAiCredentials();
+  signal?.throwIfAborted();
+  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${credentials.accountId}/ai/v1/chat/completions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${credentials.apiToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(toWorkersAiRequest(model, body, stream)),
     redirect: 'error',
     signal,
