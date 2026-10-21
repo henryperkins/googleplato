@@ -41,6 +41,16 @@ scaling. Allow up to 240 seconds for the app startup probe because private netwo
 connectivity can lag a cold start. Database connection errors receive bounded
 retries; schema or permission errors fail startup. The process becomes ready only
 after database initialization, operator bootstrap and content seeding succeed.
+Concurrent content seeders retry version conflicts up to three total attempts,
+rereading each record before writing. Other errors still fail startup. The
+bootstrap password is removed from the environment before application config
+or plugins load, including starts where an operator account already exists.
+
+On `SIGTERM`, the server drains active requests before closing its database
+connections. Cleanup errors produce a structured error code without connection
+details and exit unsuccessfully. An eight-second deadline bounds open streams
+and stalled cleanup, within Cloud Run's
+[ten-second termination window](https://docs.cloud.google.com/run/docs/container-contract#shutdown).
 
 ## Transaction and retry guarantees
 
@@ -77,6 +87,12 @@ concurrent optimistic writes, a losing competing turn, rollback after the second
 write fails, reset invalidation, same-version content edits, and replacing all
 application connections. Without `POSTGRES_TEST_URL`, that suite is explicitly
 skipped; mock-based tests alone do not qualify a new PostgreSQL deployment.
+The test workflow supplies PostgreSQL 17 so this suite runs in CI. Test and lint
+jobs use Node 24 and install from the repository's root dependency lockfile.
+Additional regression checks cover simultaneous content seeding, bootstrap
+credential removal, reset-token rejection by refresh lookup, and bounded server
+shutdown. An account-level GitHub billing lock can still prevent jobs from
+starting; record local results separately from hosted check status.
 
 For release verification, use a synthetic lesson and browser-intercepted model
 response while retaining real authenticated server writes. Force a save failure,

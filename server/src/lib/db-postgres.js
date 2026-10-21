@@ -18,7 +18,7 @@ if (process.env.INSTANCE_CONNECTION_NAME) {
     ipType: IpAddressTypes.PRIVATE,
   });
 }
-export const pool = new pg.Pool({
+const pool = new pg.Pool({
   ...connectionOptions,
   max: 5,
   connectionTimeoutMillis: 10000,
@@ -45,6 +45,9 @@ for (let attempt = 0; ; attempt++) {
 export default db;
 
 export async function closeDatabase() {
-  await pool.end();
-  connector?.close();
+  try {
+    await pool.end();
+  } finally {
+    connector?.close();
+  }
 }

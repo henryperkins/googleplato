@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import pg from 'pg';
 import { createPostgresDatabase } from '../../src/lib/postgres-database.js';
+import { comparePassword } from '../../src/lib/password.js';
 
 // Uses a real PostgreSQL server and a disposable schema, never application tables.
 // POSTGRES_TEST_URL=postgres://postgres@127.0.0.1:55432/postgres npm run test:server
@@ -21,6 +23,16 @@ test('PostgreSQL persistence and concurrent writers', { skip: !process.env.POSTG
   let db = await createPostgresDatabase(pool);
   const other = await createPostgresDatabase(otherPool);
   const conditional = { name: 'ConditionalCheckFailedException' };
+  const url = new URL(process.env.POSTGRES_TEST_URL);
+  const runProduction = (source, env = {}) => spawnSync(process.execPath, ['--input-type=module', '-e', source], {
+    cwd: new URL('../../', import.meta.url),
+    env: { ...process.env, DB_BACKEND: 'postgres', INSTANCE_CONNECTION_NAME: '',
+      PGHOST: url.hostname, PGPORT: url.port || '5432', PGDATABASE: url.pathname.slice(1),
+      PGUSER: decodeURIComponent(url.username), PGPASSWORD: decodeURIComponent(url.password) || 'local-test',
+      PGOPTIONS: `-c search_path=${schema}`, JWT_SECRET: 'x'.repeat(48), APP_URL: 'https://example.test',
+      ADMIN_EMAIL: 'operator@example.test', PORT: '0', ...env },
+    encoding: 'utf8', timeout: 15000,
+  });
 
   await t.test('account, invite, token and audit contracts', async () => {
     await db.createUser({ userId: 'u', email: 'Learner@Example.test', username: 'Learner', passwordHash: 'hash', name: 'Learner', role: 'user', customFields: { a: 1, b: 2 } });
@@ -63,6 +75,7 @@ test('PostgreSQL persistence and concurrent writers', { skip: !process.env.POSTG
     await db.storeRefreshToken('refresh', 'u');
     await db.storeResetToken('reset', 'u');
     assert.equal((await db.getRefreshToken('refresh')).userId, 'u');
+    assert.equal(await db.getRefreshToken('reset'), null);
     assert.equal(await db.getResetToken('refresh'), null);
     assert.equal((await db.getResetToken('reset')).userId, 'u');
     await db.deleteResetToken('reset');
@@ -112,6 +125,10 @@ test('PostgreSQL persistence and concurrent writers', { skip: !process.env.POSTG
     const current = await db.getLessonState('u', 'reset');
     assert.notEqual(current.generation, base.generation);
     assert.deepEqual(current.messages.data, []);
+    await other.deleteSyncData('u', 'lessonKB:reset', { invalidateLesson: true });
+    const restarted = await db.getLessonState('u', 'reset');
+    assert.notEqual(restarted.generation, current.generation);
+    await assert.rejects(db.commitLessonTurn('u', 'reset', current, { messages: [{ id: 'also-stale' }], lessonKB: {} }), conditional);
   });
 
   await t.test('same-version content changes cannot be overwritten', async () => {
@@ -131,5 +148,70 @@ test('PostgreSQL persistence and concurrent writers', { skip: !process.env.POSTG
     assert.equal((await db.getUserById('u')).name, 'Updated');
     await db.deleteUser('u');
     assert.equal(await db.getUserById('u'), null);
+  });
+
+  await t.test('production bootstrap keeps its password out of runtime configuration on every start', async () => {
+    const start = password => runProduction(`
+      await import('./start.js');
+      const config = await import('./src/config.js');
+      console.log(JSON.stringify({ event: 'bootstrap_credentials',
+        environmentRetainsPassword: !!process.env.ADMIN_PASSWORD,
+        configRetainsPassword: !!config.ADMIN_PASSWORD }));
+      setImmediate(() => process.kill(process.pid, 'SIGTERM'));
+    `, { ADMIN_PASSWORD: password });
+    for (const password of ['initial-test-password', 'must-not-reset-password']) {
+      const result = start(password);
+      assert.equal(result.status, 0, result.stderr);
+      const credentials = result.stdout.split('\n').filter(line => line.startsWith('{'))
+        .map(line => JSON.parse(line)).find(item => item.event === 'bootstrap_credentials');
+      assert.deepEqual(credentials, { event: 'bootstrap_credentials', environmentRetainsPassword: false, configRetainsPassword: false });
+      const operator = await db.getUserByEmail('operator@example.test');
+      assert.equal(operator.role, 'admin');
+      assert.equal(await comparePassword('initial-test-password', operator.passwordHash), true);
+      assert.equal(await db.countUsers(), 1);
+    }
+  });
+
+  await t.test('concurrent startup seeders recover conflicts without hiding persistent failures', () => {
+    const result = runProduction(`
+      import assert from 'node:assert/strict';
+      import db from './src/lib/db.js';
+      import { closeDatabase } from './src/lib/db-postgres.js';
+      import { seedDefaultContent } from './src/lib/seed.js';
+      try {
+        const prompt = (await db.getSyncDataByPrefix('_system', 'prompt:'))[0];
+        await db.putSyncData('_system', prompt.dataKey, { content: 'previous release' }, prompt.version);
+        const read = db.getSyncData;
+        let arrivals = 0;
+        let release;
+        const barrier = new Promise(resolve => { release = resolve; });
+        db.getSyncData = async (userId, key) => {
+          const row = await read(userId, key);
+          if (key === prompt.dataKey && arrivals < 2) {
+            if (++arrivals === 2) release();
+            await barrier;
+          }
+          return row;
+        };
+        const results = await Promise.allSettled([seedDefaultContent(), seedDefaultContent()]);
+        assert.deepEqual(results.map(item => item.status), ['fulfilled', 'fulfilled']);
+        assert.deepEqual((await read('_system', prompt.dataKey)).data, prompt.data);
+        db.getSyncData = read;
+
+        const current = await read('_system', prompt.dataKey);
+        await db.putSyncData('_system', prompt.dataKey, { content: 'previous release' }, current.version);
+        for (const failure of [Object.assign(new Error('denied'), { code: '42501' }),
+          Object.assign(new Error('still racing'), { name: 'ConditionalCheckFailedException' })]) {
+          let writes = 0;
+          db.putSyncData = async () => { writes++; throw failure; };
+          await assert.rejects(seedDefaultContent(), error => error === failure);
+          if (failure.code) assert.equal(writes, 1);
+          else assert.equal(writes, 3);
+        }
+      } finally {
+        await closeDatabase();
+      }
+    `);
+    assert.equal(result.status, 0, result.stderr);
   });
 });

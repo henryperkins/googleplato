@@ -64,12 +64,12 @@ export async function createPostgresDatabase(pool) {
       throw error;
     }
   }
-  async function one(table, condition, values) {
-    const result = await pool.query(`SELECT document FROM ${table} WHERE ${condition} LIMIT 1`, values);
+  async function one(table, condition, values, orderBy = '') {
+    const result = await pool.query(`SELECT document FROM ${table} WHERE ${condition}${orderBy ? ` ORDER BY ${orderBy}` : ''} LIMIT 1`, values);
     return result.rows[0]?.document ?? null;
   }
-  async function many(table, condition = 'TRUE', values = []) {
-    return (await pool.query(`SELECT document FROM ${table} WHERE ${condition}`, values)).rows.map(row => row.document);
+  async function many(table, condition = 'TRUE', values = [], orderBy = '') {
+    return (await pool.query(`SELECT document FROM ${table} WHERE ${condition}${orderBy ? ` ORDER BY ${orderBy}` : ''}`, values)).rows.map(row => row.document);
   }
   async function patch(table, id, fields, condition = 'TRUE') {
     try {
@@ -144,7 +144,7 @@ export async function createPostgresDatabase(pool) {
       if (result.rowCount !== 1) throw conflict('Not a wait-list entry');
     },
     getWaitlistEntryByEmail: email => one('invites', "lower(document->>'email') = $1 AND document->>'status' = 'waitlist'", [email.toLowerCase()]),
-    getInviteByEmail: email => one('invites', "lower(document->>'email') = $1 AND document->>'status' = 'pending' ORDER BY document->>'createdAt' DESC", [email.toLowerCase()]),
+    getInviteByEmail: email => one('invites', "lower(document->>'email') = $1 AND document->>'status' = 'pending'", [email.toLowerCase()], "document->>'createdAt' DESC"),
     getInvite: token => one('invites', 'id = $1', [token]),
     markInviteUsed: token => patch('invites', token, { status: 'used', usedAt: now() }),
     deleteInvite: token => remove('invites', token),
@@ -160,7 +160,7 @@ export async function createPostgresDatabase(pool) {
     storeRefreshToken: (tokenHash, userId) => insert('refresh_tokens', tokenHash, {
       tokenHash, userId, type: 'refresh', createdAt: now(), ttl: expiresIn(REFRESH_TOKEN_TTL_DAYS * 86400),
     }),
-    getRefreshToken: token => one('refresh_tokens', "id = $1 AND (document->>'ttl')::bigint >= $2", [token, expiresIn(0)]),
+    getRefreshToken: token => one('refresh_tokens', "id = $1 AND document->>'type' = 'refresh' AND (document->>'ttl')::bigint >= $2", [token, expiresIn(0)]),
     deleteRefreshToken: token => remove('refresh_tokens', token),
     storeResetToken: (tokenHash, userId) => insert('refresh_tokens', tokenHash, {
       tokenHash, userId, type: 'reset', createdAt: now(), ttl: expiresIn(RESET_TOKEN_TTL_HOURS * 3600),
@@ -217,6 +217,6 @@ export async function createPostgresDatabase(pool) {
       return insert('audit_log', logId, { logId, action, userId, email, performedBy, details: details || null, createdAt: now() });
     },
     listAuditLogsForUser: (userId, sinceIso) => many('audit_log',
-      "document->>'userId' = $1 AND ($2::text IS NULL OR document->>'createdAt' >= $2) ORDER BY document->>'createdAt' DESC", [userId, sinceIso || null]),
+      "document->>'userId' = $1 AND ($2::text IS NULL OR document->>'createdAt' >= $2)", [userId, sinceIso || null], "document->>'createdAt' DESC"),
   };
 }

@@ -3,6 +3,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { installShutdown } from './src/lib/shutdown.js';
 
 if (!['postgres', 'dynamodb'].includes(process.env.DB_BACKEND)) {
   throw new Error('Production requires DB_BACKEND=postgres or dynamodb');
@@ -13,6 +14,11 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 if (!process.env.APP_URL?.startsWith('https://')) {
   throw new Error('Production requires an HTTPS APP_URL');
 }
+
+// Capture the one-time credential before config.js or plugins can retain it.
+// Existing databases must not expose it either, even though bootstrap is skipped.
+let bootstrapPassword = process.env.ADMIN_PASSWORD;
+delete process.env.ADMIN_PASSWORD;
 
 const { default: db } = await import('./src/lib/db.js');
 const { generateUserId } = await import('./src/lib/crypto.js');
@@ -26,7 +32,7 @@ const { logger } = await import('./src/lib/logger.js');
 // account exists. Concurrent initial starts converge through unique email.
 if (await db.countUsers() === 0) {
   const email = process.env.ADMIN_EMAIL;
-  const password = process.env.ADMIN_PASSWORD;
+  const password = bootstrapPassword;
   if (!email || !password) throw new Error('A clean database requires ADMIN_EMAIL and ADMIN_PASSWORD');
   try {
     await db.createUser({ userId: generateUserId(), email, username: 'admin',
@@ -35,6 +41,7 @@ if (await db.countUsers() === 0) {
     if (error.name !== 'ConditionalCheckFailedException' || !(await db.getUserByEmail(email))) throw error;
   }
 }
+bootstrapPassword = undefined;
 await seedDefaultContent();
 await pluginRegistry.boot();
 
@@ -63,7 +70,6 @@ app.onError((error, c) => {
 const server = serve({ fetch: app.fetch, port: Number(process.env.PORT || 3000), hostname: '0.0.0.0' });
 console.log(JSON.stringify({ event: 'server_ready', backend: process.env.DB_BACKEND,
   revision: process.env.K_REVISION, commit: process.env.RELEASE_COMMIT }));
-process.on('SIGTERM', () => server.close(async () => {
+installShutdown(server, async () => {
   if (process.env.DB_BACKEND === 'postgres') await (await import('./src/lib/db-postgres.js')).closeDatabase();
-  process.exit(0);
-}));
+});
