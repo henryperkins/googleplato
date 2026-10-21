@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { Hono } from 'hono';
+import { currentClientHeaders } from '../helpers/clientCompatibility.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'plato-oauth-test-'));
 process.env.DB_BACKEND = 'sqlite';
@@ -66,7 +67,7 @@ async function settings(userId = 'usr_admin') {
 async function infer() {
   const token = await signAccessToken('usr_admin', 'admin');
   return app.request(base + '/v1/admin/ai-settings/test', {
-    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    method: 'POST', headers: { ...currentClientHeaders, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider: 'workers-ai', workersAiModel: model }),
   });
 }

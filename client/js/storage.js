@@ -459,6 +459,8 @@ export async function deleteLessonProgress(lessonId) {
 export async function saveScreenshot(key, dataUrl) {
   const syncKey = `screenshot:${key}`;
   if (await putSyncData(syncKey, dataUrl, { createOnly: true })) return true;
+  _cache.delete(syncKey);
+  _versions.delete(syncKey);
   // Screenshot identities are immutable. A partial migration or lost ACK can
   // leave an identical image on the server. Verify that exact content with a
   // fresh read, never the optimistic cache, and never overwrite a collision.
@@ -466,9 +468,8 @@ export async function saveScreenshot(key, dataUrl) {
     const response = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`);
     if (!response.ok) return false;
     const item = await response.json();
-    if (item.data !== dataUrl) return false;
-    _populateCache(syncKey, item.data, item.version);
-    return true;
+    if (item.data != null) _populateCache(syncKey, item.data, item.version);
+    return item.data === dataUrl;
   } catch { return false; }
 }
 

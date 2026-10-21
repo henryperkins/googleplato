@@ -241,15 +241,17 @@ export { getAuthUser as getCurrentUser } from './storage.js';
 const sameSession = (left, right) => left?.user?.userId === right?.user?.userId
   && left?.accessToken === right?.accessToken && left?.refreshToken === right?.refreshToken;
 
-async function refreshAccessToken(tokens, generation) {
+async function refreshAccessToken(tokens, generation, signal) {
   if (!tokens?.refreshToken) return false;
   if (!sameSession(tokens, await getAuthTokens()) || generation !== sessionGeneration) return false;
   try {
     const res = await fetch(`${SERVICE_URL}/v1/auth/refresh`, {
       method: 'POST',
+      signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: tokens.refreshToken }),
     });
+    if (signal?.aborted) throw signal.reason;
     if (!res.ok) {
       // Don't clear auth silently — the user's data should be preserved.
       // Notify listeners so the UI can prompt re-login.
@@ -257,11 +259,13 @@ async function refreshAccessToken(tokens, generation) {
       return false;
     }
     const { accessToken, refreshToken } = await res.json();
+    if (signal?.aborted) throw signal.reason;
     // Compare and replace synchronously inside storage, after all awaits.
     // A late response must never merge account A's tokens into account B.
     if (generation !== sessionGeneration) return false;
     return await saveAuthTokens({ accessToken, refreshToken }, tokens);
   } catch {
+    if (signal?.aborted) throw signal.reason || new DOMException('Request cancelled.', 'AbortError');
     return false;
   }
 }
@@ -302,7 +306,7 @@ export async function authenticatedFetch(path, options = {}) {
     };
     let response = await doFetch();
     if (response.status === 401) {
-      const refreshed = await refreshAccessToken(requestTokens, generation);
+      const refreshed = await refreshAccessToken(requestTokens, generation, requestOptions.signal);
       const current = await getAuthTokens();
       // Reuse a sibling request's rotation only within this same login.
       if (!current || generation !== sessionGeneration || ownerOf(current) !== owner
@@ -315,10 +319,20 @@ export async function authenticatedFetch(path, options = {}) {
   const headers = new Headers(options.headers);
   if (protectedPath) {
     const compatibility = await compatibilityHeaders(async () => {
-      const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000);
-      const response = await fetchAsOwner('/v1/sync/status', { cache: 'no-store', signal });
-      if (!response.ok) throw new Error('Could not check for updates. Keep this page open and try again.');
-      return response.json();
+      // Use AbortController rather than newer AbortSignal composition helpers.
+      const controller = new AbortController();
+      const abort = () => controller.abort(options.signal.reason);
+      if (options.signal?.aborted) abort();
+      else options.signal?.addEventListener('abort', abort, { once: true });
+      const timeout = setTimeout(() => controller.abort(new DOMException('Checking for updates took too long.', 'TimeoutError')), 10_000);
+      try {
+        const response = await fetchAsOwner('/v1/sync/status', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('Could not check for updates. Keep this page open and try again.');
+        return await response.json();
+      } finally {
+        clearTimeout(timeout);
+        options.signal?.removeEventListener('abort', abort);
+      }
     }, { mutation });
     for (const [key, value] of Object.entries(compatibility)) headers.set(key, value);
   }

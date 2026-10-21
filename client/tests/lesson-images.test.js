@@ -93,6 +93,23 @@ describe('saveScreenshot / getScreenshot', () => {
     assert.equal(await getScreenshot('does-not-exist'), null);
   });
 
+  it('does not expose unsaved screenshot bytes when verification fails', async () => {
+    const originalFetch = globalThis.fetch;
+    for (const failure of ['missing', 'rejected', 'network', 'invalid-json']) {
+      const key = `unconfirmed-${failure}`;
+      try {
+        globalThis.fetch = async (_url, options) => {
+          if (options.method === 'PUT') return { ok: false, status: 503 };
+          if (failure === 'network') throw new TypeError('Offline');
+          if (failure === 'invalid-json') return { ok: true, json: async () => { throw new SyntaxError('Invalid response'); } };
+          return { ok: false, status: failure === 'missing' ? 404 : 503 };
+        };
+        assert.equal(await saveScreenshot(key, PNG), false);
+      } finally { globalThis.fetch = originalFetch; }
+      assert.equal(await getScreenshot(key), null, 'unsaved optimistic data must not hydrate other messages');
+    }
+  });
+
   it('deleteScreenshot removes the record', async () => {
     await saveScreenshot('lesson-1-123-0', PNG);
     await deleteScreenshot('lesson-1-123-0');
@@ -198,6 +215,7 @@ describe('migrateLegacyImages — heals pre-#193 conversations', () => {
     assert.deepEqual(migrated, legacy);
     assert.equal(_serverStore.get('screenshot:collision-legacy-0-0'), 'data:image/png;base64,b3RoZXI=');
     assert.equal(_serverVersions.get('screenshot:collision-legacy-0-0'), 1);
+    assert.equal(await getScreenshot('collision-legacy-0-0'), 'data:image/png;base64,b3RoZXI=', 'cache must retain the server image');
   });
 
   it('leaves key-based and text-only messages untouched', async () => {

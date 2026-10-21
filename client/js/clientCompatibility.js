@@ -10,7 +10,8 @@ export class ClientUpgradeError extends Error {
 }
 
 export function isCompatibilityPath(path) {
-  return /^\/v1\/(sync|ai)(?:\/|\?|$)/.test(path) && !/^\/v1\/sync\/status(?:\?|$)/.test(path);
+  return (/^\/v1\/(sync|ai)(?:\/|\?|$)/.test(path) && !/^\/v1\/sync\/status(?:\?|$)/.test(path))
+    || /^\/v1\/admin\/ai-settings\/test(?:\?|$)/.test(path);
 }
 
 // Compatibility belongs to the loaded page, not the signed-in account.
@@ -41,7 +42,7 @@ export function createClientCompatibility() {
           const status = await loadStatus();
           if (status?.protocol !== CLIENT_PROTOCOL || typeof status.epoch !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(status.epoch)) {
             requireClientUpgrade();
-            throw new ClientUpgradeError();
+            return;
           }
           epoch = status.epoch;
         })().finally(() => { pending = null; });
@@ -50,7 +51,7 @@ export function createClientCompatibility() {
       if (blocked && mutation) throw new ClientUpgradeError();
       // Recovery reads keep the original epoch. Only a fresh page negotiates
       // again, after preserving local work and rebuilding canonical state.
-      return { 'X-Plato-Client-Protocol': CLIENT_PROTOCOL, 'X-Plato-Client-Epoch': epoch };
+      return epoch ? { 'X-Plato-Client-Protocol': CLIENT_PROTOCOL, 'X-Plato-Client-Epoch': epoch } : {};
     },
   };
 }

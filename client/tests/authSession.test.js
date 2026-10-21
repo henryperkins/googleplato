@@ -230,3 +230,81 @@ test('legacy Firebase detection cannot block logout or erase the next account', 
   }
   assert.deepEqual(await storage.getAuthTokens(), session('b'));
 });
+
+test('compatibility checks support cancellation and deadlines without newer AbortSignal helpers', async t => {
+  const originalAny = AbortSignal.any;
+  const originalTimeout = AbortSignal.timeout;
+  AbortSignal.any = undefined;
+  AbortSignal.timeout = undefined;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let statusSignal;
+  let refreshSignal;
+  let writes = 0;
+  let completeStatus = false;
+  let needsRefresh = false;
+  globalThis.fetch = async (url, options) => {
+    if (url === '/v1/sync/status' || url === '/v1/auth/refresh') {
+      if (url === '/v1/sync/status') {
+        statusSignal = options.signal;
+        if (completeStatus) return json({ protocol: '1', epoch: 'test' });
+        if (needsRefresh) return json({}, 401);
+      } else refreshSignal = options.signal;
+      const signal = options.signal;
+      return new Promise((_resolve, reject) => {
+        const rejectAbort = () => reject(signal.reason);
+        if (signal?.aborted) rejectAbort();
+        else signal?.addEventListener('abort', rejectAbort, { once: true });
+      });
+    }
+    writes++;
+    assert.equal(new Headers(options.headers).get('X-Plato-Client-Epoch'), 'test');
+    return json({ ok: true });
+  };
+  try {
+    const alreadyAborted = new AbortController();
+    alreadyAborted.abort();
+    await assert.rejects(auth.authenticatedFetch('/v1/sync/profile', { method: 'PUT', signal: alreadyAborted.signal }), { name: 'AbortError' });
+
+    const caller = new AbortController();
+    const cancelled = assert.rejects(auth.authenticatedFetch('/v1/sync/profile', { method: 'PUT', signal: caller.signal }), { name: 'AbortError' });
+    await nextTurn();
+    caller.abort();
+    await cancelled;
+    assert.equal(writes, 0);
+
+    const timedOut = assert.rejects(auth.authenticatedFetch('/v1/sync/profile', { method: 'PUT' }), { name: 'TimeoutError' });
+    await nextTurn();
+    t.mock.timers.tick(10_000);
+    await timedOut;
+    assert.equal(writes, 0);
+
+    needsRefresh = true;
+    for (const cancel of ['caller', 'deadline']) {
+      const controller = new AbortController();
+      let settled = false;
+      const result = auth.authenticatedFetch('/v1/sync/profile', { method: 'PUT', signal: controller.signal })
+        .then(response => { settled = true; return response; }, error => { settled = true; return error; });
+      await nextTurn();
+      if (cancel === 'caller') controller.abort();
+      else t.mock.timers.tick(10_000);
+      await nextTurn();
+      assert.equal(settled, true, `${cancel} cancellation must also end a stalled token refresh`);
+      assert.equal((await result).name, cancel === 'caller' ? 'AbortError' : 'TimeoutError');
+      assert.equal(refreshSignal.aborted, true);
+      assert.equal(writes, 0);
+    }
+
+    completeStatus = true;
+    const successfulCaller = new AbortController();
+    const response = await auth.authenticatedFetch('/v1/sync/profile', { method: 'PUT', signal: successfulCaller.signal });
+    assert.equal(response.status, 200);
+    assert.equal(writes, 1);
+    successfulCaller.abort();
+    t.mock.timers.tick(10_000);
+    assert.equal(statusSignal.aborted, false, 'completed handshake removes its listener and timer');
+  } finally {
+    AbortSignal.any = originalAny;
+    AbortSignal.timeout = originalTimeout;
+    t.mock.timers.reset();
+  }
+});

@@ -37,7 +37,8 @@ test('sync writes and AI requests carry the negotiated protocol and epoch', asyn
   };
   await authenticatedFetch('/v1/sync/profile', { method: 'PUT', body: '{}' });
   await authenticatedFetch('/v1/ai/messages', { method: 'POST', body: '{}' });
-  assert.equal(requests.length, 2);
+  await authenticatedFetch('/v1/admin/ai-settings/test', { method: 'POST', body: '{}' });
+  assert.equal(requests.length, 3);
   for (const { headers } of requests) {
     assert.equal(headers.get('X-Plato-Client-Protocol'), '1');
     assert.equal(headers.get('X-Plato-Client-Epoch'), 'first');
@@ -56,6 +57,7 @@ test('an upgrade rejection is sticky until reload and never retries a write or m
   };
   assert.equal((await authenticatedFetch('/v1/sync/profile', { method: 'PUT', body: '{}' })).status, 409);
   await assert.rejects(authenticatedFetch('/v1/ai/messages', { method: 'POST', body: '{}' }), { code: 'client_upgrade_required' });
+  await assert.rejects(authenticatedFetch('/v1/admin/ai-settings/test', { method: 'POST', body: '{}' }), { code: 'client_upgrade_required' });
   await assert.rejects(authenticatedFetch('/v1/sync/profile', { method: 'PUT', body: '{}' }), { code: 'client_upgrade_required' });
   const original = structuredClone(account);
   account = { user: { userId: 'other-account' }, accessToken: 'other-access', refreshToken: 'other-refresh' };
@@ -96,6 +98,28 @@ test('a rejected protocol permits recovery reads without repeated handshakes', a
   assert.deepEqual(await page.compatibilityHeaders(status), {});
   await assert.rejects(page.compatibilityHeaders(status, { mutation: true }), { code: 'client_upgrade_required' });
   assert.equal(checks, 1);
+});
+
+test('the read discovering a protocol mismatch succeeds while concurrent writes are fenced', async () => {
+  const page = compatibility.createClientCompatibility();
+  let resolveStatus;
+  const pending = new Promise(resolve => { resolveStatus = resolve; });
+  let checks = 0;
+  const status = () => { checks++; return pending; };
+  const read = page.compatibilityHeaders(status);
+  const mutation = assert.rejects(page.compatibilityHeaders(status, { mutation: true }), { code: 'client_upgrade_required' });
+  resolveStatus({ protocol: '2', epoch: 'new' });
+  assert.deepEqual(await read, {});
+  await mutation;
+  assert.deepEqual(await page.compatibilityHeaders(status), {});
+  assert.equal(checks, 1);
+  assert.equal(page.isClientUpgradeRequired(), true);
+});
+
+test('recovery reads still surface transport failures without declaring an upgrade', async () => {
+  const page = compatibility.createClientCompatibility();
+  await assert.rejects(page.compatibilityHeaders(async () => { throw new TypeError('Offline'); }), /Offline/);
+  assert.equal(page.isClientUpgradeRequired(), false);
 });
 
 for (const refreshStatus of [200, 401]) {

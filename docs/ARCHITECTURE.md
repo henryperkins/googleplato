@@ -411,14 +411,20 @@ They are not durably queued or backfilled by recovery.
 
 ### Client upgrades and conditional sync writes
 
-Authenticated mutations under `/v1/sync` and `/v1/ai` require both
+Authenticated mutations under `/v1/sync` and `/v1/ai`, plus the admin model probe
+`POST /v1/admin/ai-settings/test`, require both
 `X-Plato-Client-Protocol: 1` and an exact `X-Plato-Client-Epoch`. A mismatch
 returns HTTP 409 with `code: client_upgrade_required` before database writes,
 plugin lesson-start hooks, or model invocation. Reads and authentication remain
-available for recovery. A protocol rejection before epoch negotiation does not
-repeat status handshakes for later reads; mutations remain blocked.
+available for recovery. The read that discovers a protocol rejection also
+continues without compatibility headers; later reads do not repeat the status
+handshake, and concurrent or later mutations remain blocked.
 `GET /v1/sync/status` supplies the protocol/epoch with
 `Cache-Control: no-store`. All server entry points allow these headers in CORS.
+Handshake cancellation/deadlines, including token refresh, use `AbortController`, without requiring
+`AbortSignal.any` or `AbortSignal.timeout`. Admin settings writes retain their
+existing authorization and strict version checks; other admin and OAuth routes
+are outside this learner-data compatibility fence.
 
 The client negotiates once per loaded page. Its epoch and upgrade block survive
 logout and account changes; a rejected page cannot refresh its epoch and resume
@@ -435,12 +441,16 @@ boundary, not a deployment revision or an authentication mechanism. The first
 deployment of this gate rejects legacy clients that omit the headers; changing
 the epoch later fences already-open compatible pages. This code change does not
 perform the deployment or retire the remaining Firestore mirror paths.
+All four server entrypoints validate the epoch before serving or running their
+application bootstrap, so invalid configuration cannot report a healthy server.
 
 `LessonChat` offers **Preserve work and reload** after rejection. Before reload,
 the engine refuses any active generation anywhere in the page, then writes and
 reads back every retained reply and draft, including other visited lessons and
 accounts. Draft text, image data, and fetched link context use account/lesson
 scoped `sessionStorage`. Failure leaves the tab open with a copy-work warning.
+Only a verified upgrade reload bypasses the pending-work unload warning; ordinary
+navigation still warns while a reply or generation is pending.
 After reload, the original turn IDs, base snapshot, reply, and progress restore;
 **Retry saving** only submits the original atomic commit. It neither generates
 a replacement nor runs optional profile/course models. A lost acknowledgement
@@ -461,6 +471,9 @@ positive values update only an existing exact version. Invalid input returns
 their existing per-item conflict results. The client retains an unsuccessful
 payload and its original base; it never fetches a new version and blindly
 resends that payload. Deletes clear the cache only after acknowledgement.
+Rejected lesson reset/delete operations display an error instead of navigating
+away. Failed screenshot creation discards optimistic cache bytes; verification
+can cache only the server's actual image, including a conflicting image.
 
 **Pasted/uploaded images are NOT embedded in the messages record.** Each image
 is its own `screenshot:<key>` record, and the message stores only

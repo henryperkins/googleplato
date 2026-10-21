@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { CLIENT_COMPATIBILITY_HEADERS } from './src/middleware/clientCompatibility.js';
+import { CLIENT_COMPATIBILITY_HEADERS, clientCompatibility } from './src/middleware/clientCompatibility.js';
 
 // Point DynamoDB at local instance
 process.env.AWS_REGION = 'us-east-1';
@@ -11,6 +11,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret';
 process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? '';
 process.env.ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? '';
 process.env.APP_URL = process.env.APP_URL ?? 'http://localhost:3000';
+clientCompatibility();
 
 const { default: health } = await import('./src/routes/health.js');
 const { default: auth } = await import('./src/routes/auth.js');

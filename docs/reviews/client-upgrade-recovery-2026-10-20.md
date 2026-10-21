@@ -111,7 +111,7 @@ Review and conflict resolution added these safeguards:
 - Use nullish coalescing for conflict response versions, preserving any explicit
   numeric value without enabling automatic overwrite retries.
 
-The integrated tree passed **992 tests** — 407 client and 585 server — with zero
+The initial integrated commit `7ac80ae` passed **992 tests** — 407 client and 585 server — with zero
 failures or skips, including real PostgreSQL 17 tests in an isolated local
 container. Lint passed with zero errors and 20 existing client warnings; the
 client build and both staged and unstaged diff checks passed. An independent
@@ -124,6 +124,31 @@ lost-acknowledgement recovery kept them at **2 → 2**, with five messages and b
 record versions unchanged at **3**. Storage failure blocked reload and preserved
 the displayed reply and next draft. These checks used synthetic data and no real
 model calls or production writes.
+
+Final review added protocol negotiation recovery for the first read, browser
+cancellation support without `AbortSignal.any`/`timeout`, and cancellation during
+a stalled token refresh. It also fenced the admin model-test endpoint, validated
+epochs at all four server entrypoints, removed unconfirmed screenshot bytes from
+the cache, caught rejected reset/delete actions, and bypassed the unload prompt
+only after verified upgrade preservation. The OAuth test's model-probe fixture
+now supplies compatibility headers; its 38 existing behavior tests remain intact.
+
+The final full run passed **1,001 tests** — 411 client and 590 server — with no
+failures or skips and real PostgreSQL enabled. Lint again passed with zero errors
+and 20 existing warnings; client build and diff checks passed. Independent
+follow-up review passed 32 handshake/admin tests and 23 screenshot/startup tests,
+and reproduced caller cancellation and deadline expiration during token refresh
+with zero mutation requests or credential changes.
+
+The complete browser recovery sequence passed again with `AbortSignal.any` and
+`AbortSignal.timeout` unavailable. AI counts remained **1 → 1** and **2 → 2**;
+both saved versions remained **3** after lost-acknowledgement recovery. Ordinary
+pending-work navigation still warned, verified upgrade reloads produced zero
+unload dialogs, and a rejected reset displayed an error while retaining the
+conversation. The earlier full run interrupted by an outdated OAuth fixture is
+not counted as completed validation. Draft-write debouncing remains an unmeasured
+optimization outside this durability change; synchronous persistence preserves
+immediate reload recovery.
 
 ![Reload blocked while local recovery storage is unavailable](client-upgrade-recovery-2026-10-21/storage-blocked.png)
 

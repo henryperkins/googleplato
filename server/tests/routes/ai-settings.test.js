@@ -14,11 +14,11 @@ let writes;
 let calls;
 const env = Object.fromEntries(['AI_PROVIDER', 'WORKERS_AI_MODEL', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].map(key => [key, process.env[key]]));
 
-async function request(method, path, body, role = 'admin') {
+async function request(method, path, body, role = 'admin', compatibilityHeaders = currentClientHeaders) {
   const token = await signAccessToken(`usr_${role}`, role);
   return app.request(path, {
     method,
-    headers: { ...currentClientHeaders, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { ...compatibilityHeaders, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
@@ -136,6 +136,21 @@ describe('admin AI settings', () => {
     assert.equal(calls.length, 1);
     assert.equal(writes, 0);
     assert.equal(saved, null);
+  });
+
+  it('fences obsolete admin model tests before inference or settings writes', async () => {
+    for (const headers of [
+      {},
+      { ...currentClientHeaders, 'X-Plato-Client-Protocol': '0' },
+      { ...currentClientHeaders, 'X-Plato-Client-Protocol': '2' },
+      { ...currentClientHeaders, 'X-Plato-Client-Epoch': 'old' },
+    ]) {
+      const res = await request('POST', '/v1/admin/ai-settings/test', { provider: 'workers-ai', workersAiModel: MODEL }, 'admin', headers);
+      assert.equal(res.status, 409);
+      assert.equal((await res.json()).code, 'client_upgrade_required');
+      assert.equal(calls.length, 0);
+      assert.equal(writes, 0);
+    }
   });
 
   it('reports missing Cloudflare credentials without sending an inference request', async () => {

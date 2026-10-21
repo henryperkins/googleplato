@@ -77,6 +77,7 @@ function LessonConversation() {
   const [resuming, setResuming] = useState(true);
   const upgradeRequired = useSyncExternalStore(onClientUpgrade, isClientUpgradeRequired, () => false);
   const [upgradeError, setUpgradeError] = useState('');
+  const reloadingRef = useRef(false);
   const savingRef = useRef(false);
   const pendingSave = !!persistence && persistence.status !== 'saved';
   // A failed lesson start has no conversation to fall back on, so it offers
@@ -110,9 +111,15 @@ function LessonConversation() {
     try {
       const safe = await engine.prepareLessonUpgrade(user?.userId, lessonGroupId, draft);
       if (activeView.current !== viewKey) return;
-      if (safe) window.location.reload();
+      if (safe) {
+        reloadingRef.current = true;
+        window.location.reload();
+      }
       else setUpgradeError('Keep this tab open. Your reply or draft could not be stored for reload. Copy your work before leaving.');
-    } catch (error) { setUpgradeError(error.message); }
+    } catch (error) {
+      reloadingRef.current = false;
+      setUpgradeError(error.message);
+    }
   };
 
   useEffect(() => {
@@ -161,7 +168,11 @@ function LessonConversation() {
 
   useEffect(() => {
     if (!pendingSave && !loading) return;
-    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    const warn = event => {
+      if (reloadingRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [pendingSave, loading]);
@@ -716,7 +727,11 @@ function LessonConversation() {
           title={confirmModal.title}
           message={confirmModal.message}
           confirmLabel={confirmModal.confirmLabel}
-          onConfirm={() => { setConfirmModal(null); confirmModal.onConfirm(); }}
+          onConfirm={async () => {
+            setConfirmModal(null);
+            try { await confirmModal.onConfirm(); }
+            catch (error) { setError(error.message || 'The lesson could not be deleted. Please try again.'); }
+          }}
         />
       )}
     </div>
