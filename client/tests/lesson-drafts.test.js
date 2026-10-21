@@ -4,7 +4,7 @@ import { createLessonDraftStore } from '../src/lib/lessonDrafts.js';
 
 function disk() {
   const values = new Map();
-  return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
 }
 const draft = { text: 'A private thought', images: [{ name: 'work.png', dataUrl: 'data:image/png;base64,AA==' }], links: [{ url: 'https://example.test', text: 'Reference context' }] };
 
@@ -45,4 +45,36 @@ test('reload verifies drafts from every visited lesson and account', () => {
   storage.setItem = write;
   assert.equal(page.preserveAllForReload(), true);
   assert.deepEqual(createLessonDraftStore({ storage: () => storage }).read('previous-account', 'other-lesson'), draft);
+});
+
+test('an existing account-scoped text draft upgrades without losing its owner or content', () => {
+  const storage = disk();
+  const oldKey = 'plato_compose_draft_v2:learner%3Aa:lesson%3A1';
+  storage.setItem(oldKey, 'Existing reflection\n日本語 🌱');
+  const page = createLessonDraftStore({ storage: () => storage });
+  const restored = page.read('learner:a', 'lesson:1');
+  assert.deepEqual(restored, { text: 'Existing reflection\n日本語 🌱', images: [], links: [] });
+  assert.equal(page.read('another-learner', 'lesson:1').text, '');
+  assert.equal(page.write('learner:a', 'lesson:1', restored), true);
+  assert.equal(storage.getItem(oldKey), null, 'remove old copy only after verified storage of the new format');
+  assert.deepEqual(createLessonDraftStore({ storage: () => storage }).read('learner:a', 'lesson:1'), restored);
+});
+
+test('failed draft-format migration keeps the account-scoped text copy recoverable', () => {
+  const storage = disk();
+  const oldKey = 'plato_compose_draft_v2:learner:lesson';
+  storage.setItem(oldKey, 'Still recoverable');
+  storage.setItem = () => { throw new Error('Quota'); };
+  const page = createLessonDraftStore({ storage: () => storage });
+  assert.equal(page.write('learner', 'lesson', page.read('learner', 'lesson')), false);
+  assert.equal(storage.getItem(oldKey), 'Still recoverable');
+  assert.equal(createLessonDraftStore({ storage: () => storage }).read('learner', 'lesson').text, 'Still recoverable');
+});
+
+test('an explicitly emptied rich draft does not revive an older text draft', () => {
+  const storage = disk();
+  const page = createLessonDraftStore({ storage: () => storage });
+  page.write('learner', 'lesson', { text: '', images: [], links: [] });
+  storage.setItem('plato_compose_draft_v2:learner:lesson', 'Stale text from an older page');
+  assert.equal(createLessonDraftStore({ storage: () => storage }).read('learner', 'lesson').text, '');
 });

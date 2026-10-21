@@ -14,6 +14,7 @@ const token = process.env.CLOUDFLARE_API_TOKEN;
 beforeEach(() => {
   process.env.CLOUDFLARE_ACCOUNT_ID = 'b'.repeat(32);
   process.env.CLOUDFLARE_API_TOKEN = 'secret-test-token';
+  mock.method(db, 'getSyncData', async () => null);
 });
 
 afterEach(() => {
@@ -116,12 +117,12 @@ describe('Cloudflare Workers AI adapter', () => {
       'data: not-json\n\n',
       'data: {"error":{"message":"secret upstream details","status":429}}\n\n',
     ]) {
-      mock.method(globalThis, 'fetch', async () => sse(fixture));
+      const fetchMock = mock.method(globalThis, 'fetch', async () => sse(fixture));
       await assert.rejects(collect(workersAi.invokeStream(MODEL, body)), err => {
         assert.doesNotMatch(err.message, /secret upstream/);
         return err.name === 'WorkersAiError';
       });
-      mock.restoreAll();
+      fetchMock.mock.restore();
     }
   });
 
@@ -146,13 +147,13 @@ describe('Cloudflare Workers AI adapter', () => {
 
   it('classifies Cloudflare HTTP failures without retaining upstream text', async () => {
     for (const [status, code] of [[401, 'ai_unavailable'], [403, 'ai_unavailable'], [404, 'ai_unavailable'], [429, 'ai_rate_limited'], [500, 'ai_overloaded'], [504, 'ai_timeout'], [400, 'ai_invalid_request']]) {
-      mock.method(globalThis, 'fetch', async () => new Response('secret upstream details', { status }));
+      const fetchMock = mock.method(globalThis, 'fetch', async () => new Response('secret upstream details', { status }));
       await assert.rejects(workersAi.invoke(MODEL, body), err => {
         assert.equal(classifyAiError(err).code, code);
         assert.doesNotMatch(err.message, /secret upstream/);
         return true;
       });
-      mock.restoreAll();
+      fetchMock.mock.restore();
     }
   });
 
@@ -179,7 +180,7 @@ describe('provider selection', () => {
   });
 
   it('streams through the saved provider and never falls back after a Cloudflare error', async () => {
-    mock.method(db, 'getSyncData', async () => ({ data: { provider: 'workers-ai', workersAiModel: MODEL }, version: 1 }));
+    mock.method(db, 'getSyncData', async (userId) => userId === '_system' ? ({ data: { provider: 'workers-ai', workersAiModel: MODEL }, version: 1 }) : null);
     mock.method(globalThis, 'fetch', async () => new Response('', { status: 403 }));
     let bedrockCalls = 0;
     mock.method(bedrock, 'invokeStream', async function* () { bedrockCalls++; yield {}; });

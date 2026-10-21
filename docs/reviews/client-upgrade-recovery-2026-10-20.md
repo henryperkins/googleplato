@@ -90,3 +90,54 @@ were not exercised by this local slice.
 The implementation is isolated on `fix/client-upgrade-recovery` in the release
 worktree. The original OAuth workspace and its unrelated untracked review,
 planning, and browser artifacts were excluded.
+
+## PR integration review — October 21, 2026 (UTC)
+
+[PR #5](https://github.com/henryperkins/googleplato/pull/5) integrates the slice
+with main `1f5b05e`, preserving its Cloudflare OAuth changes, immediate logout,
+session generation, and account-scoped composer drafts. The original validation
+above remains the record for implementation base `498c30f`.
+
+Review and conflict resolution added these safeguards:
+
+- Migrate the existing account-scoped `plato_compose_draft_v2` text format to
+  rich drafts only after verified readback. Failed storage writes retain the old
+  copy, and explicitly empty rich drafts cannot resurrect stale text.
+- Retain main's immediate logout and sibling token-refresh reuse while checking
+  both session generation and captured credentials. A response pending across
+  logout and re-login as the same account is rejected.
+- After protocol negotiation is rejected, permit recovery reads without repeated
+  status handshakes while continuing to block mutations.
+- Use nullish coalescing for conflict response versions, preserving any explicit
+  numeric value without enabling automatic overwrite retries.
+
+The integrated tree passed **992 tests** — 407 client and 585 server — with zero
+failures or skips, including real PostgreSQL 17 tests in an isolated local
+container. Lint passed with zero errors and 20 existing client warnings; the
+client build and both staged and unstaged diff checks passed. An independent
+reviewer ran 73 focused tests and approved the upgrade/recovery scope with no
+newly introduced blocking findings.
+
+Chromium repeated the three controlled-API browser scenarios above against the
+integrated Vite application. Save-only recovery kept AI requests at **1 → 1**;
+lost-acknowledgement recovery kept them at **2 → 2**, with five messages and both
+record versions unchanged at **3**. Storage failure blocked reload and preserved
+the displayed reply and next draft. These checks used synthetic data and no real
+model calls or production writes.
+
+![Reload blocked while local recovery storage is unavailable](client-upgrade-recovery-2026-10-21/storage-blocked.png)
+
+![Original reply saved after reload with the next draft intact](client-upgrade-recovery-2026-10-21/reply-recovered.png)
+
+The review also reproduced a **pre-existing** operation-wide account-ownership
+gap on `498c30f`, main `1f5b05e`, feature `8416622`, and the integrated tree:
+switching accounts during an awaited context read can send the original account's
+lesson context to the model using the next account's credentials. The pending
+turn is still retained for its original owner and cannot be saved as the new
+account. [Issue #6](https://github.com/henryperkins/googleplato/issues/6) tracks
+binding generation, automatic retries, and queued enrichment to the initiating
+session. This PR does not claim to resolve that separate generation boundary.
+
+This addendum records local review and validation. Hosted checks, merge status,
+and their exact commit identities are recorded on the PR. No deployment,
+Firestore rules change, or production-data change is part of this review.

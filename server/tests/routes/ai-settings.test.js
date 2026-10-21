@@ -33,10 +33,17 @@ beforeEach(() => {
   process.env.CLOUDFLARE_API_TOKEN = 'test-token-never-return';
   mock.method(db, 'getUserById', async id => ({ userId: id, role: id === 'usr_admin' ? 'admin' : 'user' }));
   mock.method(db, 'getSyncData', async (userId, key, options) => {
+    if (userId === '_integrations') return null;
     assert.equal(userId, '_system');
     assert.equal(key, 'ai-settings');
     assert.equal(options?.consistentRead, true);
     return saved;
+  });
+  mock.method(db, 'getSyncDataByPrefix', async (userId, prefix, options) => {
+    assert.equal(userId, '_integrations');
+    assert.equal(prefix, 'cloudflare-revoke:');
+    assert.equal(options?.consistentRead, true);
+    return [];
   });
   mock.method(db, 'putSyncData', async (userId, key, data, version, options) => {
     assert.equal(userId, '_system');

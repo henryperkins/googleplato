@@ -33,6 +33,9 @@ export function createClientCompatibility() {
     requireClientUpgrade,
     async compatibilityHeaders(loadStatus, { mutation = false } = {}) {
       if (blocked && mutation) throw new ClientUpgradeError();
+      // A rejected protocol cannot negotiate an epoch in this page. Recovery
+      // reads need no compatibility headers and must not repeat the handshake.
+      if (blocked && !epoch) return {};
       if (!epoch) {
         pending ||= (async () => {
           const status = await loadStatus();

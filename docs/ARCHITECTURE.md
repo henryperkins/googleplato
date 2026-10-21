@@ -68,6 +68,21 @@ SDK, and rules remain pending the separate Firestore retirement cutover.
   reset would change a credential plato never reads, and a second email would
   compete with the one that works.
 
+Sign-out removes plato's local credentials and protected React state before
+waiting for any remote work. Server refresh-token revocation is best effort,
+uses the old token snapshot, and aborts after five seconds. In-flight refreshes
+check the session generation immediately before writing replacement credentials
+or notifying session expiry, so they cannot restore a logged-out account or
+overwrite the next account. A delayed 401 can retry with credentials already
+refreshed by another request in the same account and session generation.
+Legacy Firebase-provider probing cannot delay local
+sign-out or overwrite a newer provider decision. Firebase detection/import is
+bounded to five seconds, and stale cleanup is skipped after another login
+starts. Once an SDK sign-out has actually started, another Google popup is
+rejected with a retry message until that SDK operation settles; password login
+remains available. This prevents late SDK cleanup from signing out a new Google
+account without delaying local sign-out.
+
 ## Client loading
 
 The login page, lesson list, and lesson conversation ship in the entry bundle.
@@ -141,11 +156,41 @@ Cloudflare, with **`reasoning_effort: 'max'`** on every request. Mistral Small 3
 allowlist in `ai-settings.js`; model IDs cannot redirect inference to external
 providers. Both choices support images.
 
-`workers-ai.js` calls Cloudflare's Chat Completions endpoint using
-`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the server environment.
-Settings responses expose only credential-presence booleans. Tokens are never
-stored in synced settings or sent to the browser. SAM passes the optional
-Cloudflare credentials to both Lambda functions.
+`workers-ai.js` calls Cloudflare's Chat Completions endpoint using the connected
+OAuth account, or `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the
+server environment when no browser connection is active. An expired or invalid
+OAuth connection fails explicitly instead of switching accounts through the
+environment fallback. Settings responses expose credential-presence booleans,
+connection state and authorized account names/IDs; they never expose tokens.
+SAM passes the optional manual and OAuth configuration to both Lambda functions.
+
+The browser connection begins with an authenticated admin POST. Cloudflare's
+public redirect callback at `/v1/oauth/cloudflare/callback` validates a random
+state, a host-only HttpOnly SameSite=Lax cookie and an expiring server transaction,
+then rechecks the initiating user's admin role. A strict version write consumes
+the transaction before the PKCE code exchange. All provider endpoints and return
+paths are fixed. Invalid callbacks cannot clear another attempt's cookie.
+The account selector accepts only accounts returned by Cloudflare for that grant.
+
+`cloudflare-oauth.js` stores AES-256-GCM encrypted tokens and PKCE verifiers under
+the reserved `_integrations` database principal, separately from `_system:ai-settings`
+and user sync records. The stable encryption key is supplied by the server owner;
+there is no development-key fallback. Database reads are strongly consistent and
+all writes use strict versions. A database lease coordinates refresh-token rotation
+across instances. Ambiguous refresh failures require reconnect rather than retrying
+a potentially rotated token. Failed refresh credentials remain encrypted solely
+for explicit revocation. Disconnect first disables local access with a versioned
+tombstone, then revokes the grant; failed revocation remains visible and retryable.
+Late callbacks and refresh completions cannot restore a disconnected connection.
+Issued credentials have a unique encrypted cleanup record until ownership passes
+to the active connection. Replacement and disconnect preserve independent copies
+before changing that connection; failed and late revocations remain retryable.
+Account activation claims its flow conditionally, and cleanup must claim that
+same flow before revoking an expired pending grant. Cleanup rechecks active
+ownership after taking its lease and never disconnects a newer connection. The
+user-sync view-as-user API rejects reserved server principals, including
+`_integrations` and `_system`.
+See [Cloudflare OAuth setup](CLOUDFLARE_OAUTH.md) for registration and deployment.
 
 The adapter translates system prompts, text, and base64 images into Chat
 Completions messages and converts responses/SSE back into the existing Messages
@@ -317,6 +362,20 @@ calls an agent.
 
 ## Image & conversation persistence (#191, #193)
 
+Unsent composer text, images, and link context are stored in the current tab under
+an encoded account and lesson key (`plato_lesson_draft:<userId>:<lessonId>`).
+Existing account-scoped text in `plato_compose_draft_v2:<userId>:<lessonId>` is
+restored when no rich draft exists, and removed only after the rich draft passes
+readback verification. An explicit empty rich draft takes precedence over old
+text. Neither namespace can collide with legacy lesson-only keys, including IDs
+containing colons.
+`LessonChat` remounts when
+the account, impersonated account, or lesson changes and initializes from only
+that owner's draft. Read-only impersonation never reads or writes a composer
+draft. Sign-out preserves these drafts for the owner's next login in the same
+tab. Older lesson-only draft keys have no reliable owner: they remain intact in
+storage but are never automatically restored or assigned to an account.
+
 A learner's chat history for a lesson lives in one `messages:<lessonId>`
 sync-data record; progress lives separately in `lessonKB:<lessonId>`.
 Generated learner turns commit both records together through
@@ -356,14 +415,19 @@ Authenticated mutations under `/v1/sync` and `/v1/ai` require both
 `X-Plato-Client-Protocol: 1` and an exact `X-Plato-Client-Epoch`. A mismatch
 returns HTTP 409 with `code: client_upgrade_required` before database writes,
 plugin lesson-start hooks, or model invocation. Reads and authentication remain
-available for recovery. `GET /v1/sync/status` supplies the protocol/epoch with
+available for recovery. A protocol rejection before epoch negotiation does not
+repeat status handshakes for later reads; mutations remain blocked.
+`GET /v1/sync/status` supplies the protocol/epoch with
 `Cache-Control: no-store`. All server entry points allow these headers in CORS.
 
 The client negotiates once per loaded page. Its epoch and upgrade block survive
 logout and account changes; a rejected page cannot refresh its epoch and resume
-writes over old in-memory state. A fresh page is required. Requests also check
-account ownership, and token refresh compares the captured session before
-replacing credentials or reporting expiration.
+writes over old in-memory state. A fresh page is required. Each authenticated
+request checks account ownership and the session generation, and token refresh
+compares the captured credentials before replacing them or reporting expiration.
+This request-level guard does not yet bind an entire multi-request generation or
+enrichment operation to its original session; that pre-existing gap is tracked in
+[#6](https://github.com/henryperkins/googleplato/issues/6).
 
 `CLIENT_COMPATIBILITY_EPOCH` defaults to `1` and must match across all serving
 instances and any compatible rollback build. It is a coordinated upgrade

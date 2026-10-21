@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { adminApi } from './adminApi.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import CloudflareConnection from './CloudflareConnection.jsx';
+import { cloudflareAuthorizationUrl, cloudflareReturnFeedback, rememberCloudflareDraft, restoreCloudflareDraft } from '../../lib/cloudflareConnection.js';
 import { connectionTestErrorMessage } from '../../lib/aiSettingsFeedback.js';
 import {
   aiConfigurationKey, aiConfigurationLabel, aiModelName, pendingAiSettingsChanges,
@@ -11,13 +14,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 const PROVIDERS = [
   { id: 'bedrock', name: 'Amazon Bedrock', description: 'Use the server’s AWS credentials and Bedrock model access.' },
-  { id: 'workers-ai', name: 'Cloudflare Workers AI', description: 'Use a model hosted on Cloudflare with the server’s API token.' },
+  { id: 'workers-ai', name: 'Cloudflare Workers AI', description: 'Use a model hosted on Cloudflare with a connected account or server credentials.' },
 ];
 
 const DEEPSEEK_MODEL = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
 const MISTRAL_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
 
 export default function AdminAI() {
+  const { user } = useAuth();
+  const userId = user?.userId;
   const [settings, setSettings] = useState(null);
   const [provider, setProvider] = useState('bedrock');
   const [model, setModel] = useState('');
@@ -26,11 +31,14 @@ export default function AdminAI() {
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
   const [lastTest, setLastTest] = useState(null);
+  const [returnResult] = useState(() => new URLSearchParams(window.location.search).get('cloudflare'));
+  const restoredDraft = useRef(false);
   const headingRef = useRef(null);
   const retryRef = useRef(null);
   const saveRef = useRef(null);
   const testRef = useRef(null);
   const reloadRef = useRef(null);
+  const connectRef = useRef(null);
   const feedbackRef = useRef(null);
   const feedbackTrigger = useRef(null);
   const requestPending = useRef(false);
@@ -82,8 +90,18 @@ export default function AdminAI() {
       // only when the user was still on that button as the response arrived.
       focusHeadingAfterLoad.current = Boolean(retryRef.current && document.activeElement === retryRef.current);
       setSettings(data);
-      setProvider(data.provider);
-      setModel(data.workersAiModel);
+      let restored;
+      if (returnResult && !restoredDraft.current) {
+        restored = restoreCloudflareDraft(browserStorage(), userId, data);
+        restoredDraft.current = true;
+        const url = new URL(window.location.href);
+        url.searchParams.delete('cloudflare');
+        window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+        const feedback = cloudflareReturnFeedback(returnResult, data.workersAiOAuth);
+        setMessage(restored?.changed ? { ...feedback, text: `${feedback.text} AI settings changed while you were away; review the current settings before saving.` } : feedback);
+      }
+      setProvider(restored?.draft?.provider || (returnResult && !reloading && !restored?.changed ? 'workers-ai' : data.provider));
+      setModel(restored?.draft?.workersAiModel || data.workersAiModel);
       setLoadError('');
       setLastTest(null);
       if (reloading) setMessage({ text: `AI settings reloaded. ${discarding ? 'Unsaved changes were discarded. ' : ''}Active: ${aiConfigurationLabel(data)}.` });
@@ -93,7 +111,7 @@ export default function AdminAI() {
       requestPending.current = false;
       setLoading(false);
     });
-  }, []);
+  }, [returnResult, userId]);
 
   useEffect(() => {
     document.title = 'AI Settings — plato';
@@ -163,6 +181,64 @@ export default function AdminAI() {
     setLastTest(null);
   }
 
+  function browserStorage() {
+    try { return window.sessionStorage; } catch { return null; }
+  }
+
+  async function connectCloudflare() {
+    if (requestPending.current) return;
+    if (!rememberCloudflareDraft(browserStorage(), userId, settings, { provider, workersAiModel: model })) {
+      setMessage({ error: true, text: 'Your browser could not keep your pending choices during sign-in. Allow session storage, then try connecting again.' });
+      return;
+    }
+    requestPending.current = true;
+    feedbackTrigger.current = connectRef.current;
+    setBusy('connect');
+    clearFeedback();
+    try {
+      const result = await adminApi('POST', '/v1/admin/ai-settings/cloudflare/connect', {});
+      window.location.assign(cloudflareAuthorizationUrl(result.authorizationUrl));
+    } catch (err) {
+      setMessage({ error: true, text: err.message || 'Cloudflare sign-in could not be opened. Try again.' });
+    } finally {
+      requestPending.current = false;
+      setBusy('');
+    }
+  }
+
+  async function changeCloudflareConnection(action, body) {
+    if (requestPending.current) return;
+    requestPending.current = true;
+    setBusy(action);
+    clearFeedback();
+    let updated = false;
+    try {
+      const suffix = action === 'account' ? '/account' : action === 'revoke' ? '/revoke' : '';
+      const result = await adminApi(action === 'disconnect' ? 'DELETE' : 'POST', `/v1/admin/ai-settings/cloudflare${suffix}`, body);
+      updated = true;
+      const data = await adminApi('GET', '/v1/admin/ai-settings');
+      // Updating access must not silently rebase an unsaved provider/model form
+      // onto a different administrator's settings version.
+      setSettings(current => ({ ...current, workersAiCredentials: data.workersAiCredentials, workersAiOAuth: data.workersAiOAuth }));
+      setMessage(action === 'account' ? cloudflareReturnFeedback('connected', data.workersAiOAuth) : action === 'revoke' ? {
+        text: result.revocationPending
+          ? 'Previous Cloudflare access still needs to be revoked. Try again later or use Manage Cloudflare authorizations.'
+          : 'Previous Cloudflare access was revoked. Your current classroom connection was kept.',
+      } : {
+        text: result.revocationPending
+          ? 'Cloudflare was disconnected from Plato. Access could not be revoked at Cloudflare; remove Plato under Manage OAuth authorizations in your Cloudflare profile.'
+          : 'Cloudflare was disconnected. The saved AI provider and model have been kept.',
+      });
+    } catch (err) {
+      setMessage({ error: true, text: updated
+        ? 'The Cloudflare connection was updated, but its current status could not be loaded. Reload settings to confirm.'
+        : err.message || 'The Cloudflare connection could not be updated. Reload settings and try again.' });
+    } finally {
+      requestPending.current = false;
+      setBusy('');
+    }
+  }
+
   const candidate = settings && { ...settings, provider, workersAiModel: model };
   const changes = settings ? pendingAiSettingsChanges(settings, { provider, workersAiModel: model }) : [];
   const changed = changes.length > 0;
@@ -174,6 +250,10 @@ export default function AdminAI() {
   const feedbackText = loading ? 'Reloading AI settings…'
     : busy === 'test' ? `Waiting for ${aiConfigurationLabel(candidate)} to respond…`
     : busy === 'save' ? 'Saving AI settings…'
+    : busy === 'connect' ? 'Opening Cloudflare sign-in…'
+    : busy === 'account' ? 'Connecting the selected Cloudflare account…'
+    : busy === 'disconnect' ? 'Disconnecting Cloudflare…'
+    : busy === 'revoke' ? 'Revoking previous Cloudflare access…'
     : loadError ? 'AI settings could not be reloaded. Your selections have been kept. Try reloading again.'
     : message?.text;
   const saveDescription = pending ? 'ai-feedback' : missingCredentials ? 'workers-credentials-help'
@@ -244,24 +324,14 @@ export default function AdminAI() {
                     {model === DEEPSEEK_MODEL && <p className="text-sm text-muted-foreground">Requires Workers Paid or prepaid AI Gateway credits.</p>}
                     <p className="text-xs text-muted-foreground break-all">Model ID: {model}</p>
                   </div>
-                  <div id="workers-credentials-help" className="rounded-md bg-muted p-3 text-sm space-y-2">
-                    <p className="font-medium">{missingCredentials ? 'Server setup required' : 'Credential values are present'}</p>
-                    <p>
-                      Account ID: {settings.workersAiCredentials.accountId ? 'present' : 'missing or invalid'}.
-                      {' '}API token: {settings.workersAiCredentials.apiToken ? 'present' : 'missing'}.
-                    </p>
-                    {missingCredentials ? <>
-                      <ol className="list-decimal ps-5 space-y-2">
-                        <li>Set <code>CLOUDFLARE_ACCOUNT_ID</code> and <code>CLOUDFLARE_API_TOKEN</code> on the server. The token needs Workers AI Read and Edit permissions.</li>
-                        <li>Restart the server to load the credentials.</li>
-                        <li>Use Reload settings here, then Test connection.</li>
-                      </ol>
-                      <p>If someone else manages the server, share this checklist with them. Keep credential values on the server.</p>
-                    </> : <p>Presence does not confirm model access. Test connection checks the selected model.</p>}
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    <a className="touch-target-inline inline-block max-w-full underline underline-offset-4" href="https://developers.cloudflare.com/workers-ai/get-started/rest-api/" target="_blank" rel="noopener noreferrer">Cloudflare setup guide</a>
-                  </p>
+                  <CloudflareConnection
+                    key={settings.workersAiOAuth?.pendingFlowId || 'connection'}
+                    settings={settings} pending={pending} busy={busy} connectRef={connectRef}
+                    onConnect={connectCloudflare}
+                    onSelectAccount={accountId => changeCloudflareConnection('account', { accountId, flowId: settings.workersAiOAuth.pendingFlowId })}
+                    onDisconnect={() => changeCloudflareConnection('disconnect', { version: settings.workersAiOAuth.version })}
+                    onRevoke={() => changeCloudflareConnection('revoke', {})}
+                  />
                 </CardContent>
               </Card>
             ) : (

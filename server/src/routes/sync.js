@@ -97,6 +97,9 @@ function resolveReadUserId(c) {
   if (c.get('role') !== 'admin') {
     return { error: c.json({ error: 'Admin access required to read as another user' }, 403) };
   }
+  if (asUserId.startsWith('_')) {
+    return { error: c.json({ error: 'Server records are not available through user sync' }, 403) };
+  }
   return { userId: asUserId, impersonating: true };
 }
 
@@ -275,7 +278,7 @@ sync.put('/v1/sync/batch', async (c) => {
         const current = await db.getSyncData(userId, item.dataKey);
         return {
           dataKey: item.dataKey, status: 'conflict', code: 'sync_conflict',
-          serverVersion: current?.version || null,
+          serverVersion: current?.version ?? null,
         };
       }
       throw err;
@@ -332,7 +335,7 @@ sync.put('/v1/sync/:dataKey', async (c) => {
       return c.json({
         code: 'sync_conflict',
         error: 'Version conflict',
-        serverVersion: current?.version || null,
+        serverVersion: current?.version ?? null,
       }, 409);
     }
     throw err;

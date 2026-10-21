@@ -69,8 +69,8 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     for (const { file, key } of draftPages) {
       const src = fs.readFileSync(path.join(SRC_DIR, file), 'utf8');
       assert.match(src, new RegExp(key), `${file} missing sessionStorage draft key ${key}`);
-      assert.match(src, /sessionStorage\.getItem/, `${file} missing sessionStorage read`);
-      assert.match(src, /sessionStorage\.setItem/, `${file} missing sessionStorage write`);
+      assert.match(src, /(?:sessionStorage|storage\(\))\.getItem/, `${file} missing sessionStorage read`);
+      assert.match(src, /(?:sessionStorage|storage\(\))\.setItem/, `${file} missing sessionStorage write`);
     }
   });
 

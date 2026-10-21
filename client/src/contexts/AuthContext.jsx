@@ -69,9 +69,10 @@ export function AuthProvider({ children }) {
       clearCache();
     }
     setImpersonatedUserState(null);
-    await authModule.logout();
     setLoggedIn(false);
     setUser(null);
+    setSessionExpired(false);
+    await authModule.logout();
   }, []);
 
   const startImpersonation = useCallback(async (targetUserId) => {

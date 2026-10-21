@@ -87,6 +87,17 @@ test('a fresh page negotiates a new epoch, while a fenced page still permits rec
   assert.equal((await newPage.compatibilityHeaders(async () => ({ protocol: '1', epoch: 'second' }), { mutation: true }))['X-Plato-Client-Epoch'], 'second');
 });
 
+test('a rejected protocol permits recovery reads without repeated handshakes', async () => {
+  const page = compatibility.createClientCompatibility();
+  let checks = 0;
+  const status = async () => { checks++; return { protocol: '2', epoch: 'new' }; };
+  await assert.rejects(page.compatibilityHeaders(status, { mutation: true }), { code: 'client_upgrade_required' });
+  assert.deepEqual(await page.compatibilityHeaders(status), {});
+  assert.deepEqual(await page.compatibilityHeaders(status), {});
+  await assert.rejects(page.compatibilityHeaders(status, { mutation: true }), { code: 'client_upgrade_required' });
+  assert.equal(checks, 1);
+});
+
 for (const refreshStatus of [200, 401]) {
   test(`an old account's refresh response (${refreshStatus}) cannot replace or expire the new account`, async () => {
     const next = { user: { userId: 'next-account' }, accessToken: 'next-access', refreshToken: 'next-refresh' };
