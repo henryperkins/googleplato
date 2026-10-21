@@ -14,6 +14,10 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
 - 2 Lambda functions: API Gateway (buffered CRUD) + Function URL (streaming SSE
   for AI chat).
 - 5 DynamoDB tables: users, invites, refresh-tokens, sync-data, audit-log.
+- Cloud Run uses the same database contract through PostgreSQL in Cloud SQL,
+  outside the application containers. `server/start.js` selects the configured
+  durable backend; `dev-sqlite.js` is for local development. See
+  [Cloud Run storage](CLOUD_RUN_STORAGE.md) for deployment and recovery details.
 - Content stored as `_system` sync-data: `prompt:*`, `lesson:*`,
   `knowledgeBase`, `settings`.
 - Prompts are bundled in `client/prompts/*.md` and upserted to DB on every
@@ -313,7 +317,7 @@ calls an agent.
 A learner's chat history for a lesson lives in one `messages:<lessonId>`
 sync-data record; progress lives separately in `lessonKB:<lessonId>`.
 Generated learner turns commit both records together through
-`POST /v1/sync/lesson-turn/:lessonId` (a SQLite transaction or DynamoDB
+`POST /v1/sync/lesson-turn/:lessonId` (a PostgreSQL/SQLite transaction or DynamoDB
 `TransactWrite`). The engine first reads a consistent snapshot through the GET
 of that endpoint, generates once, applies coach tags once, and assigns stable
 turn/message IDs. The commit compares the original versions, values, and

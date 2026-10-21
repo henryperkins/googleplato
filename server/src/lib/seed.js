@@ -27,6 +27,19 @@ function findPluginsDir() {
 }
 
 export async function seedDefaultContent() {
+  // A second instance may finish the same release's seed after our read. Reread
+  // on optimistic conflicts so a normal concurrent start can become ready.
+  // Permission, schema and connection errors must still fail startup.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await seedOnce();
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException' || attempt >= 2) throw error;
+    }
+  }
+}
+
+async function seedOnce() {
   let seeded = 0;
 
   // Seed prompts
