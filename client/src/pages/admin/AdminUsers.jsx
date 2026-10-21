@@ -897,7 +897,7 @@ export default function AdminUsers() {
 
   const filterButtons = [
     { key: 'all', label: 'All' },
-    { key: 'active', label: 'Active' },
+    { key: 'active', label: 'Learners' },
     { key: 'admins', label: 'Admins' },
     { key: 'invited', label: 'Invited' },
     { key: 'waitlist', label: 'Wait List' },
@@ -1097,7 +1097,7 @@ export default function AdminUsers() {
                           {item.name || item.email}
                         </button>
                         <span className="block truncate text-xs text-muted-foreground">
-                          {[item.username ? `@${item.username}` : null, item.name ? item.email : null].filter(Boolean).join(' · ') || 'Active user'}
+                          {[item.username ? `@${item.username}` : null, item.name ? item.email : null].filter(Boolean).join(' · ') || 'User account'}
                         </span>
                       </div>
                     </TableCell>
@@ -1391,7 +1391,6 @@ export default function AdminUsers() {
             ) : (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Create a shareable invite link that anyone can use to sign up.
                   The link expires after 7 days and can be regenerated anytime.
                 </p>
 

@@ -25,7 +25,7 @@ export default function MarkdownPreviewPane({
   title = 'Lesson preview',
   ariaLabel = 'Lesson markdown preview',
   noun = 'lesson',
-  emptyHint = 'Describe the skill and what learners should be able to do in the conversation. Then generate a preview to review your lesson.',
+  emptyHint = 'Describe the skill and intended outcome, then generate a preview.',
 }) {
   const hasContent = !!markdown?.trim();
   // Before the first extraction there is nothing to refresh — it's a generate.

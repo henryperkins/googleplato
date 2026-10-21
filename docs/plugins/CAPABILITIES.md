@@ -8,6 +8,8 @@ Capabilities exist for three reasons:
 2. **Forward-compat.** Phase 2's sandbox model will gate plugins by their declared capability list rather than by inspecting code.
 3. **Documentation.** New extension points must add to this vocabulary, forcing the contract to evolve in one place.
 
+The admin Plugins page shows plain-language labels for these declarations. Metadata labels identify this plugin’s records for any user and include deletion under write access. Unknown hook and slot names get readable fallbacks; other unrecognized tokens stay visible unchanged.
+
 ## Static capabilities
 
 ### `server.routes`

@@ -115,7 +115,7 @@ export default function ProfileField({ user }) {
       <div className="flex flex-wrap items-baseline justify-between gap-1">
         <h2 className="text-base font-semibold">Teacher comments</h2>
         <span className="text-xs text-muted-foreground">
-          Private — visible only to admins
+          Visible only to admins
         </span>
       </div>
 

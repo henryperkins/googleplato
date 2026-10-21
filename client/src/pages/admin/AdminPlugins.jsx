@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { initPluginRegistry, settingsPanelFor, refreshActivation } from '@/lib/plugins/registry.js';
+import { capabilityLabel } from '@/lib/plugins/capabilityLabels.js';
 import SettingsForm from '@/lib/plugins/SettingsForm.jsx';
 
 /**
@@ -81,21 +82,19 @@ export default function AdminPlugins() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-2">Plugins</h1>
+      <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-2xl font-bold">Plugins</h1>
+        <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="touch-target-inline underline underline-offset-4 text-sm">
+          Build a plugin
+        </a>
+      </div>
       {error && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-4 text-sm text-danger-foreground" role="alert">
           <span>{error}</span>
           <Button variant="outline" size="sm" onClick={load}>Retry</Button>
         </div>
       )}
-      <p className="text-sm text-muted-foreground mb-6">
-        Enable, disable, and configure plato plugins.{' '}
-        <a href="https://github.com/1111philo/plato/blob/main/docs/plugins/AUTHORING.md" target="_blank" rel="noopener noreferrer" className="touch-target-inline underline underline-offset-4">
-          Build your own.
-        </a>
-      </p>
-
-      {plugins.length === 0 && (
+      {!error && plugins.length === 0 && (
         <p className="text-sm text-muted-foreground">No plugins installed.</p>
       )}
 
@@ -210,11 +209,13 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
               <span className="group-open:hidden">Show {plugin.capabilities.length} permission{plugin.capabilities.length === 1 ? '' : 's'}</span>
               <span className="hidden group-open:inline">Hide permissions</span>
             </summary>
-            <div className="mt-2 flex flex-wrap gap-1">
+            {/* Plain-language labels: the raw capability tokens are the
+                developer-facing contract, not something an admin acts on. */}
+            <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {plugin.capabilities.map((cap) => (
-                <code key={cap} className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{cap}</code>
+                <li key={cap}>{capabilityLabel(cap)}</li>
               ))}
-            </div>
+            </ul>
           </details>
         </CardContent>
       )}

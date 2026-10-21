@@ -167,9 +167,8 @@ function ComposeBar({
         else { readErrors.push(r.reason); console.error('[plato] failed to read image', r.reason); }
       }
       if (readErrors.length > 0) {
-        const reason = readErrors[0]?.name || readErrors[0]?.message || 'unknown error';
         const n = readErrors.length;
-        setImageError(`Couldn't read ${n} image${n === 1 ? '' : 's'} (${reason}). Please try again or pick a different file.`);
+        setImageError(`Couldn't read ${n} image${n === 1 ? '' : 's'}. Try again or choose a different file.`);
       }
       if (loaded.length === 0) return;
       const compressed = await Promise.all(loaded.map(async (img) => ({
@@ -183,7 +182,7 @@ function ComposeBar({
       setImages([...images, ...usable].slice(0, MAX_IMAGES));
     } catch (err) {
       console.error('[plato] image processing failed', err);
-      setImageError(`Failed to read image (${err?.name || err?.message || 'unknown error'}). Please try again.`);
+      setImageError("Couldn't read the image. Try again or choose a different file.");
     } finally {
       setLoadingImages(false);
       setLoadingCount(0);
@@ -316,8 +315,10 @@ function ComposeBar({
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-muted-foreground">
                     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                   </svg>
-                  <span className="truncate max-w-[11rem]" aria-hidden="true">{link.title}</span>
-                  <span className="text-muted-foreground shrink-0" aria-hidden="true">{hostLabel(link.url)}</span>
+                  <span className="truncate max-w-[11rem]" aria-hidden="true">{link.title || hostLabel(link.url)}</span>
+                  {link.title && link.title !== hostLabel(link.url) && (
+                    <span className="text-muted-foreground shrink-0" aria-hidden="true">{hostLabel(link.url)}</span>
+                  )}
                 </a>
                 <Button
                   variant="ghost"

@@ -31,18 +31,17 @@ export default function Privacy() {
             <h2 className="text-lg font-semibold mb-2">How Your Data is Stored</h2>
             <p className="text-muted-foreground mb-2">
               This deployment runs on Google Cloud Run and stores your account and lesson data in
-              PostgreSQL on Google Cloud SQL. The database is separate from the application instances,
-              so replacing an instance does not remove your saved work. Login is required to access your data.
+              PostgreSQL on Google Cloud SQL. Your data is stored separately from the app itself, so your
+              saved work is kept when the app restarts or updates. Login is required to access your data.
             </p>
             <ul className="list-disc pl-6 space-y-1 text-muted-foreground">
               <li>
-                <strong>Account information:</strong> Your name, email, username, and hashed password are stored
-                in a secure users table.
+                <strong>Account information:</strong> Your name, email, and username are stored securely.
+                Your password is only stored as a hash.
               </li>
               <li>
-                <strong>Lesson conversations:</strong> Chat messages exchanged with the AI coach are stored in
-                an append-only conversation record for each lesson. This allows you to pause and resume lessons
-                without losing context.
+                <strong>Lesson conversations:</strong> Chat messages exchanged with the AI coach are saved
+                with the lesson, so you can pause and resume without losing context.
               </li>
               <li>
                 <strong>Lesson progress:</strong> Your progress and learning profile are maintained separately
@@ -50,13 +49,12 @@ export default function Privacy() {
               </li>
               <li>
                 <strong>Uploaded images:</strong> When you paste a screenshot into a lesson, it is compressed
-                and stored as a separate record referenced by the conversation. Images are not embedded directly
-                in messages to stay within database size limits.
+                and stored separately, then referenced by the conversation.
               </li>
               <li>
                 <strong>Browser recovery:</strong> Sign-in tokens are stored in your browser. Unsent drafts,
-                attachments, and generated replies awaiting a confirmed save are kept in this tab’s session
-                storage so you can reload and retry saving. Keep the tab open if recovery storage is unavailable.
+                attachments, and generated replies awaiting a confirmed save are kept in this browser tab,
+                so you can reload and retry saving. Keep the tab open if that storage is unavailable.
               </li>
             </ul>
           </section>
@@ -94,6 +92,10 @@ export default function Privacy() {
                 className="underline hover:text-foreground"
               >Workers AI data usage documentation</a> for details.
             </p>
+            <p className="text-muted-foreground mt-2">
+              Classroom plugins can search external websites for lesson reference material. Those sites
+              receive search terms based on the lesson. Your administrator chooses which plugins are enabled.
+            </p>
           </section>
 
           <section>
@@ -103,7 +105,7 @@ export default function Privacy() {
             </p>
             <ul className="list-disc pl-6 space-y-1 text-muted-foreground">
               <li>The image is compressed automatically to reduce storage size.</li>
-              <li>It is stored in a separate database record and referenced by your conversation.</li>
+              <li>It is stored separately and referenced by your conversation.</li>
               <li>The image is sent to the selected AI service along with your message so the AI coach can see and
                 discuss what you’ve shared.</li>
               <li>Images remain accessible when you resume a lesson later.</li>
