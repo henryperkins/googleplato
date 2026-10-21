@@ -60,7 +60,7 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
       { file: 'pages/Setup.jsx', key: 'plato_setup_draft' },
       { file: 'pages/Waitlist.jsx', key: 'plato_waitlist_draft' },
       { file: 'pages/ForgotPassword.jsx', key: 'plato_forgot_password_draft' },
-      { file: 'pages/LessonChat.jsx', key: 'plato_compose_draft' },
+      { file: 'lib/lessonDrafts.js', key: 'plato_compose_draft' },
       { file: 'pages/Settings.jsx', key: 'plato_settings_fields_draft' },
       { file: 'pages/Settings.jsx', key: 'plato_profile_feedback_draft' },
       { file: 'components/ProfileCompletionGate.jsx', key: 'plato_profile_gate_draft' },
@@ -69,8 +69,8 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     for (const { file, key } of draftPages) {
       const src = fs.readFileSync(path.join(SRC_DIR, file), 'utf8');
       assert.match(src, new RegExp(key), `${file} missing sessionStorage draft key ${key}`);
-      assert.match(src, /sessionStorage\.getItem/, `${file} missing sessionStorage read`);
-      assert.match(src, /sessionStorage\.setItem/, `${file} missing sessionStorage write`);
+      assert.match(src, /(?:sessionStorage|storage\(\))\.getItem/, `${file} missing sessionStorage read`);
+      assert.match(src, /(?:sessionStorage|storage\(\))\.setItem/, `${file} missing sessionStorage write`);
     }
   });
 
