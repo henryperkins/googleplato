@@ -119,3 +119,38 @@ native mobile keyboard/gesture/browser-chrome behavior, or a screen reader.
 Not every existing error/permission branch was simulated in a browser; source
 inspection and the repository tests provide the broader coverage. No deployment
 or merge was performed.
+
+## Review follow-up before merge
+
+The remaining inline review findings were checked against the implementation.
+The static, hook, and slot permission dictionaries already use own-property
+lookups, and the metadata labels already describe this plugin's records for any
+user and creation/change/deletion scope.
+
+Two additional findings were addressed:
+
+- The fallback settings form accessed members of null or undefined property
+  descriptors. Normalize malformed descriptors to the existing plain-text
+  fallback so the panel retains its labels, stored values, and Save action.
+  Valid password, boolean, number, and enum fields retain their behavior.
+  A test renders the actual component through Vite and React SSR: it reproduced
+  the null-description exception before the fix and passed afterward, alongside
+  the valid-control regression.
+- Add a concise Privacy paragraph explaining that classroom plugins can search
+  external websites using lesson-derived terms. This matches the WordPress Info
+  planner and query executor; it does not claim that full lesson content is sent
+  to those websites or make guarantees about external retention or anonymity.
+
+The follow-up full local test run used a disposable PostgreSQL 17 database,
+matching CI's database service: **440 client and 642 server tests passed, with
+zero failures or skipped tests**. Build, lint (zero errors, 20 client warnings),
+plugin validation, and the independent focused source review passed. Desktop
+and mobile browser checks cover the Privacy disclosure and the fallback form's
+labels, keyboard order, typed controls, retained values, and save payload.
+See the [mobile Privacy capture](interface-clarity-2026-10-21/privacy-plugin-disclosure-mobile.png).
+
+Hosted GitHub Actions did not run the test, lint, or review code. Their failure
+annotations report: "The job was not started because your account is locked due
+to a billing issue." This is distinct from the passing local checks. No hosted
+status was replaced or bypassed, and an independent technical review does not
+constitute a GitHub approval from a separate eligible account.

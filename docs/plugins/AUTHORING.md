@@ -45,6 +45,8 @@ Edit `plugins/my-plugin/plugin.json`:
 - Define your `settingsSchema` (or remove it if you don't have settings)
 - Set `defaultEnabled: true` if it should be on by default for new installs
 
+Each settings property descriptor should be an object. The fallback form treats missing or malformed descriptors as plain text fields, preserving their labels and existing values. Valid descriptors keep their titles, descriptions, input types, and constraints.
+
 Validate:
 
 ```bash

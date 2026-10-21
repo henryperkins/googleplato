@@ -17,7 +17,9 @@ function fieldId(pluginId, key) {
   return `plugin-${pluginId}-${key}`;
 }
 
-function PrimitiveField({ pluginId, propKey, schema, value, onChange }) {
+function PrimitiveField({ pluginId, propKey, schema: descriptor, value, onChange }) {
+  const schema = descriptor && typeof descriptor === 'object' && !Array.isArray(descriptor)
+    ? descriptor : {};
   const id = fieldId(pluginId, propKey);
   // Schema title when the plugin provides one, otherwise a humanized key —
   // never the raw property name.

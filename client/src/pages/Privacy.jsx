@@ -92,6 +92,10 @@ export default function Privacy() {
                 className="underline hover:text-foreground"
               >Workers AI data usage documentation</a> for details.
             </p>
+            <p className="text-muted-foreground mt-2">
+              Classroom plugins can search external websites for lesson reference material. Those sites
+              receive search terms based on the lesson. Your administrator chooses which plugins are enabled.
+            </p>
           </section>
 
           <section>
