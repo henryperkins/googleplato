@@ -103,11 +103,14 @@ lesson extraction. There is no automatic fallback to another provider.
   (`@cf/deepseek-ai/deepseek-v4.1-flash-1017`) with **maximum reasoning**
   (`reasoning_effort: max`). It supports text and images and requires
   Workers Paid or prepaid AI Gateway credits. Mistral Small 3.1 24B is also selectable.
-  Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in `server/.env` or
-  the server environment, then restart. Use an account-scoped token with
+  After the server owner completes the [one-time OAuth setup](docs/CLOUDFLARE_OAUTH.md),
+  select **Connect Cloudflare** to sign in and authorize an account in your browser.
+  Plato stores the resulting tokens encrypted on the server and renews them as needed.
+  Alternatively, set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in `server/.env`
+  or the server environment, then restart. A manual account-scoped token needs
   Workers AI Read and Edit permissions; see the
-  [Cloudflare setup guide](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
-  These credentials never go to the browser or the settings database.
+  [Cloudflare token setup guide](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
+  OAuth and manual credentials are never returned to the browser or stored in the provider/model settings.
 
 The **Active configuration** summary shows the saved provider, model, and Bedrock
 region. **Pending changes** lists everything Save will persist, including a
@@ -118,9 +121,11 @@ configuration and record that request only; editing the selection clears them.
 **Discard changes and reload** replaces the draft only after settings load
 successfully. A failed reload keeps the draft.
 
-After configuring credentials, restart the server, **Reload settings**, and
-**Test connection**. Learning administrators can share the setup checklist in
-the dashboard with their server owner. Credential presence alone does not prove
+After a browser connection, **Test connection**, then **Save AI settings** to apply
+pending provider/model changes. Connecting an account does not select Workers AI
+automatically. Manual environment changes require a server restart and **Reload settings**.
+Learning administrators can share the setup checklist in the dashboard with their
+server owner. Credential presence alone does not prove
 model access, and a successful test is not an ongoing health guarantee. Tests incur normal
 provider usage. Maximum reasoning can take longer; requests time out after
 115 seconds and receive an extra 8,192 completion tokens for reasoning.
