@@ -25,6 +25,7 @@ import WaitlistDialog from './WaitlistDialog.jsx';
 import WaitlistEntryEdit from './WaitlistEntryEdit.jsx';
 import CustomFieldInput from '../../components/CustomFieldInput.jsx';
 import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
+import CopyLinkField from '../../components/CopyLinkField.jsx';
 import { customFieldsMatch, matchesFieldFilter, missingRequired } from '../../lib/userFields.js';
 import { describeBulkInvites, describeSingleInvite, describeAdminReset } from '../../lib/inviteResults.js';
 
@@ -164,7 +165,6 @@ export default function AdminUsers() {
 
   // Link invite state
   const [linkInvite, setLinkInvite] = useState(null);
-  const [linkCopied, setLinkCopied] = useState(false);
   const [linkGenerating, setLinkGenerating] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -443,13 +443,6 @@ export default function AdminUsers() {
         }
       },
     });
-  }
-
-  function handleCopyLink() {
-    const url = `${window.location.origin}/signup?token=${linkInvite.inviteToken}`;
-    navigator.clipboard.writeText(url);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
   }
 
   // -- User actions --
@@ -943,17 +936,12 @@ export default function AdminUsers() {
       {inviteLinks.length > 0 && (
         <ul className="mb-4 space-y-2" aria-label="Invite links to copy">
           {inviteLinks.map(({ email, signupUrl }) => (
-            <li key={signupUrl} className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm">
-              <span className="min-w-0 flex-1 truncate">{email}</span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label={`Copy invite link for ${email}`}
-                onClick={() => navigator.clipboard.writeText(signupUrl)}
-              >
-                Copy invite link
-              </Button>
+            <li key={signupUrl} className="rounded-lg border border-border px-4 py-3">
+              <CopyLinkField
+                label={<span className="min-w-0 truncate"><span className="sr-only">Invite link for </span>{email}</span>}
+                value={signupUrl}
+                copyLabel={`Copy invite link for ${email}`}
+              />
             </li>
           ))}
         </ul>
@@ -1376,18 +1364,13 @@ export default function AdminUsers() {
             ) : linkInvite ? (
               <div className="space-y-4">
                 <div className="rounded-lg border p-4 bg-muted/50">
-                  <Label htmlFor="invite-link">Shareable Invite Link</Label>
-                  <div className="flex gap-2 mt-2">
-                    <Input
-                      id="invite-link"
-                      readOnly
-                      value={`${window.location.origin}/signup?token=${linkInvite.inviteToken}`}
-                      className="font-mono text-base md:text-sm"
-                    />
-                    <Button onClick={handleCopyLink} variant="outline">
-                      {linkCopied ? 'Copied!' : 'Copy'}
-                    </Button>
-                  </div>
+                  <CopyLinkField
+                    key={linkInvite.inviteToken}
+                    id="invite-link"
+                    label="Shareable Invite Link"
+                    value={`${window.location.origin}/signup?token=${linkInvite.inviteToken}`}
+                    copyLabel="Copy shareable invite link"
+                  />
                 </div>
 
                 <div className="text-sm text-muted-foreground space-y-1">

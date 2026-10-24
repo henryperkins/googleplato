@@ -6,7 +6,10 @@ disabled.
 
 Local validation on Node 24 passed: 492 client tests and 670 server tests, with
 zero skips using a disposable PostgreSQL 17 instance. Lint reported zero errors
-and 20 existing client warnings. The Vite client build passed.
+and 20 existing client warnings. The Vite client build passed. The copy-link
+follow-up below is client-only. With it applied on top of the Settings fix, 500
+client tests passed. The server suite passed without PostgreSQL (661 passed, 2
+PostgreSQL tests skipped).
 
 The final review found three revocation defects: a refresh could finish across a
 password reset, a DynamoDB index could omit a recent token, and unprocessed
@@ -59,11 +62,41 @@ was rejected and the new one accepted.
 
 ![Settings after a password change](settings-password-changed.png)
 
+## Copy-link acceptance
+
+The review's minor copy-link finding is fixed. Every admin copy-link action
+(the per-invite links shown while email delivery is off, and the shareable
+invite link) now uses `CopyLinkField`: a read-only field showing the link, a
+Copy button, and a polite status region that stays mounted. `copyText`
+reports whether the clipboard write resolved instead of assuming success.
+When the write is denied or the Clipboard API is missing, the field is
+focused and fully selected, and the status explains how to copy it by hand.
+
+Chromium (Playwright) against the SQLite dev server with email delivery off:
+
+- Clipboard granted: the success message appeared in the clicked link's
+  status region and no other, the clipboard held exactly that link, and the
+  message cleared after 4 seconds.
+- Clipboard write not granted, so Chromium rejected `writeText` with
+  `NotAllowedError`. Driving it from the keyboard only (Tab to Copy, then
+  Enter), the failure message appeared, focus moved to the read-only field
+  with the whole link selected, and Ctrl+C then put exactly the link on the
+  clipboard.
+- Clipboard API removed, matching an insecure context: the shareable link in
+  the Invite dialog used the same fallback. Checked at 390 px in dark mode with
+  no horizontal page scroll.
+
+![Copy succeeded](copy-link-success.png)
+
+![Copy denied: the link is selected for a manual copy](copy-link-denied.png)
+
+![Clipboard unavailable: shareable link fallback at phone width, dark mode](copy-link-unavailable-mobile-dark.png)
+
+These checks used browser automation in headless Chromium. They did not cover
+Safari, Firefox, or a physical device.
+
 ## Release boundaries
 
 - D-2(a): when email is off, admin password reset creates no token or reset link.
 - This verification does not deploy the branch or establish Cloud Build results.
 - Production operations and live acceptance remain separate release steps.
-- The review's minor copy-link feedback/fallback finding is deferred: clipboard
-  denial currently provides no success/failure announcement or selectable-link
-  fallback.
