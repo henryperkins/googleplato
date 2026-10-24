@@ -42,4 +42,30 @@ export function saveTheme(theme) {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch { /* Storage can be unavailable (private browsing, quota). */ }
+  notify();
+}
+
+// Every theme control (the header button, the account-menu item, the sign-in
+// page's) reads one store, so they agree, and one storage listener follows a
+// choice made in another tab.
+const listeners = new Set();
+
+function notify() {
+  for (const listener of listeners) listener();
+}
+
+function onStorage(event) {
+  if (event.key !== THEME_STORAGE_KEY) return;
+  applyTheme(storedTheme());
+  notify();
+}
+
+/** Call `listener` whenever the theme changes, here or in another tab. Returns an unsubscribe function. */
+export function subscribeTheme(listener) {
+  if (listeners.size === 0) window.addEventListener('storage', onStorage);
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) window.removeEventListener('storage', onStorage);
+  };
 }

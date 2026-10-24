@@ -106,8 +106,12 @@ invalidates the cache.
 
 The light/dark choice works the same way. The header's **Dark mode** toggle
 (`ThemeToggle`) puts `.dark` on `<html>` and saves `plato_theme` in
-localStorage. An inline script in `client/index.html` reapplies it before the
-bundle loads, so a dark page never flashes light. That script and
+localStorage. Below 30rem the same choice is a checkbox item in the account
+menu, and the sign-in page has its own toggle; all of them read one store
+(`subscribeTheme` in `client/src/lib/theme.js`, through `useTheme`), whose
+single storage listener follows a choice made in another tab. An inline script
+in `client/index.html` reapplies the choice before the bundle loads, so a dark
+page never flashes light. That script and
 `client/src/lib/theme.js` must share the key; `client/tests/theme.test.js` runs
 the script to hold them together. Light is the default.
 

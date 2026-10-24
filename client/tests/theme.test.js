@@ -1,7 +1,8 @@
 /**
- * Light/dark theme (client/src/lib/theme.js): the header toggle puts `.dark` on
- * <html> and remembers the choice, and an inline script in index.html applies
- * a saved choice before first paint using the same storage key.
+ * Light/dark theme (client/src/lib/theme.js): the theme controls put `.dark` on
+ * <html> and remember the choice, an inline script in index.html applies a
+ * saved choice before first paint using the same storage key, and every
+ * control reads one store that follows other tabs.
  */
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { THEME_STORAGE_KEY, applyTheme, currentTheme, saveTheme, storedTheme } from '../src/lib/theme.js';
+import { THEME_STORAGE_KEY, applyTheme, currentTheme, saveTheme, storedTheme, subscribeTheme } from '../src/lib/theme.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = path.resolve(__dirname, '..');
@@ -48,10 +49,16 @@ const unavailableStorage = {
 let root;
 let styles;
 let frames;
+let storageListeners;
 beforeEach(() => {
   root = fakeRoot();
   styles = new Set();
   frames = [];
+  storageListeners = new Set();
+  globalThis.window = {
+    addEventListener: (type, listener) => { if (type === 'storage') storageListeners.add(listener); },
+    removeEventListener: (type, listener) => { if (type === 'storage') storageListeners.delete(listener); },
+  };
   globalThis.document = {
     documentElement: root,
     head: { appendChild: (el) => { styles.add(el); } },
@@ -138,8 +145,38 @@ describe('first paint', () => {
   });
 });
 
-describe('header toggle', () => {
-  it('sits in the classroom header as a named toggle button', () => {
+describe('theme store', () => {
+  it('tells every subscriber when the theme changes, until it unsubscribes', () => {
+    const seen = [];
+    const stopA = subscribeTheme(() => seen.push(`a:${currentTheme()}`));
+    const stopB = subscribeTheme(() => seen.push(`b:${currentTheme()}`));
+    saveTheme('dark');
+    stopA();
+    saveTheme('light');
+    stopB();
+    saveTheme('dark');
+    assert.deepEqual(seen, ['a:dark', 'b:dark', 'b:light']);
+  });
+
+  it('follows a choice saved in another tab, with one storage listener for every control', () => {
+    const seen = [];
+    const stops = [subscribeTheme(() => seen.push(currentTheme())), subscribeTheme(() => {})];
+    assert.equal(storageListeners.size, 1);
+    // The other tab has already written the value when the event arrives here.
+    localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    for (const listener of storageListeners) listener({ key: THEME_STORAGE_KEY });
+    assert.equal(currentTheme(), 'dark');
+    assert.equal(localStorage.getItem(THEME_STORAGE_KEY), 'dark');
+    assert.deepEqual(seen, ['dark']);
+    for (const listener of storageListeners) listener({ key: 'plato_auth' });
+    assert.deepEqual(seen, ['dark'], 'other keys are ignored');
+    stops.forEach((stop) => stop());
+    assert.equal(storageListeners.size, 0, 'the listener goes with the last subscriber');
+  });
+});
+
+describe('theme controls', () => {
+  it('sit in the classroom header as a named toggle button whose tooltip shows its name', () => {
     const shell = read('src/components/AppShell.jsx');
     const header = shell.slice(shell.indexOf('<header'), shell.indexOf('</header>'));
     assert.match(header, /<ThemeToggle\b[^>]*\/>/);
@@ -150,5 +187,31 @@ describe('header toggle', () => {
     assert.match(toggle, /aria-pressed=\{dark\}/);
     assert.match(toggle, /aria-label="Dark mode"/);
     assert.match(toggle, /touch-target/);
+    assert.match(toggle, /useTheme\(\)/);
+    // The visible tooltip says what the accessible name says (WCAG 2.5.3).
+    assert.match(toggle, /<Tooltip\.Popup[^>]*>\s*Dark mode\s*<\/Tooltip\.Popup>/);
+  });
+
+  it('move into the account menu where the header is too narrow for the button and the name', () => {
+    const shell = read('src/components/AppShell.jsx');
+    assert.match(shell, /<ThemeToggle className="header-control hidden min-\[30rem\]:flex" \/>/);
+    const item = shell.match(/<DropdownMenuCheckboxItem[\s\S]*?<\/DropdownMenuCheckboxItem>/)?.[0];
+    assert.ok(item, 'a Dark mode checkbox item in the account menu');
+    assert.match(item, /checked=\{theme === 'dark'\}/);
+    assert.match(item, /closeOnSelect=\{false\}/);
+    assert.match(item, /className="min-\[30rem\]:hidden"/);
+    assert.match(item, />\s*Dark mode\s*</);
+
+    // Arrow keys reach checkbox items and skip items a breakpoint hides.
+    const menu = read('src/components/ui/dropdown-menu.jsx');
+    assert.match(menu, /\[role="menuitemcheckbox"\]/);
+    assert.match(menu, /getClientRects\(\)\.length > 0/);
+    assert.match(menu, /if \(closeOnSelect\) ctx\?\.closeMenu\(false\);/);
+  });
+
+  it('offer the choice on the sign-in page too, ringed in the page text color', () => {
+    const login = read('src/pages/Login.jsx');
+    const footer = login.slice(login.lastIndexOf('</Card>'));
+    assert.match(footer, /<div className="[^"]*" style=\{\{ '--ring': 'currentColor' \}\}>[\s\S]*<ThemeToggle \/>/);
   });
 });

@@ -9,6 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader,
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import ViewAsUserModal from './modals/ViewAsUserModal.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
+import { useTheme } from '../hooks/useTheme.js';
 
 export default function AppShell({ children }) {
   const navigate = useNavigate();
@@ -24,6 +26,7 @@ export default function AppShell({ children }) {
   const branding = useBranding();
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [viewAsOpen, setViewAsOpen] = useState(false);
+  const [theme, toggleTheme] = useTheme();
   const isAdmin = user?.role === 'admin';
   const impersonating = !!impersonatedUser;
 
@@ -124,7 +127,9 @@ export default function AppShell({ children }) {
             )}
           </a>
           <div className="flex-1" />
-          <ThemeToggle className="header-control" />
+          {/* Under 30rem a 414-430 px phone can't fit the button and the
+              learner's name, so the choice moves into the account menu. */}
+          <ThemeToggle className="header-control hidden min-[30rem]:flex" />
           <DropdownMenu>
             <DropdownMenuTrigger
               className="header-control touch-target max-w-[45%] min-w-0 truncate text-inherit hover:underline underline-offset-4 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium"
@@ -140,6 +145,15 @@ export default function AppShell({ children }) {
               <DropdownMenuItem onSelect={() => navigate('/settings')}>
                 Settings
               </DropdownMenuItem>
+              {/* Stays open on select, so the check shows the new state. */}
+              <DropdownMenuCheckboxItem
+                checked={theme === 'dark'}
+                closeOnSelect={false}
+                onSelect={toggleTheme}
+                className="min-[30rem]:hidden"
+              >
+                Dark mode
+              </DropdownMenuCheckboxItem>
               <DropdownMenuItem
                 variant="destructive"
                 onSelect={() => setSignOutOpen(true)}
