@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Moon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { THEME_STORAGE_KEY, applyTheme, currentTheme, saveTheme, storedTheme } from '../lib/theme.js';
 
 /**
@@ -8,7 +9,7 @@ import { THEME_STORAGE_KEY, applyTheme, currentTheme, saveTheme, storedTheme } f
  * on/off, and the moon fills in when dark mode is on. Colors come from the
  * header's text color, so it reads on any classroom header color.
  */
-export default function ThemeToggle() {
+export default function ThemeToggle({ className }) {
   // index.html already applied the saved theme, so the page is the source of truth.
   const [theme, setTheme] = useState(currentTheme);
   const dark = theme === 'dark';
@@ -37,7 +38,7 @@ export default function ThemeToggle() {
       onClick={toggle}
       aria-pressed={dark}
       aria-label="Dark mode"
-      className="touch-target flex shrink-0 items-center justify-center rounded-md border-none bg-transparent p-2 text-inherit cursor-pointer transition-colors hover:bg-current/10"
+      className={cn('touch-target flex shrink-0 items-center justify-center rounded-md border-none bg-transparent p-2 text-inherit cursor-pointer transition-colors hover:bg-current/10', className)}
     >
       <Moon aria-hidden="true" className="size-4" fill={dark ? 'currentColor' : 'none'} />
     </button>

@@ -10,6 +10,9 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
+  // Why the last session ended ('expired', or null for a deliberate sign-out),
+  // so the sign-in page can explain an expiry. Cleared by the next sign-in.
+  const [signedOutReason, setSignedOutReason] = useState(null);
   // "View as User" admin feature: when set, the SPA renders the classroom
   // as if this user were logged in (read-only). Persisted in sessionStorage
   // by auth.js so authenticatedFetch can attach `?asUserId=` to GETs.
@@ -45,6 +48,7 @@ export function AuthProvider({ children }) {
     setLoggedIn(true);
     setUser(authUser);
     setSessionExpired(false);
+    setSignedOutReason(null);
     return authUser;
   }, []);
 
@@ -53,6 +57,7 @@ export function AuthProvider({ children }) {
     setLoggedIn(true);
     setUser(authUser);
     setSessionExpired(false);
+    setSignedOutReason(null);
     return authUser;
   }, []);
 
@@ -61,7 +66,7 @@ export function AuthProvider({ children }) {
     setUser(u);
   }, []);
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(async ({ reason = null } = {}) => {
     // Always exit impersonation before logging out so the next session
     // doesn't inherit a stale view.
     if (authModule.getImpersonation()) {
@@ -72,6 +77,7 @@ export function AuthProvider({ children }) {
     setLoggedIn(false);
     setUser(null);
     setSessionExpired(false);
+    setSignedOutReason(reason);
     await authModule.logout();
   }, []);
 
@@ -119,7 +125,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      loggedIn, user, loading, login, loginWithGoogle, logout, refreshUser, sessionExpired,
+      loggedIn, user, loading, login, loginWithGoogle, logout, refreshUser, sessionExpired, signedOutReason,
       impersonatedUser, startImpersonation, stopImpersonation,
     }}>
       {children}

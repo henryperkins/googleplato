@@ -142,7 +142,7 @@ describe('header toggle', () => {
   it('sits in the classroom header as a named toggle button', () => {
     const shell = read('src/components/AppShell.jsx');
     const header = shell.slice(shell.indexOf('<header'), shell.indexOf('</header>'));
-    assert.match(header, /<ThemeToggle \/>/);
+    assert.match(header, /<ThemeToggle\b[^>]*\/>/);
 
     // A toggle button keeps one name; `aria-pressed` says whether it is on.
     const toggle = read('src/components/ThemeToggle.jsx');

@@ -650,6 +650,16 @@ async or something fails:
 - **Refreshes don't unmount pages.** Admin pages show the full-page spinner only
   on the first load, so a refresh after a save or delete keeps the page, its
   scroll position, and any open dialog in place.
+- **A colored header keeps its focus color to itself.** The classroom header's
+  controls take its text color as their ring through `.header-control`. The
+  account menu is a native popover mounted inside the header, so a ring set on
+  `<header>` itself would reach the menu items and draw white on a white menu.
+- **An expired session returns to its page.** `RequireAuth` records the page in
+  the sign-in redirect's state. After sign-in, `returnPath`
+  (`client/src/lib/returnPath.js`) goes back there; only in-app paths qualify,
+  never an auth page. `AppShell` signs out with `logout({ reason: 'expired' })`
+  rather than navigating itself, so the redirect keeps that state, and the
+  sign-in page explains why the learner was signed out.
 - **Auth errors are written for people.** `client/src/lib/authErrors.js` turns
   Firebase codes into plain messages, so learners never see a raw
   `auth/…` message or a Firebase console instruction (only first-run Setup

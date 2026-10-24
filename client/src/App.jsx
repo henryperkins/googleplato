@@ -8,6 +8,7 @@ import Login from './pages/Login.jsx';
 import ScreenReaderAnnounce from './components/ScreenReaderAnnounce.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { loadPublicBranding } from './lib/publicBranding.js';
+import { returnPath } from './lib/returnPath.js';
 import ProfileCompletionGate from './components/ProfileCompletionGate.jsx';
 import { BrandingProvider } from './contexts/BrandingContext.jsx';
 
@@ -33,6 +34,7 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword.jsx'));
 
 function RequireAuth({ children }) {
   const { loggedIn, loading } = useAuth();
+  const location = useLocation();
   if (loading) {
     return (
       <main className="min-h-dvh flex items-center justify-center" role="status" aria-live="polite">
@@ -41,7 +43,9 @@ function RequireAuth({ children }) {
       </main>
     );
   }
-  if (!loggedIn) return <Navigate to="/login" replace />;
+  // Signing in brings the learner back here (returnPath), e.g. after a session
+  // expires mid-lesson.
+  if (!loggedIn) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
   return children;
 }
 
@@ -53,8 +57,9 @@ function RequireAdmin({ children }) {
 
 function RequireGuest({ children }) {
   const { loggedIn, loading } = useAuth();
+  const location = useLocation();
   if (loading) return null;
-  if (loggedIn) return <Navigate to="/lessons" replace />;
+  if (loggedIn) return <Navigate to={returnPath(location.state?.from)} replace />;
   return children;
 }
 

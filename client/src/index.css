@@ -220,6 +220,13 @@
   outline-offset: 2px;
 }
 
+/* A colored header draws focus in its own text color. Only the header's own
+   controls take it: a menu opened from the header sits on the popover surface,
+   where an inherited white ring on a white menu would vanish. */
+.header-control {
+  --ring: var(--classroom-header-text, var(--color-primary-foreground));
+}
+
 /* Resolve roles at the branding boundary so nested classroom overrides work. */
 .classroom-theme {
   --primary-text: var(--classroom-primary-text-light, var(--primary));

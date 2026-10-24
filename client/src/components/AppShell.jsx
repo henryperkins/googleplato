@@ -27,11 +27,11 @@ export default function AppShell({ children }) {
   const isAdmin = user?.role === 'admin';
   const impersonating = !!impersonatedUser;
 
+  // An expired session signs out; RequireAuth then sends the learner to
+  // sign-in, which says why and brings them back to this page afterwards.
   useEffect(() => {
-    if (sessionExpired) {
-      logout().then(() => navigate('/login', { replace: true }));
-    }
-  }, [sessionExpired, logout, navigate]);
+    if (sessionExpired) logout({ reason: 'expired' });
+  }, [sessionExpired, logout]);
 
   const handleSignOut = async () => {
     await logout();
@@ -114,12 +114,13 @@ export default function AppShell({ children }) {
         style={{
           backgroundColor: 'var(--classroom-header-bg, var(--color-primary))',
           color: 'var(--classroom-header-text, var(--color-primary-foreground))',
-          '--ring': 'var(--classroom-header-text, var(--color-primary-foreground))',
         }}
         role="banner"
       >
+        {/* header-control gives each header control the header's focus color
+            without passing it to the account menu, which sits on the popover. */}
         <nav className="mx-auto max-w-5xl flex items-center gap-2" aria-label="Main navigation">
-          <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="touch-target flex min-w-0 max-w-[60%] items-center rounded-sm" aria-label={`${classroomName} — Lessons`}>
+          <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="header-control touch-target flex min-w-0 max-w-[60%] items-center rounded-sm" aria-label={`${classroomName} — Lessons`}>
             {classroomLogo ? (
               <img src={classroomLogo} alt="" width="32" height="32" fetchPriority="high" className="h-8 w-8 max-w-full object-contain" />
             ) : (
@@ -127,10 +128,10 @@ export default function AppShell({ children }) {
             )}
           </a>
           <div className="flex-1" />
-          <ThemeToggle />
+          <ThemeToggle className="header-control" />
           <DropdownMenu>
             <DropdownMenuTrigger
-              className="touch-target max-w-[45%] min-w-0 truncate text-inherit hover:underline underline-offset-4 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium"
+              className="header-control touch-target max-w-[45%] min-w-0 truncate text-inherit hover:underline underline-offset-4 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium"
               aria-label={`${accountName} — Account`}
             >
               {accountName}
