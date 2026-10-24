@@ -104,6 +104,13 @@ failures. Auth pages apply the cached colors in a layout effect, before first
 paint, so they never flash plato's default purple. Saving in the Customizer
 invalidates the cache.
 
+The light/dark choice works the same way. The header's **Dark mode** toggle
+(`ThemeToggle`) puts `.dark` on `<html>` and saves `plato_theme` in
+localStorage. An inline script in `client/index.html` reapplies it before the
+bundle loads, so a dark page never flashes light. That script and
+`client/src/lib/theme.js` must share the key; `client/tests/theme.test.js` runs
+the script to hold them together. Light is the default.
+
 Lesson loading distinguishes a successful empty classroom from an unavailable
 `/v1/lessons` response. `AppContext` uses one load path for startup, foreground
 refresh, and manual retry. A failed refresh preserves the last rendered lessons

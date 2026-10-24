@@ -275,7 +275,7 @@ The semantic primary and the literal admin-bar/logo purple are different source 
 | `input` | Form-field boundaries. A transparent field's border is its only outline, so `input` holds 3:1 against white and the workspace (WCAG 1.4.11). |
 | `workspace` | The slightly warm learner-page background. |
 
-The `dark-*` entries preserve the corresponding `.dark` declarations. Backgrounds become charcoal, cards and popovers sit one tonal level above them, primary becomes brighter violet, and borders become translucent white. The learner work area has its own dark stone value. This documents the stylesheet variant; a user-facing theme switch was not established by this pass. Nothing applies `.dark` yet, so the page declares `color-scheme: light`: native controls, scrollbars, and select popups stay light when the operating system is dark, instead of rendering dark on a light page.
+The `dark-*` entries preserve the corresponding `.dark` declarations. Backgrounds become charcoal, cards and popovers sit one tonal level above them, primary becomes brighter violet, and borders become translucent white. The learner work area has its own dark stone value. Learners choose the theme with the **Dark mode** toggle in the classroom header, which puts `.dark` on `<html>`. The choice is remembered per browser and also applies to auth and admin pages. Light is the default, whatever the operating system prefers. `color-scheme` follows the choice, so native controls, scrollbars, and select popups match the page rather than the operating system.
 
 ### Functional states
 
@@ -288,7 +288,7 @@ The `dark-*` entries preserve the corresponding `.dark` declarations. Background
 
 **The Classroom Boundary Rule.** Apply saved classroom identity to learner and auth surfaces. Keep the administration identity independent of those settings.
 
-**The Semantic Token Rule.** Color with the tokens above, in core and plugin UIs alike. A raw Tailwind palette class (`bg-green-50`, `text-blue-700`) skips classroom branding, the prepared dark variant, and the tuned contrast; `client/tests/design-tokens-contract.test.js` rejects them. Tailwind scans `plugins/*/client`, so a class only a plugin uses is still generated.
+**The Semantic Token Rule.** Color with the tokens above, in core and plugin UIs alike. A raw Tailwind palette class (`bg-green-50`, `text-blue-700`) skips classroom branding, the dark theme, and the tuned contrast; `client/tests/design-tokens-contract.test.js` rejects them. Tailwind scans `plugins/*/client`, so a class only a plugin uses is still generated.
 
 ## Typography
 
@@ -419,9 +419,9 @@ Lesson cards override the outer padding and gap. A title-first open action occup
 
 ### Navigation
 
-Administration uses a purple navigation surface with light text. Items have 6.4 px corners and 12 px horizontal / 8 px vertical padding. The current item has a 20% light wash and medium weight; inactive items gain a 10% wash on hover. Mobile reuses the same items in an accessible modal drawer. The sidebar semantic surface matches Plato Purple in light mode and becomes a dark purple surface in the prepared dark variant. User tables preserve native row/cell semantics and expose editing through a named button in the name cell.
+Administration uses a purple navigation surface with light text. Items have 6.4 px corners and 12 px horizontal / 8 px vertical padding. The current item has a 20% light wash and medium weight; inactive items gain a 10% wash on hover. Mobile reuses the same items in an accessible modal drawer. The sidebar semantic surface matches Plato Purple in light mode and becomes a dark purple surface in dark mode. User tables preserve native row/cell semantics and expose editing through a named button in the name cell.
 
-The learner shell uses a branded header, a classroom name or logo linking to lessons, an account menu, and a small attribution footer. The account trigger underlines on hover to preserve contrast with custom header colors. The admin strip is a separate fixed-color identity layer and a navigation landmark named “Admin”; its logo and **Admin Dashboard** are links to the dashboard, beside the **View as user** button. Preserve skip links and accessible navigation names.
+The learner shell uses a branded header, a classroom name or logo linking to lessons, a **Dark mode** toggle, an account menu, and a small attribution footer. The account trigger underlines on hover to preserve contrast with custom header colors. The theme toggle is an icon button drawn in the header's text color: a moon that fills in when dark mode is on, a fixed accessible name with `aria-pressed` carrying the state, and a faint wash of the header text color on hover. Switching themes changes every color in the same frame; transitions pause for that frame so no element fades in behind the rest. The admin strip is a separate fixed-color identity layer and a navigation landmark named “Admin”; its logo and **Admin Dashboard** are links to the dashboard, beside the **View as user** button. Preserve skip links and accessible navigation names.
 
 ### Conversation and progress
 
@@ -439,7 +439,7 @@ Lesson-list loading and empty states use a dashed, rounded boundary, centered te
 
 Menus fit within the visible viewport, including its available height below or above their trigger. They open upward when that offers more room, scroll internally when needed, and reposition when the viewport or menu content changes.
 
-Lesson preparation uses the shared card surface and spacing. Step labels stay visible while semantic primary, success, and muted colors distinguish active, complete, and pending steps in light and prepared dark themes. Reduced motion retains the labels and static status icons.
+Lesson preparation uses the shared card surface and spacing. Step labels stay visible while semantic primary, success, and muted colors distinguish active, complete, and pending steps in light and dark themes. Reduced motion retains the labels and static status icons.
 
 ## Do's and Don'ts
 

@@ -197,9 +197,13 @@
   }
   html {
     @apply font-sans bg-background text-foreground;
-    /* No dark theme ships yet (.dark is never applied), so native controls,
-       scrollbars, and select popups stay light to match the page. */
+    /* Native controls, scrollbars, and select popups follow the theme the
+       learner chose (ThemeToggle puts .dark on <html>), not the operating
+       system's, so they never render dark on a light page or light on a dark one. */
     color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
   }
   /* Prevent display utility classes (e.g. .flex) from overriding the UA
      stylesheet for closed native <dialog> and [popover] elements. */

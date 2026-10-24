@@ -21,7 +21,7 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
 
   it('index.css enforces color-scheme, non-overlapping 44x44px hit areas on compose chip remove buttons, and >= 16px mobile inputs', () => {
     const css = fs.readFileSync(path.join(SRC_DIR, 'index.css'), 'utf8');
-    // Light only until a dark theme ships; `light dark` turned native controls dark on a light page.
+    // Light unless the learner picks dark (theme.test.js); `light dark` turned native controls dark on a light page.
     assert.match(css, /color-scheme:\s*light;/);
     assert.match(css, /\.compose-chip-remove\s*\{[\s\S]*?position:\s*relative/);
     assert.match(css, /\.compose-chip-remove::after\s*\{[\s\S]*?inset:\s*-8px/);

@@ -16,6 +16,7 @@ import {
   AlertDialogAction, AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import ViewAsUserModal from './modals/ViewAsUserModal.jsx';
+import ThemeToggle from './ThemeToggle.jsx';
 
 export default function AppShell({ children }) {
   const navigate = useNavigate();
@@ -126,6 +127,7 @@ export default function AppShell({ children }) {
             )}
           </a>
           <div className="flex-1" />
+          <ThemeToggle />
           <DropdownMenu>
             <DropdownMenuTrigger
               className="touch-target max-w-[45%] min-w-0 truncate text-inherit hover:underline underline-offset-4 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium"
