@@ -2,7 +2,10 @@
 
 **Cloud Run status:** GitHub-hosted Actions are permanently unavailable here.
 Do not retry or troubleshoot their billing. The workflow descriptions below
-are historical/portable deployment context. Current save monitoring reads Cloud
+are historical/portable deployment context. For Cloud Run, Cloud Build is the
+CI: the `test` step in `deploy/cloudrun/cloudbuild.yaml` runs lint and the
+full test suite (including PostgreSQL) before any image is built or deployed.
+Current save monitoring reads Cloud
 Logging using ADC from a local or external scheduler; `log-watch` is read-only
 by default and creates an issue only with `--create-issue`. See
 [Save observability](SAVE_OBSERVABILITY.md) for configuration and exit codes.
