@@ -32,6 +32,8 @@
     --color-destructive: var(--destructive);
     --color-primary-text: var(--primary-text);
     --color-link: var(--link);
+    --color-header: var(--header);
+    --color-header-foreground: var(--header-foreground);
     --color-success: var(--success);
     --color-success-foreground: var(--success-foreground);
     --color-success-border: var(--success-border);
@@ -69,7 +71,10 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
+/* `.light` scopes these values inside a dark page (the Customizer's
+   light-theme preview); light is otherwise the default and has no class. */
+:root,
+.light {
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -88,6 +93,9 @@
     --destructive: oklch(0.505 0.213 27.518);
     --primary-text: var(--primary);
     --link: var(--primary-text);
+    /* The classroom header band (and the auth pages' backdrop). */
+    --header: var(--primary);
+    --header-foreground: var(--primary-foreground);
     --success: oklch(0.982 0.018 155.826);
     --success-foreground: oklch(0.393 0.095 152.535);
     --success-border: oklch(0.871 0.15 154.449);
@@ -125,21 +133,18 @@
     --sidebar-ring: oklch(0.985 0 0);
 }
 
+/* The night classroom (DESIGN.md). Surfaces carry a trace of a hue (plato
+   purple, or the classroom's own, set below) and rise in lightness with
+   elevation: the page, then cards and chrome (the lesson header and message
+   box are bg-card), then menus. The header is a deep band of the brand; fills
+   are lit just enough to stand out. */
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
+    --tint-hue: 285;
+    --tint-chroma: 0.012;
     --primary: oklch(0.556 0.2 285);
     --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
+    --header: oklch(0.4 0.15 285);
+    --header-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
     --primary-text: oklch(0.78 0.12 285);
     --link: var(--primary-text);
@@ -152,23 +157,47 @@
     --danger: oklch(0.258 0.092 26.042);
     --danger-foreground: oklch(0.885 0.062 18.334);
     --danger-border: oklch(0.505 0.213 27.518);
-    --workspace: oklch(0.216 0.006 56.043);
+    /* Status chips sit as deep washes with bright marks, not pale stickers. */
+    --completed-background: oklch(0.32 0.06 163);
+    --completed-foreground: oklch(0.84 0.13 163);
+    --in-progress-background: oklch(0.33 0.07 75);
+    --in-progress-foreground: oklch(0.85 0.14 80);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 45%);
-    --ring: oklch(0.556 0.2 285);
+    --ring: oklch(0.72 0.14 285);
     --chart-1: oklch(0.556 0.2 285);
     --chart-2: oklch(0.7 0.15 285);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0.05 285);
+    --sidebar: oklch(0.255 0.065 285);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.556 0.2 285);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.3 0.05 285);
+    --sidebar-accent: oklch(0.32 0.08 285);
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0.2 285);
+    --sidebar-ring: oklch(0.72 0.14 285);
+}
+
+/* The tinted surfaces. Declared again on each .classroom-theme because a
+   custom property resolves where it is declared: that is how a classroom's
+   own hue reaches them, and how a .light preview stays out. */
+.dark,
+.dark .classroom-theme:not(.light *) {
+    --workspace: oklch(0.165 var(--tint-chroma) var(--tint-hue));
+    --background: oklch(0.165 var(--tint-chroma) var(--tint-hue));
+    --card: oklch(0.205 var(--tint-chroma) var(--tint-hue));
+    --popover: oklch(0.245 var(--tint-chroma) var(--tint-hue));
+    --secondary: oklch(0.285 var(--tint-chroma) var(--tint-hue));
+    --muted: oklch(0.285 var(--tint-chroma) var(--tint-hue));
+    --accent: oklch(0.3 var(--tint-chroma) var(--tint-hue));
+    --foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --card-foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --popover-foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --secondary-foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --accent-foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --muted-foreground: oklch(0.74 var(--tint-chroma) var(--tint-hue));
 }
 
 @layer base {
@@ -197,9 +226,13 @@
   }
   html {
     @apply font-sans bg-background text-foreground;
-    /* No dark theme ships yet (.dark is never applied), so native controls,
-       scrollbars, and select popups stay light to match the page. */
+    /* Native controls, scrollbars, and select popups follow the theme the
+       learner chose (ThemeToggle puts .dark on <html>), not the operating
+       system's, so they never render dark on a light page or light on a dark one. */
     color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
   }
   /* Prevent display utility classes (e.g. .flex) from overriding the UA
      stylesheet for closed native <dialog> and [popover] elements. */
@@ -216,26 +249,66 @@
   outline-offset: 2px;
 }
 
+/* The message box is one control: focus in its text field rings the whole box
+   (text, attachments, send) instead of cutting across it. */
+.compose-input:focus-visible {
+  outline: none;
+}
+.compose-box:has(.compose-input:focus-visible) {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* A colored header draws focus in its own text color. Only the header's own
+   controls take it: a menu opened from the header sits on the popover surface,
+   where an inherited white ring on a white menu would vanish. */
+.header-control {
+  --ring: var(--header-foreground);
+}
+
 /* Resolve roles at the branding boundary so nested classroom overrides work. */
 .classroom-theme {
+  --header: var(--classroom-header-bg, var(--primary));
+  --header-foreground: var(--classroom-header-text, var(--primary-foreground));
   --primary-text: var(--classroom-primary-text-light, var(--primary));
   --link: var(--classroom-link-light, var(--primary-text));
   --ring: var(--classroom-ring-light, var(--primary));
 }
 
+/* The classroom at night: its hue tints the surfaces, and its header and fills
+   take the dark values buildThemeVars derives (lib/branding.js). Fallbacks
+   match the plato defaults in `.dark`. */
 .dark.classroom-theme,
-.dark .classroom-theme {
+.dark .classroom-theme:not(.light *) {
+  --tint-hue: var(--classroom-tint-hue, 285);
+  --tint-chroma: var(--classroom-tint-chroma, 0.012);
+  --header: var(--classroom-header-bg-dark, oklch(0.4 0.15 285));
+  --header-foreground: var(--classroom-header-text-dark, oklch(0.985 0 0));
   --primary-text: var(--classroom-primary-text-dark, oklch(0.78 0.12 285));
   --link: var(--classroom-link-dark, var(--primary-text));
-  /* !important so the inline (light) `--ring` from buildThemeVars, kept for
-     consumers without `.classroom-theme`, does not override the dark ring. */
+  /* !important so the inline (light) `--primary` and `--ring` from
+     buildThemeVars, kept for consumers without `.classroom-theme`, do not
+     override the dark values. */
+  --primary: var(--classroom-primary-dark, oklch(0.556 0.2 285)) !important;
+  --primary-foreground: var(--classroom-primary-foreground-dark, oklch(0.985 0 0)) !important;
   --ring: var(--classroom-ring-dark, var(--primary-text)) !important;
 }
 
-/* Ensure focused inputs clear the sticky top header and sticky bottom compose bar (WCAG 2.4.11). */
+/* Focused controls stop clear of the sticky bars (WCAG 2.4.11). A page with
+   sticky bars reports their heights (useStickyScrollPadding, e.g. the lesson
+   header and composer); the fallbacks fit the admin editors' action bars. */
 html {
-  scroll-padding-top: 4rem;
-  scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  scroll-padding-top: calc(var(--sticky-top, 3.5rem) + 0.5rem);
+  scroll-padding-bottom: calc(var(--sticky-bottom, calc(5.5rem + env(safe-area-inset-bottom, 0px))) + 0.5rem);
+}
+
+/* The lesson conversation fills the space between the shell's bars, so its
+   composer rests at the bottom of a short chat without assuming how tall the
+   bars are. Flex only: <main> must not scroll, or the sticky lesson header
+   stops sticking (docs/ARCHITECTURE.md, chat auto-scroll). */
+#main-content:has(> .lesson-page) {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Enlarge compact chip removal buttons' tap area to 44x44px without growing visual chrome. */
@@ -306,6 +379,11 @@ html {
   .compose-sticky-bar textarea {
     max-height: 4.5rem;
   }
+  /* Nothing pins here, so nothing can cover a focused control. */
+  html {
+    scroll-padding-top: 0.5rem;
+    scroll-padding-bottom: 0.5rem;
+  }
 }
 
 /* Authoring adapts to usable space, including enlarged text beside the sidebar. */
@@ -328,7 +406,9 @@ html {
 
 /* Keep desktop density; give touch users real, nonoverlapping hit areas. */
 @media (pointer: coarse) {
-  button:not(.compose-chip-remove), select, [role="menuitem"] {
+  /* .touch-target-inline buttons get their 44px from an overlay instead,
+     so a compact text action doesn't grow its row. */
+  button:not(.compose-chip-remove):not(.touch-target-inline), select, [role="menuitem"] {
     min-inline-size: 44px;
     min-block-size: 44px;
   }

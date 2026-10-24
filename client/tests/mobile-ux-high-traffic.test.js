@@ -21,13 +21,14 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
 
   it('index.css enforces color-scheme, non-overlapping 44x44px hit areas on compose chip remove buttons, and >= 16px mobile inputs', () => {
     const css = fs.readFileSync(path.join(SRC_DIR, 'index.css'), 'utf8');
-    // Light only until a dark theme ships; `light dark` turned native controls dark on a light page.
+    // Light unless the learner picks dark (theme.test.js); `light dark` turned native controls dark on a light page.
     assert.match(css, /color-scheme:\s*light;/);
     assert.match(css, /\.compose-chip-remove\s*\{[\s\S]*?position:\s*relative/);
     assert.match(css, /\.compose-chip-remove::after\s*\{[\s\S]*?inset:\s*-8px/);
     assert.match(css, /font-size:\s*max\(16px,\s*1rem\)/);
-    assert.match(css, /scroll-padding-top:\s*4rem/);
-    assert.match(css, /scroll-padding-bottom:\s*calc\(6rem\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\)/);
+    // Measured sticky bars set the padding; the fallbacks keep the old 4rem / 6rem.
+    assert.match(css, /scroll-padding-top:\s*calc\(var\(--sticky-top,\s*3\.5rem\)\s*\+\s*0\.5rem\)/);
+    assert.match(css, /scroll-padding-bottom:\s*calc\(var\(--sticky-bottom,\s*calc\(5\.5rem\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\)\)\s*\+\s*0\.5rem\)/);
     assert.match(css, /#lesson-header,\s*\.compose-sticky-bar\s*\{\s*position:\s*static/);
   });
 
@@ -176,8 +177,9 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
 
   it('keeps author-written names from truncating or overflowing on narrow screens', () => {
     const chatSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/LessonChat.jsx'), 'utf8');
-    // The lesson title stacks above Overview and wraps (DESIGN.md: chat header).
-    assert.match(chatSrc, /flex flex-col items-start gap-x-2 sm:flex-row sm:items-center sm:justify-between/);
+    // The outline link follows the title, wrapping beneath a long one; the title
+    // wraps rather than truncating (DESIGN.md: chat header).
+    assert.match(chatSrc, /<div className="flex flex-wrap items-baseline gap-x-3 gap-y-0\.5">\s*<h1 ref=\{headingRef\}/);
     assert.match(chatSrc, /<h1 ref=\{headingRef\}[^>]*className="[^"]*break-words line-clamp-3/);
 
     const listSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/LessonsList.jsx'), 'utf8');

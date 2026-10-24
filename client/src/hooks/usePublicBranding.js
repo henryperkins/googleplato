@@ -2,7 +2,6 @@ import { useState, useEffect, useLayoutEffect } from 'react';
 import {
   DEFAULT_PRIMARY,
   applyThemeVarsToRoot,
-  contrastText,
   generateFavicon,
   normalizeHex,
   setFavicon,
@@ -32,9 +31,9 @@ export default function usePublicBranding(title) {
     document.title = pageTitle(title, branding.classroomName);
   }, [branding, title]);
 
-  // Apply CSS vars to :root so buttons/links use classroom colors. A layout
-  // effect runs before paint, so the page never shows a frame of the default
-  // purple first.
+  // Apply CSS vars to :root so buttons, links, and the page backdrop (the
+  // `--header` tokens) use classroom colors in either theme. A layout effect
+  // runs before paint, so the page never shows a frame of the default purple.
   useLayoutEffect(() => {
     return applyThemeVarsToRoot(branding?.theme);
   }, [branding?.theme]);
@@ -56,11 +55,7 @@ export default function usePublicBranding(title) {
 
   if (!branding) return null;
 
-  const primary = normalizeHex(branding.theme?.primary) || DEFAULT_PRIMARY;
-
   return {
-    primary,
-    foreground: contrastText(primary),
     logo: branding.logoBase64 || null,
     classroomName: branding.classroomName || 'plato',
     theme: branding.theme,

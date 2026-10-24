@@ -7,6 +7,13 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/icon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/assets/icon-16.png">
   <link rel="apple-touch-icon" sizes="128x128" href="/assets/icon-128.png">
+  <script>
+    // Apply the saved theme before first paint, so a dark page never flashes
+    // light while the app loads. Keep in sync with client/src/lib/theme.js.
+    try {
+      if (localStorage.getItem('plato_theme') === 'dark') document.documentElement.classList.add('dark');
+    } catch (e) { /* Storage can be unavailable; the page stays light. */ }
+  </script>
 </head>
 <body>
   <div id="root"></div>

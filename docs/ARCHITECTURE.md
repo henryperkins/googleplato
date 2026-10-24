@@ -104,6 +104,30 @@ failures. Auth pages apply the cached colors in a layout effect, before first
 paint, so they never flash plato's default purple. Saving in the Customizer
 invalidates the cache.
 
+The light/dark choice works the same way. The header's **Dark mode** toggle
+(`ThemeToggle`) puts `.dark` on `<html>` and saves `plato_theme` in
+localStorage. Below 30rem the same choice is a checkbox item in the account
+menu, and the sign-in page has its own toggle; all of them read one store
+(`subscribeTheme` in `client/src/lib/theme.js`, through `useTheme`), whose
+single storage listener follows a choice made in another tab. An inline script
+in `client/index.html` reapplies the choice before the bundle loads, so a dark
+page never flashes light. That script and
+`client/src/lib/theme.js` must share the key; `client/tests/theme.test.js` runs
+the script to hold them together. Light is the default.
+
+A classroom's dark colors are derived, not configured. `buildThemeVars`
+(`client/src/lib/branding.js`) computes a dark header, fill, text color, and
+surface tint from the saved primary and sets them as `--classroom-*-dark`
+variables beside the light ones; `index.css` applies them under
+`.dark .classroom-theme`. Two rules hold that cascade together. A custom
+property resolves where it is declared, so the tinted surface tokens are
+declared again on every `.classroom-theme` element; declared once on `.dark`,
+they would keep plato's hue. And the dark `--primary` and `--ring` are
+`!important`, because `buildThemeVars` also sets the light ones inline on the
+same element. `.light` re-declares the light tokens for the Customizer's light
+preview inside a dark page, and the classroom's dark rules skip anything inside
+it (`:not(.light *)`).
+
 Lesson loading distinguishes a successful empty classroom from an unavailable
 `/v1/lessons` response. `AppContext` uses one load path for startup, foreground
 refresh, and manual retry. A failed refresh preserves the last rendered lessons
@@ -615,8 +639,19 @@ scrolling that admin container to its absolute bottom would hide the composer.
 The optional target changes both pinning and the "at bottom" calculation.
 Learner chat continues to use full-scrollport pinning.
 
+The lesson page fills `<main>` (`#main-content:has(> .lesson-page)` is a flex
+column, still with no `overflow`) rather than taking
+`min-height: calc(100dvh - 5rem)`. That guess assumed 80 px of shell: the real
+shell is taller on phones and with the admin strip, so every lesson page
+overflowed and opened partly scrolled, clipping the header. Keyboard focus
+scrolls clear of the sticky header and composer: `useStickyScrollPadding` sets
+`--sticky-top` and `--sticky-bottom` from their measured heights, and `html`'s
+scroll padding uses them (WCAG 2.4.11). A fixed `4rem` let a three-line title
+cover a focused link entirely.
+
 On short viewports (`@media (max-height: 34em)` in `index.css`) the lesson
-header and composer go `position: static`, and
+header and composer go `position: static`, the scroll padding drops to
+`0.5rem`, and
 `useVisualViewportKeyboardOffset` stops lifting the composer
 (`SHORT_VIEWPORT_QUERY`; keep the two in step). The query is in `em` so page
 zoom and an enlarged default font size count as short, not only landscape
@@ -643,6 +678,16 @@ async or something fails:
 - **Refreshes don't unmount pages.** Admin pages show the full-page spinner only
   on the first load, so a refresh after a save or delete keeps the page, its
   scroll position, and any open dialog in place.
+- **A colored header keeps its focus color to itself.** The classroom header's
+  controls take its text color as their ring through `.header-control`. The
+  account menu is a native popover mounted inside the header, so a ring set on
+  `<header>` itself would reach the menu items and draw white on a white menu.
+- **An expired session returns to its page.** `RequireAuth` records the page in
+  the sign-in redirect's state. After sign-in, `returnPath`
+  (`client/src/lib/returnPath.js`) goes back there; only in-app paths qualify,
+  never an auth page. `AppShell` signs out with `logout({ reason: 'expired' })`
+  rather than navigating itself, so the redirect keeps that state, and the
+  sign-in page explains why the learner was signed out.
 - **Auth errors are written for people.** `client/src/lib/authErrors.js` turns
   Firebase codes into plain messages, so learners never see a raw
   `auth/…` message or a Firebase console instruction (only first-run Setup

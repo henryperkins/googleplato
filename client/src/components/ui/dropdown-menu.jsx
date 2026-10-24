@@ -5,6 +5,14 @@ import { getPopoverPosition } from '@/lib/popoverPosition.js';
 
 const DropdownMenuContext = React.createContext(null);
 
+// The items arrow keys move between: plain, checkbox, and radio items that can
+// take focus, so not disabled and not hidden by a breakpoint (display: none).
+const ITEM_SELECTOR = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
+function menuItems(pop) {
+  return Array.from(pop.querySelectorAll(ITEM_SELECTOR))
+    .filter((item) => !item.disabled && item.getClientRects().length > 0);
+}
+
 function DropdownMenu({ children }) {
   const [open, setOpen] = React.useState(false);
   const triggerRef = React.useRef(null);
@@ -148,8 +156,7 @@ function DropdownMenuContent({
       if (isOpen) {
         updateCoords();
         requestAnimationFrame(() => {
-          const firstItem = pop.querySelector('[role="menuitem"]:not([disabled])');
-          firstItem?.focus();
+          menuItems(pop)[0]?.focus();
         });
       } else if (ctx.focusInsideOnCloseRef.current) {
         ctx.triggerRef.current?.focus();
@@ -178,7 +185,7 @@ function DropdownMenuContent({
   const handleKeyDown = (e) => {
     const pop = ctx?.popoverRef.current;
     if (!pop) return;
-    const items = Array.from(pop.querySelectorAll('[role="menuitem"]:not([disabled])'));
+    const items = menuItems(pop);
     if (!items.length) return;
     const idx = items.indexOf(document.activeElement);
 
@@ -253,6 +260,7 @@ function DropdownMenuItem({
   className,
   inset,
   variant = 'default',
+  closeOnSelect = true,
   onSelect,
   onClick,
   ...props
@@ -267,8 +275,9 @@ function DropdownMenuItem({
       data-variant={variant}
       onClick={(e) => {
         onClick?.(e);
-        // Close popover without restoring focus to trigger if onSelect opens another dialog/route
-        ctx?.closeMenu(false);
+        // Close popover without restoring focus to trigger if onSelect opens another dialog/route.
+        // A checkbox item can stay open (closeOnSelect={false}) to show its new state.
+        if (closeOnSelect) ctx?.closeMenu(false);
         onSelect?.(e);
       }}
       className={cn(

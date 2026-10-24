@@ -98,10 +98,27 @@ describe('Content fidelity and semantics', () => {
   });
 });
 
+describe('Focus inside colored headers', () => {
+  it('gives the header ring to the header controls only, so the account menu keeps a visible one', () => {
+    const shell = read('components/AppShell.jsx');
+    const header = shell.slice(shell.indexOf('<header'), shell.indexOf('</header>'));
+    const headerTag = header.slice(0, header.indexOf('>', header.indexOf('role="banner"')));
+    // A --ring on <header> would reach the menu items, drawing white on a white menu.
+    assert.equal(/'--ring'/.test(headerTag), false, '<header> must not set --ring for its subtree');
+    assert.equal(header.match(/header-control/g)?.length >= 3, true, 'brand link, theme toggle, and account trigger');
+    assert.match(header, /<ThemeToggle className="header-control[^"]*" \/>/);
+    assert.match(header, /<DropdownMenuTrigger\s+className="header-control /);
+    assert.equal(/<DropdownMenuContent[^>]*header-control/.test(header), false);
+
+    const css = read('index.css');
+    assert.match(css, /\.header-control\s*\{\s*--ring:/);
+  });
+});
+
 describe('Field boundaries', () => {
   it('hold 3:1 against white and the learner workspace (WCAG 1.4.11)', () => {
     const css = read('index.css');
-    const root = css.match(/:root\s*\{([\s\S]*?)\n\}/)[1];
+    const root = css.match(/:root[^{]*\{([\s\S]*?)\n\}/)[1];
     const l = Number(root.match(/--input:\s*oklch\(([\d.]+) 0 0\)/)[1]);
     const white = luminance(1);
     const workspace = luminance(0.97);

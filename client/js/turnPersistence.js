@@ -58,6 +58,15 @@ async function requestState(userId, lessonId, turn) {
   } finally { clearTimeout(timeout); }
 }
 
+/**
+ * What the saved notice says. A turn with the learner's own message confirms
+ * their reply; the coach's opening turn saves silently, since the learner has
+ * not replied yet.
+ */
+export function savedTurnMessage(turn) {
+  return turn.messages?.some((message) => message.role === 'user') ? 'Your reply is saved.' : '';
+}
+
 export async function readLessonState(userId, lessonId) {
   return requestState(userId, lessonId);
 }
@@ -70,7 +79,7 @@ export async function persistLessonTurn(entry) {
     await assertTurnOwner(turn.userId);
     acceptSavedLessonState(turn.lessonId, state);
     saveObserver.record({ ...observation, ok: true, status: 200 });
-    return { status: 'saved', state, persistedLocally, message: 'Your reply is saved.' };
+    return { status: 'saved', state, persistedLocally, message: savedTurnMessage(turn) };
   } catch (error) {
     saveObserver.record({ ...observation, ok: false, status: error.status || 0, reason: saveFailureReason(error) });
     return {

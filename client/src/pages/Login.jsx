@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { preloadFirebase } from '../../js/auth.js';
 import { googleSignInError, passwordSignInError } from '../lib/authErrors.js';
+import { returnPath } from '../lib/returnPath.js';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
+import ThemeToggle from '../components/ThemeToggle.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,8 +27,11 @@ export default function Login() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
-  const { login, loginWithGoogle } = useAuth();
+  const { login, loginWithGoogle, signedOutReason } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Back to the page that sent the learner here (e.g. a lesson whose session expired).
+  const returnTo = returnPath(location.state?.from);
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const branding = usePublicBranding('Sign in');
@@ -73,7 +78,7 @@ export default function Login() {
     try {
       await login(email.trim(), password);
       try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
-      navigate('/lessons', { replace: true });
+      navigate(returnTo, { replace: true });
     } catch (e) {
       setError(passwordSignInError(e));
     } finally {
@@ -88,7 +93,7 @@ export default function Login() {
     try {
       await loginWithGoogle();
       try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
-      navigate('/lessons', { replace: true });
+      navigate(returnTo, { replace: true });
     } catch (e) {
       const msg = googleSignInError(e);
       if (msg) setError(msg);
@@ -99,10 +104,10 @@ export default function Login() {
 
   if (!branding) return null;
 
-  const { primary: headerBg, foreground, logo, classroomName } = branding;
+  const { logo, classroomName } = branding;
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: headerBg, color: foreground }}>
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
       {logo ? (
         <img src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />
       ) : (
@@ -113,6 +118,11 @@ export default function Login() {
           <CardTitle as="h1" className="text-2xl">Sign in</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {signedOutReason === 'expired' && (
+            <p className="rounded-lg border border-warning-border bg-warning p-3 text-sm text-warning-foreground" role="status">
+              Your session expired, so you were signed out. Sign in again to continue.
+            </p>
+          )}
           {error && (
             <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
               {error}
@@ -227,11 +237,15 @@ export default function Login() {
           </CardFooter>
         )}
       </Card>
-      <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>
-        <a href="/privacy" onClick={e => { e.preventDefault(); navigate('/privacy'); }} className="underline hover:no-underline">Privacy</a>
-        {' · '}
-        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
-      </p>
+      {/* The learner can choose the theme before signing in, here as in the classroom header. */}
+      <div className="mt-4 flex items-center gap-1 text-xs" style={{ '--ring': 'currentColor' }}>
+        <p>
+          <a href="/privacy" onClick={e => { e.preventDefault(); navigate('/privacy'); }} className="underline hover:no-underline">Privacy</a>
+          {' · '}
+          Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
+        </p>
+        <ThemeToggle />
+      </div>
     </main>
   );
 }
