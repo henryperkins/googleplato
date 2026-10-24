@@ -67,10 +67,10 @@ steps:
         gcloud run services update "${_SERVICE}" \
           --region="${_REGION}" \
           --revision-suffix="" \
+          --quiet \
           --container=app-container \
           --image="${_IMAGE}:${_SHA}" \
-          --update-env-vars="RELEASE_COMMIT=${_SHA}" \
-          --quiet
+          --update-env-vars="RELEASE_COMMIT=${_SHA}"
         gcloud run services update-traffic "${_SERVICE}" \
           --region="${_REGION}" \
           --clear-tags \
