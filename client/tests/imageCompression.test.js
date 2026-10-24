@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 const { estimateDataUrlBytes, compressImageDataUrl } = await import('../src/lib/imageCompression.js');
+const { SCREENSHOT_MAX_DATA_URL_CHARS } = await import('../src/lib/constants.js');
 
 describe('estimateDataUrlBytes', () => {
   it('returns 0 for non-string input', () => {
@@ -67,6 +68,64 @@ describe('compressImageDataUrl (fallback paths)', () => {
     } finally {
       globalThis.document = savedDocument;
       globalThis.Image = savedImage;
+    }
+  });
+});
+
+describe('compressImageDataUrl (encoded-size cap, PERF-1)', () => {
+  // The server rejects the whole JSON record over 380 KiB, so the client cap
+  // must be on the encoded data URL length, not decoded bytes: ~300 KiB
+  // decoded is ~400 KiB encoded and used to pass through, then 413.
+  function stubDom() {
+    const savedDocument = globalThis.document;
+    const savedImage = globalThis.Image;
+    globalThis.document = {
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        getContext: () => ({ drawImage: () => {} }),
+        toDataURL(type, quality) {
+          const body = Math.round(this.width * this.height * (quality ?? 0.8) * 0.3);
+          return `data:image/jpeg;base64,${'A'.repeat(body)}`;
+        },
+      }),
+    };
+    globalThis.Image = class {
+      constructor() {
+        this.width = 2000;
+        this.height = 1500;
+      }
+      set src(_v) {
+        Promise.resolve().then(() => this.onload?.());
+      }
+    };
+    return () => {
+      globalThis.document = savedDocument;
+      globalThis.Image = savedImage;
+    };
+  }
+
+  it('re-encodes a ~300 KiB decoded image instead of passing it through', async () => {
+    const restore = stubDom();
+    try {
+      const input = `data:image/png;base64,${'A'.repeat(300 * 1024 * 4 / 3)}`;
+      const out = await compressImageDataUrl(input);
+      assert.notEqual(out, null);
+      assert.notEqual(out, input);
+      assert.ok(out.length <= SCREENSHOT_MAX_DATA_URL_CHARS,
+        `output ${out.length} exceeds cap ${SCREENSHOT_MAX_DATA_URL_CHARS}`);
+    } finally {
+      restore();
+    }
+  });
+
+  it('passes a tiny image through unchanged', async () => {
+    const restore = stubDom();
+    try {
+      const tiny = `data:image/png;base64,${'A'.repeat(400)}`;
+      assert.equal(await compressImageDataUrl(tiny), tiny);
+    } finally {
+      restore();
     }
   });
 });

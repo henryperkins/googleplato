@@ -3,7 +3,7 @@ import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { generateInviteToken, generateResetToken, hashToken } from '../lib/crypto.js';
-import { sendInviteEmail, sendResetEmail } from '../lib/email.js';
+import { sendInviteEmail, sendResetEmail, emailDeliveryEnabled } from '../lib/email.js';
 import { validateUsername } from './auth.js';
 import { MIN_OBJECTIVES, MAX_OBJECTIVES, MAX_EXCHANGES, MINS_PER_EXCHANGE } from '../lib/lesson-limits.js';
 import { logger } from '../lib/logger.js';
@@ -261,7 +261,7 @@ admin.post('/v1/admin/invites', async (c) => {
 
   const result = await sendInviteEmail(email, inviteToken, adminUser.name);
 
-  return c.json({ inviteToken, email, ...result }, 201);
+  return c.json({ inviteToken, email, ...result, emailDelivery: result.delivered === false ? 'off' : 'sent' }, 201);
 });
 
 // POST /v1/admin/invites/bulk — invite multiple users from a list of emails
@@ -307,15 +307,22 @@ admin.post('/v1/admin/invites/bulk', async (c) => {
         invitedBy: adminUser.userId,
       });
       const emailResult = await sendInviteEmail(trimmed, inviteToken, adminUser.name);
-      results.push({ email: trimmed, status: 'sent', ...emailResult });
+      const linkOnly = emailResult.delivered === false;
+      results.push({
+        email: trimmed,
+        status: linkOnly ? 'link_only' : 'sent',
+        emailDelivery: linkOnly ? 'off' : 'sent',
+        signupUrl: emailResult.signupUrl,
+      });
     } catch (err) {
       results.push({ email: trimmed, status: 'error', reason: err.message });
     }
   }
 
   const sent = results.filter(r => r.status === 'sent').length;
-  const skipped = results.filter(r => r.status !== 'sent').length;
-  return c.json({ sent, skipped, total: results.length, results }, 201);
+  const linkOnly = results.filter(r => r.status === 'link_only').length;
+  const skipped = results.filter(r => r.status !== 'sent' && r.status !== 'link_only').length;
+  return c.json({ sent, linkOnly, skipped, total: results.length, results }, 201);
 });
 
 // GET /v1/admin/invites
@@ -352,7 +359,7 @@ admin.post('/v1/admin/invites/resend', async (c) => {
   });
 
   const result = await sendInviteEmail(email.toLowerCase(), inviteToken, adminUser.name);
-  return c.json({ inviteToken, email: email.toLowerCase(), ...result }, 201);
+  return c.json({ inviteToken, email: email.toLowerCase(), ...result, emailDelivery: result.delivered === false ? 'off' : 'sent' }, 201);
 });
 
 // DELETE /v1/admin/invites/:token
@@ -510,7 +517,7 @@ admin.post('/v1/admin/waitlist/:token/invite', async (c) => {
   await db.deleteInvite(entry.inviteToken);
 
   const result = await sendInviteEmail(entry.email, inviteToken, adminUser.name);
-  return c.json({ inviteToken, email: entry.email, ...result }, 201);
+  return c.json({ inviteToken, email: entry.email, ...result, emailDelivery: result.delivered === false ? 'off' : 'sent' }, 201);
 });
 
 // PUT /v1/admin/waitlist/:token — edit an entry's name, email, group, and
@@ -616,10 +623,15 @@ admin.post('/v1/admin/users/:userId/reset-password', async (c) => {
   if (!user) {
     return c.json({ error: 'User not found' }, 404);
   }
+  // D-2(a): with email off, admins do not receive reset links — a reset link
+  // is an account-takeover credential. Create no token and say so plainly.
+  if (!emailDeliveryEnabled()) {
+    return c.json({ ok: true, emailDelivery: 'off' });
+  }
   const token = generateResetToken();
   await db.storeResetToken(hashToken(token), user.userId);
   await sendResetEmail(user.email, token);
-  return c.json({ ok: true });
+  return c.json({ ok: true, emailDelivery: 'sent' });
 });
 
 // GET /v1/admin/settings
@@ -846,6 +858,7 @@ admin.delete('/v1/admin/users/:userId', async (c) => {
   // Delete all sync data for this user (cascades plugin userMeta:* records too)
   const syncItems = await db.getAllSyncData(userId);
   await Promise.all(syncItems.map((item) => db.deleteSyncData(userId, item.dataKey)));
+  await db.revokeUserTokens(userId);
   await db.deleteUser(userId);
   return c.json({ ok: true });
 });

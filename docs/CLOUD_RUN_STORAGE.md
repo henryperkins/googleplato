@@ -31,6 +31,7 @@ Required environment variables:
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Bootstrap the operator account in an empty database; password is a secret reference. |
 | `PORT` | Application sidecar port, currently 3000. |
 | `RELEASE_COMMIT` | Source commit exposed with the serving revision in response headers. |
+| `SKIP_EMAIL` | When `true`, email delivery is off: invite/reset attempts log only `email_suppressed` (kind, no address or link), invites return shareable links to the admin with `emailDelivery: 'off'`, and password resets create no token. |
 
 For non-Cloud-SQL PostgreSQL deployments and local integration checks, `PGHOST`
 can replace `INSTANCE_CONNECTION_NAME`. Use the PostgreSQL client's TLS settings
@@ -95,8 +96,10 @@ skipped; mock-based tests alone do not qualify a new PostgreSQL deployment.
 Use Node 24 and install from the repository's root dependency lockfile. Run the
 PostgreSQL suite against an isolated local PostgreSQL 17 instance.
 Additional regression checks cover simultaneous content seeding, bootstrap
-credential removal, reset-token rejection by refresh lookup, and bounded server
-shutdown. GitHub-hosted Actions are permanently unavailable for this repository.
+credential removal, reset-token rejection by refresh lookup on every backend
+(SQLite, DynamoDB and Postgres), expired-token rejection, single-winner
+concurrent token consumption, revocation of all sessions on password reset,
+and bounded server shutdown. GitHub-hosted Actions are permanently unavailable for this repository.
 Use local validation and independent review; do not wait for, rerun, or
 investigate hosted jobs as a release prerequisite.
 

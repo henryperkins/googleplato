@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand,
   UpdateCommand, DeleteCommand, ScanCommand, TransactGetCommand, TransactWriteCommand,
+  BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
   USERS_TABLE, INVITES_TABLE, REFRESH_TOKENS_TABLE, SYNC_DATA_TABLE,
@@ -15,7 +16,12 @@ if (process.env.DYNAMODB_ENDPOINT) {
   clientOpts.credentials = { accessKeyId: 'local', secretAccessKey: 'local' };
 }
 const client = new DynamoDBClient(clientOpts);
-const doc = DynamoDBDocumentClient.from(client);
+let doc = DynamoDBDocumentClient.from(client);
+
+// Test seam: adapter tests inject an in-memory DocumentClient.
+export function setDocumentClientForTests(documentClient) {
+  doc = documentClient;
+}
 
 const db = {
   // ── Users ──
@@ -339,7 +345,7 @@ const db = {
     const ttl = Math.floor(Date.now() / 1000) + REFRESH_TOKEN_TTL_DAYS * 86400;
     await doc.send(new PutCommand({
       TableName: REFRESH_TOKENS_TABLE,
-      Item: { tokenHash, userId, createdAt: new Date().toISOString(), ttl },
+      Item: { tokenHash, userId, type: 'refresh', createdAt: new Date().toISOString(), ttl },
     }));
   },
 
@@ -348,7 +354,90 @@ const db = {
       TableName: REFRESH_TOKENS_TABLE,
       Key: { tokenHash },
     }));
-    return result.Item || null;
+    const item = result.Item;
+    if (!item) return null;
+    // Legacy items were stored without a type; treat missing as refresh.
+    if ((item.type ?? 'refresh') !== 'refresh') return null;
+    if (item.ttl < Math.floor(Date.now() / 1000)) return null;
+    return item;
+  },
+
+  async consumeRefreshToken(tokenHash) {
+    try {
+      const result = await doc.send(new DeleteCommand({
+        TableName: REFRESH_TOKENS_TABLE,
+        Key: { tokenHash },
+        ConditionExpression: '(attribute_not_exists(#t) OR #t = :refreshType) AND #ttl >= :now',
+        ExpressionAttributeNames: { '#t': 'type', '#ttl': 'ttl' },
+        ExpressionAttributeValues: { ':refreshType': 'refresh', ':now': Math.floor(Date.now() / 1000) },
+        ReturnValues: 'ALL_OLD',
+      }));
+      return result.Attributes || null;
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') return null;
+      throw err;
+    }
+  },
+
+  async consumeResetToken(tokenHash) {
+    try {
+      const result = await doc.send(new DeleteCommand({
+        TableName: REFRESH_TOKENS_TABLE,
+        Key: { tokenHash },
+        ConditionExpression: '#t = :resetType AND #ttl >= :now',
+        ExpressionAttributeNames: { '#t': 'type', '#ttl': 'ttl' },
+        ExpressionAttributeValues: { ':resetType': 'reset', ':now': Math.floor(Date.now() / 1000) },
+        ReturnValues: 'ALL_OLD',
+      }));
+      return result.Attributes || null;
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') return null;
+      throw err;
+    }
+  },
+
+  async revokeUserTokens(userId) {
+    let hashes;
+    try {
+      hashes = [];
+      let lastKey;
+      do {
+        const result = await doc.send(new QueryCommand({
+          TableName: REFRESH_TOKENS_TABLE,
+          IndexName: 'userId-index',
+          KeyConditionExpression: 'userId = :userId',
+          ExpressionAttributeValues: { ':userId': userId },
+          ExclusiveStartKey: lastKey,
+        }));
+        hashes.push(...(result.Items || []).map((item) => item.tokenHash));
+        lastKey = result.LastEvaluatedKey;
+      } while (lastKey);
+    } catch {
+      // Index not deployed yet (ships with the template change) — the token
+      // table holds only small rows, so a filtered scan is a safe fallback.
+      hashes = [];
+      let lastKey;
+      do {
+        const result = await doc.send(new ScanCommand({
+          TableName: REFRESH_TOKENS_TABLE,
+          FilterExpression: '#u = :userId',
+          ExpressionAttributeNames: { '#u': 'userId' },
+          ExpressionAttributeValues: { ':userId': userId },
+          ExclusiveStartKey: lastKey,
+        }));
+        hashes.push(...(result.Items || []).map((item) => item.tokenHash));
+        lastKey = result.LastEvaluatedKey;
+      } while (lastKey);
+    }
+    for (let i = 0; i < hashes.length; i += 25) {
+      const chunk = hashes.slice(i, i + 25);
+      if (chunk.length === 0) continue;
+      await doc.send(new BatchWriteCommand({
+        RequestItems: {
+          [REFRESH_TOKENS_TABLE]: chunk.map((tokenHash) => ({ DeleteRequest: { Key: { tokenHash } } })),
+        },
+      }));
+    }
   },
 
   async deleteRefreshToken(tokenHash) {
@@ -375,6 +464,7 @@ const db = {
     }));
     const item = result.Item;
     if (!item || item.type !== 'reset') return null;
+    if (item.ttl < Math.floor(Date.now() / 1000)) return null;
     return item;
   },
 

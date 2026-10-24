@@ -86,6 +86,31 @@ test('PostgreSQL persistence and concurrent writers', { skip: !process.env.POSTG
     assert.equal((await db.listAuditLogsForUser('u', '2099-01-01')).length, 0);
   });
 
+  await t.test('token consume is atomic across instances and revocation works (SEC-2, SEC-3)', async () => {
+    await db.storeRefreshToken('race-refresh', 'u');
+    const consumed = await Promise.all([db.consumeRefreshToken('race-refresh'), other.consumeRefreshToken('race-refresh')]);
+    assert.equal(consumed.filter(Boolean).length, 1);
+    assert.equal(await db.consumeRefreshToken('race-refresh'), null);
+
+    await db.storeResetToken('race-reset', 'u');
+    assert.equal(await db.consumeRefreshToken('race-reset'), null);
+    assert.equal((await db.consumeResetToken('race-reset')).userId, 'u');
+    assert.equal(await db.consumeResetToken('race-reset'), null);
+
+    await pool.query(`INSERT INTO refresh_tokens (id, document) VALUES ('expired-refresh', $1::jsonb)`,
+      [JSON.stringify({ tokenHash: 'expired-refresh', userId: 'u', type: 'refresh', createdAt: new Date().toISOString(), ttl: 1 })]);
+    assert.equal(await db.getRefreshToken('expired-refresh'), null);
+    assert.equal(await db.consumeRefreshToken('expired-refresh'), null);
+
+    await db.storeRefreshToken('revoke-a', 'u');
+    await db.storeResetToken('revoke-b', 'u');
+    await db.storeRefreshToken('revoke-keep', 'someone-else');
+    await db.revokeUserTokens('u');
+    assert.equal(await db.getRefreshToken('revoke-a'), null);
+    assert.equal(await db.getResetToken('revoke-b'), null);
+    assert.equal((await db.getRefreshToken('revoke-keep')).userId, 'someone-else');
+  });
+
   await t.test('strict creation, updates and literal prefix filtering', async () => {
     const results = await Promise.allSettled([db, other].map(d => d.putSyncData('u', 'lessonKB:strict', {}, 0, { strictVersion: true })));
     assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);

@@ -1,6 +1,7 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { unlinkSync, existsSync } from 'node:fs';
+import Database from 'better-sqlite3';
 
 // Configure for SQLite before importing
 const TEST_DB_PATH = './data/test-db-sqlite.db';
@@ -229,6 +230,58 @@ describe('db-sqlite', () => {
     it('deletes a reset token', async () => {
       await db.deleteResetToken(hash);
       assert.equal(await db.getResetToken(hash), null);
+    });
+  });
+
+  describe('token hardening (SEC-2, SEC-3)', () => {
+    const expire = (tokenHash) => {
+      const raw = new Database(TEST_DB_PATH);
+      raw.prepare('UPDATE refresh_tokens SET ttl = 1 WHERE tokenHash = ?').run(tokenHash);
+      raw.close();
+    };
+
+    it('rejects a reset token as a refresh token', async () => {
+      const h = 'sec2_reset_' + Date.now();
+      await db.storeResetToken(h, 'usr_test');
+      assert.equal(await db.getRefreshToken(h), null);
+      assert.equal(await db.consumeRefreshToken(h), null);
+      await db.deleteResetToken(h);
+    });
+
+    it('rejects expired refresh and reset tokens', async () => {
+      const refreshHash = 'sec2_exp_refresh_' + Date.now();
+      const resetHash = 'sec2_exp_reset_' + Date.now();
+      await db.storeRefreshToken(refreshHash, 'usr_test');
+      await db.storeResetToken(resetHash, 'usr_test');
+      expire(refreshHash);
+      expire(resetHash);
+      assert.equal(await db.getRefreshToken(refreshHash), null);
+      assert.equal(await db.getResetToken(resetHash), null);
+      assert.equal(await db.consumeRefreshToken(refreshHash), null);
+      assert.equal(await db.consumeResetToken(resetHash), null);
+    });
+
+    it('consumes a token exactly once, even concurrently', async () => {
+      const h = 'sec3_consume_' + Date.now();
+      await db.storeRefreshToken(h, 'usr_test');
+      const results = await Promise.all([db.consumeRefreshToken(h), db.consumeRefreshToken(h)]);
+      assert.equal(results.filter(Boolean).length, 1);
+      assert.equal(await db.consumeRefreshToken(h), null);
+      assert.equal(await db.getRefreshToken(h), null);
+    });
+
+    it('revokes all tokens for one user only', async () => {
+      const a = 'sec3_revoke_a_' + Date.now();
+      const b = 'sec3_revoke_b_' + Date.now();
+      const other = 'sec3_revoke_other_' + Date.now();
+      await db.storeRefreshToken(a, 'usr_revoke');
+      await db.storeResetToken(b, 'usr_revoke');
+      await db.storeRefreshToken(other, 'usr_keep');
+      await db.revokeUserTokens('usr_revoke');
+      assert.equal(await db.getRefreshToken(a), null);
+      assert.equal(await db.getResetToken(b), null);
+      assert.equal((await db.getRefreshToken(other)).userId, 'usr_keep');
+      await db.deleteRefreshToken(other);
     });
   });
 

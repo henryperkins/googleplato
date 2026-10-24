@@ -160,6 +160,7 @@ describe('DELETE /v1/me', () => {
       { dataKey: 'work' },
     ];
     db.deleteSyncData = async (_uid, key) => { deletedSync.push(key); };
+    db.revokeUserTokens = async () => {};
     db.deleteUser = async () => { deletedUser = true; };
     db.createAuditLog = async (entry) => { auditCreated = entry; };
   });

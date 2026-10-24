@@ -8,9 +8,7 @@
  * on the way in keeps every screenshot record comfortably under the limit.
  */
 
-// Target size for the encoded data URL body. Well under DynamoDB's 400 KB
-// item limit, leaving headroom for the record's other attributes.
-const DEFAULT_MAX_BYTES = 350 * 1024;
+import { SCREENSHOT_MAX_DATA_URL_CHARS } from './constants.js';
 
 /**
  * Estimate the decoded byte size of a base64 data URL from its string length.
@@ -46,25 +44,27 @@ function encodeJpeg(img, maxEdge, quality) {
 
 /**
  * Downscale + re-encode an image data URL so it fits inside one sync-data
- * record. Iteratively drops quality, then dimensions, until the result is
- * under `maxBytes`. Always resolves, never throws. Returns `null` when the
- * image can't be brought under `maxBytes` (or a decode failure leaves an
+ * record. Iteratively drops quality, then dimensions, until the encoded
+ * result is under `maxDataUrlChars`. Always resolves, never throws. Returns
+ * `null` when the image can't be brought under `maxDataUrlChars` (or a decode failure leaves an
  * oversized original) so the caller can warn the user upfront instead of
  * letting the server reject the write with a 413.
  */
-export async function compressImageDataUrl(dataUrl, { maxBytes = DEFAULT_MAX_BYTES } = {}) {
+export async function compressImageDataUrl(dataUrl, { maxDataUrlChars = SCREENSHOT_MAX_DATA_URL_CHARS } = {}) {
   try {
     if (typeof document === 'undefined' || typeof Image === 'undefined') return dataUrl;
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return dataUrl;
+    // Cap the encoded data URL length: the server measures the whole JSON
+    // record, so decoded bytes understate what will be rejected (PERF-1).
     // Already small enough — don't re-encode (avoids needless quality loss).
-    if (estimateDataUrlBytes(dataUrl) <= maxBytes) return dataUrl;
+    if (dataUrl.length <= maxDataUrlChars) return dataUrl;
 
     const img = await loadImage(dataUrl);
     let edge = 1600;
     let quality = 0.82;
     let out = encodeJpeg(img, edge, quality);
 
-    for (let attempt = 0; attempt < 8 && estimateDataUrlBytes(out) > maxBytes; attempt++) {
+    for (let attempt = 0; attempt < 8 && out.length > maxDataUrlChars; attempt++) {
       if (quality > 0.4) {
         quality -= 0.15;
       } else {
@@ -76,13 +76,13 @@ export async function compressImageDataUrl(dataUrl, { maxBytes = DEFAULT_MAX_BYT
 
     // If compression succeeded, return the result. If it's still too large after
     // all attempts, return null so the caller can surface an error to the user
-    // instead of silently writing data that will hit DynamoDB's 400 KB item limit.
-    return estimateDataUrlBytes(out) <= maxBytes ? out : null;
+    // instead of silently writing data the server will reject with a 413.
+    return out.length <= maxDataUrlChars ? out : null;
   } catch {
     // Decode failed (corrupt file, unsupported format). Fall back to the
     // original — but only if it already fits. An oversized original must
     // return null too, so the caller surfaces the "too large" warning
     // upfront instead of letting the server reject it with a 413.
-    return estimateDataUrlBytes(dataUrl) <= maxBytes ? dataUrl : null;
+    return typeof dataUrl === 'string' && dataUrl.length <= maxDataUrlChars ? dataUrl : null;
   }
 }

@@ -178,7 +178,8 @@ me.delete('/v1/me', async (c) => {
     await db.deleteSyncData(userId, item.dataKey);
   }
 
-  // Delete user record
+  // Delete user record and any remaining session tokens
+  await db.revokeUserTokens(userId);
   await db.deleteUser(userId);
 
   return c.json({ ok: true, message: 'Account and all associated data have been permanently deleted' });

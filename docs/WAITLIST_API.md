@@ -153,6 +153,10 @@ curl https://plato.courses/v1/waitlist
 - **No bulk endpoint** — send one request per person.
 - Submissions don't send the person an email. Their first email from plato is
   the invite.
+- When an admin invites an entry (`POST /v1/admin/waitlist/:token/invite`),
+  the response carries `emailDelivery: 'sent' | 'off'`. With email delivery
+  off, nothing was sent: the response includes `signupUrl` so the admin can
+  share the invite link directly.
 - Keep the key in your server's secrets store. If it leaks, make a new key in
   the Wait List dialog — the old one stops working at once.
 

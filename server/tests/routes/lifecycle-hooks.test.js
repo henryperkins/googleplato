@@ -78,6 +78,7 @@ describe('userDeleted hook fires on self-delete', () => {
     db.getAllSyncData = async () => [];
     db.deleteSyncData = async () => {};
     db.deleteUser = async () => {};
+    db.revokeUserTokens = async () => {};
   });
 
   it('emits userDeleted before the cascade with the user details', async () => {
@@ -107,6 +108,7 @@ describe('userDeleted hook fires on admin-delete', () => {
     db.getAllSyncData = async () => [];
     db.deleteSyncData = async () => {};
     db.deleteUser = async () => {};
+    db.revokeUserTokens = async () => {};
   });
 
   it('emits userDeleted with the deleted user\'s details', async () => {

@@ -1,8 +1,24 @@
-import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import { SES_FROM_EMAIL, APP_URL } from '../config.js';
 import db from './db.js';
+import { logger } from './logger.js';
 
-const ses = new SESClient({});
+// SES is lazy-loaded on first real send: importing this module must not
+// construct a client (or require AWS credentials) on deployments that
+// never send, such as Cloud Run with SKIP_EMAIL=true.
+let sesPromise = null;
+function getSes() {
+  if (!sesPromise) {
+    sesPromise = import('@aws-sdk/client-ses').then(({ SESClient, SendEmailCommand }) => ({
+      client: new SESClient({}),
+      SendEmailCommand,
+    }));
+  }
+  return sesPromise;
+}
+
+export function emailDeliveryEnabled() {
+  return process.env.SKIP_EMAIL !== 'true';
+}
 
 async function getClassroom() {
   const item = await db.getSyncData('_system', 'settings');
@@ -32,9 +48,11 @@ function emailWrapper(classroom, body) {
 export async function sendInviteEmail(toEmail, inviteToken, invitedByName) {
   const signupUrl = `${APP_URL}/signup?token=${inviteToken}`;
 
-  if (process.env.SKIP_EMAIL === 'true') {
-    console.log(`[SKIP_EMAIL] Invite for ${toEmail}: ${signupUrl}`);
-    return { skipped: true, signupUrl };
+  if (!emailDeliveryEnabled()) {
+    // Never log the recipient or the tokenized URL (SEC-1): the invite link
+    // is returned to the admin caller instead of the log.
+    logger.info('email_suppressed', { kind: 'invite' });
+    return { delivered: false, reason: 'email_disabled', signupUrl };
   }
 
   const classroom = await getClassroom();
@@ -62,7 +80,8 @@ export async function sendInviteEmail(toEmail, inviteToken, invitedByName) {
     </p>
   `);
 
-  await ses.send(new SendEmailCommand({
+  const ses = await getSes();
+  await ses.client.send(new ses.SendEmailCommand({
     Source: `${classroom.name} <${SES_FROM_EMAIL}>`,
     Destination: { ToAddresses: [toEmail] },
     Message: {
@@ -71,15 +90,17 @@ export async function sendInviteEmail(toEmail, inviteToken, invitedByName) {
     },
   }));
 
-  return { sent: true, signupUrl };
+  return { delivered: true, sent: true, signupUrl };
 }
 
 export async function sendResetEmail(toEmail, resetToken) {
   const resetUrl = `${APP_URL}/reset-password?reset=${resetToken}`;
 
-  if (process.env.SKIP_EMAIL === 'true') {
-    console.log(`[SKIP_EMAIL] Reset for ${toEmail}: ${resetUrl}`);
-    return { skipped: true, resetUrl };
+  if (!emailDeliveryEnabled()) {
+    // Never log the recipient or the tokenized URL (SEC-1). No URL is
+    // returned either: a reset link is an account-takeover credential (D-2a).
+    logger.info('email_suppressed', { kind: 'reset' });
+    return { delivered: false, reason: 'email_disabled' };
   }
 
   const classroom = await getClassroom();
@@ -96,7 +117,8 @@ export async function sendResetEmail(toEmail, resetToken) {
     </p>
   `);
 
-  await ses.send(new SendEmailCommand({
+  const ses = await getSes();
+  await ses.client.send(new ses.SendEmailCommand({
     Source: `${classroom.name} <${SES_FROM_EMAIL}>`,
     Destination: { ToAddresses: [toEmail] },
     Message: {
@@ -105,5 +127,5 @@ export async function sendResetEmail(toEmail, resetToken) {
     },
   }));
 
-  return { sent: true, resetUrl };
+  return { delivered: true, sent: true, resetUrl };
 }

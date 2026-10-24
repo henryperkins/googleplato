@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import auth, { setFirebaseTokenVerifier } from '../../src/routes/auth.js';
@@ -265,7 +265,7 @@ describe('POST /v1/auth/login', () => {
 
 describe('POST /v1/auth/refresh', () => {
   it('rotates refresh tokens', async () => {
-    db.getRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
+    db.consumeRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
     db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
     db.deleteRefreshToken = async () => {};
     db.storeRefreshToken = async () => {};
@@ -280,7 +280,7 @@ describe('POST /v1/auth/refresh', () => {
   });
 
   it('refresh updates lastActiveAt (heartbeat without per-message amplification)', async () => {
-    db.getRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
+    db.consumeRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
     db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
     db.deleteRefreshToken = async () => {};
     db.storeRefreshToken = async () => {};
@@ -295,7 +295,7 @@ describe('POST /v1/auth/refresh', () => {
   });
 
   it('refresh succeeds even if lastActiveAt write throws', async () => {
-    db.getRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
+    db.consumeRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
     db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
     db.deleteRefreshToken = async () => {};
     db.storeRefreshToken = async () => {};
@@ -307,11 +307,74 @@ describe('POST /v1/auth/refresh', () => {
   });
 
   it('rejects invalid refresh token', async () => {
-    db.getRefreshToken = async () => null;
+    db.consumeRefreshToken = async () => null;
     const app = new Hono();
     app.route('/', auth);
     const res = await req(app, 'POST', '/v1/auth/refresh', { refreshToken: 'rt_invalid' });
     assert.equal(res.status, 401);
+  });
+});
+
+describe('POST /v1/auth/reset-password (SEC-2, SEC-3)', () => {
+  it('rejects a reset token presented to /refresh', async () => {
+    db.consumeRefreshToken = async () => null;
+    const app = new Hono();
+    app.route('/', auth);
+    const res = await req(app, 'POST', '/v1/auth/refresh', { refreshToken: 'reset_token_value' });
+    assert.equal(res.status, 401);
+  });
+
+  it('revokes sessions on reset and the reset link is single-use', async () => {
+    let resetAvailable = true;
+    let revokedFor = null;
+    db.consumeResetToken = async () => {
+      if (!resetAvailable) return null;
+      resetAvailable = false;
+      return { userId: 'usr_test' };
+    };
+    db.consumeRefreshToken = async () => (revokedFor ? null : { userId: 'usr_test' });
+    db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
+    db.updateUser = async () => {};
+    db.revokeUserTokens = async (userId) => { revokedFor = userId; };
+    db.storeRefreshToken = async () => {};
+    db.setUserActivityField = async () => {};
+    const app = new Hono();
+    app.route('/', auth);
+
+    const first = await req(app, 'POST', '/v1/auth/reset-password', { resetToken: 'rst', password: 'newpassword1' });
+    assert.equal(first.status, 200);
+    assert.equal(revokedFor, 'usr_test');
+
+    const second = await req(app, 'POST', '/v1/auth/reset-password', { resetToken: 'rst', password: 'newpassword1' });
+    assert.equal(second.status, 400);
+
+    const refresh = await req(app, 'POST', '/v1/auth/refresh', { refreshToken: 'old_rt' });
+    assert.equal(refresh.status, 401);
+  });
+});
+
+describe('POST /v1/auth/forgot-password (EML-2)', () => {
+  beforeEach(() => {
+    process.env.SKIP_EMAIL = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.SKIP_EMAIL;
+  });
+
+  it('answers identically for existing and unknown emails, storing no token', async () => {
+    let stored = false;
+    db.storeResetToken = async () => { stored = true; };
+    db.getUserByEmail = async (email) => (email === 'known@example.com' ? { userId: 'usr_test', email } : null);
+    const app = new Hono();
+    app.route('/', auth);
+    const known = await req(app, 'POST', '/v1/auth/forgot-password', { email: 'known@example.com' });
+    const unknown = await req(app, 'POST', '/v1/auth/forgot-password', { email: 'ghost@example.com' });
+    assert.equal(known.status, 200);
+    assert.equal(unknown.status, 200);
+    assert.deepEqual(await known.json(), { ok: true, emailDelivery: 'off' });
+    assert.deepEqual(await unknown.json(), { ok: true, emailDelivery: 'off' });
+    assert.equal(stored, false);
   });
 });
 

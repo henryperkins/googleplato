@@ -353,7 +353,8 @@ export async function forgotPassword(email) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || 'Request failed');
   }
-  return { success: true };
+  const body = await res.json().catch(() => ({}));
+  return { success: true, emailDelivery: body.emailDelivery };
 }
 
 /**

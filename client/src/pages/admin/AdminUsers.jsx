@@ -26,6 +26,7 @@ import WaitlistEntryEdit from './WaitlistEntryEdit.jsx';
 import CustomFieldInput from '../../components/CustomFieldInput.jsx';
 import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
 import { customFieldsMatch, matchesFieldFilter, missingRequired } from '../../lib/userFields.js';
+import { describeBulkInvites, describeSingleInvite, describeAdminReset } from '../../lib/inviteResults.js';
 
 const PAGE_SIZE = 20;
 
@@ -135,6 +136,7 @@ export default function AdminUsers() {
   const [emailQueue, setEmailQueue] = useState([]);
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteNotice, setInviteNotice] = useState(null);
+  const [inviteLinks, setInviteLinks] = useState([]);
   const csvRef = useRef(null);
 
   // Search, filter, pagination
@@ -288,10 +290,9 @@ export default function AdminUsers() {
     setInviteSending(true);
     try {
       const data = await adminApi('POST', '/v1/admin/invites/bulk', { emails: emailQueue });
-      const parts = [];
-      if (data.sent > 0) parts.push(`${data.sent} ${data.sent === 1 ? 'invite' : 'invites'} sent`);
-      if (data.skipped > 0) parts.push(`${data.skipped} skipped`);
-      setMessage({ text: parts.join('. ') + '.', type: data.sent > 0 ? 'success' : 'error' });
+      const outcome = describeBulkInvites(data);
+      setInviteLinks(outcome.links);
+      setMessage({ text: outcome.text, type: data.sent > 0 || data.linkOnly > 0 ? 'success' : 'error' });
       setEmailQueue([]);
       setInviteOpen(false);
       loadData();
@@ -455,16 +456,20 @@ export default function AdminUsers() {
 
   async function resendInvite(email) {
     try {
-      await adminApi('POST', '/v1/admin/invites/resend', { email });
-      setMessage({ text: `Invite resent to ${email}.`, type: 'success' });
+      const data = await adminApi('POST', '/v1/admin/invites/resend', { email });
+      const outcome = describeSingleInvite(email, data);
+      setInviteLinks(outcome.links);
+      setMessage({ text: outcome.text, type: 'success' });
       loadData();
     } catch (e) { setMessage({ text: e.message, type: 'error' }); }
   }
 
   async function inviteFromWaitlist(token, email) {
     try {
-      await adminApi('POST', `/v1/admin/waitlist/${token}/invite`);
-      setMessage({ text: `Invite sent to ${email}.`, type: 'success' });
+      const data = await adminApi('POST', `/v1/admin/waitlist/${token}/invite`);
+      const outcome = describeSingleInvite(email, data);
+      setInviteLinks(outcome.links);
+      setMessage({ text: outcome.text, type: 'success' });
       loadData();
       return true;
     } catch (e) { setMessage({ text: e.message, type: 'error' }); return false; }
@@ -549,8 +554,8 @@ export default function AdminUsers() {
       variant: 'default',
       onConfirm: async () => {
         try {
-          await adminApi('POST', `/v1/admin/users/${userId}/reset-password`);
-          setMessage({ text: `Password reset email sent to ${email}.`, type: 'success' });
+          const data = await adminApi('POST', `/v1/admin/users/${userId}/reset-password`);
+          setMessage({ text: describeAdminReset(email, data), type: 'success' });
         } catch (e) {
           setMessage({ text: e.message, type: 'error' });
         }
@@ -931,8 +936,27 @@ export default function AdminUsers() {
           message.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'
         }`} role="alert">
           <span>{message.text}</span>
-          <button type="button" onClick={() => setMessage(null)} aria-label="Dismiss" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
+          <button type="button" onClick={() => { setMessage(null); setInviteLinks([]); }} aria-label="Dismiss" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
         </div>
+      )}
+
+      {inviteLinks.length > 0 && (
+        <ul className="mb-4 space-y-2" aria-label="Invite links to copy">
+          {inviteLinks.map(({ email, signupUrl }) => (
+            <li key={signupUrl} className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">{email}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label={`Copy invite link for ${email}`}
+                onClick={() => navigator.clipboard.writeText(signupUrl)}
+              >
+                Copy invite link
+              </Button>
+            </li>
+          ))}
+        </ul>
       )}
 
       {loadError && (
