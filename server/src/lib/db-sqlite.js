@@ -79,6 +79,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 // -- Migrations ---------------------------------------------------------------
 
+if (!sqlite.prepare("SELECT 1 FROM pragma_table_info('refresh_tokens') WHERE name = 'credentialVersion'").get()) {
+  sqlite.exec('ALTER TABLE refresh_tokens ADD COLUMN credentialVersion TEXT');
+}
+
 // Add username column if missing (existing databases created before username support)
 const hasUsername = sqlite.prepare(
   "SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name = 'username'"
@@ -437,12 +441,12 @@ const db = {
 
   // ── Refresh Tokens ──
 
-  async storeRefreshToken(tokenHash, userId) {
+  async storeRefreshToken(tokenHash, userId, credentialVersion = null) {
     const ttl = Math.floor(Date.now() / 1000) + REFRESH_TOKEN_TTL_DAYS * 86400;
     sqlite.prepare(
-      `INSERT INTO refresh_tokens (tokenHash, userId, type, createdAt, ttl)
-       VALUES (?, ?, 'refresh', ?, ?)`
-    ).run(tokenHash, userId, new Date().toISOString(), ttl);
+      `INSERT INTO refresh_tokens (tokenHash, userId, type, createdAt, ttl, credentialVersion)
+       VALUES (?, ?, 'refresh', ?, ?, ?)`
+    ).run(tokenHash, userId, new Date().toISOString(), ttl, credentialVersion);
   },
 
   async getRefreshToken(tokenHash) {

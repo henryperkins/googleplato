@@ -234,6 +234,11 @@ describe('db-sqlite', () => {
   });
 
   describe('token hardening (SEC-2, SEC-3)', () => {
+    it('preserves the credential version on refresh token consumption', async () => {
+      await db.storeRefreshToken('versioned-refresh', 'usr_test', 'credential-version');
+      assert.equal((await db.consumeRefreshToken('versioned-refresh')).credentialVersion, 'credential-version');
+    });
+
     const expire = (tokenHash) => {
       const raw = new Database(TEST_DB_PATH);
       raw.prepare('UPDATE refresh_tokens SET ttl = 1 WHERE tokenHash = ?').run(tokenHash);

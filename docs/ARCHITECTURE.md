@@ -78,7 +78,20 @@ local rules testing, cutover order, and publication status.
   database backends, so learners on other devices are signed out. Refresh
   rotation consumes the old token atomically: only the request that deletes
   the stored row may issue its replacement, and reset tokens are never
-  accepted as refresh tokens.
+  accepted as refresh tokens. New refresh tokens carry a SHA-256 fingerprint
+  of the password hash used at issuance, never a second copy of that hash.
+  Refresh checks that fingerprint against the current user credential, using
+  a strongly consistent user read on DynamoDB. Legacy tokens are read before
+  the user lookup and consumed after it; a reset therefore deletes the old
+  token or invalidates its credential-bound replacement. A refresh that
+  observes a credential change after storing its replacement removes it and
+  returns 401. A login already in progress may finish with an access JWT, but
+  its old-credential refresh token cannot continue after reset. Existing
+  access JWTs keep their normal 15-minute expiry.
+  DynamoDB revocation uses a strongly consistent, paginated scan of the token
+  table and bounded retries for unprocessed batch deletes. An eventually
+  consistent index is not sufficient for this security boundary; exhausted
+  retries fail explicitly.
 
 Sign-out removes plato's local credentials and protected React state before
 waiting for any remote work. Server refresh-token revocation is best effort,

@@ -158,8 +158,8 @@ export async function createPostgresDatabase(pool) {
       if (result.rowCount !== 1) throw conflict('Invite missing or usage limit reached');
     },
 
-    storeRefreshToken: (tokenHash, userId) => insert('refresh_tokens', tokenHash, {
-      tokenHash, userId, type: 'refresh', createdAt: now(), ttl: expiresIn(REFRESH_TOKEN_TTL_DAYS * 86400),
+    storeRefreshToken: (tokenHash, userId, credentialVersion = null) => insert('refresh_tokens', tokenHash, {
+      tokenHash, userId, credentialVersion, type: 'refresh', createdAt: now(), ttl: expiresIn(REFRESH_TOKEN_TTL_DAYS * 86400),
     }),
     getRefreshToken: token => one('refresh_tokens', "id = $1 AND document->>'type' = 'refresh' AND (document->>'ttl')::bigint >= $2", [token, expiresIn(0)]),
     deleteRefreshToken: token => remove('refresh_tokens', token),

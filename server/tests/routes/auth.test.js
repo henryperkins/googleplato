@@ -264,6 +264,9 @@ describe('POST /v1/auth/login', () => {
 });
 
 describe('POST /v1/auth/refresh', () => {
+  beforeEach(() => {
+    db.getRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
+  });
   it('rotates refresh tokens', async () => {
     db.consumeRefreshToken = async () => ({ tokenHash: 'hash', userId: 'usr_test' });
     db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });

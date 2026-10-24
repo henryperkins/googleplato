@@ -87,6 +87,8 @@ test('PostgreSQL persistence and concurrent writers', { skip: !process.env.POSTG
   });
 
   await t.test('token consume is atomic across instances and revocation works (SEC-2, SEC-3)', async () => {
+    await db.storeRefreshToken('versioned-refresh', 'u', 'credential-version');
+    assert.equal((await other.consumeRefreshToken('versioned-refresh')).credentialVersion, 'credential-version');
     await db.storeRefreshToken('race-refresh', 'u');
     const consumed = await Promise.all([db.consumeRefreshToken('race-refresh'), other.consumeRefreshToken('race-refresh')]);
     assert.equal(consumed.filter(Boolean).length, 1);

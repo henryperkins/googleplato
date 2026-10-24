@@ -1,5 +1,6 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { randomUUID } from 'node:crypto';
+import { setTimeout } from 'node:timers/promises';
 import {
   DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand,
   UpdateCommand, DeleteCommand, ScanCommand, TransactGetCommand, TransactWriteCommand,
@@ -42,10 +43,11 @@ const db = {
     }));
   },
 
-  async getUserById(userId) {
+  async getUserById(userId, { consistentRead = false } = {}) {
     const result = await doc.send(new GetCommand({
       TableName: USERS_TABLE,
       Key: { userId },
+      ConsistentRead: consistentRead,
     }));
     return result.Item || null;
   },
@@ -341,11 +343,11 @@ const db = {
 
   // ── Refresh Tokens ──
 
-  async storeRefreshToken(tokenHash, userId) {
+  async storeRefreshToken(tokenHash, userId, credentialVersion = null) {
     const ttl = Math.floor(Date.now() / 1000) + REFRESH_TOKEN_TTL_DAYS * 86400;
     await doc.send(new PutCommand({
       TableName: REFRESH_TOKENS_TABLE,
-      Item: { tokenHash, userId, type: 'refresh', createdAt: new Date().toISOString(), ttl },
+      Item: { tokenHash, userId, credentialVersion, type: 'refresh', createdAt: new Date().toISOString(), ttl },
     }));
   },
 
@@ -397,46 +399,34 @@ const db = {
   },
 
   async revokeUserTokens(userId) {
-    let hashes;
-    try {
-      hashes = [];
-      let lastKey;
-      do {
-        const result = await doc.send(new QueryCommand({
-          TableName: REFRESH_TOKENS_TABLE,
-          IndexName: 'userId-index',
-          KeyConditionExpression: 'userId = :userId',
-          ExpressionAttributeValues: { ':userId': userId },
-          ExclusiveStartKey: lastKey,
-        }));
-        hashes.push(...(result.Items || []).map((item) => item.tokenHash));
-        lastKey = result.LastEvaluatedKey;
-      } while (lastKey);
-    } catch {
-      // Index not deployed yet (ships with the template change) — the token
-      // table holds only small rows, so a filtered scan is a safe fallback.
-      hashes = [];
-      let lastKey;
-      do {
-        const result = await doc.send(new ScanCommand({
-          TableName: REFRESH_TOKENS_TABLE,
-          FilterExpression: '#u = :userId',
-          ExpressionAttributeNames: { '#u': 'userId' },
-          ExpressionAttributeValues: { ':userId': userId },
-          ExclusiveStartKey: lastKey,
-        }));
-        hashes.push(...(result.Items || []).map((item) => item.tokenHash));
-        lastKey = result.LastEvaluatedKey;
-      } while (lastKey);
-    }
+    // GSI queries are eventually consistent and can miss a just-issued token.
+    // Read the authoritative small token table; credential versions also make
+    // late issuances from the previous password unusable after a reset.
+    const hashes = [];
+    let lastKey;
+    do {
+      const result = await doc.send(new ScanCommand({
+        TableName: REFRESH_TOKENS_TABLE,
+        ConsistentRead: true,
+        FilterExpression: '#u = :userId',
+        ExpressionAttributeNames: { '#u': 'userId' },
+        ExpressionAttributeValues: { ':userId': userId },
+        ExclusiveStartKey: lastKey,
+      }));
+      hashes.push(...(result.Items || []).map((item) => item.tokenHash));
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
     for (let i = 0; i < hashes.length; i += 25) {
       const chunk = hashes.slice(i, i + 25);
       if (chunk.length === 0) continue;
-      await doc.send(new BatchWriteCommand({
-        RequestItems: {
-          [REFRESH_TOKENS_TABLE]: chunk.map((tokenHash) => ({ DeleteRequest: { Key: { tokenHash } } })),
-        },
-      }));
+      let pending = { [REFRESH_TOKENS_TABLE]: chunk.map((tokenHash) => ({ DeleteRequest: { Key: { tokenHash } } })) };
+      for (let attempt = 0; ; attempt++) {
+        const result = await doc.send(new BatchWriteCommand({ RequestItems: pending }));
+        pending = result.UnprocessedItems || {};
+        if (!Object.values(pending).some(requests => requests.length > 0)) break;
+        if (attempt >= 5) throw new Error('Token revocation could not complete');
+        await setTimeout(25 * 2 ** attempt);
+      }
     }
   },
 

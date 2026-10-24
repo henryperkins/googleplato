@@ -115,7 +115,7 @@ describe('db-dynamodb tokens (SEC-2, SEC-3)', () => {
     assert.equal(await db.consumeRefreshToken('h_once'), null);
   });
 
-  it('revokes by user via the GSI, falling back to scan', async () => {
+  it('revokes every token for one user independently of index availability', async () => {
     await db.storeRefreshToken('h_a', 'usr_x');
     await db.storeResetToken('h_b', 'usr_x');
     await db.storeRefreshToken('h_keep', 'usr_y');
@@ -128,5 +128,54 @@ describe('db-dynamodb tokens (SEC-2, SEC-3)', () => {
     fake.indexAvailable = false;
     await db.revokeUserTokens('usr_x');
     assert.equal(await db.getRefreshToken('h_c'), null);
+  });
+
+  it('revokes tokens even when the GSI has not observed them', async () => {
+    await db.storeRefreshToken('h_delayed', 'usr_x');
+    const send = fake.send.bind(fake);
+    fake.send = async (cmd) => {
+      if (cmd instanceof QueryCommand) return { Items: [] };
+      if (cmd instanceof ScanCommand && !cmd.input.ConsistentRead) return { Items: [] };
+      return send(cmd);
+    };
+    await db.revokeUserTokens('usr_x');
+    assert.equal(await db.getRefreshToken('h_delayed'), null);
+  });
+
+  it('retries unprocessed token deletions before reporting successful revocation', async () => {
+    await db.storeRefreshToken('h_throttled', 'usr_x');
+    const send = fake.send.bind(fake);
+    let unprocessed = true;
+    fake.send = async (cmd) => {
+      if (cmd instanceof BatchWriteCommand && unprocessed) {
+        unprocessed = false;
+        return { UnprocessedItems: cmd.input.RequestItems };
+      }
+      return send(cmd);
+    };
+    await db.revokeUserTokens('usr_x');
+    assert.equal(await db.getRefreshToken('h_throttled'), null);
+  });
+
+  it('fails explicitly when token deletions remain unprocessed', async () => {
+    await db.storeRefreshToken('h_stuck', 'usr_x');
+    const send = fake.send.bind(fake);
+    fake.send = async (cmd) => cmd instanceof BatchWriteCommand
+      ? { UnprocessedItems: cmd.input.RequestItems } : send(cmd);
+    await assert.rejects(db.revokeUserTokens('usr_x'), /revocation/i);
+    assert.notEqual(await db.getRefreshToken('h_stuck'), null);
+  });
+
+  it('preserves the credential version on refresh token consumption', async () => {
+    await db.storeRefreshToken('h_versioned', 'usr_x', 'credential-version');
+    const consumed = await db.consumeRefreshToken('h_versioned');
+    assert.equal(consumed.credentialVersion, 'credential-version');
+  });
+
+  it('can read the authoritative user credential after a reset', async () => {
+    fake.send = async (cmd) => ({ Item: { userId: cmd.input.Key.userId,
+      passwordHash: cmd.input.ConsistentRead ? 'current' : 'stale' } });
+    const user = await db.getUserById('usr_x', { consistentRead: true });
+    assert.equal(user.passwordHash, 'current');
   });
 });
