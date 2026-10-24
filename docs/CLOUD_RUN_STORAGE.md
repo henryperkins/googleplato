@@ -13,6 +13,11 @@ Node 24 and installs the dependency versions recorded in `package-lock.json`.
 Keep the AI Studio ingress sidecar when updating the existing Cloud Run service.
 Change only the application container image and the documented runtime settings.
 
+Pushing to `main` automatically deploys to `plato-shaped` (`idk-4e9b9`, `us-east1`)
+through the GitHub push webhook and the `plato-main` Cloud Build webhook trigger
+(`deploy/cloudrun/cloudbuild.yaml`). After editing `deploy/cloudrun/cloudbuild.yaml`,
+run `deploy/cloudrun/configure.sh` to refresh the trigger's inline build config.
+
 Required environment variables:
 
 | Variable | Purpose |

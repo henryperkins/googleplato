@@ -1,0 +1,78 @@
+# Builds the Plato application image from a pushed GitHub commit and updates
+# the Cloud Run service's app-container while preserving the AI Studio ingress
+# sidecar, VPC egress, Cloud SQL settings, and Secret Manager bindings.
+#
+# Every push to main runs this through the `plato-main` webhook trigger in
+# us-east1, which holds an inline copy of this file: after editing it, run
+# deploy/cloudrun/configure.sh to refresh the trigger's copy.
+#
+# To deploy a pushed commit by hand:
+#
+#   gcloud builds submit --no-source --project=idk-4e9b9 --region=us-east1 \
+#     --config=deploy/cloudrun/cloudbuild.yaml \
+#     --substitutions=_SHA="$(git rev-parse HEAD)"
+
+substitutions:
+  _SHA: ""
+  _REGION: us-east1
+  _IMAGE: us-east1-docker.pkg.dev/idk-4e9b9/plato/app
+  _SERVICE: plato-shaped
+
+serviceAccount: projects/idk-4e9b9/serviceAccounts/plato-deploy@idk-4e9b9.iam.gserviceaccount.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  # The webhook trigger also passes _REF, which only its filter reads.
+  substitutionOption: ALLOW_LOOSE
+
+steps:
+  - id: source
+    name: gcr.io/cloud-builders/git
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -eu
+        if ! [[ "${_SHA}" =~ ^[0-9a-f]{40}$ ]] || [ "${_SHA}" = "0000000000000000000000000000000000000000" ]; then
+          echo "_SHA (a valid 40-character commit SHA to deploy) is required; got '${_SHA}'" >&2
+          exit 1
+        fi
+        git init -q .
+        git remote add origin https://github.com/henryperkins/googleplato.git
+        git fetch -q --depth=1 origin "${_SHA}"
+        git checkout -q FETCH_HEAD
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    env: [DOCKER_BUILDKIT=1]
+    args:
+      - build
+      - --cache-from=${_IMAGE}:latest
+      - --build-arg=BUILDKIT_INLINE_CACHE=1
+      - --tag=${_IMAGE}:${_SHA}
+      - --tag=${_IMAGE}:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_IMAGE}"]
+
+  - id: deploy-service
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -eu
+        gcloud run services update "${_SERVICE}" \
+          --region="${_REGION}" \
+          --revision-suffix="" \
+          --container=app-container \
+          --image="${_IMAGE}:${_SHA}" \
+          --update-env-vars="RELEASE_COMMIT=${_SHA}" \
+          --quiet
+        gcloud run services update-traffic "${_SERVICE}" \
+          --region="${_REGION}" \
+          --clear-tags \
+          --to-latest \
+          --quiet
