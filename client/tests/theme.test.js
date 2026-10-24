@@ -190,6 +190,10 @@ describe('theme controls', () => {
     assert.match(toggle, /useTheme\(\)/);
     // The visible tooltip says what the accessible name says (WCAG 2.5.3).
     assert.match(toggle, /<Tooltip\.Popup[^>]*>\s*Dark mode\s*<\/Tooltip\.Popup>/);
+    // Only the hover wash animates, so its focus ring appears at once, like the
+    // other header controls' (transition-colors would fade the outline in).
+    assert.match(toggle, /transition-\[background-color\]/);
+    assert.equal(/transition-colors/.test(toggle), false);
   });
 
   it('move into the account menu where the header is too narrow for the button and the name', () => {

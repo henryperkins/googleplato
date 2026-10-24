@@ -249,6 +249,16 @@
   outline-offset: 2px;
 }
 
+/* The message box is one control: focus in its text field rings the whole box
+   (text, attachments, send) instead of cutting across it. */
+.compose-input:focus-visible {
+  outline: none;
+}
+.compose-box:has(.compose-input:focus-visible) {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
 /* A colored header draws focus in its own text color. Only the header's own
    controls take it: a menu opened from the header sits on the popover surface,
    where an inherited white ring on a white menu would vanish. */

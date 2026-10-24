@@ -271,7 +271,7 @@ function ComposeBar({
 
   return (
     <div className={`px-4 pb-4 pt-2 ${className}`}>
-      <div className={`mx-auto max-w-3xl rounded-lg border border-input bg-card ${elevated ? 'shadow-lg' : ''}`}>
+      <div className={`compose-box mx-auto max-w-3xl rounded-lg border border-input bg-card ${elevated ? 'shadow-lg' : ''}`}>
         {images.length > 0 && (
           <div className="m-2 space-y-2">
             <div className="flex flex-wrap gap-3">
@@ -338,7 +338,7 @@ function ComposeBar({
           ref={inputRef}
           id={inputId}
           enterKeyHint="enter"
-          className="w-full min-h-11 resize-none overscroll-contain rounded-t-xl bg-transparent px-3 py-2 text-base md:text-sm focus-visible:outline-offset-[-3px] placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="compose-input w-full min-h-11 resize-none overscroll-contain rounded-t-xl bg-transparent px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
           rows={1}
           placeholder={placeholder}
           value={text}
@@ -438,7 +438,9 @@ function ComposeBar({
           <Button
             variant="default"
             size="icon-sm"
-            className={`transition-opacity ${hasContent ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            // Hidden until there's something to send; disabled:opacity-0 keeps the
+            // button primitive's half-opacity disabled style from showing it.
+            className={`transition-opacity ${hasContent ? 'opacity-100' : 'opacity-0 disabled:opacity-0 pointer-events-none'}`}
             aria-label="Send"
             aria-describedby={status ? statusId : undefined}
             onClick={send}

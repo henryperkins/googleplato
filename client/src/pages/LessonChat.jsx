@@ -561,8 +561,9 @@ function LessonConversation() {
             <AssistantMessage content={displayText} streaming />
           )}
           {loading === 'qa' && !displayText && <ThinkingSpinner />}
-          {persistence && (
-            <div className="space-y-2 px-3 py-2">
+          {/* Notices share the coach's left edge (its copy is inset px-1). */}
+          {persistence?.message && (
+            <div className="space-y-2 px-1 py-2">
               <p className="text-sm" role="status" aria-live="polite">{persistence.message}</p>
               {pendingSave && !persistence.persistedLocally && (
                 <p className="text-sm text-destructive">Keep this tab open until saving succeeds. A recovery copy could not be stored in your browser.</p>
@@ -584,7 +585,7 @@ function LessonConversation() {
             </div>
           )}
           {error && (
-            <div className="space-y-2 px-3 py-2">
+            <div className="space-y-2 px-1 py-2">
               <p className="text-sm text-destructive" role="alert">{error}</p>
               {startFailed && (
                 <Button variant="outline" size="sm" onClick={retryStart} disabled={upgradeRequired}>Try again</Button>

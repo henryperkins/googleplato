@@ -23,7 +23,7 @@ export default function ThemeToggle({ className }) {
         onClick={toggleTheme}
         aria-pressed={dark}
         aria-label="Dark mode"
-        className={cn('touch-target flex shrink-0 items-center justify-center rounded-md border-none bg-transparent p-2 text-inherit cursor-pointer transition-colors hover:bg-current/10', className)}
+        className={cn('touch-target flex shrink-0 items-center justify-center rounded-md border-none bg-transparent p-2 text-inherit cursor-pointer transition-[background-color] hover:bg-current/10', className)}
       >
         <Moon aria-hidden="true" className="size-4" fill={dark ? 'currentColor' : 'none'} />
       </Tooltip.Trigger>
