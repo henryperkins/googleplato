@@ -10,12 +10,17 @@ import {
   buildThemeVars,
   contrastRatio,
   contrastText,
+  darkFillColor,
+  darkHeaderColor,
   generateFavicon,
   hexToOklch,
+  hexToOklchParts,
   luminance,
   normalizeHex,
+  oklchToHex,
   readableColor,
   setFavicon,
+  themeColorNotes,
 } from '../src/lib/branding.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -85,6 +90,104 @@ describe('classroom color contrast', () => {
     const vars = buildThemeVars({ primary: '#470d99', accent: '#dc2626' });
     assert.equal(vars['--ring'], vars['--classroom-ring-light']);
     assert.ok(vars['--ring']);
+  });
+});
+
+// A spread of configurable brand colors: every channel at 0, 51, …, 255.
+const SWEEP = [];
+for (const r of [0, 51, 102, 153, 204, 255]) {
+  for (const g of [0, 51, 102, 153, 204, 255]) {
+    for (const b of [0, 51, 102, 153, 204, 255]) {
+      SWEEP.push('#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join(''));
+    }
+  }
+}
+// index.css `.dark`: cards at oklch(0.205 …), the learner page at oklch(0.165 …).
+const DARK_CARD = oklchToHex(0.205, 0, 0);
+const DARK_PAGE = oklchToHex(0.165, 0, 0);
+const hueGap = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+
+describe('night classroom colors', () => {
+  it('round-trips OKLCH and pulls out-of-gamut chroma into sRGB', () => {
+    for (const hex of ['#8b1a1a', '#470d99', '#10b981', '#f5c518', '#ffffff', '#000000']) {
+      const { l, c, h } = hexToOklchParts(hex);
+      assert.equal(oklchToHex(l, c, h), hex);
+    }
+    assert.match(oklchToHex(0.95, 0.4, 145), /^#[0-9a-f]{6}$/);
+    assert.equal(oklchToHex(1, 0.2, 30), '#ffffff');
+  });
+
+  it('keeps a brand one color family when it adjusts it to read (lightness only)', () => {
+    const fixed = readableColor('#8b1a1a', '#303030');
+    assert.ok(contrastRatio(fixed, '#303030') >= 4.6);
+    assert.ok(hueGap(hexToOklchParts(fixed).h, hexToOklchParts('#8b1a1a').h) < 3, `${fixed} left the maroon hue`);
+    assert.ok(hexToOklchParts(fixed).c > 0.12, `${fixed} washed out toward gray`);
+    // Light mode too: pale brands darken for links and focus without graying
+    // (mixing RGB toward black turned sky blue into slate, #4c7384).
+    for (const pale of ['#87ceeb', '#ffb6c1', '#f5c518']) {
+      const text = readableColor(pale, '#f5f5f5');
+      assert.ok(contrastRatio(text, '#f5f5f5') >= 4.6, `${pale} -> ${text}`);
+      assert.ok(hueGap(hexToOklchParts(text).h, hexToOklchParts(pale).h) < 3, `${pale} -> ${text} changed hue`);
+      assert.ok(hexToOklchParts(text).c >= Math.min(hexToOklchParts(pale).c, 0.08), `${pale} -> ${text} grayed`);
+    }
+    assert.equal(readableColor('#f5c518', '#f5f5f5'), '#886b00');
+  });
+
+  it('puts every brand header in the night band: white text that reads, never sinking into the page', () => {
+    for (const hex of SWEEP) {
+      const header = darkHeaderColor(hex);
+      const { l } = hexToOklchParts(header);
+      assert.ok(l >= 0.325 && l <= 0.485, `${hex} -> ${header} at L ${l.toFixed(3)}`);
+      assert.ok(contrastRatio(contrastText(header), header) >= 4.5, `${hex} header text`);
+      assert.ok(contrastRatio(header, DARK_PAGE) >= 1.5, `${hex} header vs page`);
+    }
+    assert.equal(darkHeaderColor('#8b1a1a'), '#8b1a1a', 'a brand already in the band stays as chosen');
+  });
+
+  it('makes every brand fill stand out from a dark card with readable text', () => {
+    for (const hex of SWEEP) {
+      const fill = darkFillColor(hex);
+      assert.ok(contrastRatio(fill, DARK_CARD) >= 3, `${hex} -> ${fill} vs card`);
+      assert.ok(contrastRatio(contrastText(fill), fill) >= 4.5, `${hex} fill text`);
+    }
+    assert.equal(darkFillColor('#dc2626'), '#dc2626', 'a fill that already stands out stays as chosen');
+    assert.equal(darkFillColor('#141414'), '#e8e8e8', 'near-black inverts to light gray');
+    assert.ok(hueGap(hexToOklchParts(darkFillColor('#8b1a1a')).h, hexToOklchParts('#8b1a1a').h) < 3);
+  });
+
+  it('gives the dark theme its own header, fills, and surface tint', () => {
+    const vars = buildThemeVars({ primary: '#8b1a1a', accent: '#dc2626' });
+    assert.equal(vars['--classroom-header-bg-dark'], darkHeaderColor('#8b1a1a'));
+    assert.equal(vars['--classroom-header-text-dark'], '#ffffff');
+    assert.equal(vars['--classroom-primary-dark'], hexToOklch(darkFillColor('#8b1a1a')));
+    assert.equal(vars['--classroom-tint-hue'], hexToOklchParts('#8b1a1a').h.toFixed(1));
+    assert.equal(vars['--classroom-tint-chroma'], '0.012');
+    assert.equal(buildThemeVars({ primary: '#141414' })['--classroom-tint-chroma'], '0.000', 'gray brands leave surfaces neutral');
+  });
+
+  it('keeps every classroom focus ring visible on menus in both themes', () => {
+    // Menus sit on the popover: white in light mode, oklch(0.245 …) at night.
+    const darkMenu = oklchToHex(0.245, 0, 0);
+    const hexOfVar = (value) => {
+      const [, l, c, h] = value.match(/^oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)$/);
+      return oklchToHex(Number(l), Number(c), Number(h));
+    };
+    for (const hex of SWEEP) {
+      const vars = buildThemeVars({ primary: hex, accent: hex });
+      assert.ok(contrastRatio(hexOfVar(vars['--classroom-ring-light']), '#ffffff') >= 3, `${hex} light ring`);
+      assert.ok(contrastRatio(hexOfVar(vars['--classroom-ring-dark']), darkMenu) >= 3, `${hex} dark ring`);
+    }
+  });
+
+  it('explains in the Customizer what fails in light mode and what dark mode changes', () => {
+    assert.deepEqual(themeColorNotes(null), []);
+    assert.deepEqual(themeColorNotes({ primary: '#470d99' }).map(n => n.level), ['info']);
+    const yellow = themeColorNotes({ primary: '#f5c518' });
+    assert.equal(yellow[0].level, 'warning');
+    assert.match(yellow[0].text, /barely stand out from white \(1\.6:1\)/);
+    assert.match(yellow[1].text, /deeper shade/);
+    assert.deepEqual(themeColorNotes({ primary: '#8b1a1a' }).map(n => n.text), ['In dark mode, buttons use a lighter shade so they stand out from dark cards.']);
+    assert.match(themeColorNotes({ primary: '#141414' }).map(n => n.text).join(' '), /lighter shade so it stands out.*light gray/);
   });
 });
 
@@ -198,6 +301,13 @@ describe('root theme application, favicons, and customizer parity', () => {
     assert.equal(/#8b1a1a/.test(customizer), false);
     assert.equal(/#8b1a1a/.test(publicHook), false);
     assert.match(customizer, /bg-workspace text-sm space-y-2/);
+    // One preview per theme, each scoped by its own .light/.dark wrapper, with
+    // the header drawn from the tokens the classroom header uses.
+    assert.match(customizer, /\['light', 'dark'\]\.map\(mode =>/);
+    assert.match(customizer, /<div className=\{mode\}>\s*<div className="classroom-theme [^"]*" style=\{previewVars\}>/);
+    assert.match(customizer, /bg-header text-header-foreground/);
+    assert.match(customizer, /themeColorNotes\(\{ primary: safePrimary \}\)/);
+    assert.match(customizer, /aria-label="Color notes"/);
     assert.match(customizer, /\{classroomName \|\| 'plato'\}/);
     assert.equal(/Your Classroom/.test(customizer), false);
 
@@ -206,6 +316,13 @@ describe('root theme application, favicons, and customizer parity', () => {
     assert.match(brandingCtx, /generateFavicon\(branding\.logoBase64,\s*primaryColor,\s*branding\.classroomName\)/);
     assert.equal(/isAdmin/.test(brandingCtx), false);
     assert.match(publicHook, /applyThemeVarsToRoot\(branding\?\.theme\)/);
+    // Auth pages paint their backdrop with the header tokens, which follow the
+    // theme; an inline light color would stay bright in dark mode.
+    for (const page of ['Login', 'Signup', 'ForgotPassword', 'ResetPassword', 'Waitlist', 'Privacy']) {
+      const src = readSrc(`pages/${page}.jsx`);
+      assert.match(src, /<main className="[^"]*\bbg-header text-header-foreground\b/, `${page} backdrop`);
+      assert.equal(/backgroundColor: primary|color: foreground/.test(src), false, `${page} inline brand color`);
+    }
     assert.match(publicHook, /generateFavicon\(branding\.logoBase64,\s*primaryColor,\s*branding\.classroomName\)/);
   });
 });

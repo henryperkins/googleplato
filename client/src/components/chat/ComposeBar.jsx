@@ -271,7 +271,7 @@ function ComposeBar({
 
   return (
     <div className={`px-4 pb-4 pt-2 ${className}`}>
-      <div className={`mx-auto max-w-3xl rounded-lg border border-input bg-background ${elevated ? 'shadow-lg' : ''}`}>
+      <div className={`mx-auto max-w-3xl rounded-lg border border-input bg-card ${elevated ? 'shadow-lg' : ''}`}>
         {images.length > 0 && (
           <div className="m-2 space-y-2">
             <div className="flex flex-wrap gap-3">

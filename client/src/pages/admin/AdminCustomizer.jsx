@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { renderMd } from '../../lib/helpers.js';
-import { DEFAULT_PRIMARY, DEFAULT_ACCENT, buildThemeVars, contrastText, normalizeHex } from '../../lib/branding.js';
+import { Info, TriangleAlert } from 'lucide-react';
+import { DEFAULT_PRIMARY, DEFAULT_ACCENT, buildThemeVars, contrastText, normalizeHex, themeColorNotes } from '../../lib/branding.js';
 import { invalidatePublicBranding } from '../../lib/publicBranding.js';
 import KnowledgeBaseEditor from './KnowledgeBaseEditor.jsx';
 
@@ -37,6 +38,8 @@ export default function AdminCustomizer() {
   // rather than going transparent behind white text.
   const safePrimary = normalizeHex(primary) || DEFAULT_PRIMARY;
   const safeAccent = normalizeHex(accent) || DEFAULT_ACCENT;
+  const previewVars = buildThemeVars({ primary: safePrimary, accent: safeAccent });
+  const colorNotes = themeColorNotes({ primary: safePrimary });
 
   // Expand shorthand (#abc) on blur; flag anything that isn't a color.
   function commitColor(field, value, setValue) {
@@ -177,7 +180,7 @@ export default function AdminCustomizer() {
           <Card className="mb-6">
             <CardHeader><CardTitle as="h2">Colors</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">Set two colors — contrast is derived automatically.</p>
+              <p className="text-sm text-muted-foreground">Set two colors — contrast and the dark-mode shades are derived automatically.</p>
               <div className="flex flex-wrap gap-6">
                 <div className="flex items-center gap-3">
                   <input id="theme-primary" type="color" value={safePrimary}
@@ -236,20 +239,43 @@ export default function AdminCustomizer() {
                   </div>
                 </div>
               </div>
-              <div className="classroom-theme rounded-lg overflow-hidden" aria-label="Theme preview" style={buildThemeVars({ primary: safePrimary, accent: safeAccent })}>
-                <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-sm" style={{ backgroundColor: safePrimary, color: contrastText(safePrimary) }}>
-                  <span className="font-semibold">Header Preview</span>
-                  <span className="ml-auto">Nav Item</span>
-                </div>
-                <div className="px-4 py-3 bg-workspace text-sm space-y-2">
-                  <p>Body text on the page background.</p>
-                  <a href="#" onClick={e => e.preventDefault()} className="text-link underline">Accent link</a>
-                  <div className="flex gap-2 mt-2">
-                    <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: safePrimary, color: contrastText(safePrimary) }}>Badge</span>
-                    <span className="px-2 py-0.5 rounded text-xs font-medium border border-link text-link">Outline</span>
-                  </div>
-                </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {['light', 'dark'].map(mode => (
+                  <figure key={mode} className="m-0 space-y-1.5">
+                    {/* The .light/.dark wrapper scopes the theme tokens, so each
+                        preview shows its theme whichever one this page uses. */}
+                    <div className={mode}>
+                      <div className="classroom-theme rounded-lg overflow-hidden border" style={previewVars}>
+                        <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-sm bg-header text-header-foreground">
+                          <span className="font-semibold">Header Preview</span>
+                          <span className="ml-auto">Nav Item</span>
+                        </div>
+                        <div className="px-4 py-3 bg-workspace text-sm space-y-2 text-foreground">
+                          <p>Body text on the page background.</p>
+                          <a href="#" onClick={e => e.preventDefault()} className="text-link underline">Accent link</a>
+                          <div className="flex gap-2 mt-2">
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary text-primary-foreground">Button</span>
+                            <span className="px-2 py-0.5 rounded text-xs font-medium border border-link text-link">Outline</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <figcaption className="text-xs text-muted-foreground">{mode === 'light' ? 'Light mode' : 'Dark mode'}</figcaption>
+                  </figure>
+                ))}
               </div>
+              {colorNotes.length > 0 && (
+                <ul className="space-y-1.5 text-sm" aria-label="Color notes">
+                  {colorNotes.map(note => (
+                    <li key={note.text} className={`flex gap-2 ${note.level === 'warning' ? 'text-warning-foreground' : 'text-muted-foreground'}`}>
+                      {note.level === 'warning'
+                        ? <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                        : <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}
+                      <span>{note.level === 'warning' && <span className="sr-only">Warning: </span>}{note.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </CardContent>
           </Card>
 

@@ -111,6 +111,19 @@ bundle loads, so a dark page never flashes light. That script and
 `client/src/lib/theme.js` must share the key; `client/tests/theme.test.js` runs
 the script to hold them together. Light is the default.
 
+A classroom's dark colors are derived, not configured. `buildThemeVars`
+(`client/src/lib/branding.js`) computes a dark header, fill, text color, and
+surface tint from the saved primary and sets them as `--classroom-*-dark`
+variables beside the light ones; `index.css` applies them under
+`.dark .classroom-theme`. Two rules hold that cascade together. A custom
+property resolves where it is declared, so the tinted surface tokens are
+declared again on every `.classroom-theme` element; declared once on `.dark`,
+they would keep plato's hue. And the dark `--primary` and `--ring` are
+`!important`, because `buildThemeVars` also sets the light ones inline on the
+same element. `.light` re-declares the light tokens for the Customizer's light
+preview inside a dark page, and the classroom's dark rules skip anything inside
+it (`:not(.light *)`).
+
 Lesson loading distinguishes a successful empty classroom from an unavailable
 `/v1/lessons` response. `AppContext` uses one load path for startup, foreground
 refresh, and manual retry. A failed refresh preserves the last rendered lessons

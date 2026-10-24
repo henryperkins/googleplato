@@ -110,11 +110,7 @@ export default function AppShell({ children }) {
 
       {/* Classroom header — custom branding */}
       <header
-        className={`px-4 py-2 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] ${!isAdmin ? 'pt-[max(0.5rem,env(safe-area-inset-top))]' : ''}`}
-        style={{
-          backgroundColor: 'var(--classroom-header-bg, var(--color-primary))',
-          color: 'var(--classroom-header-text, var(--color-primary-foreground))',
-        }}
+        className={`bg-header text-header-foreground px-4 py-2 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] ${!isAdmin ? 'pt-[max(0.5rem,env(safe-area-inset-top))]' : ''}`}
         role="banner"
       >
         {/* header-control gives each header control the header's focus color

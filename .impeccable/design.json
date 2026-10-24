@@ -274,6 +274,36 @@
           "oklch(0.950 0.182 285)"
         ]
       },
+      "header": {
+        "role": "primary",
+        "displayName": "Classroom Header Band",
+        "canonical": "oklch(0.336 0.182 285)",
+        "tonalRamp": [
+          "oklch(0.150 0.182 285)",
+          "oklch(0.264 0.182 285)",
+          "oklch(0.379 0.182 285)",
+          "oklch(0.493 0.182 285)",
+          "oklch(0.607 0.182 285)",
+          "oklch(0.721 0.182 285)",
+          "oklch(0.836 0.182 285)",
+          "oklch(0.950 0.182 285)"
+        ]
+      },
+      "header-foreground": {
+        "role": "primary",
+        "displayName": "Header Text",
+        "canonical": "oklch(0.985 0 0)",
+        "tonalRamp": [
+          "oklch(0.150 0 0)",
+          "oklch(0.264 0 0)",
+          "oklch(0.379 0 0)",
+          "oklch(0.493 0 0)",
+          "oklch(0.607 0 0)",
+          "oklch(0.721 0 0)",
+          "oklch(0.836 0 0)",
+          "oklch(0.950 0 0)"
+        ]
+      },
       "success": {
         "role": "semantic",
         "displayName": "Success Surface",
@@ -442,151 +472,151 @@
       "dark-background": {
         "role": "neutral",
         "displayName": "Dark Page Surface",
-        "canonical": "oklch(0.145 0 0)",
+        "canonical": "oklch(0.165 0.012 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.012 285)",
+          "oklch(0.264 0.012 285)",
+          "oklch(0.379 0.012 285)",
+          "oklch(0.493 0.012 285)",
+          "oklch(0.607 0.012 285)",
+          "oklch(0.721 0.012 285)",
+          "oklch(0.836 0.012 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-foreground": {
         "role": "neutral",
         "displayName": "Dark Main Text",
-        "canonical": "oklch(0.985 0 0)",
+        "canonical": "oklch(0.97 0.004 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.004 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.004 285)",
+          "oklch(0.493 0.004 285)",
+          "oklch(0.607 0.004 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.004 285)",
+          "oklch(0.950 0.004 285)"
         ]
       },
       "dark-card": {
         "role": "neutral",
         "displayName": "Dark Card Surface",
-        "canonical": "oklch(0.205 0 0)",
+        "canonical": "oklch(0.205 0.012 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.012 285)",
+          "oklch(0.264 0.012 285)",
+          "oklch(0.379 0.012 285)",
+          "oklch(0.493 0.012 285)",
+          "oklch(0.607 0.012 285)",
+          "oklch(0.721 0.012 285)",
+          "oklch(0.836 0.012 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-popover": {
         "role": "neutral",
         "displayName": "Dark Popover Surface",
-        "canonical": "oklch(0.205 0 0)",
+        "canonical": "oklch(0.245 0.012 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.012 285)",
+          "oklch(0.264 0.012 285)",
+          "oklch(0.379 0.012 285)",
+          "oklch(0.493 0.012 285)",
+          "oklch(0.607 0.012 285)",
+          "oklch(0.721 0.012 285)",
+          "oklch(0.836 0.012 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-secondary": {
         "role": "neutral",
         "displayName": "Dark Secondary Surface",
-        "canonical": "oklch(0.269 0 0)",
+        "canonical": "oklch(0.285 0.012 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.012 285)",
+          "oklch(0.264 0.012 285)",
+          "oklch(0.379 0.012 285)",
+          "oklch(0.493 0.012 285)",
+          "oklch(0.607 0.012 285)",
+          "oklch(0.721 0.012 285)",
+          "oklch(0.836 0.012 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-secondary-foreground": {
         "role": "neutral",
         "displayName": "Dark Secondary Text",
-        "canonical": "oklch(0.985 0 0)",
+        "canonical": "oklch(0.97 0.004 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.004 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.004 285)",
+          "oklch(0.493 0.004 285)",
+          "oklch(0.607 0.004 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.004 285)",
+          "oklch(0.950 0.004 285)"
         ]
       },
       "dark-muted": {
         "role": "neutral",
         "displayName": "Dark Muted Surface",
-        "canonical": "oklch(0.269 0 0)",
+        "canonical": "oklch(0.285 0.012 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.012 285)",
+          "oklch(0.264 0.012 285)",
+          "oklch(0.379 0.012 285)",
+          "oklch(0.493 0.012 285)",
+          "oklch(0.607 0.012 285)",
+          "oklch(0.721 0.012 285)",
+          "oklch(0.836 0.012 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-muted-foreground": {
         "role": "neutral",
         "displayName": "Dark Muted Text",
-        "canonical": "oklch(0.708 0 0)",
+        "canonical": "oklch(0.74 0.012 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.012 285)",
+          "oklch(0.264 0.012 285)",
+          "oklch(0.379 0.012 285)",
+          "oklch(0.493 0.012 285)",
+          "oklch(0.607 0.012 285)",
+          "oklch(0.721 0.012 285)",
+          "oklch(0.836 0.012 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-accent": {
         "role": "neutral",
         "displayName": "Dark Interaction Wash",
-        "canonical": "oklch(0.269 0 0)",
+        "canonical": "oklch(0.3 0.012 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.012 285)",
+          "oklch(0.264 0.012 285)",
+          "oklch(0.379 0.012 285)",
+          "oklch(0.493 0.012 285)",
+          "oklch(0.607 0.012 285)",
+          "oklch(0.721 0.012 285)",
+          "oklch(0.836 0.012 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-accent-foreground": {
         "role": "neutral",
         "displayName": "Dark Interaction Text",
-        "canonical": "oklch(0.985 0 0)",
+        "canonical": "oklch(0.97 0.004 285)",
         "tonalRamp": [
-          "oklch(0.150 0 0)",
-          "oklch(0.264 0 0)",
-          "oklch(0.379 0 0)",
-          "oklch(0.493 0 0)",
-          "oklch(0.607 0 0)",
-          "oklch(0.721 0 0)",
-          "oklch(0.836 0 0)",
-          "oklch(0.950 0 0)"
+          "oklch(0.150 0.004 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.004 285)",
+          "oklch(0.493 0.004 285)",
+          "oklch(0.607 0.004 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.004 285)",
+          "oklch(0.950 0.004 285)"
         ]
       },
       "dark-destructive": {
@@ -637,16 +667,16 @@
       "dark-ring": {
         "role": "primary",
         "displayName": "Dark Focus Ring",
-        "canonical": "oklch(0.556 0.2 285)",
+        "canonical": "oklch(0.72 0.14 285)",
         "tonalRamp": [
-          "oklch(0.150 0.2 285)",
-          "oklch(0.264 0.2 285)",
-          "oklch(0.379 0.2 285)",
-          "oklch(0.493 0.2 285)",
-          "oklch(0.607 0.2 285)",
-          "oklch(0.721 0.2 285)",
-          "oklch(0.836 0.2 285)",
-          "oklch(0.950 0.2 285)"
+          "oklch(0.150 0.14 285)",
+          "oklch(0.264 0.14 285)",
+          "oklch(0.379 0.14 285)",
+          "oklch(0.493 0.14 285)",
+          "oklch(0.607 0.14 285)",
+          "oklch(0.721 0.14 285)",
+          "oklch(0.836 0.14 285)",
+          "oklch(0.950 0.14 285)"
         ]
       },
       "dark-primary-text": {
@@ -677,6 +707,36 @@
           "oklch(0.721 0.12 285)",
           "oklch(0.836 0.12 285)",
           "oklch(0.950 0.12 285)"
+        ]
+      },
+      "dark-header": {
+        "role": "primary",
+        "displayName": "Dark Classroom Header Band",
+        "canonical": "oklch(0.4 0.15 285)",
+        "tonalRamp": [
+          "oklch(0.150 0.15 285)",
+          "oklch(0.264 0.15 285)",
+          "oklch(0.379 0.15 285)",
+          "oklch(0.493 0.15 285)",
+          "oklch(0.607 0.15 285)",
+          "oklch(0.721 0.15 285)",
+          "oklch(0.836 0.15 285)",
+          "oklch(0.950 0.15 285)"
+        ]
+      },
+      "dark-header-foreground": {
+        "role": "primary",
+        "displayName": "Dark Header Text",
+        "canonical": "oklch(0.985 0 0)",
+        "tonalRamp": [
+          "oklch(0.150 0 0)",
+          "oklch(0.264 0 0)",
+          "oklch(0.379 0 0)",
+          "oklch(0.493 0 0)",
+          "oklch(0.607 0 0)",
+          "oklch(0.721 0 0)",
+          "oklch(0.836 0 0)",
+          "oklch(0.950 0 0)"
         ]
       },
       "dark-success": {
@@ -877,16 +937,16 @@
       "dark-workspace": {
         "role": "neutral",
         "displayName": "Dark Learner Workspace",
-        "canonical": "oklch(21.6% 0.006 56.043)",
+        "canonical": "oklch(16.5% 0.012 285)",
         "tonalRamp": [
-          "oklch(0.150 0.006 56.043)",
-          "oklch(0.264 0.006 56.043)",
-          "oklch(0.379 0.006 56.043)",
-          "oklch(0.493 0.006 56.043)",
-          "oklch(0.607 0.006 56.043)",
-          "oklch(0.721 0.006 56.043)",
-          "oklch(0.836 0.006 56.043)",
-          "oklch(0.950 0.006 56.043)"
+          "oklch(0.150 0.012 285)",
+          "oklch(0.264 0.012 285)",
+          "oklch(0.379 0.012 285)",
+          "oklch(0.493 0.012 285)",
+          "oklch(0.607 0.012 285)",
+          "oklch(0.721 0.012 285)",
+          "oklch(0.836 0.012 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "completed-background": {
@@ -947,6 +1007,66 @@
           "oklch(0.721 0.163 48.998)",
           "oklch(0.836 0.163 48.998)",
           "oklch(0.950 0.163 48.998)"
+        ]
+      },
+      "dark-completed-background": {
+        "role": "semantic",
+        "displayName": "Dark Completed State Wash",
+        "canonical": "oklch(32% 0.06 163)",
+        "tonalRamp": [
+          "oklch(0.150 0.06 163)",
+          "oklch(0.264 0.06 163)",
+          "oklch(0.379 0.06 163)",
+          "oklch(0.493 0.06 163)",
+          "oklch(0.607 0.06 163)",
+          "oklch(0.721 0.06 163)",
+          "oklch(0.836 0.06 163)",
+          "oklch(0.950 0.06 163)"
+        ]
+      },
+      "dark-completed-foreground": {
+        "role": "semantic",
+        "displayName": "Dark Completed State Symbol",
+        "canonical": "oklch(84% 0.13 163)",
+        "tonalRamp": [
+          "oklch(0.150 0.13 163)",
+          "oklch(0.264 0.13 163)",
+          "oklch(0.379 0.13 163)",
+          "oklch(0.493 0.13 163)",
+          "oklch(0.607 0.13 163)",
+          "oklch(0.721 0.13 163)",
+          "oklch(0.836 0.13 163)",
+          "oklch(0.950 0.13 163)"
+        ]
+      },
+      "dark-in-progress-background": {
+        "role": "semantic",
+        "displayName": "Dark Active State Wash",
+        "canonical": "oklch(33% 0.07 75)",
+        "tonalRamp": [
+          "oklch(0.150 0.07 75)",
+          "oklch(0.264 0.07 75)",
+          "oklch(0.379 0.07 75)",
+          "oklch(0.493 0.07 75)",
+          "oklch(0.607 0.07 75)",
+          "oklch(0.721 0.07 75)",
+          "oklch(0.836 0.07 75)",
+          "oklch(0.950 0.07 75)"
+        ]
+      },
+      "dark-in-progress-foreground": {
+        "role": "semantic",
+        "displayName": "Dark Active State Symbol",
+        "canonical": "oklch(85% 0.14 80)",
+        "tonalRamp": [
+          "oklch(0.150 0.14 80)",
+          "oklch(0.264 0.14 80)",
+          "oklch(0.379 0.14 80)",
+          "oklch(0.493 0.14 80)",
+          "oklch(0.607 0.14 80)",
+          "oklch(0.721 0.14 80)",
+          "oklch(0.836 0.14 80)",
+          "oklch(0.950 0.14 80)"
         ]
       }
     },

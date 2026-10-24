@@ -498,7 +498,7 @@ function LessonConversation() {
   return (
     <div className="flex flex-col min-h-[calc(100dvh-theme(spacing.20))]">
       {/* One header stays visible and accessible throughout the conversation. */}
-      <div id="lesson-header" className="sticky top-0 z-40 border-b border-border bg-background px-4 py-1.5 sm:py-2">
+      <div id="lesson-header" className="sticky top-0 z-40 border-b border-border bg-card px-4 py-1.5 sm:py-2">
         <div className="mx-auto max-w-5xl flex items-center gap-2">
           <Button variant="ghost" size="icon-sm" aria-label="Back to lessons" onClick={() => navigate('/lessons')}>
             <ArrowLeft aria-hidden="true" />

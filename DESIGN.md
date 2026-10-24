@@ -20,6 +20,8 @@ colors:
   ring: "oklch(0.336 0.182 285)"
   primary-text: "oklch(0.336 0.182 285)"
   link: "oklch(0.336 0.182 285)"
+  header: "oklch(0.336 0.182 285)"
+  header-foreground: "oklch(0.985 0 0)"
   success: "oklch(0.982 0.018 155.826)"
   success-foreground: "oklch(0.393 0.095 152.535)"
   success-border: "oklch(0.871 0.15 154.449)"
@@ -31,22 +33,24 @@ colors:
   danger-border: "oklch(0.808 0.114 19.571)"
   dark-primary: "oklch(0.556 0.2 285)"
   dark-primary-foreground: "oklch(0.985 0 0)"
-  dark-background: "oklch(0.145 0 0)"
-  dark-foreground: "oklch(0.985 0 0)"
-  dark-card: "oklch(0.205 0 0)"
-  dark-popover: "oklch(0.205 0 0)"
-  dark-secondary: "oklch(0.269 0 0)"
-  dark-secondary-foreground: "oklch(0.985 0 0)"
-  dark-muted: "oklch(0.269 0 0)"
-  dark-muted-foreground: "oklch(0.708 0 0)"
-  dark-accent: "oklch(0.269 0 0)"
-  dark-accent-foreground: "oklch(0.985 0 0)"
+  dark-background: "oklch(0.165 0.012 285)"
+  dark-foreground: "oklch(0.97 0.004 285)"
+  dark-card: "oklch(0.205 0.012 285)"
+  dark-popover: "oklch(0.245 0.012 285)"
+  dark-secondary: "oklch(0.285 0.012 285)"
+  dark-secondary-foreground: "oklch(0.97 0.004 285)"
+  dark-muted: "oklch(0.285 0.012 285)"
+  dark-muted-foreground: "oklch(0.74 0.012 285)"
+  dark-accent: "oklch(0.3 0.012 285)"
+  dark-accent-foreground: "oklch(0.97 0.004 285)"
   dark-destructive: "oklch(0.704 0.191 22.216)"
   dark-border: "oklch(1 0 0 / 10%)"
   dark-input: "oklch(1 0 0 / 45%)"
-  dark-ring: "oklch(0.556 0.2 285)"
+  dark-ring: "oklch(0.72 0.14 285)"
   dark-primary-text: "oklch(0.78 0.12 285)"
   dark-link: "oklch(0.78 0.12 285)"
+  dark-header: "oklch(0.4 0.15 285)"
+  dark-header-foreground: "oklch(0.985 0 0)"
   dark-success: "oklch(0.266 0.065 152.934)"
   dark-success-foreground: "oklch(0.925 0.084 155.995)"
   dark-success-border: "oklch(0.527 0.154 150.069)"
@@ -60,11 +64,15 @@ colors:
   classroom-primary-default: "#8b1a1a"
   classroom-accent-default: "#dc2626"
   workspace: "oklch(97% 0.001 106.424)"
-  dark-workspace: "oklch(21.6% 0.006 56.043)"
+  dark-workspace: "oklch(16.5% 0.012 285)"
   completed-background: "oklch(95% 0.052 163.051)"
   completed-foreground: "oklch(50.8% 0.118 165.612)"
   in-progress-background: "oklch(96.2% 0.059 95.617)"
   in-progress-foreground: "oklch(55.5% 0.163 48.998)"
+  dark-completed-background: "oklch(32% 0.06 163)"
+  dark-completed-foreground: "oklch(84% 0.13 163)"
+  dark-in-progress-background: "oklch(33% 0.07 75)"
+  dark-in-progress-foreground: "oklch(85% 0.14 80)"
 typography:
   headline:
     fontFamily: "'Geist Variable', ui-sans-serif, system-ui, sans-serif"
@@ -260,7 +268,7 @@ The palette combines a deep purple administration accent, high-contrast neutrals
 | Classroom primary | `classroom-primary-default` | Seeded classroom header and action color, replaced by the admin's saved setting. |
 | Classroom accent | `classroom-accent-default` | Seeded classroom link and focus-ring accent, replaced by the admin's saved setting. |
 
-The semantic primary and the literal admin-bar/logo purple are different source values. Preserve their surface-specific definitions; the comment in `index.css` does not make them numerically identical. The `accent` CSS token is a neutral interaction wash. The classroom's configured accent supplies accessible link and focus colors; it does not replace `--accent`. Saved primary surfaces retain their original color. Foregrounds are selected by contrast ratio, with a black fallback when neither white nor near-black reaches 4.5:1. Separate `primary-text` and `link` roles adjust failing text colors for light and dark surfaces. The customizer preview uses the same derivation as the classroom.
+The semantic primary and the literal admin-bar/logo purple are different source values. Preserve their surface-specific definitions; the comment in `index.css` does not make them numerically identical. The `accent` CSS token is a neutral interaction wash. The classroom's configured accent supplies accessible link and focus colors; it does not replace `--accent`. Saved primary surfaces retain their original color. Foregrounds are selected by contrast ratio, with a black fallback when neither white nor near-black reaches 4.5:1. Separate `primary-text` and `link` roles adjust failing text colors for light and dark surfaces by moving OKLCH lightness while keeping hue and chroma, so a pale brand reads as a deeper shade of itself rather than a grayed one. The Customizer previews light and dark side by side with the same derivation as the classroom, and notes when the primary barely stands out from white or what dark mode changes.
 
 ### Neutral
 
@@ -274,8 +282,13 @@ The semantic primary and the literal admin-bar/logo purple are different source 
 | `border` | Thin decorative separators and card dividers. |
 | `input` | Form-field boundaries. A transparent field's border is its only outline, so `input` holds 3:1 against white and the workspace (WCAG 1.4.11). |
 | `workspace` | The slightly warm learner-page background. |
+| `header`, `header-foreground` | The classroom header band and the auth pages' backdrop: the classroom primary in light mode, a night shade of it in dark. |
 
-The `dark-*` entries preserve the corresponding `.dark` declarations. Backgrounds become charcoal, cards and popovers sit one tonal level above them, primary becomes brighter violet, and borders become translucent white. The learner work area has its own dark stone value. Learners choose the theme with the **Dark mode** toggle in the classroom header, which puts `.dark` on `<html>`. The choice is remembered per browser and also applies to auth and admin pages. Light is the default, whatever the operating system prefers. `color-scheme` follows the choice, so native controls, scrollbars, and select popups match the page rather than the operating system.
+The `dark-*` entries preserve the corresponding `.dark` declarations, shown with plato's purple tint. Dark mode is the **night classroom**: surfaces carry a trace of the classroom's primary hue (OKLCH chroma up to 0.012, none for a gray brand) and rise in lightness with elevation. The page is lowest (`workspace` and `background`, 0.165). Cards and the chrome raised off the page, the lesson header and the message box, sit at 0.205; menus and dialogs at 0.245; muted fills and highlighted rows at 0.285–0.3. The header is a deep band of the brand, and fills (primary buttons, learner bubbles) are lit just enough to stand out from cards. Borders become translucent white, and the lesson status chips become deep washes with bright marks.
+
+A classroom's dark values come from its saved primary (`client/src/lib/branding.js`), each keeping the brand's hue. The header's lightness moves into a night band (OKLCH 0.33–0.48), lifting further until the band stands 1.5:1 apart from the page: bright yellow deepens to gold, and near-black lifts to charcoal. Fills keep the brand when it holds 3:1 against a dark card and otherwise lift until they do; a near-black brand turns light gray (`#e8e8e8`), the way a monochrome mark inverts at night. Text, link, and focus colors hold 4.6:1 on their theme's surfaces. A brand that already meets a rule is used as chosen.
+
+Learners choose the theme with the **Dark mode** toggle in the classroom header, which puts `.dark` on `<html>`. The choice is remembered per browser and also applies to auth and admin pages. Light is the default, whatever the operating system prefers. `color-scheme` follows the choice, so native controls, scrollbars, and select popups match the page rather than the operating system.
 
 ### Functional states
 
