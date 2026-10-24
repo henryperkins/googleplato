@@ -843,6 +843,7 @@ describe('GET /v1/admin/logs', () => {
   const origConsoleErr = console.error;
   const origConsoleWarn = console.warn;
   let savedRegion;
+  let savedKService;
 
   beforeEach(() => {
     db.getUserById = async (id) => {
@@ -855,12 +856,15 @@ describe('GET /v1/admin/logs', () => {
     console.warn = () => {};
     savedRegion = process.env.AWS_REGION;
     delete process.env.AWS_REGION; // force cloudwatch error path
+    savedKService = process.env.K_SERVICE;
+    delete process.env.K_SERVICE;
   });
 
   afterEach(() => {
     console.error = origConsoleErr;
     console.warn = origConsoleWarn;
     if (savedRegion !== undefined) process.env.AWS_REGION = savedRegion;
+    if (savedKService !== undefined) process.env.K_SERVICE = savedKService;
   });
 
   it('rejects non-admin', async () => {

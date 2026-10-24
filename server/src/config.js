@@ -21,3 +21,5 @@ export const BCRYPT_ROUNDS = 10;
 export const DB_BACKEND = process.env.DB_BACKEND || 'dynamodb';
 export const SQLITE_PATH = process.env.SQLITE_PATH || './data/plato.db';
 export const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'idk-4e9b9';
+export const PLATO_PROTOCOL_VERSION = '1';
+export const SERVER_EPOCH = process.env.PLATO_SERVER_EPOCH || process.env.K_REVISION || process.env.PLATO_REVISION || process.env.PLATO_COMMIT_SHA || process.env.GITHUB_SHA || '1';
