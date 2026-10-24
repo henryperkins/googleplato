@@ -183,7 +183,7 @@ export default function Settings() {
       await updateProfile({ password: newPassword });
       setNewPassword('');
       setConfirmPassword('');
-      setPasswordFeedback({ type: 'success', message: 'Password changed!' });
+      setPasswordFeedback({ type: 'success', message: 'Password changed. Your other devices will need to sign in again.' });
     } catch (err) {
       setPasswordFeedback({ type: 'error', message: err.message || 'Failed to change password' });
     } finally {

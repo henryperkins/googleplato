@@ -212,6 +212,32 @@ test('a stale refresh rejection does not expire the newer session', async () => 
   } finally { unsubscribe(); }
 });
 
+test('a password change keeps this device signed in with the pair the server issued', async () => {
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, '/v1/me');
+    assert.equal(options.method, 'PATCH');
+    return json({ userId: 'a', name: 'A', session: { accessToken: 'access-a2', refreshToken: 'refresh-a2' } });
+  };
+  assert.deepEqual(await auth.updateProfile({ password: 'new-password' }), { userId: 'a', name: 'A' });
+  assert.deepEqual(await storage.getAuthTokens(), {
+    ...session('a'), accessToken: 'access-a2', refreshToken: 'refresh-a2', user: { userId: 'a', name: 'A' },
+  });
+});
+
+test('a password-change response that crosses logout cannot restore credentials', async () => {
+  const body = deferred();
+  const parsing = deferred();
+  globalThis.fetch = async url => url === '/v1/me'
+    ? { ok: true, status: 200, json: () => { parsing.resolve(); return body.promise; } }
+    : json({ ok: true });
+  const pending = auth.updateProfile({ password: 'new-password' });
+  await parsing.promise;
+  await auth.logout();
+  body.resolve({ userId: 'a', session: { accessToken: 'access-a2', refreshToken: 'refresh-a2' } });
+  await pending;
+  assert.equal(await storage.getAuthTokens(), null);
+});
+
 test('legacy Firebase detection cannot block logout or erase the next account', async () => {
   const probe = deferred();
   const old = session('a');

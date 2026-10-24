@@ -98,9 +98,10 @@ PostgreSQL suite against an isolated local PostgreSQL 17 instance.
 Additional regression checks cover simultaneous content seeding, bootstrap
 credential removal, reset-token rejection by refresh lookup on every backend
 (SQLite, DynamoDB and Postgres), expired-token rejection, single-winner
-concurrent token consumption, revocation of all sessions on password reset,
-credential-bound refresh issuance across reset/login races, authoritative
-DynamoDB revocation with partial-delete retries, and bounded server shutdown.
+concurrent token consumption, revocation of all sessions on password reset or
+change (the changing device keeps a fresh pair), credential-bound refresh
+issuance across reset/login races, authoritative DynamoDB revocation with
+partial-delete retries, and bounded server shutdown.
 GitHub-hosted Actions are permanently unavailable for this repository.
 Use local validation and independent review; do not wait for, rerun, or
 investigate hosted jobs as a release prerequisite.

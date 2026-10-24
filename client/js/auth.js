@@ -359,9 +359,11 @@ export async function forgotPassword(email) {
 
 /**
  * Update the authenticated user's profile (name, password, etc.).
- * Returns the updated user object.
+ * Returns the updated user object. A password change revokes every session,
+ * so the server returns a new token pair that keeps this device signed in.
  */
 export async function updateProfile(updates) {
+  const generation = sessionGeneration;
   const res = await authenticatedFetch('/v1/me', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -371,9 +373,17 @@ export async function updateProfile(updates) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || 'Update failed');
   }
-  const data = await res.json();
-  await saveAuthUser(data);
-  return data;
+  const { session, ...user } = await res.json();
+  if (session) {
+    // Same compare-and-replace as refresh: a response that crosses logout or
+    // an account switch must never restore or merge credentials.
+    const current = await getAuthTokens();
+    if (generation === sessionGeneration && current?.user?.userId === user.userId) {
+      await saveAuthTokens(session, current);
+    }
+  }
+  await saveAuthUser(user);
+  return user;
 }
 
 /**

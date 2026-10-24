@@ -35,6 +35,30 @@ live AI calls and does not qualify lesson completion or live model behavior.
 The paste event was dispatched by browser automation, so this is browser
 evidence, not an operating-system clipboard or physical-device check.
 
+## Settings password change
+
+A follow-up review found that credential-bound refresh tokens signed learners
+out after they changed their password in Settings. `PATCH /v1/me` changed the
+password hash but issued no token bound to it, so the device's next refresh
+returned 401. Before credential binding, the same change left every other
+session signed in.
+
+A password change now revokes every refresh session, including legacy tokens
+without a credential fingerprint. It returns a `session` token pair bound to
+the new credential, which the client saves with the refresh path's
+compare-and-replace guard. The new server and client tests failed before the
+change and pass after it. Validation after the change: 494 client tests and
+673 server tests, zero skips, on a disposable PostgreSQL 17 instance. Lint
+reported zero errors and the same 20 warnings, and the client build passed.
+
+In Chromium against a local SQLite server, two browsers signed in as one
+synthetic learner, and one changed the password in Settings. On a forced
+refresh, that browser got 200 and stayed on Lessons. The other browser got
+401 and returned to sign-in with the session-expired notice. The old password
+was rejected and the new one accepted.
+
+![Settings after a password change](settings-password-changed.png)
+
 ## Release boundaries
 
 - D-2(a): when email is off, admin password reset creates no token or reset link.

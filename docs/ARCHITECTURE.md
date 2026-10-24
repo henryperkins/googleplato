@@ -75,9 +75,12 @@ local rules testing, cutover order, and publication status.
   `POST /v1/auth/forgot-password` endpoint. Firebase resets are not used for
   plato password accounts. Reset links are single-use, and completing a reset
   revokes every existing refresh session for the account on all three
-  database backends, so learners on other devices are signed out. Refresh
-  rotation consumes the old token atomically: only the request that deletes
-  the stored row may issue its replacement, and reset tokens are never
+  database backends, so learners on other devices are signed out. Changing
+  the password in Settings (`PATCH /v1/me`) revokes them the same way, then
+  returns a `session` token pair bound to the new credential. The client
+  saves that pair, so only the device that made the change stays signed in.
+  Refresh rotation consumes the old token atomically: only the request that
+  deletes the stored row may issue its replacement, and reset tokens are never
   accepted as refresh tokens. New refresh tokens carry a SHA-256 fingerprint
   of the password hash used at issuance, never a second copy of that hash.
   Refresh checks that fingerprint against the current user credential, using
