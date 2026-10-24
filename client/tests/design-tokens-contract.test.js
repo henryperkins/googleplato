@@ -94,7 +94,7 @@ describe('design tokens', () => {
     assert.ok(lightness('popover') < lightness('muted'), 'muted fills above menus');
     assert.ok(lightness('muted') <= lightness('accent'), 'highlighted rows at the top');
     // The lesson header and message box are chrome, raised off the page.
-    assert.match(fs.readFileSync(path.join(CLIENT_SRC, 'pages/LessonChat.jsx'), 'utf8'), /id="lesson-header" className="[^"]*\bbg-card\b/);
+    assert.match(fs.readFileSync(path.join(CLIENT_SRC, 'pages/LessonChat.jsx'), 'utf8'), /id="lesson-header"[^>]*className="[^"]*\bbg-card\b/);
     assert.match(fs.readFileSync(path.join(CLIENT_SRC, 'components/chat/ComposeBar.jsx'), 'utf8'), /max-w-3xl rounded-lg border border-input bg-card\b/);
   });
 

@@ -7,6 +7,7 @@ import { useBranding } from '../contexts/BrandingContext.jsx';
 import { useStreamedText } from '../hooks/useStreamedText.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeyboardOffset.js';
+import { useStickyScrollPadding } from '../hooks/useStickyScrollPadding.js';
 import { useLessonDraft } from '../hooks/useLessonDraft.js';
 import { isClientUpgradeRequired, onClientUpgrade } from '../../js/clientCompatibility.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
@@ -105,6 +106,7 @@ function LessonConversation() {
   const [showObjectives, setShowObjectives] = useState(false);
   const objectivesTitleRef = useRef(null);
   const keyboardOffset = useVisualViewportKeyboardOffset();
+  const [stickyTopRef, stickyBottomRef] = useStickyScrollPadding();
   const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
   const { text: composeText, images: composeImages, links: composeLinks } = draft;
 
@@ -496,21 +498,23 @@ function LessonConversation() {
   };
 
   return (
-    <div className="flex flex-col min-h-[calc(100dvh-theme(spacing.20))]">
-      {/* One header stays visible and accessible throughout the conversation. */}
-      <div id="lesson-header" className="sticky top-0 z-40 border-b border-border bg-card px-4 py-1.5 sm:py-2">
-        <div className="mx-auto max-w-5xl flex items-center gap-2">
+    <div className="lesson-page flex flex-1 flex-col">
+      {/* One header stays visible and accessible throughout the conversation,
+          in the same column as the conversation it describes. */}
+      <div id="lesson-header" ref={stickyTopRef} className="sticky top-0 z-40 border-b border-border bg-card px-4 py-1.5 sm:py-2">
+        <div className="mx-auto max-w-3xl flex items-center gap-2">
           <Button variant="ghost" size="icon-sm" aria-label="Back to lessons" onClick={() => navigate('/lessons')}>
             <ArrowLeft aria-hidden="true" />
           </Button>
           <div className="flex-1 min-w-0">
-            {/* The title stacks above Overview on narrow screens and wraps rather
-                than truncating; three lines caps the sticky header's height. */}
-            <div className="flex flex-col items-start gap-x-2 sm:flex-row sm:items-center sm:justify-between">
-              <h1 ref={headingRef} tabIndex={-1} className="text-sm font-semibold break-words line-clamp-3 min-w-0">{lesson.name}</h1>
+            {/* The outline link follows the title and wraps beneath a long one.
+                The title wraps rather than truncating; three lines cap the
+                sticky header's height. */}
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+              <h1 ref={headingRef} tabIndex={-1} className="text-base font-semibold break-words line-clamp-3 min-w-0">{lesson.name}</h1>
               <button
                 type="button"
-                className="touch-target rounded-sm text-left text-xs text-primary-text hover:underline cursor-pointer whitespace-nowrap shrink-0"
+                className="touch-target-inline rounded-sm text-left text-xs font-medium text-primary-text hover:underline underline-offset-4 cursor-pointer whitespace-nowrap"
                 onClick={() => setShowObjectives(true)}
                 aria-expanded={showObjectives}
                 aria-controls="lesson-objectives-dialog"
@@ -618,6 +622,7 @@ function LessonConversation() {
           keyboard focus and open attachment UI are never destroyed mid-typing. */}
       {phase && (
         <div
+          ref={stickyBottomRef}
           className="compose-sticky-bar sticky bottom-0 z-30 bg-workspace/95 backdrop-blur-xs pb-[env(safe-area-inset-bottom)]"
           style={keyboardOffset > 0 ? { transform: `translateY(-${keyboardOffset}px)` } : undefined}
         >

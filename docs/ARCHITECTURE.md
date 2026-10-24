@@ -639,8 +639,19 @@ scrolling that admin container to its absolute bottom would hide the composer.
 The optional target changes both pinning and the "at bottom" calculation.
 Learner chat continues to use full-scrollport pinning.
 
+The lesson page fills `<main>` (`#main-content:has(> .lesson-page)` is a flex
+column, still with no `overflow`) rather than taking
+`min-height: calc(100dvh - 5rem)`. That guess assumed 80 px of shell: the real
+shell is taller on phones and with the admin strip, so every lesson page
+overflowed and opened partly scrolled, clipping the header. Keyboard focus
+scrolls clear of the sticky header and composer: `useStickyScrollPadding` sets
+`--sticky-top` and `--sticky-bottom` from their measured heights, and `html`'s
+scroll padding uses them (WCAG 2.4.11). A fixed `4rem` let a three-line title
+cover a focused link entirely.
+
 On short viewports (`@media (max-height: 34em)` in `index.css`) the lesson
-header and composer go `position: static`, and
+header and composer go `position: static`, the scroll padding drops to
+`0.5rem`, and
 `useVisualViewportKeyboardOffset` stops lifting the composer
 (`SHORT_VIEWPORT_QUERY`; keep the two in step). The query is in `em` so page
 zoom and an enlarged default font size count as short, not only landscape

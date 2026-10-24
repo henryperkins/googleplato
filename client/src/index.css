@@ -284,10 +284,21 @@
   --ring: var(--classroom-ring-dark, var(--primary-text)) !important;
 }
 
-/* Ensure focused inputs clear the sticky top header and sticky bottom compose bar (WCAG 2.4.11). */
+/* Focused controls stop clear of the sticky bars (WCAG 2.4.11). A page with
+   sticky bars reports their heights (useStickyScrollPadding, e.g. the lesson
+   header and composer); the fallbacks fit the admin editors' action bars. */
 html {
-  scroll-padding-top: 4rem;
-  scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  scroll-padding-top: calc(var(--sticky-top, 3.5rem) + 0.5rem);
+  scroll-padding-bottom: calc(var(--sticky-bottom, calc(5.5rem + env(safe-area-inset-bottom, 0px))) + 0.5rem);
+}
+
+/* The lesson conversation fills the space between the shell's bars, so its
+   composer rests at the bottom of a short chat without assuming how tall the
+   bars are. Flex only: <main> must not scroll, or the sticky lesson header
+   stops sticking (docs/ARCHITECTURE.md, chat auto-scroll). */
+#main-content:has(> .lesson-page) {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Enlarge compact chip removal buttons' tap area to 44x44px without growing visual chrome. */
@@ -358,6 +369,11 @@ html {
   .compose-sticky-bar textarea {
     max-height: 4.5rem;
   }
+  /* Nothing pins here, so nothing can cover a focused control. */
+  html {
+    scroll-padding-top: 0.5rem;
+    scroll-padding-bottom: 0.5rem;
+  }
 }
 
 /* Authoring adapts to usable space, including enlarged text beside the sidebar. */
@@ -380,7 +396,9 @@ html {
 
 /* Keep desktop density; give touch users real, nonoverlapping hit areas. */
 @media (pointer: coarse) {
-  button:not(.compose-chip-remove), select, [role="menuitem"] {
+  /* .touch-target-inline buttons get their 44px from an overlay instead,
+     so a compact text action doesn't grow its row. */
+  button:not(.compose-chip-remove):not(.touch-target-inline), select, [role="menuitem"] {
     min-inline-size: 44px;
     min-block-size: 44px;
   }

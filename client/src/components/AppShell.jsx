@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ChevronDown } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useBranding } from '../contexts/BrandingContext.jsx';
 import {
@@ -61,10 +62,10 @@ export default function AppShell({ children }) {
 
       {/* Admin bar — plato branding, quick links to dashboard */}
       {isAdmin && (
-        <div className="px-4 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-xs text-white" style={{ backgroundColor: '#470d99', '--ring': '#ffffff' }}>
+        <div className="py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-xs text-white" style={{ backgroundColor: '#470d99', '--ring': '#ffffff' }}>
           {/* A landmark, so screen-reader users can find admin controls from
               the classroom; both links go to the admin dashboard. */}
-          <nav aria-label="Admin" className="mx-auto max-w-5xl flex flex-wrap items-center gap-2">
+          <nav aria-label="Admin" className="mx-auto max-w-5xl flex flex-wrap items-center gap-2 px-4">
             <a href="/plato" onClick={e => { e.preventDefault(); navigate('/plato'); }} className="touch-target flex items-center gap-1.5 opacity-90 hover:opacity-100 whitespace-nowrap shrink-0">
               <img src="/assets/logo-white.svg" alt="plato admin" width="48" height="12" className="h-3 w-auto" />
             </a>
@@ -91,11 +92,11 @@ export default function AppShell({ children }) {
           underneath the purple admin bar so it's the first thing the admin sees. */}
       {impersonating && (
         <div
-          className="px-4 py-1.5 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-sm flex items-center gap-3 border-b border-warning-border bg-warning text-warning-foreground"
+          className="py-1.5 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-sm flex items-center gap-3 border-b border-warning-border bg-warning text-warning-foreground"
           role="status"
           aria-live="polite"
         >
-          <div className="mx-auto max-w-5xl flex items-center w-full gap-3">
+          <div className="mx-auto max-w-5xl flex items-center w-full gap-3 px-4">
             <span className="flex-1 min-w-0 truncate">
               Viewing as <strong>{impersonatedLabel}</strong>
             </span>
@@ -113,55 +114,61 @@ export default function AppShell({ children }) {
 
       {/* Classroom header — custom branding */}
       <header
-        className={`bg-header text-header-foreground px-4 py-2 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] ${!isAdmin ? 'pt-[max(0.5rem,env(safe-area-inset-top))]' : ''}`}
+        className={`bg-header text-header-foreground py-2 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] ${!isAdmin ? 'pt-[max(0.5rem,env(safe-area-inset-top))]' : ''}`}
         role="banner"
       >
-        {/* header-control gives each header control the header's focus color
-            without passing it to the account menu, which sits on the popover. */}
-        <nav className="mx-auto max-w-5xl flex items-center gap-2" aria-label="Main navigation">
-          <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="header-control touch-target flex min-w-0 max-w-[60%] items-center rounded-sm" aria-label={`${classroomName} — Lessons`}>
+        {/* The classroom leads and the account follows. The two columns share
+            the row fairly: each takes what it needs, and only when both run
+            long does each give up an equal share. header-control gives each
+            header control the header's focus color without passing it to the
+            account menu, which sits on the popover. The padding sits inside the
+            column, as on the pages, so the classroom name lines up with them. */}
+        <nav className="mx-auto max-w-5xl px-4 grid grid-cols-[minmax(0,max-content)_minmax(0,max-content)] items-center justify-between gap-2" aria-label="Main navigation">
+          <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="header-control touch-target flex min-w-0 items-center rounded-sm" aria-label={`${classroomName} — Lessons`}>
             {classroomLogo ? (
-              <img src={classroomLogo} alt="" width="32" height="32" fetchPriority="high" className="h-8 w-8 max-w-full object-contain" />
+              <img src={classroomLogo} alt="" width="32" height="32" fetchPriority="high" className="h-8 w-auto max-w-full object-contain" />
             ) : (
-              <span className="text-sm font-semibold truncate">{classroomName}</span>
+              <span className="truncate text-base font-semibold">{classroomName}</span>
             )}
           </a>
-          <div className="flex-1" />
-          {/* Under 30rem a 414-430 px phone can't fit the button and the
-              learner's name, so the choice moves into the account menu. */}
-          <ThemeToggle className="header-control hidden min-[30rem]:flex" />
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className="header-control touch-target max-w-[45%] min-w-0 truncate text-inherit hover:underline underline-offset-4 cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium"
-              aria-label={`${accountName} — Account`}
-            >
-              {accountName}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={4}>
-              <DropdownMenuLabel>
-                {user?.email || ''}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => navigate('/settings')}>
-                Settings
-              </DropdownMenuItem>
-              {/* Stays open on select, so the check shows the new state. */}
-              <DropdownMenuCheckboxItem
-                checked={theme === 'dark'}
-                closeOnSelect={false}
-                onSelect={toggleTheme}
-                className="min-[30rem]:hidden"
+          <div className="flex min-w-0 items-center gap-1">
+            {/* Under 30rem a 414-430 px phone can't fit the button and the
+                learner's name, so the choice moves into the account menu. */}
+            <ThemeToggle className="header-control hidden min-[30rem]:flex" />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="header-control touch-target group flex min-w-0 items-center gap-1 truncate text-inherit cursor-pointer bg-transparent border-none rounded-md px-3 py-1.5 text-sm font-medium"
+                aria-label={`${accountName} — Account`}
               >
-                Dark mode
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => setSignOutOpen(true)}
-              >
-                Sign Out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <span className="truncate underline-offset-4 group-hover:underline">{accountName}</span>
+                <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={4}>
+                <DropdownMenuLabel>
+                  {user?.email || ''}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => navigate('/settings')}>
+                  Settings
+                </DropdownMenuItem>
+                {/* Stays open on select, so the check shows the new state. */}
+                <DropdownMenuCheckboxItem
+                  checked={theme === 'dark'}
+                  closeOnSelect={false}
+                  onSelect={toggleTheme}
+                  className="min-[30rem]:hidden"
+                >
+                  Dark mode
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => setSignOutOpen(true)}
+                >
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </nav>
       </header>
 
