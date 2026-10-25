@@ -1027,170 +1027,174 @@ export default function AdminUsers() {
           (aria-sort attribute changes aren't reliably announced by NVDA/JAWS). */}
       <div role="status" aria-live="polite" className="sr-only">{sortAnnouncement}</div>
 
-      {filteredList.length > 0 ? (
-        <>
-          <div className="rounded-lg border overflow-hidden">
-            <Table aria-label="Users and invites">
-              <TableHeader>
-                <TableRow>
-                  <SortHeader sortKey="name" sortBy={sortBy} onSort={handleSort}>User</SortHeader>
-                  <SortHeader sortKey="group" sortBy={sortBy} onSort={handleSort}>Group</SortHeader>
-                  <SortHeader sortKey="role" sortBy={sortBy} onSort={handleSort}>Role</SortHeader>
-                  <SortHeader sortKey="completed" sortBy={sortBy} onSort={handleSort} align="center">Completed</SortHeader>
-                  <SortHeader sortKey="lastActive" sortBy={sortBy} onSort={handleSort}>Last active</SortHeader>
-                  <SortHeader sortKey="date" sortBy={sortBy} onSort={handleSort}>Date added</SortHeader>
-                  {filterField && <TableHead>{filterField.label}</TableHead>}
-                  {slackConnected && <TableHead>Slack</TableHead>}
-                  <TableHead><span className="sr-only">Actions</span></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pageItems.map(item => item._type === 'waitlist' ? (
-                  <TableRow key={item._key} className="hover:bg-muted/50">
-                    <TableCell className="whitespace-normal">
-                      <div className="min-w-0 max-w-56">
-                        <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
-                          {item.name || item.email}
-                        </button>
-                        <span className="block truncate text-xs text-muted-foreground">{item.name ? item.email : 'Wait list'}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
-                    <TableCell><Badge variant="outline">Wait List</Badge></TableCell>
-                    <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
-                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
-                    <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
-                    {filterField && (
-                      <TableCell className="max-w-48 truncate">
+      <Card className="p-0 overflow-hidden">
+        <Table aria-label="Users and invites">
+          <TableHeader>
+            <TableRow>
+              <SortHeader sortKey="name" sortBy={sortBy} onSort={handleSort}>User</SortHeader>
+              <SortHeader sortKey="group" sortBy={sortBy} onSort={handleSort}>Group</SortHeader>
+              <SortHeader sortKey="role" sortBy={sortBy} onSort={handleSort}>Role</SortHeader>
+              <SortHeader sortKey="completed" sortBy={sortBy} onSort={handleSort} align="center">Completed</SortHeader>
+              <SortHeader sortKey="lastActive" sortBy={sortBy} onSort={handleSort}>Last active</SortHeader>
+              <SortHeader sortKey="date" sortBy={sortBy} onSort={handleSort}>Date added</SortHeader>
+              {filterField && <TableHead>{filterField.label}</TableHead>}
+              {slackConnected && <TableHead>Slack</TableHead>}
+              <TableHead><span className="sr-only">Actions</span></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredList.length > 0 ? (
+              pageItems.map(item => item._type === 'waitlist' ? (
+                <TableRow key={item._key} className="hover:bg-muted/50">
+                  <TableCell as="th" scope="row" className="whitespace-normal font-normal text-left">
+                    <div className="min-w-0 max-w-56">
+                      <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
+                        {item.name || item.email}
+                      </button>
+                      <span className="block truncate text-xs text-muted-foreground">{item.name ? item.email : 'Wait list'}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
+                  <TableCell><Badge variant="outline">Wait List</Badge></TableCell>
+                  <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
+                  <TableCell className="text-muted-foreground">&mdash;</TableCell>
+                  <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
+                  {filterField && (
+                    <TableCell>
+                      <div className="max-w-48 truncate">
                         {item.customFields[filterField.id] || <span className="text-muted-foreground">&mdash;</span>}
-                      </TableCell>
-                    )}
-                    {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
+                      </div>
+                    </TableCell>
+                  )}
+                  {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button variant="outline" size="xs" aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>Invite</Button>
+                      <Button variant="ghost" size="icon-xs" title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : item._type === 'invite' ? (
+                <TableRow key={item._key}>
+                  <TableCell as="th" scope="row" className="whitespace-normal font-normal text-left text-muted-foreground">
+                    <div className="min-w-0 max-w-56">
+                      <span className="block truncate max-w-full font-medium text-foreground" title={item.email}>{item.email}</span>
+                      <span className="block truncate text-xs">Pending invite</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>&mdash;</TableCell>
+                  <TableCell><Badge variant="outline">Invited</Badge></TableCell>
+                  <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
+                  <TableCell className="text-muted-foreground">&mdash;</TableCell>
+                  <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
+                  {filterField && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
+                  {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon-xs" title="Resend" aria-label={`Resend invite to ${item.email}`} onClick={() => resendInvite(item.email)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                      </Button>
+                      <Button variant="ghost" size="icon-xs" title="Revoke" aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._invite.inviteToken, item.email)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                <TableRow key={item._key} className="hover:bg-muted/50">
+                  <TableCell as="th" scope="row" className="whitespace-normal font-normal text-left">
+                    <div className="min-w-0 max-w-56">
+                      <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={() => openEditUser(item._user)}>
+                        {item.name || item.email}
+                      </button>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[item.username ? `@${item.username}` : null, item.name ? item.email : null].filter(Boolean).join(' · ') || 'User account'}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
+                  <TableCell>
+                    <Badge variant={item.role === 'admin' ? 'default' : 'secondary'}>
+                      {item.role === 'admin' ? 'Admin' : 'User'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {typeof item._user.lessonsCompleted === 'number' ? (
+                      <div className="inline-flex">
+                        <CompletionRing
+                          completed={item._user.lessonsCompleted}
+                          available={item._user.lessonsAvailable}
+                          size={40}
+                          strokeWidth={5}
+                          compact
+                        />
+                      </div>
+                    ) : <span className="text-muted-foreground">&mdash;</span>}
+                  </TableCell>
+                  <TableCell>
+                    {item._user.lastActiveAt
+                      ? new Date(item._user.lastActiveAt).toLocaleDateString()
+                      : <span className="text-muted-foreground">&mdash;</span>}
+                  </TableCell>
+                  <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
+                  {filterField && (
                     <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="outline" size="xs" aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>Invite</Button>
-                        <Button variant="ghost" size="icon-xs" title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        </Button>
+                      <div className="max-w-48 truncate">
+                        {item.customFields[filterField.id] || <span className="text-muted-foreground">&mdash;</span>}
                       </div>
                     </TableCell>
-                  </TableRow>
-                ) : item._type === 'invite' ? (
-                  <TableRow key={item._key}>
-                    <TableCell className="whitespace-normal text-muted-foreground">
-                      <div className="min-w-0 max-w-56">
-                        <span className="block truncate max-w-full font-medium text-foreground" title={item.email}>{item.email}</span>
-                        <span className="block truncate text-xs">Pending invite</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>&mdash;</TableCell>
-                    <TableCell><Badge variant="outline">Invited</Badge></TableCell>
-                    <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
-                    <TableCell className="text-muted-foreground">&mdash;</TableCell>
-                    <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
-                    {filterField && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
-                    {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
+                  )}
+                  {slackConnected && (
                     <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon-xs" title="Resend" aria-label={`Resend invite to ${item.email}`} onClick={() => resendInvite(item.email)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-                        </Button>
-                        <Button variant="ghost" size="icon-xs" title="Revoke" aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._invite.inviteToken, item.email)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <TableRow key={item._key} className="hover:bg-muted/50">
-                    <TableCell className="whitespace-normal">
-                      <div className="min-w-0 max-w-56">
-                        <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={() => openEditUser(item._user)}>
-                          {item.name || item.email}
-                        </button>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {[item.username ? `@${item.username}` : null, item.name ? item.email : null].filter(Boolean).join(' · ') || 'User account'}
+                      {item._user.slackUserId ? (
+                        <span title={item._user.slackUserId} className="text-xs">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="inline-block mr-1 text-muted-foreground" aria-label="Slack linked">
+                            <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.27 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.163 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.163 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.163 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.27a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.315A2.528 2.528 0 0 1 24 15.163a2.528 2.528 0 0 1-2.522 2.523h-6.315z" fill="currentColor"/>
+                          </svg>
+                          Linked
                         </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
-                    <TableCell>
-                      <Badge variant={item.role === 'admin' ? 'default' : 'secondary'}>
-                        {item.role === 'admin' ? 'Admin' : 'User'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {typeof item._user.lessonsCompleted === 'number' ? (
-                        <div className="inline-flex">
-                          <CompletionRing
-                            completed={item._user.lessonsCompleted}
-                            available={item._user.lessonsAvailable}
-                            size={40}
-                            strokeWidth={5}
-                            compact
-                          />
-                        </div>
                       ) : <span className="text-muted-foreground">&mdash;</span>}
                     </TableCell>
-                    <TableCell>
-                      {item._user.lastActiveAt
-                        ? new Date(item._user.lastActiveAt).toLocaleDateString()
-                        : <span className="text-muted-foreground">&mdash;</span>}
-                    </TableCell>
-                    <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
-                    {filterField && (
-                      <TableCell className="max-w-48 truncate">
-                        {item.customFields[filterField.id] || <span className="text-muted-foreground">&mdash;</span>}
-                      </TableCell>
-                    )}
-                    {slackConnected && (
-                      <TableCell>
-                        {item._user.slackUserId ? (
-                          <span title={item._user.slackUserId} className="text-xs">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="inline-block mr-1 text-muted-foreground" aria-label="Slack linked">
-                              <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.27 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.163 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.163 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.163 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.27a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.315A2.528 2.528 0 0 1 24 15.163a2.528 2.528 0 0 1-2.522 2.523h-6.315z" fill="currentColor"/>
-                            </svg>
-                            Linked
-                          </span>
-                        ) : <span className="text-muted-foreground">&mdash;</span>}
-                      </TableCell>
-                    )}
-                    <TableCell>
-                      {/* Keep clicks and Enter/Space on these buttons from also activating the row. */}
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}>
-                        <PluginSlot name="adminUserRowAction" context={{ user: item._user }} />
-                        {item._user.userId !== currentUser?.userId && (
-                          <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); deleteUser(item._user.userId, item.name || item.email); }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                  )}
+                  <TableCell>
+                    {/* Keep clicks and Enter/Space on these buttons from also activating the row. */}
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}>
+                      <PluginSlot name="adminUserRowAction" context={{ user: item._user }} />
+                      {item._user.userId !== currentUser?.userId && (
+                        <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete ${item.name || item.email}`} onClick={(e) => { e.stopPropagation(); deleteUser(item._user.userId, item.name || item.email); }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={7 + (filterField ? 1 : 0) + (slackConnected ? 1 : 0)} className="static! max-w-none! border-r-0! bg-transparent! whitespace-normal text-muted-foreground py-8 text-center">
+                  {loadError ? 'Users could not be loaded. Retry above.' : search || filter !== 'all' ? 'No matching users.' : 'No users yet. Click "Invite Users" to get started.'}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Card>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <nav className="flex items-center justify-center gap-3 mt-4" aria-label="Pagination">
-              <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage(p => p - 1)} aria-label="Previous page">
-                Previous
-              </Button>
-              <span className="text-sm text-muted-foreground" aria-current="page">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setPage(p => p + 1)} aria-label="Next page">
-                Next
-              </Button>
-            </nav>
-          )}
-        </>
-      ) : (
-        <p className="text-muted-foreground py-8 text-center">
-          {loadError ? 'Users could not be loaded. Retry above.' : search || filter !== 'all' ? 'No matching users.' : 'No users yet. Click "Invite Users" to get started.'}
-        </p>
+      {/* Pagination */}
+      {filteredList.length > 0 && totalPages > 1 && (
+        <nav className="flex items-center justify-center gap-3 mt-4" aria-label="Pagination">
+          <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage(p => p - 1)} aria-label="Previous page">
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground" aria-current="page">
+            Page {currentPage} of {totalPages}
+          </span>
+          <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setPage(p => p + 1)} aria-label="Next page">
+            Next
+          </Button>
+        </nav>
       )}
 
       {/* Invite Users Modal */}
@@ -1458,7 +1462,7 @@ export default function AdminUsers() {
               <Button onClick={addGroup}>Add</Button>
             </div>
             {groups.length > 0 ? (
-              <ul className="max-h-[45dvh] overflow-y-auto overscroll-contain space-y-1 pr-1">
+              <ul className="max-h-[45dvh] overflow-y-auto overscroll-contain space-y-1 pr-1" aria-label="User groups">
                 {groups.map(g => (
                   <li key={g} className="flex items-center justify-between gap-2 rounded-md px-3 py-2 bg-muted/50">
                     <span className="text-sm flex-1 min-w-0 truncate">{g}</span>

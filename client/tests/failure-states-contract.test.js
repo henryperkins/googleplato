@@ -95,4 +95,34 @@ describe('Admin state as text and semantics', () => {
     assert.equal(/role="radio"/.test(share), false);
     assert.match(share, /<legend className="sr-only">Lesson visibility<\/legend>/);
   });
+
+  it('standardizes admin tables with card containers, accessible row headers, and modal states', () => {
+    const lessons = read('pages/admin/AdminLessons.jsx');
+    const users = read('pages/admin/AdminUsers.jsx');
+    const courses = read('pages/admin/CoursesModal.jsx');
+    const ring = read('pages/admin/CompletionRing.jsx');
+
+    assert.match(lessons, /<Card className="p-0 overflow-hidden">/);
+    assert.match(users, /<Card className="p-0 overflow-hidden">/);
+    assert.match(lessons, /<TableCell as="th" scope="row"/);
+    assert.match(users, /<TableCell as="th" scope="row"/);
+    assert.match(courses, /aria-pressed=\{editingId === c\.courseId\}/);
+    assert.match(ring, /className="text-input" stroke="currentColor"/);
+  });
+
+  it('keeps admin empty states full-width and pagination in sync at the edges', () => {
+    const lessons = read('pages/admin/AdminLessons.jsx');
+    const users = read('pages/admin/AdminUsers.jsx');
+
+    assert.match(lessons, /setPage\(\(previous\) => Math\.min\(previous, totalPages\)\)/);
+    for (const src of [lessons, users]) {
+      assert.match(src, /static! max-w-none! border-r-0! bg-transparent! whitespace-normal/);
+    }
+  });
+
+  it('announces a field move only after the reorder request succeeds', () => {
+    const fields = read('pages/admin/UserFieldsDialog.jsx');
+    assert.match(fields, /const ok = await run\(\(\) => adminApi\('PUT', '\/v1\/admin\/user-fields\/order'/);
+    assert.match(fields, /Failed to reorder/);
+  });
 });

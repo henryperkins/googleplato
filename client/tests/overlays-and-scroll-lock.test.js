@@ -127,6 +127,14 @@ describe('Overlay, Popover, and Dense Table contracts', () => {
     assert.match(tableSrc, /stickyFirstColumn/);
     assert.match(tableSrc, /overscroll-x-contain/);
     assert.match(tableSrc, /tabular-nums/);
+    assert.match(tableSrc, /role="region"/);
+    assert.match(tableSrc, /tabIndex=\{0\}/);
+    assert.match(tableSrc, /focus-visible:ring-inset/);
+    assert.equal((tableSrc.match(/aria-label=\{ariaLabel\}/g) || []).length, 1);
+    assert.match(tableSrc, /tbody_tr:hover_th:first-child/);
+    assert.match(tableSrc, /tbody_tr\[data-state=selected\]_th:first-child/);
+    assert.match(tableSrc, /scope = "col"/);
+    assert.match(tableSrc, /as: Component = "td"/);
   });
 
   it('eliminates blocking window.alert() and window.confirm() across client/src', () => {
