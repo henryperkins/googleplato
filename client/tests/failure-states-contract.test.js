@@ -95,4 +95,18 @@ describe('Admin state as text and semantics', () => {
     assert.equal(/role="radio"/.test(share), false);
     assert.match(share, /<legend className="sr-only">Lesson visibility<\/legend>/);
   });
+
+  it('standardizes admin tables with card containers, accessible row headers, and modal states', () => {
+    const lessons = read('pages/admin/AdminLessons.jsx');
+    const users = read('pages/admin/AdminUsers.jsx');
+    const courses = read('pages/admin/CoursesModal.jsx');
+    const ring = read('pages/admin/CompletionRing.jsx');
+
+    assert.match(lessons, /<Card className="p-0 overflow-hidden">/);
+    assert.match(users, /<Card className="p-0 overflow-hidden">/);
+    assert.match(lessons, /<TableCell as="th" scope="row"/);
+    assert.match(users, /<TableCell as="th" scope="row"/);
+    assert.match(courses, /aria-pressed=\{editingId === c\.courseId\}/);
+    assert.match(ring, /className="text-input" stroke="currentColor"/);
+  });
 });

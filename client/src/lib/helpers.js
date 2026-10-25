@@ -68,8 +68,8 @@ export function renderMd(text) {
     const dataRows = rows.slice(isSeparator(rows[1]) ? 2 : 1);
     // The wrapper scrolls a wide table on its own; the learner shell can't
     // clip horizontal overflow (see docs/ARCHITECTURE.md, chat auto-scroll).
-    let html = '<div class="md-table-scroll"><table class="border-collapse text-sm w-full"><thead><tr>';
-    for (const cell of headerCells) html += `<th class="border border-border px-3 py-1.5 text-left font-medium bg-muted/50">${cell}</th>`;
+    let html = '<div class="md-table-scroll" tabindex="0" role="region" aria-label="Table"><table class="border-collapse text-sm w-full"><thead><tr>';
+    for (const cell of headerCells) html += `<th scope="col" class="border border-border px-3 py-1.5 text-left font-medium bg-muted/50">${cell}</th>`;
     html += '</tr></thead><tbody>';
     for (const row of dataRows) {
       if (isSeparator(row)) continue;

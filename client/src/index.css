@@ -478,6 +478,11 @@ html {
   overscroll-behavior-x: contain;
 }
 
+.coach-copy .md-table-scroll:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 .coach-copy .md-table-scroll :is(th, td) {
   overflow-wrap: break-word;
 }

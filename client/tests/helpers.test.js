@@ -106,7 +106,7 @@ describe('renderMd blocks', () => {
 
   it('wraps tables in their own scroller', () => {
     const html = renderMd('Intro\n| A | B |\n|---|---|\n| 1 | 2 |\n\nOutro');
-    assert.match(html, /^Intro<div class="md-table-scroll"><table[^>]*>.*<\/table><\/div>Outro$/);
+    assert.match(html, /^Intro<div class="md-table-scroll"[^>]*><table[^>]*>.*<\/table><\/div>Outro$/);
   });
 
   it('keeps line breaks inside ordinary prose', () => {

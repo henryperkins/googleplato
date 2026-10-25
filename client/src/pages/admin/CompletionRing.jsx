@@ -42,7 +42,7 @@ export default function CompletionRing({
         <circle
           cx={size / 2} cy={size / 2} r={radius}
           fill="none" strokeWidth={strokeWidth}
-          className="text-muted" stroke="currentColor"
+          className="text-input" stroke="currentColor"
         />
         {pct != null && pct > 0 && (
           <circle

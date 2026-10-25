@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { Info } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,44 @@ import CoursesModal from './CoursesModal.jsx';
 import LessonEditor from './LessonEditor.jsx';
 import { MSG_TYPES } from '../../lib/constants.js';
 import { canStartNewDraft, readLessonRecovery, lessonRecoveryKey } from '../../lib/lessonSaveQueue.js';
+
+const PAGE_SIZE = 20;
+
+function MetricHelp({ id, title, description }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative inline-flex items-center">
+      <button
+        type="button"
+        aria-label={`Information for ${title}`}
+        aria-describedby={open ? id : undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((prev) => !prev);
+        }}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            setOpen(false);
+            e.stopPropagation();
+          }
+        }}
+        className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <Info className="size-3" aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          id={id}
+          role="tooltip"
+          className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border bg-popover p-2 text-xs font-normal text-popover-foreground shadow-md normal-case leading-relaxed text-left whitespace-normal"
+        >
+          {description}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminLessons() {
   const navigate = useNavigate();
@@ -46,6 +85,7 @@ export default function AdminLessons() {
   const [lessonSearch, setLessonSearch] = useState('');
   const [courseFilter, setCourseFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(1);
   const [confirmModal, setConfirmModal] = useState(null);
 
   // /plato/lessons/new mints a fresh draft id and redirects to its stable
@@ -65,7 +105,7 @@ export default function AdminLessons() {
   }, [isNewRoute, navigate]);
 
   // Map courseId -> name for rendering tags on lesson rows.
-  const courseNamesById = new Map(courses.map((c) => [c.courseId, c.name]));
+  const courseNamesById = useMemo(() => new Map(courses.map((c) => [c.courseId, c.name])), [courses]);
   const filteredLessons = useMemo(() => {
     const q = lessonSearch.trim().toLowerCase();
     return lessons.filter((lesson) => {
@@ -76,6 +116,10 @@ export default function AdminLessons() {
       return true;
     });
   }, [lessons, lessonSearch, courseFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLessons.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageLessons = filteredLessons.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   useEffect(() => {
     loadLessons();
@@ -336,14 +380,14 @@ export default function AdminLessons() {
           spellCheck={false}
           placeholder="Search lessons"
           value={lessonSearch}
-          onChange={(e) => setLessonSearch(e.target.value)}
+          onChange={(e) => { setLessonSearch(e.target.value); setPage(1); }}
           className="w-full sm:max-w-xs"
         />
         <select
           id="lessons-course-filter"
           aria-label="Filter by course"
           value={courseFilter}
-          onChange={(e) => setCourseFilter(e.target.value)}
+          onChange={(e) => { setCourseFilter(e.target.value); setPage(1); }}
           className="h-10 min-w-0 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
         >
           <option value="">All courses</option>
@@ -356,7 +400,7 @@ export default function AdminLessons() {
           id="lessons-status-filter"
           aria-label="Filter by visibility"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           className="h-10 min-w-0 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
         >
           <option value="all">All statuses</option>
@@ -372,14 +416,32 @@ export default function AdminLessons() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Course</TableHead>
-              <TableHead className="text-right" title="Completions of the published lesson">Completions</TableHead>
-              <TableHead className="text-right" title={`Average exchanges on published completions. Over ${MAX_EXCHANGES} is past the lesson target.`}>Avg exchanges</TableHead>
+              <TableHead className="text-right">
+                <div className="inline-flex items-center justify-end gap-1">
+                  <span>Completions</span>
+                  <MetricHelp
+                    id="help-completions"
+                    title="Completions"
+                    description="Completions of the published lesson."
+                  />
+                </div>
+              </TableHead>
+              <TableHead className="text-right">
+                <div className="inline-flex items-center justify-end gap-1">
+                  <span>Avg exchanges</span>
+                  <MetricHelp
+                    id="help-avg-exchanges"
+                    title="Avg exchanges"
+                    description={`Average exchanges on published completions. Over ${MAX_EXCHANGES} is past the lesson target.`}
+                  />
+                </div>
+              </TableHead>
               <TableHead>Updated</TableHead>
               <TableHead><span className="sr-only">Actions</span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredLessons.map(c => {
+            {pageLessons.map(c => {
               const isDraft = c.status === 'draft';
               const isPublic = c.status === 'public';
               const courseName = c.course ? (courseNamesById.get(c.course) || null) : null;
@@ -388,7 +450,7 @@ export default function AdminLessons() {
               const overPacing = typeof avgExchanges === 'number' && avgExchanges > MAX_EXCHANGES;
               return (
                 <TableRow key={c.lessonId}>
-                  <TableCell className="whitespace-normal">
+                  <TableCell as="th" scope="row" className="whitespace-normal font-normal text-left">
                     <div className="flex min-w-0 flex-col items-start gap-1">
                       <button
                         type="button"
@@ -445,6 +507,21 @@ export default function AdminLessons() {
           </TableBody>
         </Table>
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <nav className="flex items-center justify-center gap-3 mt-4" aria-label="Lessons pagination">
+          <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage(p => p - 1)} aria-label="Previous page">
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground" aria-current="page">
+            Page {currentPage} of {totalPages}
+          </span>
+          <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setPage(p => p + 1)} aria-label="Next page">
+            Next
+          </Button>
+        </nav>
+      )}
 
       {confirmModal && (
         <ConfirmModal

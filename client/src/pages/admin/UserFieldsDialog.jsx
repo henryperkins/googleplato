@@ -26,6 +26,7 @@ export function UserFieldsEditor({ fields, onChange }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmState, setConfirmState] = useState(null);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState('');
 
   function resetForm() {
     setForm(EMPTY_FORM);
@@ -107,6 +108,11 @@ export function UserFieldsEditor({ fields, onChange }) {
   }
 
   function handleMove(idx, delta) {
+    const field = fields[idx];
+    const newPos = idx + delta + 1;
+    if (field) {
+      setReorderAnnouncement(`Moved ${field.label} to position ${newPos} of ${fields.length}`);
+    }
     const ids = fields.map((f) => f.id);
     const [moved] = ids.splice(idx, 1);
     ids.splice(idx + delta, 0, moved);
@@ -115,6 +121,7 @@ export function UserFieldsEditor({ fields, onChange }) {
 
   return (
     <>
+      <div role="status" aria-live="polite" className="sr-only">{reorderAnnouncement}</div>
       <div className="space-y-4">
         {fields.length > 0 ? (
           <ul className="max-h-[min(14rem,35dvh)] overflow-y-auto overscroll-contain space-y-1.5 pr-1" aria-label="Custom user fields">

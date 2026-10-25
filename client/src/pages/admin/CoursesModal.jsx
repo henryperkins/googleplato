@@ -173,7 +173,14 @@ export default function CoursesModal({ open, onOpenChange, onMutated }) {
                       <span className="text-xs text-muted-foreground shrink-0 tabular-nums">({c.lessonCount} lesson{c.lessonCount === 1 ? '' : 's'})</span>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon-xs" title="Rename" aria-label={`Rename course ${c.name}`} onClick={() => startEdit(c)}>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title="Rename"
+                        aria-label={`Rename course ${c.name}`}
+                        aria-pressed={editingId === c.courseId}
+                        onClick={() => startEdit(c)}
+                      >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                       </Button>
                       <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete course ${c.name}`} onClick={() => deleteCourse(c)}>
