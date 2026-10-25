@@ -120,13 +120,21 @@ function policies(options, { uptimeCheck }) {
       `sum(increase(logging_googleapis_com:user_plato_postgres_connect_retry${run}[1h])) >= 2`, { newMetric: true })],
     content: `Starting instances retried their Cloud SQL connection at least twice in an hour, which slows cold starts. A lasting failure stops instances from becoming ready. Check Cloud SQL status and Direct VPC egress. See the [Cloud Run storage guide](${DOCS}/CLOUD_RUN_STORAGE.md).`,
   }, {
-    slug: 'cloud-sql', name: 'Cloud SQL capacity', severity: 'WARNING',
-    conditions: [
-      promql('More than 15 connections for 5 minutes', `sum by (database_id) (cloudsql_googleapis_com:database_postgresql_num_backends${sql}) > 15`, { duration: '300s' }),
-      promql('CPU above 80% for 15 minutes', `max by (database_id) (cloudsql_googleapis_com:database_cpu_utilization${sql}) > 0.8`, { duration: '900s' }),
-      promql('Disk above 80% for 5 minutes', `max by (database_id) (cloudsql_googleapis_com:database_disk_utilization${sql}) > 0.8`, { duration: '300s' }),
-    ],
-    content: `The Cloud SQL instance is near a capacity limit. Each app instance holds at most 5 connections, and a rollout can briefly run two revisions. Check instance counts before scaling and see the [connection budget](${DOCS}/CLOUD_RUN_STORAGE.md).`,
+    // A policy with a PromQL condition can't have a second condition.
+    slug: 'cloud-sql-connections', name: 'Cloud SQL connections high', severity: 'WARNING',
+    conditions: [promql('More than 15 connections for 5 minutes',
+      `sum by (database_id) (cloudsql_googleapis_com:database_postgresql_num_backends${sql}) > 15`, { duration: '300s' })],
+    content: `More than 15 database connections for 5 minutes. Each app instance holds at most 5, and a rollout can briefly run two revisions. Check instance counts before scaling and see the [connection budget](${DOCS}/CLOUD_RUN_STORAGE.md).`,
+  }, {
+    slug: 'cloud-sql-cpu', name: 'Cloud SQL CPU high', severity: 'WARNING',
+    conditions: [promql('CPU above 80% for 15 minutes',
+      `max by (database_id) (cloudsql_googleapis_com:database_cpu_utilization${sql}) > 0.8`, { duration: '900s' })],
+    content: `The Cloud SQL instance's CPU has been above 80% for 15 minutes. Check for slow queries in Cloud SQL, and whether the shared-core tier still fits the load.`,
+  }, {
+    slug: 'cloud-sql-disk', name: 'Cloud SQL disk nearly full', severity: 'WARNING',
+    conditions: [promql('Disk above 80% for 5 minutes',
+      `max by (database_id) (cloudsql_googleapis_com:database_disk_utilization${sql}) > 0.8`, { duration: '300s' })],
+    content: `The Cloud SQL instance's disk is more than 80% full. Screenshots are the largest records; check storage growth and the instance's automatic storage increase setting in Cloud SQL.`,
   }, {
     slug: 'deploy-drift', name: 'Service changed outside the deploy pipeline', severity: 'WARNING', rateLimit: '300s',
     conditions: [logMatch('Cloud Run service change by someone other than the deploy account', deployDriftFilter(options))],

@@ -49,7 +49,7 @@ filters. The save alert's filter is generated from the same definition
 | Server errors above 5% | 5xx responses above 5% over 10 minutes with at least 20 requests, for 5 minutes | Error | While firing |
 | AI requests failing | 3 or more `ai_provider_error` in 15 minutes | Warning | While firing |
 | Database connection retries at startup | 2 or more `postgres_connect_retry` in an hour | Warning | While firing |
-| Cloud SQL capacity | More than 15 connections for 5 minutes, CPU above 80% for 15 minutes, or disk above 80% for 5 minutes | Warning | While firing |
+| Cloud SQL connections high, CPU high, disk nearly full | Three policies: more than 15 connections for 5 minutes, CPU above 80% for 15 minutes, disk above 80% for 5 minutes | Warning | While firing |
 | Service changed outside the deploy pipeline | Anyone but `plato-deploy@` changes, or tries to change, the Cloud Run service | Warning | At most 1 per 5 minutes |
 
 Each email links to the relevant runbook. In tier terms, the save alert is the

@@ -34,6 +34,8 @@ describe('monitoring config', () => {
       if (logMatch) assert.ok(Number.parseInt(p.alertStrategy.notificationRateLimit.period, 10) >= 300, slug);
       else assert.equal(p.alertStrategy.notificationRateLimit, undefined, slug);
       assert.ok(p.alertStrategy.autoClose, slug);
+      // Cloud Monitoring rejects a PromQL policy with more than one condition.
+      if (p.conditions.some(condition => condition.conditionPrometheusQueryLanguage)) assert.equal(p.conditions.length, 1, slug);
     }
   });
 
@@ -71,8 +73,8 @@ describe('monitoring config', () => {
       assert.match(metric.filter, /^resource\.type="cloud_run_revision" AND resource\.labels\.service_name="plato-shaped" AND jsonPayload\.event="/);
     }
     assert.match(policy('http-5xx').conditions[0].conditionPrometheusQueryLanguage.query, /response_code_class="5xx".*> 0\.05\) and \(.*>= 20\)$/);
-    for (const condition of policy('cloud-sql').conditions) {
-      assert.match(condition.conditionPrometheusQueryLanguage.query, /database_id="idk-4e9b9:plato-durable"/);
+    for (const slug of ['cloud-sql-connections', 'cloud-sql-cpu', 'cloud-sql-disk']) {
+      assert.match(policy(slug).conditions[0].conditionPrometheusQueryLanguage.query, /database_id="idk-4e9b9:plato-durable"/);
     }
     assert.match(policy('health-check').conditions[0].conditionThreshold.filter, /metric\.label\.check_id="plato-health-abc"$/);
   });
@@ -160,7 +162,7 @@ describe('monitoring.sh', () => {
     assert.deepEqual(state.channels.map(c => c.email), ['ops@example.test']);
     assert.equal(state.uptime.length, 1);
     assert.deepEqual(state.metrics.sort(), ['plato_ai_provider_error', 'plato_postgres_connect_retry']);
-    assert.equal(state.policies.length, 8);
+    assert.equal(state.policies.length, 10);
     const created = state.calls.find(call => call.slice(0, 3).join(' ') === 'monitoring uptime create');
     for (const expected of ['--resource-labels=host=plato-shaped.ai.studio,project_id=idk-4e9b9', '--protocol=https',
       '--path=/v1/health', '--validate-ssl=true', '--status-codes=200', '--regions=usa-iowa,usa-oregon,usa-virginia']) {
@@ -175,10 +177,10 @@ describe('monitoring.sh', () => {
     assert.equal(second.status, 0, second.stderr);
     state = gcloud.state();
     assert.equal(state.channels.length, 1);
-    assert.equal(state.policies.length, 8, 'policies are updated, not duplicated');
-    const repeat = mutations(state).slice(mutations(state).length - 11);
+    assert.equal(state.policies.length, 10, 'policies are updated, not duplicated');
+    const repeat = mutations(state).slice(mutations(state).length - 13);
     assert.equal(repeat.filter(call => call.includes('create')).length, 0);
-    assert.equal(repeat.filter(call => call.slice(0, 3).join(' ') === 'monitoring policies update').length, 8);
+    assert.equal(repeat.filter(call => call.slice(0, 3).join(' ') === 'monitoring policies update').length, 10);
     assert.match(second.stdout, /updated policy deploy-drift/);
   });
 
