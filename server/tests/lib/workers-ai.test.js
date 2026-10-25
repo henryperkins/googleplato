@@ -157,6 +157,29 @@ describe('Cloudflare Workers AI adapter', () => {
     }
   });
 
+  it('tags each failure with a fixed reason, keeping only real upstream statuses', async () => {
+    for (const [reply, stream, expected] of [
+      [() => new Response('secret upstream details', { status: 401 }), false, { reason: 'http', httpStatus: 401, credentialSource: 'environment' }],
+      [() => Response.json({ success: false, errors: [{ message: 'secret upstream details' }] }), false, { reason: 'error-payload', httpStatus: undefined }],
+      [() => Response.json({ choices: [{ message: { content: ' ' }, finish_reason: 'length' }] }), false, { reason: 'empty', httpStatus: undefined }],
+      [() => sse('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n'), true, { reason: 'empty' }],
+      [() => sse('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'), true, { reason: 'incomplete' }],
+      [() => sse('data: not-json\n\n'), true, { reason: 'malformed' }],
+      [() => Response.json({ choices: [] }), true, { reason: 'malformed' }],
+      [() => sse('data: {"error":{"message":"secret upstream details","status":429}}\n\n'), true, { reason: 'error-payload', httpStatus: 429 }],
+    ]) {
+      const fetchMock = mock.method(globalThis, 'fetch', async () => reply());
+      await assert.rejects(stream ? collect(workersAi.invokeStream(MODEL, body)) : workersAi.invoke(MODEL, body), err => {
+        assert.equal(err.name, 'WorkersAiError');
+        for (const [key, value] of Object.entries(expected)) assert.equal(err[key], value, `${expected.reason} ${key}`);
+        assert.equal(err.tokenExpiresInS, undefined);
+        assert.doesNotMatch(JSON.stringify(err), /secret/);
+        return true;
+      });
+      fetchMock.mock.restore();
+    }
+  });
+
   it('times out an upstream request using an abort signal', async () => {
     mock.timers.enable({ apis: ['setTimeout'] });
     mock.method(globalThis, 'fetch', (_url, { signal }) => new Promise((resolve, reject) => {

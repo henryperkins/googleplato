@@ -2,6 +2,8 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, 
 import { setTimeout as delay } from 'node:timers/promises';
 import { performance } from 'node:perf_hooks';
 import db from './db.js';
+import { logger } from './logger.js';
+import { safeIdentifier } from './ai-errors.js';
 import { APP_URL } from '../config.js';
 
 const PRINCIPAL = '_integrations';
@@ -97,15 +99,19 @@ async function compareAndWrite(key, data, version) {
   catch (error) { if (conflict(error)) throw failure('changed', 409); throw error; }
 }
 
+// Failures keep only identifiers for diagnostics: the transport error's name
+// and code, or the HTTP status. Never a message or a response body.
 async function providerFetch(url, options) {
-  try {
-    const response = await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(10_000) });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw failure('failed', 502);
-    }
-    return response;
-  } catch { throw failure('failed', 502); }
+  let response;
+  try { response = await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(10_000) }); }
+  catch (error) {
+    throw Object.assign(failure('failed', 502), { causeName: error?.name, causeCode: error?.cause?.code });
+  }
+  if (!response.ok) {
+    try { await response.body?.cancel(); } catch { /* The status is already known. */ }
+    throw Object.assign(failure('failed', 502), { httpStatus: response.status });
+  }
+  return response;
 }
 
 async function tokenRequest(parameters, previousRefreshToken) {
@@ -416,6 +422,31 @@ export async function cloudflareCredentialStatus(userId) {
   };
 }
 
+// A failure as identifiers: the OAuth reason, the transport error's name and
+// code, or the token endpoint's HTTP status. Never a message, token or body.
+function failureIdentity(error) {
+  const oauth = error?.name === 'CloudflareOAuthError';
+  return {
+    reason: oauth ? error.code : null,
+    causeName: oauth ? error.causeName ?? error.name : error?.name,
+    causeCode: oauth ? error.causeCode : error?.code,
+    httpStatus: oauth ? error.httpStatus : undefined,
+  };
+}
+
+// Only the request whose strict write disabled the connection reports it, so
+// one transition logs once however many requests then fail.
+function reportReconnectRequired(trigger, error) {
+  try {
+    const identity = failureIdentity(error);
+    logger.warn('cloudflare_oauth_reconnect_required', {
+      trigger, reason: safeIdentifier(identity.reason), error_name: safeIdentifier(identity.causeName),
+      http_status: Number.isSafeInteger(identity.httpStatus) ? identity.httpStatus : null,
+      cause_code: safeIdentifier(identity.causeCode),
+    });
+  } catch { /* Diagnostics must not change the connection outcome. */ }
+}
+
 async function oauthCredentials() {
   // A DB lease coordinates refresh-token rotation across processes, Lambda
   // functions and Cloud Run instances. Never retry a possibly rotated token.
@@ -425,11 +456,14 @@ async function oauthCredentials() {
     if (!connection || connection.data.status === 'disconnected') return null;
     if (connection.data.status !== 'connected' || connection.data.clientId !== configuration().clientId) throw failure('reconnect-required', 503);
     const tokens = unseal(connection.data.sealedTokens, 'tokens');
-    if (tokens.expiresAt > Date.now() + 60_000) return { accountId: connection.data.account.id, apiToken: tokens.accessToken };
+    if (tokens.expiresAt > Date.now() + 60_000) {
+      return { accountId: connection.data.account.id, apiToken: tokens.accessToken, source: 'oauth', expiresAt: tokens.expiresAt };
+    }
     if (connection.data.refreshLease) {
       if (connection.data.refreshLease.until <= Date.now()) {
         try { await write(CONNECTION_KEY, { ...connection.data, status: 'reconnect-required', refreshLease: null }, connection.version); }
         catch (err) { if (conflict(err)) continue; throw err; }
+        reportReconnectRequired('refresh-lease-expired');
         throw failure('reconnect-required', 503);
       }
       await delay(100);
@@ -440,9 +474,11 @@ async function oauthCredentials() {
     catch (err) { if (conflict(err)) continue; throw err; }
     let renewed;
     try { renewed = await tokenRequest({ grant_type: 'refresh_token', refresh_token: tokens.refreshToken }, tokens.refreshToken); }
-    catch {
-      try { await write(CONNECTION_KEY, { ...connection.data, status: 'reconnect-required', refreshLease: null }, connection.version + 1); }
-      catch (err) { if (!conflict(err)) throw err; }
+    catch (refreshError) {
+      try {
+        await write(CONNECTION_KEY, { ...connection.data, status: 'reconnect-required', refreshLease: null }, connection.version + 1);
+        reportReconnectRequired('refresh-failed', refreshError);
+      } catch (err) { if (!conflict(err)) throw err; }
       throw failure('reconnect-required', 503);
     }
     const sealedTokens = seal(renewed, 'tokens');
@@ -451,7 +487,7 @@ async function oauthCredentials() {
     try {
       await write(CONNECTION_KEY, { ...connection.data, sealedTokens, connectionId, expiresAt: renewed.expiresAt, refreshLease: null }, connection.version + 1);
       await releaseCredentials(revocationKey);
-      return { accountId: connection.data.account.id, apiToken: renewed.accessToken };
+      return { accountId: connection.data.account.id, apiToken: renewed.accessToken, source: 'oauth-refreshed', expiresAt: renewed.expiresAt };
     } catch (err) { if (!conflict(err)) throw err; }
     await retryCloudflareRevocations();
     // A disconnect/reconnect won the race. Read that decision; do not use or
@@ -460,13 +496,32 @@ async function oauthCredentials() {
   throw failure('busy', 503);
 }
 
+const CONFIGURATION_REASONS = new Set(['reconnect-required', 'setup-required']);
+const TEMPORARY_REASONS = new Set(['busy']);
+
+// Only states an administrator must fix ask for Reconnect (ai_unavailable). A
+// renewal still in progress elsewhere is temporary (ai_overloaded); a database
+// or unexpected error is a server error (ai_error).
+// The thrown error carries its cause's identifiers but no `code` or `status`
+// of its own, so a database network error cannot classify as an unreachable
+// AI provider.
+function credentialsError(error) {
+  const identity = failureIdentity(error);
+  const [name, message] = CONFIGURATION_REASONS.has(identity.reason) ? ['AiConfigurationError', ERRORS[identity.reason]]
+    : TEMPORARY_REASONS.has(identity.reason) ? ['AiCredentialsTemporaryError', ERRORS[identity.reason]]
+      : ['AiCredentialsError', 'Workers AI credentials could not be loaded.'];
+  return Object.assign(new Error(message), { name, aiStage: 'credentials', ...identity });
+}
+
 export async function workersAiCredentials() {
-  try {
-    const oauth = await oauthCredentials();
-    if (oauth) return oauth;
-    if (environmentCredentialStatus().configured) return { accountId: process.env.CLOUDFLARE_ACCOUNT_ID, apiToken: process.env.CLOUDFLARE_API_TOKEN };
-  } catch {
-    throw Object.assign(new Error(ERRORS['reconnect-required']), { name: 'AiConfigurationError' });
+  let oauth;
+  try { oauth = await oauthCredentials(); }
+  catch (error) { throw credentialsError(error); }
+  if (oauth) return oauth;
+  if (environmentCredentialStatus().configured) {
+    return { accountId: process.env.CLOUDFLARE_ACCOUNT_ID, apiToken: process.env.CLOUDFLARE_API_TOKEN, source: 'environment' };
   }
-  throw Object.assign(new Error('Connect Cloudflare in AI settings or configure Workers AI credentials on the server.'), { name: 'AiConfigurationError' });
+  throw Object.assign(new Error('Connect Cloudflare in AI settings or configure Workers AI credentials on the server.'), {
+    name: 'AiConfigurationError', aiStage: 'credentials', reason: 'missing-credentials',
+  });
 }

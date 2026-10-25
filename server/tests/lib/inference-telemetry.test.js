@@ -70,9 +70,30 @@ test('merges cumulative Anthropic usage and reports SDK retries without summing 
 
 test('a broken log sink cannot fail inference', () => {
   assert.doesNotThrow(() => {
-    const t = createInferenceTelemetry({}, { emit: () => { throw new Error('sink down'); } });
-    t.observe(null); t.visible('hello'); t.finish('success');
+    const t = createInferenceTelemetry({}, { emit: () => { throw new Error('sink down'); }, warn: () => { throw new Error('sink down'); } });
+    t.observe(null); t.visible('hello'); t.fail('ai_error', new Error('boom')); t.finish('error', 'ai_error');
   });
+});
+
+test('reports a failure once as a content-free warning carrying the invocation identity', () => {
+  const events = [];
+  const warnings = [];
+  const t = createInferenceTelemetry({ provider: 'workers-ai', model: 'model', stream: true, context: { agent_role: 'coach' } }, {
+    emit: (code, meta) => events.push({ code, ...meta }), warn: (code, meta) => warnings.push({ code, ...meta }),
+  });
+  const error = Object.assign(new Error('secret provider text'), {
+    name: 'WorkersAiError', status: 401, httpStatus: 401, reason: 'http', credentialSource: 'oauth', tokenExpiresInS: 75,
+  });
+  t.fail('ai_unavailable', error);
+  t.finish('error', 'ai_unavailable');
+  t.fail('ai_unavailable', error);
+  assert.deepEqual(warnings, [{
+    code: 'ai_provider_error', schema_version: 1, inference_id: events[0].inference_id, provider: 'workers-ai', model: 'model',
+    stream: true, agent_role: 'coach', error_code: 'ai_unavailable', stage: 'provider', reason: 'http', error_name: 'WorkersAiError',
+    http_status: 401, cause_code: null, credential_source: 'oauth', token_expires_in_s: 75,
+  }]);
+  assert.equal(events[1].error_code, 'ai_unavailable');
+  assert.doesNotMatch(JSON.stringify(warnings), /secret/);
 });
 
 test('later cumulative output cannot retain an obsolete reasoning or visible-token breakdown', () => {

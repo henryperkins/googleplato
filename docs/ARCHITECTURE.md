@@ -200,7 +200,19 @@ an in-flight stream. No provider fallback occurs.
 through the selected adapter. `LLM` / `ctx.LLM` remain compatibility hints;
 browser and plugin model arguments do not override the admin choice.
 Before the first save, `AI_PROVIDER` and `WORKERS_AI_MODEL` supply optional
-defaults. Existing installations default to Bedrock.
+defaults. Existing installations default to Bedrock, so a deployment without AWS
+credentials, such as Cloud Run, needs `AI_PROVIDER=workers-ai` or a saved
+selection. Otherwise every request goes to Bedrock and fails. AI Settings warns
+when the server shows no AWS credential source. The check looks at environment
+variables and shared credential files only, so it can't see an EC2 instance role.
+It warns and never blocks.
+
+A failed invocation logs `ai_provider_error` (WARN) beside `inference_finished`,
+with content-free diagnostics ([INFERENCE_TELEMETRY.md](INFERENCE_TELEMETRY.md#failure-diagnostics)).
+Only configuration states an administrator must fix are reported to the browser
+as `ai_unavailable`. A Workers AI credential read that fails temporarily or
+unexpectedly reports `ai_overloaded` or `ai_error` instead
+([CLOUDFLARE_OAUTH.md](CLOUDFLARE_OAUTH.md#when-ai-requests-fail)).
 
 Bedrock uses **`qwen.qwen3-vl-235b-a22b`** and the AWS credential chain.
 Workers AI defaults to **`@cf/deepseek-ai/deepseek-v4.1-flash-1017`**, hosted by
@@ -231,7 +243,8 @@ and user sync records. The stable encryption key is supplied by the server owner
 there is no development-key fallback. Database reads are strongly consistent and
 all writes use strict versions. A database lease coordinates refresh-token rotation
 across instances. Ambiguous refresh failures require reconnect rather than retrying
-a potentially rotated token. Failed refresh credentials remain encrypted solely
+a potentially rotated token. The request that disables a connection logs
+`cloudflare_oauth_reconnect_required` once. Failed refresh credentials remain encrypted solely
 for explicit revocation. Disconnect first disables local access with a versioned
 tombstone, then revokes the grant; failed revocation remains visible and retryable.
 Late callbacks and refresh completions cannot restore a disconnected connection.

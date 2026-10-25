@@ -27,6 +27,7 @@ const ai = {
       return result;
     } catch (error) {
       errorCode = classifyAiError(error).code;
+      telemetry.fail(errorCode, error);
       throw error;
     } finally { telemetry.finish(outcome, errorCode); }
   },
@@ -45,6 +46,7 @@ const ai = {
     } catch (error) {
       outcome = signal?.aborted ? 'cancelled' : 'error';
       errorCode = classifyAiError(error).code;
+      if (outcome === 'error') telemetry.fail(errorCode, error);
       throw error;
     } finally { telemetry.finish(outcome, errorCode); }
   },

@@ -4,6 +4,7 @@ import {
   aiConfigurationKey,
   aiConfigurationLabel,
   aiModelName,
+  bedrockCredentialWarning,
   pendingAiSettingsChanges,
   savedAiSettingsMessage,
   testedAiConfiguration,
@@ -67,6 +68,15 @@ describe('AI Settings configuration presentation', () => {
     const bedrock = testedAiConfiguration(candidate, { provider: 'bedrock', model: 'qwen3-vl-235b' });
     assert.match(aiConfigurationLabel(bedrock), /Amazon Bedrock.*Qwen3-VL/);
     assert.notEqual(aiConfigurationKey(testedAiConfiguration(candidate, { provider: 'unknown', model: mistral })), aiConfigurationKey(candidate));
+  });
+
+  it('warns about Bedrock only when the server reports no AWS credentials', () => {
+    assert.equal(bedrockCredentialWarning(settings), null, 'servers that predate the check report nothing');
+    assert.equal(bedrockCredentialWarning({ ...settings, bedrockCredentials: { configured: true } }), null);
+    assert.equal(bedrockCredentialWarning(null), null);
+    const warning = bedrockCredentialWarning({ ...settings, bedrockCredentials: { configured: false } });
+    assert.match(warning, /No AWS credentials/);
+    assert.match(warning, /instance role/, 'presence checks cannot see an instance role, so the copy must not overclaim');
   });
 
   it('uses the captured request configuration if a proxy omits response metadata', () => {

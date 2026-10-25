@@ -39,6 +39,12 @@ Required environment variables:
 | `RELEASE_COMMIT` | Source commit exposed with the serving revision in response headers. |
 | `SKIP_EMAIL` | When `true`, email delivery is off: invite/reset attempts log only `email_suppressed` (kind, no address or link), invites return shareable links to the admin with `emailDelivery: 'off'`, and password resets create no token. |
 
+The service has no AWS credentials, so Bedrock can't serve it. Keep the saved
+Workers AI selection in **Admin → AI Settings**. For a new database, set
+`AI_PROVIDER=workers-ai` until an administrator saves one; otherwise the Bedrock
+default makes every AI request fail. AI Settings warns about missing AWS
+credentials on this service.
+
 For non-Cloud-SQL PostgreSQL deployments and local integration checks, `PGHOST`
 can replace `INSTANCE_CONNECTION_NAME`. Use the PostgreSQL client's TLS settings
 as appropriate for that environment. Cloud SQL uses Google's Node connector with

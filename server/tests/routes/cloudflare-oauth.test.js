@@ -16,6 +16,7 @@ const { default: admin } = await import('../../src/routes/admin.js');
 const { default: aiRoute } = await import('../../src/routes/ai.js');
 const { default: syncRoute } = await import('../../src/routes/sync.js');
 const { signAccessToken } = await import('../../src/lib/jwt.js');
+const { logger } = await import('../../src/lib/logger.js');
 const app = new Hono().route('/', admin).route('/', aiRoute).route('/', syncRoute);
 app.get('/unrelated-health', c => c.json({ ok: true }));
 const base = 'https://plato.example';
@@ -72,8 +73,12 @@ async function infer() {
   });
 }
 
+const logged = code => logger.recent().filter(entry => entry.code === code);
+
 beforeEach(async () => {
   mock.restoreAll();
+  logger._reset();
+  mock.method(console, 'warn', () => {});
   for (const principal of ['_integrations', '_system']) {
     for (const row of await db.getAllSyncData(principal)) await db.deleteSyncData(principal, row.dataKey);
   }
@@ -451,9 +456,13 @@ describe('Cloudflare browser connection', () => {
       }
       return data;
     });
-    assert.equal((await infer()).status, 503);
+    const response = await infer();
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, 'ai_overloaded', 'a renewal in progress elsewhere is temporary, not a reconnect');
     assert.equal(connectionReads, 1);
     assert.equal(calls.filter(call => call.url.pathname.endsWith('/token')).length, 1);
+    const { stage, reason, error_code } = logged('ai_provider_error')[0].meta;
+    assert.deepEqual({ stage, reason, error_code }, { stage: 'credentials', reason: 'busy', error_code: 'ai_overloaded' });
     mock.restoreAll();
     assert.equal((await db.getSyncData('_integrations', row.dataKey)).data.status, 'connected');
   });
@@ -488,9 +497,19 @@ describe('Cloudflare browser connection', () => {
     globalThis.fetch = (url, options) => String(url).endsWith('/token')
       ? Promise.resolve(Response.json({ error: 'invalid_grant', error_description: 'private error details' }, { status: 400 }))
       : originalFetch(url, options);
-    assert.equal((await infer()).status, 503);
+    const response = await infer();
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, 'ai_unavailable');
     assert.equal((await settings()).workersAiOAuth.needsReconnect, true);
     assert.equal((await infer()).status, 503);
+    const transitions = logged('cloudflare_oauth_reconnect_required');
+    assert.equal(transitions.length, 1);
+    assert.equal(transitions[0].level, 'warn');
+    assert.deepEqual(transitions[0].meta, {
+      trigger: 'refresh-failed', reason: 'failed', error_name: 'CloudflareOAuthError', http_status: 400, cause_code: null,
+    });
+    assert.deepEqual(logged('ai_provider_error').map(entry => entry.meta.reason), ['reconnect-required', 'reconnect-required']);
+    assert.doesNotMatch(JSON.stringify(logger.recent()), /private error details|invalid_grant|do-not-return|manual-other-account/);
     const data = await settings();
     await request('DELETE', '', { version: data.workersAiOAuth.version });
     assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
@@ -736,10 +755,90 @@ describe('Cloudflare browser connection', () => {
     mock.method(Date, 'now', () => now + 60_000);
     assert.equal((await infer()).status, 503);
     assert.equal(calls.filter(call => call.url.pathname.endsWith('/token')).length, 1);
+    assert.deepEqual(logged('cloudflare_oauth_reconnect_required').map(entry => entry.meta), [{
+      trigger: 'refresh-lease-expired', reason: null, error_name: null, http_status: null, cause_code: null,
+    }]);
     const data = await settings();
     assert.equal(data.workersAiOAuth.needsReconnect, true);
     await request('DELETE', '', { version: data.workersAiOAuth.version });
     assert.equal(calls.filter(call => call.url.pathname.endsWith('/revoke')).length, 2);
+  });
+
+  it('reports a database failure while reading credentials as a server error, not a reconnect', async () => {
+    await connect();
+    const originalRead = db.getSyncData.bind(db);
+    const readMock = mock.method(db, 'getSyncData', async (...args) => {
+      if (args[0] === '_integrations' && args[1] === 'cloudflare-ai') {
+        throw Object.assign(new Error('connect ECONNREFUSED 10.1.2.3:5432 password=database-secret'), { code: 'ECONNREFUSED' });
+      }
+      return originalRead(...args);
+    });
+    const response = await infer();
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).code, 'ai_error');
+    readMock.mock.restore();
+    assert.equal((await settings()).workersAiOAuth.connected, true);
+    const { stage, reason, error_code, error_name, cause_code } = logged('ai_provider_error')[0].meta;
+    assert.deepEqual({ stage, reason, error_code, error_name, cause_code },
+      { stage: 'credentials', reason: null, error_code: 'ai_error', error_name: 'Error', cause_code: 'ECONNREFUSED' });
+    assert.equal(logged('cloudflare_oauth_reconnect_required').length, 0);
+    assert.doesNotMatch(JSON.stringify(logger.recent()), /10\.1\.2\.3|database-secret/);
+    assert.equal((await infer()).status, 200);
+  });
+
+  it('still requires reconnect when a renewal may have reached Cloudflare, reporting the transition once', async () => {
+    const ambiguous = [
+      [() => Promise.reject(new TypeError('fetch failed', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET', syscall: 'read' }) })),
+        { reason: 'failed', error_name: 'TypeError', http_status: null, cause_code: 'ECONNRESET' }],
+      [() => Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+        { reason: 'failed', error_name: 'TimeoutError', http_status: null, cause_code: null }],
+      [() => Promise.resolve(new Response('private upstream details', { status: 503 })),
+        { reason: 'failed', error_name: 'CloudflareOAuthError', http_status: 503, cause_code: null }],
+    ];
+    for (const [reply, expected] of ambiguous) {
+      mock.restoreAll();
+      logger._reset();
+      mock.method(console, 'warn', () => {});
+      mock.method(globalThis, 'fetch', async (input, options) => {
+        const url = new URL(input);
+        calls.push({ url, options });
+        if (url.href === 'https://dash.cloudflare.com/oauth2/token' && new URLSearchParams(options.body).get('grant_type') === 'refresh_token') return reply();
+        if (url.href === 'https://dash.cloudflare.com/oauth2/token') return Response.json({ ...tokenReply, expires_in: 90 });
+        if (url.href === 'https://dash.cloudflare.com/oauth2/revoke') return new Response(null, { status: 200 });
+        if (url.pathname === '/client/v4/accounts') return Response.json({ success: true, result: accounts, result_info: { page: 1, total_pages: 1 } });
+        return Response.json({ choices: [{ message: { content: 'Connection OK' }, finish_reason: 'stop' }] });
+      });
+      await connect();
+      const now = Date.now();
+      mock.method(Date, 'now', () => now + 60_000);
+      const replies = await Promise.all([infer(), infer(), infer()]);
+      assert.deepEqual(replies.map(response => response.status), [503, 503, 503]);
+      for (const response of replies) assert.equal((await response.json()).code, 'ai_unavailable');
+      assert.equal((await settings()).workersAiOAuth.needsReconnect, true);
+      assert.deepEqual(logged('cloudflare_oauth_reconnect_required').map(entry => entry.meta), [{ trigger: 'refresh-failed', ...expected }]);
+      assert.doesNotMatch(JSON.stringify(logger.recent()), /private upstream details|do-not-return/);
+    }
+  });
+
+  it('records which Workers AI credentials the provider rejected, without the token', async () => {
+    tokenReply.expires_in = 90;
+    await connect();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (url, options) => String(url).includes('/ai/v1/chat/completions')
+      ? Promise.resolve(new Response('secret upstream details', { status: 401 })) : originalFetch(url, options);
+    assert.equal((await infer()).status, 503);
+    const now = Date.now();
+    mock.method(Date, 'now', () => now + 60_000);
+    tokenReply = { ...tokenReply, access_token: 'rotated-access', refresh_token: 'rotated-refresh' };
+    assert.equal((await infer()).status, 503);
+    const [refreshed, stored] = logged('ai_provider_error').map(entry => entry.meta);
+    assert.equal(stored.stage, 'provider');
+    assert.equal(stored.http_status, 401);
+    assert.equal(stored.credential_source, 'oauth');
+    assert.ok(stored.token_expires_in_s > 60 && stored.token_expires_in_s <= 90, String(stored.token_expires_in_s));
+    assert.equal(refreshed.credential_source, 'oauth-refreshed');
+    assert.equal(refreshed.token_expires_in_s, 90);
+    assert.doesNotMatch(JSON.stringify(logger.recent()), /secret upstream|do-not-return|rotated-/);
   });
 
   it('reports one-time setup requirements and rejects insecure production callback origins', async () => {

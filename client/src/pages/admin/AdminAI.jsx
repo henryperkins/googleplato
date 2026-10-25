@@ -5,7 +5,7 @@ import CloudflareConnection from './CloudflareConnection.jsx';
 import { cloudflareAuthorizationUrl, cloudflareReturnFeedback, rememberCloudflareDraft, restoreCloudflareDraft } from '../../lib/cloudflareConnection.js';
 import { connectionTestErrorMessage } from '../../lib/aiSettingsFeedback.js';
 import {
-  aiConfigurationKey, aiConfigurationLabel, aiModelName, pendingAiSettingsChanges,
+  aiConfigurationKey, aiConfigurationLabel, aiModelName, bedrockCredentialWarning, pendingAiSettingsChanges,
   savedAiSettingsMessage, testedAiConfiguration,
 } from '../../lib/aiSettingsPresentation.js';
 import { Button } from '@/components/ui/button';
@@ -244,6 +244,8 @@ export default function AdminAI() {
   const changed = changes.length > 0;
   const selectedModel = settings?.workersAiModels.find(item => item.id === model);
   const missingCredentials = provider === 'workers-ai' && !settings?.workersAiCredentials.configured;
+  const bedrockWarning = bedrockCredentialWarning(settings);
+  const showBedrockWarning = provider === 'bedrock' && Boolean(bedrockWarning);
   const pending = loading || Boolean(busy);
   const currentTest = candidate && lastTest?.key === aiConfigurationKey(candidate) ? lastTest : null;
   const feedbackError = Boolean(loadError || message?.error);
@@ -257,7 +259,7 @@ export default function AdminAI() {
     : loadError ? 'AI settings could not be reloaded. Your selections have been kept. Try reloading again.'
     : message?.text;
   const saveDescription = pending ? 'ai-feedback' : missingCredentials ? 'workers-credentials-help'
-    : changed ? 'ai-pending-changes' : 'ai-save-reason';
+    : changed ? `ai-pending-changes${showBedrockWarning ? ' bedrock-credentials-warning' : ''}` : 'ai-save-reason';
 
   return (
     <div className="space-y-6 wrap-anywhere">
@@ -297,6 +299,7 @@ export default function AdminAI() {
                   <span className="min-w-0">
                     <span className="block font-medium">{item.name}</span>
                     <span className="block mt-1 text-sm text-muted-foreground">{item.description}</span>
+                    {item.id === 'bedrock' && bedrockWarning ? <span className="block mt-1 text-sm text-warning-foreground">No AWS credentials found on this server.</span> : null}
                   </span>
                 </label>
               ))}
@@ -338,6 +341,7 @@ export default function AdminAI() {
               <Card>
                 <CardHeader><CardTitle as="h2">Model and access</CardTitle></CardHeader>
                 <CardContent className="space-y-3 text-sm">
+                  {showBedrockWarning ? <p id="bedrock-credentials-warning" className="rounded-md border border-warning-border bg-warning px-3 py-2 text-warning-foreground">{bedrockWarning}</p> : null}
                   <p><strong>Model:</strong> {aiModelName(candidate)}</p>
                   <p><strong>AWS region:</strong> {settings.awsRegion}</p>
                   <p className="text-muted-foreground">Your server owner manages the model, region, and access. After server changes, reload settings and use Test connection to check model access.</p>

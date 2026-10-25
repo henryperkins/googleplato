@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import db from './db.js';
 import { cloudflareCredentialStatus, environmentCredentialStatus } from './cloudflare-oauth.js';
 
@@ -30,11 +33,32 @@ export async function readAiSettings() {
 
 export const workersAiCredentialStatus = environmentCredentialStatus;
 
+const AWS_CREDENTIAL_VARIABLES = [
+  ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'], ['AWS_PROFILE'], ['AWS_WEB_IDENTITY_TOKEN_FILE'],
+  ['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'], ['AWS_CONTAINER_CREDENTIALS_FULL_URI'], ['AWS_BEARER_TOKEN_BEDROCK'],
+];
+
+/**
+ * Whether this server shows any AWS credential source for Bedrock. Presence
+ * only: no network call and no instance-metadata lookup, so an EC2 instance
+ * role cannot be seen. AI Settings warns on a miss but never blocks Bedrock.
+ */
+export function bedrockCredentialStatus(env = process.env) {
+  const present = name => Boolean(env[name]?.trim());
+  if (AWS_CREDENTIAL_VARIABLES.some(names => names.every(present))) return { configured: true };
+  let home = env.HOME || env.USERPROFILE;
+  try { home ||= homedir(); } catch { /* No home directory to search. */ }
+  const files = [env.AWS_SHARED_CREDENTIALS_FILE, env.AWS_CONFIG_FILE,
+    ...(home ? [join(home, '.aws', 'credentials'), join(home, '.aws', 'config')] : [])];
+  return { configured: files.some(file => file && existsSync(file)) };
+}
+
 export async function adminAiSettings(settings, userId) {
   return {
     ...settings,
     bedrockModel: BEDROCK_MODEL,
     awsRegion: process.env.AWS_REGION || 'us-east-2',
+    bedrockCredentials: bedrockCredentialStatus(),
     workersAiModels: WORKERS_AI_MODELS,
     ...await cloudflareCredentialStatus(userId),
   };

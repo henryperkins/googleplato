@@ -18,8 +18,9 @@ Each invocation emits single-line structured JSON through `logger.js`:
 | `inference_started` | An invocation entered the selected provider adapter. |
 | `inference_finished` | Success, error, or cancellation; includes available usage, timings, and retry metadata. |
 | `lesson_attempt_saved` | The server acknowledged an atomic lesson turn, including exact replay after a lost acknowledgement. Status comes from the saved lesson KB. |
+| `ai_provider_error` | WARN. Why an invocation failed, as fixed identifiers; see [Failure diagnostics](#failure-diagnostics). |
 
-All three are INFO events. They are measurements, not individual save alarms.
+The first three are INFO events. They are measurements, not individual save alarms.
 Cloud Run captures process output in Cloud Logging across instances/revisions.
 `log-watch.js` keeps its existing save-event query and counting behavior. The
 new report explicitly selects the three inference/lifecycle codes. No additional
@@ -35,6 +36,38 @@ not anonymized public data. Keep normal access and retention controls on logs.
 No prompts, messages, reasoning traces, screenshots, email addresses, credentials,
 or raw lesson/account identifiers are logged by this instrumentation. Browser
 tags are allowlisted and never forwarded in the provider request body.
+
+## Failure diagnostics
+
+A failed invocation also emits one `ai_provider_error` at WARN, so failures can
+be counted and alerted on apart from the INFO measurements. Cancelled streams
+emit none. It shares `inference_id` with that invocation's `inference_finished`
+and repeats `provider`, `model`, `stream` and `agent_role`. `error_code` is the
+classified code the browser receives (`ai_unavailable`, `ai_overloaded`, ...),
+matching `inference_finished.error_code`.
+
+| Field | Meaning |
+| --- | --- |
+| `stage` | `credentials` when obtaining credentials failed (Workers AI OAuth or manual credentials, Bedrock's credential chain); otherwise `provider`. |
+| `reason` | Fixed reason, or `null`. Credentials: `reconnect-required`, `setup-required`, `missing-credentials`, `busy`. Workers AI provider: `http`, `error-payload`, `empty` (finished without visible text), `incomplete`, `malformed`. |
+| `error_name` | The failing error's name. For credentials, the underlying cause's name, such as a database error. |
+| `http_status` | The provider's HTTP status, or the status in a Workers AI stream error event. `null` when none was received. |
+| `cause_code` | A transport or database code, such as `ECONNRESET`, `UND_ERR_SOCKET` or a PostgreSQL SQLSTATE. |
+| `credential_source` | For a Workers AI HTTP failure: `oauth`, `oauth-refreshed` (renewed during this request) or `environment`. |
+| `token_expires_in_s` | For an OAuth HTTP failure: seconds left on the access token, as stored. |
+
+Values are names, codes and statuses only, each checked against a fixed pattern.
+Error messages, provider bodies, tokens, account IDs and hostnames are never
+logged: AWS messages can include the account ID and IAM role name, and database
+errors can include connection details.
+
+Find failures with the Cloud Logging filter
+`jsonPayload.event="ai_provider_error"` and group them by `error_code`, `stage`
+and `reason`. [OBSERVABILITY.md](OBSERVABILITY.md) classifies the event as a
+trend signal. For the Workers AI OAuth connection,
+[CLOUDFLARE_OAUTH.md](CLOUDFLARE_OAUTH.md#when-ai-requests-fail) lists which
+failures need **Reconnect Cloudflare**, and describes the separate
+`cloudflare_oauth_reconnect_required` event.
 
 ## Tokens, timing, and retries
 
