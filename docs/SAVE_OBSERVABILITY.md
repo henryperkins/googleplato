@@ -118,10 +118,14 @@ This requires the `gh` CLI and its authenticated issue-write access. One open
 racing issue creation; exit 2 still denotes findings even if an issue already
 exists. No issues are created by a default or `--dry-run` invocation.
 
-Use a local or external scheduler and alert on exit 1 as well as 2. GitHub-hosted
-Actions are permanently unavailable for this deployment; do not rely on or
-retry `.github/workflows/log-watch.yml`. This implementation does not provision
-a scheduler, alter IAM, deploy code, or change Cloud SQL.
+Cloud Monitoring emails about save failure signals as they're logged; see
+[Cloud Run alerting](OBSERVABILITY.md#cloud-run-alerting). That alert leaves out
+rejections caused by a client upgrade, which `log-watch` still counts. Use
+`log-watch` to investigate an alert, or from a local or external scheduler for
+periodic reports; alert on exit 1 as well as 2. GitHub-hosted Actions are
+permanently unavailable for this deployment; do not rely on or retry
+`.github/workflows/log-watch.yml`. `log-watch` itself does not provision a
+scheduler, alter IAM, deploy code, or change Cloud SQL.
 
 ## Other consumers and deployments
 
