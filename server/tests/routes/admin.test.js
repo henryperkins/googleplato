@@ -24,12 +24,21 @@ async function userReq(app, method, path, body) {
   });
 }
 
-// Admin stats endpoints read `lessonKB:*` / `messages:*` via a sort-key prefix
-// query (skips the large screenshot:* records). Back it with whatever
-// getAllSyncData the test set up, so fixtures stay declarative.
+// Admin stats endpoints read `lessonKB:*` via one bulk cross-user prefix
+// read (PR-8). Back it with whatever getAllSyncData / listAllUsers the test
+// set up, so fixtures stay declarative.
 beforeEach(() => {
   db.getSyncDataByPrefix = async (userId, prefix) =>
     (await db.getAllSyncData(userId)).filter((i) => i.dataKey?.startsWith(prefix));
+  db.getSyncDataByPrefixForAllUsers = async (prefix) => {
+    const users = await db.listAllUsers();
+    const perUser = await Promise.all(users.map(async (u) =>
+      (await db.getAllSyncData(u.userId))
+        .filter((i) => i.dataKey?.startsWith(prefix))
+        .map((i) => ({ ...i, userId: u.userId }))));
+    return perUser.flat();
+  };
+  db.deleteAllSyncData = async () => {};
 });
 
 // Routes read custom user field definitions from `_system:settings` (#364).
@@ -574,6 +583,50 @@ describe('GET /v1/admin/stats/lessons', () => {
     assert.equal(data.learnersCompletedHalf, 1, '1 of 1 public lesson completed > 50%');
   });
 
+  it('matches the legacy aggregation: lazy messages fallback only for completed public lessons missing timestamps', async () => {
+    db.listAllUsers = async () => [
+      { userId: 'u1', role: 'user' },
+      { userId: 'a1', role: 'admin' },
+    ];
+    db.getAllSyncData = async (userId) => {
+      if (userId === '_system') return [
+        { dataKey: 'lesson:pub', data: { status: 'public', markdown: '# Public' } },
+        { dataKey: 'lesson:priv', data: { status: 'private', markdown: '# Private', sharedWith: ['u1'] } },
+        { dataKey: 'lesson:draft', data: { status: 'draft', markdown: '' } },
+      ];
+      if (userId === 'u1') return [
+        // Completed public, no KB timestamps -> legacy messages fallback (10 min).
+        { dataKey: 'lessonKB:pub', data: { status: 'completed', activitiesCompleted: 5 } },
+        { dataKey: 'lessonKB:priv', data: { status: 'completed', activitiesCompleted: 5 } },
+        { dataKey: 'lessonKB:draft', data: { status: 'completed', activitiesCompleted: 5 } },
+        { dataKey: 'lessonKB:custom-abc', data: { status: 'completed', activitiesCompleted: 5 } },
+      ];
+      // Admin completion with KB timestamps counts toward pacing (as before),
+      // but the admin is excluded from the engagement denominator.
+      return [
+        { dataKey: 'lessonKB:pub', data: { status: 'completed', activitiesCompleted: 5, startedAt: 60000, completedAt: 1260000 } },
+      ];
+    };
+    const messageReads = [];
+    db.getSyncData = async (userId, dataKey) => {
+      if (dataKey.startsWith('messages:')) messageReads.push(`${userId}/${dataKey}`);
+      if (userId === 'u1' && dataKey === 'messages:pub') {
+        return { data: [{ timestamp: 60000 }, { timestamp: 660000 }] };
+      }
+      return null;
+    };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.totalCompletions, 2, 'public completions from the learner and the admin');
+    assert.equal(data.avgDurationMinutes, 15, '(10 min legacy fallback + 20 min KB timestamps) / 2');
+    assert.equal(data.activeLearners, 1, 'admin excluded from the denominator');
+    assert.equal(data.learnersStarted, 1);
+    assert.deepEqual(messageReads, ['u1/messages:pub'], 'messages fetched only for the one lesson needing the fallback');
+  });
+
   it('serves cached value without recomputing when cache is fresh', async () => {
     const cachedStats = { totalCompletions: 999, fromCache: true, byLesson: {} };
     db.getSyncData = async (userId, dataKey) => {
@@ -612,7 +665,7 @@ describe('GET /v1/admin/stats/lessons', () => {
     assert.equal(computeRan, true);
   });
 
-  it('serves cached value and skips synchronous recompute when cache is stale (10min < age < 24h)', async () => {
+  it('serves the fresh recompute when a stale cache refresh lands within the budget (off Lambda)', async () => {
     const cachedStats = { totalCompletions: 42, fromCache: true, byLesson: {} };
     const staleAgeMs = 30 * 60 * 1000; // 30 minutes
     db.getSyncData = async () => ({
@@ -620,13 +673,16 @@ describe('GET /v1/admin/stats/lessons', () => {
     });
     let computeRan = false;
     db.listAllUsers = async () => { computeRan = true; return []; };
+    db.getAllSyncData = async () => [];
     const app = new Hono();
     app.route('/', admin);
     const res = await adminReq(app, 'GET', '/v1/admin/stats/lessons');
     assert.equal(res.status, 200);
     const data = await res.json();
-    assert.equal(data.fromCache, true);
-    assert.equal(computeRan, false, 'stale path should NOT recompute synchronously');
+    assert.equal(data.fromCache, undefined, 'fast refresh replaces the stale payload');
+    assert.equal(data.totalCompletions, 0);
+    assert.equal(computeRan, true, 'stale path starts the single-flight recompute');
+    assert.equal(putCalls.length, 1, 'refresh writes the new cache');
   });
 
   it('?refresh=1 bypasses a fresh cache and recomputes', async () => {
@@ -694,8 +750,8 @@ describe('DELETE /v1/admin/users/:userId', () => {
 
   it('deletes user and sync data', async () => {
     let deleted = false;
-    db.getAllSyncData = async () => [{ dataKey: 'profile' }, { dataKey: 'work' }];
-    db.deleteSyncData = async () => {};
+    let bulkDeletedFor = null;
+    db.deleteAllSyncData = async (userId) => { bulkDeletedFor = userId; };
     db.deleteUser = async () => { deleted = true; };
     db.createAuditLog = async () => {};
     const app = new Hono();
@@ -703,6 +759,7 @@ describe('DELETE /v1/admin/users/:userId', () => {
     const res = await adminReq(app, 'DELETE', '/v1/admin/users/usr_p1');
     assert.equal(res.status, 200);
     assert.ok(deleted);
+    assert.equal(bulkDeletedFor, 'usr_p1', 'sync cascade is one bulk delete');
   });
 });
 
@@ -1396,6 +1453,31 @@ describe('GET /v1/admin/users?include=stats', () => {
     // Both fields persisted back to the user record so subsequent reads are O(1)
     assert.ok(writes.some((w) => w.field === 'lessonsCompleted' && w.value === 2));
     assert.ok(writes.some((w) => w.field === 'lastActiveAt' && w.value === '2026-05-03T09:15:00.000Z'));
+  });
+
+  it('bounds heal/backfill writes to four in flight and preserves row order', async () => {
+    const users = Array.from({ length: 8 }, (_, i) => ({
+      userId: `u${i}`, email: `u${i}@x.com`, name: `U${i}`, role: 'user', createdAt: '2024-01-01',
+    }));
+    db.listAllUsers = async () => users;
+    db.getAllSyncData = async (uid) => (uid === '_system'
+      ? [{ dataKey: 'lesson:l1', data: { status: 'public', markdown: '#' } }]
+      : []);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    db.setUserActivityField = async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      inFlight--;
+    };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/users?include=stats');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.deepEqual(data.map(r => r.userId), users.map(u => u.userId), 'row order matches the user list');
+    assert.ok(maxInFlight <= 4, `heal writes peaked at ${maxInFlight}, above the bound of 4`);
+    assert.ok(maxInFlight > 1, 'heal writes should still parallelise within the bound');
   });
 
   it('omits stats fields by default', async () => {

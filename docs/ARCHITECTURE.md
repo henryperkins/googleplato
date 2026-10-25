@@ -538,7 +538,10 @@ Generic single and batch PUTs require an explicit nonnegative safe integer
 positive values update only an existing exact version. Invalid input returns
 `sync_validation_failure` (400), and a failed condition returns `sync_conflict`
 (409). Batch metadata is validated before writes, while valid batches retain
-their existing per-item conflict results. The client retains an unsuccessful
+their existing per-item conflict results. Batch items are written
+sequentially (never in parallel — each write holds a pool client under the
+per-user advisory lock), and an unexpected error fails the request without
+attempting the remaining items. The client retains an unsuccessful
 payload and its original base; it never fetches a new version and blindly
 resends that payload. Deletes clear the cache only after acknowledgement.
 Rejected lesson reset/delete operations display an error instead of navigating
@@ -558,7 +561,10 @@ is its own `screenshot:<key>` record, and the message stores only
 - Images are compressed client-side on paste
   (`client/src/lib/imageCompression.js`) to stay well under the per-record
   limit, persisted one-per-record, and excluded from the bulk `GET /v1/sync`
-  payload (fetched on demand by key). The cap is measured on the encoded
+  payload (fetched on demand by key). The exclusion happens in the adapter
+  query itself (`getAllSyncData(userId, { excludePrefixes })` on every
+  backend, alongside `userMeta:*` and `lessonGeneration:*`), so screenshot
+  bodies are never read on login or tab refocus. The cap is measured on the encoded
   record: the client caps the data URL at `SCREENSHOT_MAX_DATA_URL_CHARS`
   (370 KiB chars) and the server rejects the whole JSON record over
   `MAX_SCREENSHOT_RECORD_BYTES` (380 KiB) in `server/src/lib/sync-limits.js`.
@@ -1249,11 +1255,14 @@ a compact CompletionRing colored by progress.
   read is the deliberate trade (chosen over a one-time migration): it loosens
   the strict O(1)-per-user goal for a small per-user read, which self-corrects
   prod's existing counters. To keep that cheap at hundreds of users, the read
-  uses `db.getSyncDataByPrefix(userId, 'lessonKB:')` — a **sort-key prefix
-  query** that returns only the `lessonKB:*` records (tens of tiny items),
-  never the large `screenshot:*`/`messages:*` payloads. `getAllSyncData`
-  (full-partition, unprojected) must NOT be used in per-user loops over the
-  whole classroom for this reason.
+  uses `db.getSyncDataByPrefixForAllUsers('lessonKB:')` — one bulk prefix
+  read for the whole classroom (a single query on Postgres/SQLite; a
+  per-user prefix fan-out bounded to 4 in flight on DynamoDB) that returns
+  only the `lessonKB:*` records, never the large
+  `screenshot:*`/`messages:*` payloads. `getAllSyncData` (full-partition,
+  unprojected) must NOT be used in per-user loops over the whole classroom
+  for this reason. The heal/backfill writes this endpoint performs run
+  through `mapWithConcurrency` with a bound of 4.
 - `lastActiveAt` is **not** updated on `messages:*` writes (write amplification —
   see anti-goals); instead it's updated on `/v1/auth/login` and `/v1/auth/refresh`,
   giving a natural ~15-min heartbeat (access-token TTL). It stays a true
@@ -1293,15 +1302,21 @@ Admin dashboard at `/plato` (lazy-loaded, role-gated) has two KPI sections:
 Both are powered by `GET /v1/admin/stats/lessons`, which is **stale-while-
 revalidate cached** in `_system:stats:lessons` sync-data (see
 `server/src/lib/lesson-stats-cache.js`). Fresh window: 10 min. Stale window
-(10 min–24 h): cached payload served and an async Lambda self-invoke kicks off a
-refresh (`InvocationType: 'Event'`, see the wrapped handler in
-`server/src/index.js`). Expired (>24 h) or missing: recompute synchronously. The
-recompute walks every user's `lessonKB:*` + `messages:*` records (via
-`getSyncDataByPrefix`, skipping the large `screenshot:*` payloads), so it should
-never be on the hot path of an admin page load. `lambda:InvokeFunction`
-scoped to `${StackName}-*` is granted to `PlatoApiFunction` in `template.yaml`.
-In local dev / tests, `AWS_LAMBDA_FUNCTION_NAME` is unset and the kickoff is a
-no-op.
+(10 min–24 h): on Lambda, the cached payload is served and an async Lambda
+self-invoke kicks off a refresh (`InvocationType: 'Event'`, see the wrapped
+handler in `server/src/index.js`); everywhere else (Cloud Run, local dev),
+the request starts or joins a single-flight recompute and awaits it for up
+to 2 s — serving the fresh result when it lands, otherwise the stale cache,
+because post-response work isn't reliable under Cloud Run CPU throttling.
+Expired (>24 h) or missing: recompute synchronously. The recompute reads
+every user's `lessonKB:*` records in one bulk prefix read
+(`getSyncDataByPrefixForAllUsers`, skipping the large `screenshot:*`
+payloads) and fetches a `messages:<lessonId>` transcript lazily, only for a
+completed public lesson whose KB has no `startedAt`/`completedAt` (the
+legacy duration fallback), so it should never be on the hot path of an admin
+page load. `lambda:InvokeFunction` scoped to `${StackName}-*` is granted to
+`PlatoApiFunction` in `template.yaml`. The Lambda SDK is imported lazily,
+only when a self-invoke is actually sent.
 
 ## Custom user fields (#364)
 

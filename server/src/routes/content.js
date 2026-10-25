@@ -128,9 +128,10 @@ content.get('/v1/lessons', async (c) => {
 // the requesting user can see (public + private shared with them) so we don't leak
 // information about lessons the user has no access to.
 //
-// Cache: each miss costs O(users × items-per-user) DynamoDB queries (listAllUsers
-// then getAllSyncData per user — same scan pattern as /v1/admin/stats/lessons,
-// but called from a learner-facing endpoint). Time stats are slow-moving — one
+// Cache: each miss costs one bulk `lessonKB:` read across all users
+// (getSyncDataByPrefixForAllUsers — a single query on Postgres/SQLite, a
+// bounded per-user fan-out on DynamoDB), never a per-user full read from
+// this learner-facing endpoint. Time stats are slow-moving — one
 // additional completion barely shifts a percentile — so a long TTL is fine.
 // 10 minutes keeps the scan rate at ≤6/hour per Lambda container regardless of
 // learner traffic.
@@ -141,20 +142,16 @@ async function computeAllLessonTimeStats() {
   if (_timeStatsCache && Date.now() - _timeStatsCache.computedAt < TIME_STATS_TTL_MS) {
     return _timeStatsCache.byLesson;
   }
-  const users = await db.listAllUsers();
+  const items = await db.getSyncDataByPrefixForAllUsers('lessonKB:');
   const exchangesByLesson = new Map();
-  for (const user of users) {
-    const items = await db.getAllSyncData(user.userId);
-    for (const item of items) {
-      if (!item.dataKey?.startsWith('lessonKB:')) continue;
-      const kb = item.data;
-      if (kb?.status !== 'completed') continue;
-      const exchanges = kb.activitiesCompleted;
-      if (typeof exchanges !== 'number' || exchanges <= 0) continue;
-      const lessonId = item.dataKey.slice('lessonKB:'.length);
-      if (!exchangesByLesson.has(lessonId)) exchangesByLesson.set(lessonId, []);
-      exchangesByLesson.get(lessonId).push(exchanges);
-    }
+  for (const item of items) {
+    const kb = item.data;
+    if (kb?.status !== 'completed') continue;
+    const exchanges = kb.activitiesCompleted;
+    if (typeof exchanges !== 'number' || exchanges <= 0) continue;
+    const lessonId = item.dataKey.slice('lessonKB:'.length);
+    if (!exchangesByLesson.has(lessonId)) exchangesByLesson.set(lessonId, []);
+    exchangesByLesson.get(lessonId).push(exchanges);
   }
   const byLesson = {};
   for (const [lessonId, counts] of exchangesByLesson.entries()) {

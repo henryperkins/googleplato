@@ -351,6 +351,40 @@ describe('db-sqlite', () => {
       await db.deleteSyncData(userId, 'preferences');
       assert.equal(await db.getSyncData(userId, 'preferences'), null);
     });
+
+    it('excludes prefixes in getAllSyncData without returning excluded rows', async () => {
+      await db.putSyncData(userId, 'screenshot:keep-out', { blob: 'big' }, 0);
+      await db.putSyncData(userId, 'userMeta:plugin', { note: 'admin' }, 0);
+      const all = await db.getAllSyncData(userId, { excludePrefixes: ['screenshot:', 'userMeta:'] });
+      assert.ok(all.some(i => i.dataKey === 'profile'));
+      assert.ok(!all.some(i => i.dataKey.startsWith('screenshot:')));
+      assert.ok(!all.some(i => i.dataKey.startsWith('userMeta:')));
+    });
+
+    it('treats excluded prefixes literally, not as LIKE patterns', async () => {
+      await db.putSyncData(userId, 'literal_%:a', [], 0);
+      await db.putSyncData(userId, 'literal_other:a', [], 0);
+      const all = await db.getAllSyncData(userId, { excludePrefixes: ['literal_%:'] });
+      assert.ok(!all.some(i => i.dataKey === 'literal_%:a'));
+      assert.ok(all.some(i => i.dataKey === 'literal_other:a'));
+    });
+
+    it('reads one prefix across all users in a single bulk call', async () => {
+      await db.putSyncData('usr_bulk_b', 'lessonKB:l1', { status: 'completed' }, 0);
+      await db.putSyncData('usr_bulk_b', 'screenshot:s9', { blob: 'big' }, 0);
+      const items = await db.getSyncDataByPrefixForAllUsers('lessonKB:');
+      const mine = items.filter(i => i.userId === userId || i.userId === 'usr_bulk_b');
+      assert.ok(mine.some(i => i.userId === userId && i.dataKey === 'lessonKB:l1'));
+      assert.ok(mine.some(i => i.userId === 'usr_bulk_b' && i.dataKey === 'lessonKB:l1'));
+      assert.ok(items.every(i => i.dataKey.startsWith('lessonKB:')));
+    });
+
+    it('deleteAllSyncData removes every row for one user only', async () => {
+      await db.deleteAllSyncData(userId);
+      assert.deepEqual(await db.getAllSyncData(userId), []);
+      assert.ok((await db.getAllSyncData('usr_bulk_b')).some(i => i.dataKey === 'lessonKB:l1'));
+      await db.deleteAllSyncData('usr_bulk_b');
+    });
   });
 
   describe('audit log', () => {

@@ -184,11 +184,9 @@ me.delete('/v1/me', async (c) => {
   // emit(); they never block the deletion.
   await emitHook('userDeleted', { userId, email: user.email, role: user.role });
 
-  // Delete all sync data (cascades plugin userMeta:* records too)
-  const syncItems = await db.getAllSyncData(userId);
-  for (const item of syncItems) {
-    await db.deleteSyncData(userId, item.dataKey);
-  }
+  // Delete all sync data (cascades plugin userMeta:* records too) with one
+  // bulk delete — never a full read plus one delete per row (PR-8).
+  await db.deleteAllSyncData(userId);
 
   // Delete user record and any remaining session tokens
   await db.revokeUserTokens(userId);

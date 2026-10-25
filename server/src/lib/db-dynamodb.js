@@ -10,6 +10,7 @@ import {
   USERS_TABLE, INVITES_TABLE, REFRESH_TOKENS_TABLE, SYNC_DATA_TABLE,
   AUDIT_LOG_TABLE, REFRESH_TOKEN_TTL_DAYS, INVITE_TTL_DAYS, RESET_TOKEN_TTL_HOURS,
 } from '../config.js';
+import { mapWithConcurrency } from './concurrency.js';
 
 const clientOpts = {};
 if (process.env.DYNAMODB_ENDPOINT) {
@@ -476,20 +477,66 @@ const db = {
     return result.Item || null;
   },
 
-  async getAllSyncData(userId) {
+  async getAllSyncData(userId, { excludePrefixes = [] } = {}) {
     const items = [];
     let lastKey;
+    // A FilterExpression saves payload, not RCU: DynamoDB still reads the
+    // excluded items, but the large screenshot:* bodies never cross the wire.
+    const filter = excludePrefixes.length
+      ? {
+        FilterExpression: `NOT (${excludePrefixes.map((_, i) => `begins_with(dataKey, :ex${i})`).join(' OR ')})`,
+        ExpressionAttributeValues: Object.fromEntries(excludePrefixes.map((p, i) => [`:ex${i}`, p])),
+      }
+      : {};
     do {
       const result = await doc.send(new QueryCommand({
         TableName: SYNC_DATA_TABLE,
         KeyConditionExpression: 'userId = :uid',
-        ExpressionAttributeValues: { ':uid': userId },
+        ...filter,
+        ExpressionAttributeValues: { ':uid': userId, ...(filter.ExpressionAttributeValues || {}) },
         ExclusiveStartKey: lastKey,
       }));
       items.push(...result.Items);
       lastKey = result.LastEvaluatedKey;
     } while (lastKey);
     return items;
+  },
+
+  // One prefix across every user. DynamoDB has no cross-partition prefix
+  // query, so fan out per user with bounded concurrency — never a table
+  // Scan, which would bill screenshot RCUs.
+  async getSyncDataByPrefixForAllUsers(prefix) {
+    const users = await db.listAllUsers();
+    const perUser = await mapWithConcurrency(users, 4, (user) => db.getSyncDataByPrefix(user.userId, prefix));
+    return perUser.flat();
+  },
+
+  async deleteAllSyncData(userId) {
+    const keys = [];
+    let lastKey;
+    do {
+      const result = await doc.send(new QueryCommand({
+        TableName: SYNC_DATA_TABLE,
+        KeyConditionExpression: 'userId = :uid',
+        ProjectionExpression: 'userId, dataKey',
+        ExpressionAttributeValues: { ':uid': userId },
+        ExclusiveStartKey: lastKey,
+      }));
+      keys.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+    for (let i = 0; i < keys.length; i += 25) {
+      const chunk = keys.slice(i, i + 25);
+      let pending = { [SYNC_DATA_TABLE]: chunk.map((key) => ({ DeleteRequest: { Key: { userId: key.userId, dataKey: key.dataKey } } })) };
+      for (let attempt = 0; ; attempt++) {
+        const result = await doc.send(new BatchWriteCommand({ RequestItems: pending }));
+        pending = result.UnprocessedItems || {};
+        if (!Object.values(pending).some(requests => requests.length > 0)) break;
+        if (attempt >= 5) throw new Error('Sync data deletion could not complete');
+        await setTimeout(25 * 2 ** attempt);
+      }
+    }
+    return keys.length;
   },
 
   // Fetch only the sync-data records whose dataKey begins with `prefix`
