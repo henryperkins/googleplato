@@ -3,6 +3,36 @@ export const AI_PROVIDER_NAMES = {
   'workers-ai': 'Cloudflare Workers AI',
 };
 
+/** Reject incomplete API results before replacing a usable settings form. */
+export function requireAiSettingsResponse(value, { connectionRequired = false } = {}) {
+  const record = item => Boolean(item) && typeof item === 'object' && !Array.isArray(item);
+  const text = item => typeof item === 'string' && item.length > 0;
+  const oauth = value?.workersAiOAuth;
+  const connectionFlags = ['available', 'connected', 'needsReconnect', 'connectionPending', 'revocationPending'];
+  const completeConnection = record(oauth) && connectionFlags.every(key => typeof oauth[key] === 'boolean');
+  const connectionValid = oauth == null || (record(oauth)
+    && connectionFlags
+      .every(key => oauth[key] === undefined || typeof oauth[key] === 'boolean')
+    && (!(oauth.connected || oauth.needsReconnect || oauth.connectionPending)
+      || (Number.isSafeInteger(oauth.version) && oauth.version >= 0))
+    && (oauth.account == null || (record(oauth.account) && (oauth.account.name == null || typeof oauth.account.name === 'string')))
+    && (oauth.pendingAccounts == null || (Array.isArray(oauth.pendingAccounts)
+      && oauth.pendingAccounts.every(account => record(account) && text(account.id) && text(account.name))
+      && (oauth.pendingAccounts.length === 0 || text(oauth.pendingFlowId)))));
+  if (!record(value) || !Object.hasOwn(AI_PROVIDER_NAMES, value.provider)
+    || !Number.isSafeInteger(value.version) || value.version < 0
+    || !text(value.bedrockModel) || !text(value.awsRegion)
+    || !Array.isArray(value.workersAiModels)
+    || !value.workersAiModels.every(model => record(model) && text(model.id) && text(model.name)
+      && (model.description == null || typeof model.description === 'string'))
+    || !value.workersAiModels.some(model => model.id === value.workersAiModel)
+    || !record(value.workersAiCredentials) || typeof value.workersAiCredentials.configured !== 'boolean'
+    || !connectionValid || (connectionRequired && !completeConnection)) {
+    throw new Error('The server returned incomplete AI settings. Reload settings and try again.');
+  }
+  return value;
+}
+
 export function aiModelName(settings, provider = settings.provider, modelId) {
   if (provider === 'bedrock') {
     const id = modelId || settings.bedrockModel;

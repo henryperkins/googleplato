@@ -1,4 +1,11 @@
 const draftKey = userId => `plato:cloudflare-draft:${userId}`;
+const discardedDrafts = new Set();
+
+export function clearCloudflareDraft(storage, userId) {
+  if (!userId) return;
+  discardedDrafts.add(userId);
+  try { storage?.removeItem(draftKey(userId)); } catch { /* Keep the in-memory discard marker. */ }
+}
 
 export function rememberCloudflareDraft(storage, userId, settings, draft) {
   try {
@@ -6,6 +13,7 @@ export function rememberCloudflareDraft(storage, userId, settings, draft) {
     storage.setItem(draftKey(userId), JSON.stringify({
       version: settings.version, provider: draft.provider, workersAiModel: draft.workersAiModel, createdAt: Date.now(),
     }));
+    discardedDrafts.delete(userId);
     return true;
   } catch { return false; }
 }
@@ -13,6 +21,10 @@ export function rememberCloudflareDraft(storage, userId, settings, draft) {
 export function restoreCloudflareDraft(storage, userId, settings) {
   try {
     if (!storage || !userId) return null;
+    if (discardedDrafts.has(userId)) {
+      clearCloudflareDraft(storage, userId);
+      return null;
+    }
     const raw = storage.getItem(draftKey(userId));
     if (!raw) return null;
     storage.removeItem(draftKey(userId));
@@ -26,9 +38,14 @@ export function restoreCloudflareDraft(storage, userId, settings) {
 }
 
 export function cloudflareAuthorizationUrl(value) {
-  const url = new URL(value);
+  const message = 'Cloudflare sign-in could not be opened. Try connecting again.';
+  let url;
+  try {
+    if (typeof value !== 'string') throw new Error(message);
+    url = new URL(value);
+  } catch { throw new Error(message); }
   if (url.origin !== 'https://dash.cloudflare.com' || url.pathname !== '/oauth2/auth' || url.username || url.password) {
-    throw new Error('Cloudflare sign-in could not be opened. Try connecting again.');
+    throw new Error(message);
   }
   return url.href;
 }

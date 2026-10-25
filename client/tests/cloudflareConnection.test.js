@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { cloudflareAuthorizationUrl, cloudflareReturnFeedback, rememberCloudflareDraft, restoreCloudflareDraft } from '../src/lib/cloudflareConnection.js';
+import { clearCloudflareDraft, cloudflareAuthorizationUrl, cloudflareReturnFeedback, rememberCloudflareDraft, restoreCloudflareDraft } from '../src/lib/cloudflareConnection.js';
 
 const saved = { provider: 'bedrock', workersAiModel: 'model-a', version: 2, workersAiModels: [{ id: 'model-a' }, { id: 'model-b' }] };
 const draft = { provider: 'workers-ai', workersAiModel: 'model-b' };
@@ -29,6 +29,9 @@ describe('Cloudflare connection handoff', () => {
     for (const url of ['https://attacker.example/oauth2/auth', 'javascript:alert(1)', 'http://dash.cloudflare.com/oauth2/auth', 'https://dash.cloudflare.com@attacker.example/oauth2/auth']) {
       assert.throws(() => cloudflareAuthorizationUrl(url));
     }
+    for (const value of [undefined, null, {}, 'not a URL']) {
+      assert.throws(() => cloudflareAuthorizationUrl(value), /Try connecting again/);
+    }
   });
 
   it('confirms connection from loaded server state and never reflects arbitrary callback errors', () => {
@@ -40,5 +43,14 @@ describe('Cloudflare connection handoff', () => {
 
   it('reports unavailable browser storage without discarding the current selection', () => {
     assert.equal(rememberCloudflareDraft({ setItem() { throw new Error('Storage unavailable'); } }, 'admin', saved, draft), false);
+  });
+
+  it('never restores an explicitly discarded handoff, including when removal fails', () => {
+    const store = storage();
+    rememberCloudflareDraft(store, 'discard-owner', saved, draft);
+    clearCloudflareDraft({ removeItem() { throw new Error('Blocked'); } }, 'discard-owner');
+    assert.equal(restoreCloudflareDraft(store, 'discard-owner', saved), null);
+    assert.equal(rememberCloudflareDraft(store, 'discard-owner', saved, draft), true);
+    assert.deepEqual(restoreCloudflareDraft(store, 'discard-owner', saved).draft, draft, 'a new intentional handoff remains possible');
   });
 });

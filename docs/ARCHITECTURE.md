@@ -196,6 +196,15 @@ strict version checks. Every inference consistently reads the saved selection
 once, so it applies to the next request across server instances without changing
 an in-flight stream. No provider fallback occurs.
 
+AI Settings retains unsaved provider/model choices in administrator-scoped
+session storage, with an in-memory navigation fallback when storage is blocked.
+Drafts contain only the settings version and selections; they are never
+automatically saved and cannot rebase onto a newer server version. Confirmed
+Save and explicit discard clear ordinary and OAuth-handoff snapshots. Page
+departure invalidates asynchronous UI continuations, including authorization
+redirects. Complete API responses are checked before replacing the form, and
+connection completion messages require refreshed, explicit OAuth status.
+
 `server/src/lib/ai-provider.js` routes both invocation modes and plugin calls
 through the selected adapter. `LLM` / `ctx.LLM` remain compatibility hints;
 browser and plugin model arguments do not override the admin choice.
