@@ -32,14 +32,21 @@ describe('Customizer styles draft', () => {
   });
 
   it('sends only the fields that change', () => {
-    assert.deepEqual(changedStyles({ ...saved, primary: '#123' }, saved), { theme: { primary: '#112233' } });
-    assert.deepEqual(changedStyles({ ...saved, matchPrimary: false, accent: '#dc2626' }, saved), { theme: { primary: '#2a4b8c', accent: '#dc2626' } });
+    assert.deepEqual(changedStyles({ ...saved, primary: '#123' }, saved), { themePatch: { primary: '#112233' } });
+    assert.deepEqual(changedStyles({ ...saved, matchPrimary: false, accent: '#dc2626' }, saved), { themePatch: { accent: '#dc2626' } });
     assert.deepEqual(changedStyles({ ...saved, classroomName: 'Beta' }, saved), { classroomName: 'Beta' });
     assert.deepEqual(changedStyles({ ...saved, logoBase64: null }, saved), { logoBase64: null });
-    assert.deepEqual(changedStyles(DEFAULT_STYLES, saved), { theme: { primary: '#8b1a1a' }, classroomName: '', logoBase64: null });
+    assert.deepEqual(changedStyles(DEFAULT_STYLES, saved), { themePatch: { primary: '#8b1a1a' }, classroomName: '', logoBase64: null });
   });
 
   it('still reports an edit that cannot be saved, so Save can explain it', () => {
-    assert.deepEqual(Object.keys(changedStyles({ ...saved, primary: '#12' }, saved)), ['theme']);
+    assert.deepEqual(Object.keys(changedStyles({ ...saved, primary: '#12' }, saved)), ['themePatch']);
+  });
+
+  it('does not resend an unchanged independent accent or primary', () => {
+    const independent = stylesFrom({ theme: { primary: '#123456', accent: '#654321' } });
+    assert.deepEqual(changedStyles({ ...independent, primary: '#112233' }, independent), { themePatch: { primary: '#112233' } });
+    assert.deepEqual(changedStyles({ ...independent, accent: '#abcdef' }, independent), { themePatch: { accent: '#abcdef' } });
+    assert.deepEqual(changedStyles({ ...independent, matchPrimary: true }, independent), { themePatch: { accent: null } });
   });
 });

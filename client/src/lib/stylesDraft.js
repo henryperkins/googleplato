@@ -46,5 +46,12 @@ export function publishedStyles(styles) {
 export function changedStyles(draft, saved) {
   const next = publishedStyles(draft);
   const previous = publishedStyles(saved);
-  return Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(previous[key])));
+  const changes = Object.fromEntries(['classroomName', 'logoBase64']
+    .filter(key => next[key] !== previous[key]).map(key => [key, next[key]]));
+  // Null explicitly removes an independent accent. Omitting a color leaves the
+  // latest server value alone, including edits from another administrator.
+  const themePatch = Object.fromEntries(['primary', 'accent']
+    .filter(key => next.theme[key] !== previous.theme[key]).map(key => [key, next.theme[key] ?? null]));
+  if (Object.keys(themePatch).length) changes.themePatch = themePatch;
+  return changes;
 }

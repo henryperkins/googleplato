@@ -531,6 +531,34 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
     } finally { await context.close(); }
   });
 
+  it('preserves another administrator\'s independent color edits from a stale form', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const otherSave = theme => fetch(`${base}/v1/admin/theme`, { method: 'PUT',
+      headers: { Authorization: `Bearer ${auth.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme }),
+    });
+    try {
+      assert.equal((await otherSave({ primary: '#123456', accent: '#654321' })).status, 200);
+      await navigate(page, 'customizer');
+      assert.equal((await otherSave({ primary: '#123456', accent: '#abcdef' })).status, 200);
+      await page.getByLabel('Primary color hex code', { exact: true }).fill('#112233');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#abcdef');
+      assert.equal((await otherSave({ primary: '#998877', accent: '#abcdef' })).status, 200);
+      await page.getByLabel('Accent color hex code', { exact: true }).fill('#fedcba');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#998877');
+      await page.getByLabel('Match primary', { exact: true }).check();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      const branding = await (await page.request.get(`${base}/v1/branding`)).json();
+      assert.deepEqual(branding.theme, { primary: '#998877' });
+    } finally { await context.close(); }
+  });
+
   it('does not offer to optimize an SVG that an earlier version stored, and shows other admins\' changes after saving', async () => {
     const { context, page } = await openPage({ width: 1440, height: 1000 });
     try {

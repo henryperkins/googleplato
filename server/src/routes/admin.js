@@ -1228,6 +1228,7 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   if (nameError) return c.json({ error: nameError }, 400);
   if (typeof body.logoBase64 === 'string' && body.logoBase64.length > MAX_LOGO_DATA_URL_CHARS) return c.json({ error: 'The encoded logo must be at most 128 KiB.' }, 413);
   if (body.logoBase64 !== undefined && body.logoBase64 !== null && typeof body.logoBase64 !== 'string') return c.json({ error: LOGO_ERROR }, 400);
+  if (body.theme !== undefined && body.themePatch !== undefined) return c.json({ error: 'Send either theme or themePatch, not both.' }, 400);
   let theme;
   if (body.theme !== undefined) {
     if (!body.theme || typeof body.theme !== 'object' || Array.isArray(body.theme)) {
@@ -1239,6 +1240,19 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
       const color = normalizeThemeColor(body.theme[key]);
       if (!color) return c.json({ error: `The ${key} color must be a hex value like #8b1a1a.` }, 400);
       theme[key] = color;
+    }
+  }
+  let themePatch;
+  if (body.themePatch !== undefined) {
+    if (!body.themePatch || typeof body.themePatch !== 'object' || Array.isArray(body.themePatch)) {
+      return c.json({ error: 'Theme patch must be an object.' }, 400);
+    }
+    themePatch = {};
+    for (const [key, value] of Object.entries(body.themePatch)) {
+      if (!['primary', 'accent'].includes(key)) return c.json({ error: 'Theme patch may change only primary and accent.' }, 400);
+      const color = key === 'accent' && value === null ? null : normalizeThemeColor(value);
+      if (color === null && !(key === 'accent' && value === null)) return c.json({ error: `${key} color must be a hex value like #470d99.` }, 400);
+      themePatch[key] = color;
     }
   }
   const current = await db.getSyncData('_system', 'settings', { consistentRead: true });
@@ -1262,6 +1276,17 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   const legacy = settings.logoHash ? null : legacyLogo(settings);
   if (!logo && legacy && body.logoBase64 !== null) logo = { ...legacy, legacy: true };
   if (theme !== undefined) settings.theme = theme;
+  if (themePatch !== undefined) {
+    const merged = publicTheme(settings.theme) || {};
+    // Older clients persisted matching accents explicitly. Their meaning is
+    // still Match primary when a later client changes only the primary.
+    if (merged.accent === merged.primary) delete merged.accent;
+    for (const [key, value] of Object.entries(themePatch)) {
+      if (value === null) delete merged[key];
+      else merged[key] = value;
+    }
+    settings.theme = merged;
+  }
   if (logo) {
     settings.logoHash = logo.hash;
     delete settings.logoBase64;

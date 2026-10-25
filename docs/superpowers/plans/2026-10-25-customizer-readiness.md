@@ -62,11 +62,11 @@ hash; stale creates/writes throw `ConditionalCheckFailedException`.
 for compatibility, rejects ambiguous simultaneous forms, and merges a validated
 patch into its latest theme. `changedStyles` returns only changed color keys.
 
-- [ ] Add failing stale-primary/stale-accent/explicit-clear tests, including an
+- [x] Add failing stale-primary/stale-accent/explicit-clear tests, including an
   end-to-end stale form with an intervening administrator save.
-- [ ] Run focused tests; expected: stale accent is overwritten or patch ignored.
-- [ ] Implement the patch contract and update affected payload expectations.
-- [ ] Run client draft and branding route tests; expected: all pass. Commit.
+- [x] Run focused tests; expected: stale accent is overwritten or patch ignored.
+- [x] Implement the patch contract and update affected payload expectations.
+- [x] Run client draft and branding route tests; expected: all pass. Commit.
 
 ### Task 3: Bounded stored SVGs and original recovery
 

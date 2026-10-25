@@ -33,8 +33,10 @@ after(() => rm(directory, { recursive: true, force: true }));
 it('restoring a previous logo cannot race with deletion from an earlier save', async () => {
   assert.equal((await put({ logoBase64: svg('red') })).status, 200);
   const original = await branding();
-  const atDelete = Promise.withResolvers();
-  const releaseDelete = Promise.withResolvers();
+  let reached;
+  let release;
+  const atDelete = { promise: new Promise(resolve => { reached = resolve; }), resolve: () => reached() };
+  const releaseDelete = { promise: new Promise(resolve => { release = resolve; }), resolve: () => release() };
   const remove = db.deleteSyncData;
   let intercepted = false;
   db.deleteSyncData = async (owner, key, ...rest) => {

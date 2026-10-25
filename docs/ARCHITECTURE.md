@@ -179,7 +179,11 @@ Unmatching starts the accent from the color it was showing, and an accent equal
 to the primary is saved as Match primary. Save sends only the fields that would
 publish something different, so an unchanged logo is never resent and a stale
 form can't overwrite another admin's name or logo, then reloads the saved styles
-so the form shows the server's state; edits that publish nothing (trailing
+so the form shows the server's state. Colors use `themePatch`: omitted primary
+or accent leaves the latest value untouched, while `accent:null` explicitly
+selects Match primary. The older `theme` request remains a full replacement;
+using both forms in one request is rejected. Same-field edits still use the
+last accepted value, while independent edits are preserved. Edits that publish nothing (trailing
 spaces, a matched accent) don't count as unsaved. Both
 previews use real button styles, classroom identity, and isolated light/dark
 tokens; their sample controls are inert. Partial hex input keeps the last

@@ -87,6 +87,30 @@ describe('branding boundary', () => {
     assert.equal(settings().classroomName, '');
   });
 
+  it('merges independent color edits and explicitly clears a matching accent', async () => {
+    settings().theme = { primary: '#123456', accent: '#abcdef' };
+    assert.equal((await put({ themePatch: { primary: '#112233' } })).status, 200);
+    assert.deepEqual(settings().theme, { primary: '#112233', accent: '#abcdef' });
+    assert.equal((await put({ themePatch: { accent: '#f90' } })).status, 200);
+    assert.deepEqual(settings().theme, { primary: '#112233', accent: '#ff9900' });
+    assert.equal((await put({ themePatch: { accent: null } })).status, 200);
+    assert.deepEqual(settings().theme, { primary: '#112233' });
+  });
+
+  it('rejects ambiguous or malformed color patches without changing settings', async () => {
+    for (const body of [{ theme: {}, themePatch: {} }, { themePatch: null }, { themePatch: [] },
+      { themePatch: { primary: null } }, { themePatch: { accent: 'red' } }, { themePatch: { background: '#fff' } }]) {
+      assert.equal((await put(body)).status, 400, JSON.stringify(body));
+    }
+    assert.equal(records.get('_system/settings').version, 4);
+  });
+
+  it('keeps an older explicitly equal accent following the primary', async () => {
+    settings().theme = { primary: '#123456', accent: '#123456' };
+    assert.equal((await put({ themePatch: { primary: '#112233' } })).status, 200);
+    assert.deepEqual(settings().theme, { primary: '#112233' });
+  });
+
   it('limits the entire request before parsing oversized JSON', async () => {
     assert.equal((await put({ ignored: 'x'.repeat(200 * 1024) })).status, 413);
     assert.equal(records.get('_system/settings').version, 4);
