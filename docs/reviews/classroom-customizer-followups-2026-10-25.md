@@ -19,6 +19,13 @@ regression test that fails on `e2ce942`'s code.
 | SVGs were rasterized at their intrinsic size (soft on dense screens); a huge intrinsic size gave a blank logo; an untyped `.svg` file couldn't be read; large reductions aliased in WebKit and Firefox. | Vectors fill the 1024 × 128 box and are drawn once; untyped SVG files are read as SVG; rasters shrink in halving steps; a blank result is refused. | `logoUpload.test.js`, browser |
 | A logo request that failed showed a broken image in place of the name. | The header and all six sign-in pages fall back to the classroom name. The favicon falls back to the name's initial, which also replaces logos wider than 2:1. | Browser |
 
+A raster logo saved by an earlier version, before and after **Optimize logo**
+(desktop light; phone dark):
+
+![Styles tab noting a padded earlier-version logo](classroom-customizer-followups-2026-10-25/legacy-notice-desktop-light.png)
+![The same logo after Optimize logo](classroom-customizer-followups-2026-10-25/optimized-desktop-light.png)
+![The Styles tab on a phone in dark mode](classroom-customizer-followups-2026-10-25/legacy-notice-phone-dark.png)
+
 ## Server writes and email
 
 | Gap | Fix | Tests |
