@@ -32,18 +32,21 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   an ETag, `nosniff`, and a restrictive CSP sandbox. Replacing or removing the
   logo deletes the previous asset after the settings write succeeds, so a
   mistaken upload stops resolving; pages that cached it keep their copy, and a
-  logo that fails to load shows the classroom name instead. No schema migration
-  is required on any database adapter.
+  logo that fails to load shows the classroom name instead. An asset written by
+  a save that then conflicts is left for the retry; its URL was never published.
+  No schema migration is required on any database adapter.
 - Logos saved by earlier versions stay visible. Stored logos (inline legacy
   values and existing assets) are read by looser rules than new uploads: data
-  URLs up to 2 MiB, and any SVG without entity declarations, since they only
+  URLs up to 8 MiB, and any SVG without entity declarations, since they only
   render through `<img>` and the logo endpoint sandboxes direct navigation. The
   next theme save moves a readable inline logo into its own asset, marked
   `legacy`. An inline value that can't be shown, such as a URL, is never deleted
-  by an unrelated save; replacing or removing the logo clears it. Sending the
-  current logo back unchanged is not treated as an upload. The Customizer flags
-  legacy logos, which the old pipeline padded into 512 × 512 squares, and
-  **Optimize logo** trims that padding and prepares the logo again.
+  by an unrelated save; replacing or removing the logo clears it. Sending back
+  the current logo unchanged, within the request size limit, is not treated as
+  an upload, unless its asset is missing, when it is stored again. The
+  Customizer flags raster logos saved by earlier versions, which padded them
+  into 512 × 512 squares, and **Optimize logo** trims that padding and prepares
+  the logo again. Earlier versions stored SVG files unchanged, so they get no flag.
 - The theme write accepts only primary/accent hex colors, an optional trimmed
   classroom name of at most 100 characters of well-formed text without control
   characters, and a PNG/JPEG/WebP/static-SVG base64 image or `null`. First-run
@@ -51,8 +54,10 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   the raw `PUT /v1/admin/settings` merge refuses branding fields. Encoded logos
   are capped at 128 KiB, raster dimensions at 4096 pixels per edge and 1024 × 1024
   pixels in area; a request-body limit also bounds parsing. SVG accepts only
-  static geometry/text/gradient elements with local references, and at most
-  10,000 rendered elements once `<use>` references are expanded. The Customizer
+  static geometry/text/gradient elements with local references, unique ids, and
+  at most 10,000 rendered elements once references (`<use>` and other hrefs
+  under any prefix, and `url(#id)` in any attribute, except to gradients) are
+  expanded. The Customizer
   accepts source files up to 5 MiB and rasterizes them to transparent PNG,
   preserving proportions within 1024 × 128 pixels (vector sources grow to fill
   it), shrinking in halving steps, and further to meet the cap. The classroom
@@ -166,10 +171,12 @@ reloads/closing the page. The existing route tree remains in `App`. Knowledge
 editor mode is derived from `/plato/customizer/knowledge/edit`, never local state.
 An omitted accent, or one equal to the primary, means “Match primary”; new
 classrooms use that mode, while a different saved accent stays independent.
-Unmatching starts the accent from the color it was showing. Save sends only the
-fields that would publish something different, so an unchanged logo is never
-resent and a stale form can't overwrite another admin's name or logo; edits that
-publish nothing (trailing spaces, a matched accent) don't count as unsaved. Both
+Unmatching starts the accent from the color it was showing, and an accent equal
+to the primary is saved as Match primary. Save sends only the fields that would
+publish something different, so an unchanged logo is never resent and a stale
+form can't overwrite another admin's name or logo, then reloads the saved styles
+so the form shows the server's state; edits that publish nothing (trailing
+spaces, a matched accent) don't count as unsaved. Both
 previews use real button styles, classroom identity, and isolated light/dark
 tokens; their sample controls are inert. Partial hex input keeps the last
 complete color until blur or Save accepts a shorthand value, with or without the

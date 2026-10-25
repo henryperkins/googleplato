@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useBlocker } from 'react-router-dom';
 import { Info, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -32,7 +32,9 @@ export default function AdminStyles({ initialData, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [styleMessage, setStyleMessage] = useState(null);
   const fileInput = useRef(null);
+  const saveButton = useRef(null);
   const uploadEpoch = useRef(0);
+  const focusSaveAfterOptimize = useRef(false);
   const dirty = Object.keys(changedStyles(draft, saved)).length > 0;
   const busy = saving || processingLogo;
   const blocker = useBlocker(({ currentLocation, nextLocation }) => (dirty || busy)
@@ -42,7 +44,9 @@ export default function AdminStyles({ initialData, onSaved }) {
   const previewVars = buildThemeVars({ primary: safePrimary, accent: safeAccent });
   const colorNotes = themeColorNotes({ primary: safePrimary });
   const classroomName = draft.classroomName.trim() || 'plato';
-  const showLegacyNotice = legacyLogo && Boolean(draft.logoBase64) && draft.logoBase64 === saved.logoBase64;
+  // Only rasters were padded: earlier versions stored SVG files unchanged.
+  const showLegacyNotice = legacyLogo && Boolean(draft.logoBase64) && draft.logoBase64 === saved.logoBase64
+    && !draft.logoBase64.startsWith('data:image/svg+xml');
 
   useEffect(() => () => { uploadEpoch.current++; }, []);
   useEffect(() => {
@@ -55,6 +59,13 @@ export default function AdminStyles({ initialData, onSaved }) {
   useEffect(() => {
     if (blocker.state === 'blocked' && !dirty && !busy) blocker.proceed();
   }, [blocker, dirty, busy]);
+  // Optimize logo leaves with its notice once the logo is staged; Save, now
+  // enabled, takes the focus it had.
+  useLayoutEffect(() => {
+    if (showLegacyNotice || !focusSaveAfterOptimize.current) return;
+    focusSaveAfterOptimize.current = false;
+    if (document.activeElement === document.body) saveButton.current?.focus();
+  }, [showLegacyNotice]);
 
   function change(values) {
     if (saving) return;
@@ -101,7 +112,7 @@ export default function AdminStyles({ initialData, onSaved }) {
     if (fileInput.current) fileInput.current.value = '';
   }
 
-  async function stageLogo(prepare, readyText) {
+  async function stageLogo(prepare, readyText, onStaged) {
     const epoch = ++uploadEpoch.current;
     setLogoError('');
     setStyleMessage(null);
@@ -111,6 +122,7 @@ export default function AdminStyles({ initialData, onSaved }) {
       if (epoch === uploadEpoch.current) {
         change({ logoBase64 });
         setStyleMessage({ text: readyText, type: 'info' });
+        onStaged?.();
       }
     } catch (error) {
       if (epoch === uploadEpoch.current) setLogoError(error.message || 'The logo could not be prepared. Try another image.');
@@ -128,9 +140,11 @@ export default function AdminStyles({ initialData, onSaved }) {
     stageLogo(() => prepareLogo(file), 'Logo ready. Check both previews, then Save.');
   }
 
-  function optimizeLogo() {
+  function optimizeLogo(event) {
+    const hadFocus = [event.currentTarget, document.body].includes(document.activeElement);
     const stored = draft.logoBase64;
-    stageLogo(() => prepareLogo(dataUrlBlob(stored), { trim: true }), 'Logo optimized. Check both previews, then Save.');
+    stageLogo(() => prepareLogo(dataUrlBlob(stored), { trim: true }), 'Logo optimized. Check both previews, then Save.',
+      () => { focusSaveAfterOptimize.current = hadFocus; });
   }
 
   function removeLogo() {
@@ -162,12 +176,17 @@ export default function AdminStyles({ initialData, onSaved }) {
     setStyleMessage(null);
     try {
       const result = await adminApi('PUT', '/v1/admin/theme', data);
-      const logoChanged = 'logoBase64' in data;
-      setDraft(next);
-      setSaved(next);
-      setPreview({ primary, accent });
-      if (logoChanged) setLegacyLogo(false);
-      onSaved({ ...publishedStyles(next), logoLegacy: legacyLogo && !logoChanged });
+      // Show what the server now holds: the fields this save didn't send may
+      // have been changed by another admin.
+      let fresh = null;
+      try { fresh = await adminApi('GET', '/v1/admin/theme'); } catch { /* Keep this tab's view. */ }
+      const snapshot = fresh || { ...publishedStyles(next), logoLegacy: legacyLogo && !('logoBase64' in data) };
+      const view = fresh ? stylesFrom(fresh) : next;
+      setDraft(view);
+      setSaved(view);
+      setPreview({ primary: view.primary, accent: view.accent });
+      setLegacyLogo(Boolean(snapshot.logoLegacy));
+      onSaved(snapshot);
       invalidatePublicBranding(result.branding || null);
       setStyleMessage({ text: 'Saved.', type: 'success' });
     } catch (error) {
@@ -264,7 +283,7 @@ export default function AdminStyles({ initialData, onSaved }) {
           </div>
           <div className="space-y-2">
             <Label htmlFor="logo-file">Logo image (optional)</Label>
-            <Input ref={fileInput} id="logo-file" type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" disabled={saving}
+            <Input ref={fileInput} id="logo-file" type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" disabled={saving} onMouseDown={holdHexFocus}
               onChange={handleLogoUpload} aria-invalid={logoError ? true : undefined} aria-describedby={logoError ? 'logo-file-error logo-file-hint' : 'logo-file-hint'} />
             <p id="logo-file-hint" className="text-xs text-muted-foreground">PNG, JPG, WebP, or SVG up to 5 MiB. Proportions and transparency are preserved; the logo is optimized to fit the header. Check both previews for visibility.</p>
             {processingLogo && <p role="status" className="text-sm text-muted-foreground">Preparing logo...</p>}
@@ -283,7 +302,7 @@ export default function AdminStyles({ initialData, onSaved }) {
         </CardContent>
       </Card>
       <div className="flex flex-wrap items-center gap-3">
-        <Button onMouseDown={holdHexFocus} onClick={saveStyle} disabled={busy || !dirty} focusableWhenDisabled>{saving ? 'Saving...' : 'Save'}</Button>
+        <Button ref={saveButton} onMouseDown={holdHexFocus} onClick={saveStyle} disabled={busy || !dirty} focusableWhenDisabled>{saving ? 'Saving...' : 'Save'}</Button>
         <Button variant="outline" onMouseDown={holdHexFocus} onClick={() => restore(saved, 'Changes discarded.')} disabled={saving || (!dirty && !processingLogo)} focusableWhenDisabled>Discard changes</Button>
         <Button variant="ghost" onMouseDown={holdHexFocus} onClick={() => restore(DEFAULT_STYLES, Object.keys(changedStyles(DEFAULT_STYLES, saved)).length ? 'Defaults restored. Save to apply them.' : 'These are already the defaults.')} disabled={saving} focusableWhenDisabled>Reset to defaults</Button>
         <span role="status" aria-live="polite" className={`text-sm ${styleMessage?.type === 'error' ? 'text-destructive' : styleMessage?.type === 'success' ? 'text-success-foreground' : 'text-muted-foreground'}`}>

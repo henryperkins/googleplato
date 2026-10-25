@@ -1246,9 +1246,12 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   const previousHash = currentLogoHash(settings);
   let logo;
   if (typeof body.logoBase64 === 'string') {
-    // Sending the current logo back is not an upload, even if it predates
-    // today's limits. Anything else must pass them.
-    if (parseLogo(body.logoBase64, { legacy: true })?.hash !== previousHash) {
+    // Sending back the current logo, while it still loads, is not an upload,
+    // even if it predates today's limits. Anything else must pass them; a
+    // current logo whose asset is missing is stored again.
+    const unchanged = previousHash && parseLogo(body.logoBase64, { legacy: true })?.hash === previousHash
+      && await readLogo(previousHash, settings);
+    if (!unchanged) {
       logo = parseLogo(body.logoBase64);
       if (!logo) return c.json({ error: LOGO_ERROR }, 400);
     }
@@ -1259,9 +1262,8 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   const legacy = settings.logoHash ? null : legacyLogo(settings);
   if (!logo && legacy && body.logoBase64 !== null) logo = { ...legacy, legacy: true };
   if (theme !== undefined) settings.theme = theme;
-  let created = false;
   if (logo) {
-    created = await storeLogo(logo);
+    await storeLogo(logo);
     settings.logoHash = logo.hash;
     delete settings.logoBase64;
   } else if (body.logoBase64 === null) {
@@ -1275,7 +1277,7 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   try {
     await db.putSyncData('_system', 'settings', settings, current?.version || 0);
   } catch (error) {
-    if (created) await deleteUnusedLogo(logo.hash);
+    // A new asset stays behind for the retry; its URL was never published.
     if (error.name === 'ConditionalCheckFailedException') return c.json({ error: 'Settings changed in another session. Retry saving.' }, 409);
     throw error;
   }

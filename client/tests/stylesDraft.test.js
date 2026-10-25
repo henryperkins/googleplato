@@ -26,6 +26,9 @@ describe('Customizer styles draft', () => {
     assert.deepEqual(changedStyles({ ...saved, primary: '#2A4B8C' }, saved), {});
     // An accent edited and then matched again is not used.
     assert.deepEqual(changedStyles({ ...saved, accent: '#123456' }, saved), {});
+    // Unmatching alone, or an explicit accent equal to the primary, still means Match primary.
+    assert.deepEqual(changedStyles({ ...saved, matchPrimary: false }, saved), {});
+    assert.deepEqual(changedStyles({ ...saved, matchPrimary: false, accent: '#2A4B8C' }, saved), {});
   });
 
   it('sends only the fields that change', () => {

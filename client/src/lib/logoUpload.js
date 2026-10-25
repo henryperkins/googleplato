@@ -44,12 +44,13 @@ function canvasOf(width, height) {
 }
 
 // Halve large reductions step by step: WebKit and Firefox sample sparsely in a
-// single big drawImage, which makes thin strokes jagged.
-function drawScaled(source, width, height) {
+// single big drawImage, which makes thin strokes jagged. A vector is drawn once,
+// at the final size: its intrinsic size can exceed what a canvas can hold.
+function drawScaled(source, width, height, { vector = false } = {}) {
   let current = source;
   let currentWidth = source.naturalWidth || source.width;
   let currentHeight = source.naturalHeight || source.height;
-  while (currentWidth / 2 >= width && currentHeight / 2 >= height) {
+  while (!vector && currentWidth / 2 >= width && currentHeight / 2 >= height) {
     const half = canvasOf(Math.max(1, Math.floor(currentWidth / 2)), Math.max(1, Math.floor(currentHeight / 2)));
     half.ctx.drawImage(current, 0, 0, half.canvas.width, half.canvas.height);
     current = half.canvas;
@@ -87,7 +88,8 @@ export async function prepareLogo(file, { trim = false } = {}) {
   if (!IMAGE_TYPES.includes(file.type)) throw new Error('Choose a PNG, JPG, WebP, or SVG image.');
   if (file.size > MAX_LOGO_FILE_BYTES) throw new Error('Choose an image smaller than 5 MiB.');
   const vector = file.type === 'image/svg+xml' || /\.svg$/i.test(file.name || '');
-  const src = URL.createObjectURL(file);
+  // Browsers render SVG only from a blob that says it is SVG.
+  const src = URL.createObjectURL(vector && file.type !== 'image/svg+xml' ? new Blob([file], { type: 'image/svg+xml' }) : file);
   try {
     const img = await new Promise((resolve, reject) => {
       const image = new Image();
@@ -98,13 +100,16 @@ export async function prepareLogo(file, { trim = false } = {}) {
     const source = trim && !vector ? trimmed(img) : img;
     let { width, height } = logoDimensions(source.naturalWidth || source.width, source.naturalHeight || source.height, 1024, 128, { upscale: vector });
     for (let attempt = 0; attempt < 8; attempt++) {
+      const canvas = drawScaled(source, width, height, { vector });
       let encoded;
       try {
-        encoded = drawScaled(source, width, height).toDataURL('image/png');
+        encoded = canvas.toDataURL('image/png');
       } catch {
         // An SVG that embeds HTML taints the canvas, so it can't be exported.
         throw new Error(UNREADABLE);
       }
+      // A browser that can't draw the image hands back an empty canvas instead of failing.
+      if (attempt === 0 && !opaqueBounds(canvas.getContext('2d').getImageData(0, 0, width, height))) throw new Error(UNREADABLE);
       if (encoded.startsWith('data:image/png;base64,') && encoded.length <= MAX_LOGO_DATA_URL_CHARS) return encoded;
       width = Math.max(1, Math.floor(width * 0.75));
       height = Math.max(1, Math.floor(height * 0.75));

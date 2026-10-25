@@ -28,8 +28,11 @@ export function stylesFrom(data) {
 /** The branding these styles publish: how the server would store them. */
 export function publishedStyles(styles) {
   const color = value => normalizeColor(value) ?? value.trim().toLowerCase();
+  const primary = color(styles.primary);
+  const accent = styles.matchPrimary ? primary : color(styles.accent);
   return {
-    theme: { primary: color(styles.primary), ...(styles.matchPrimary ? {} : { accent: color(styles.accent) }) },
+    // An accent equal to the primary is stored as Match primary.
+    theme: { primary, ...(accent === primary ? {} : { accent }) },
     classroomName: styles.classroomName.trim(),
     logoBase64: styles.logoBase64,
   };

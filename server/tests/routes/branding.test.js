@@ -192,6 +192,13 @@ describe('branding boundary', () => {
     assert.equal((await (await app.request('/v1/branding')).json()).logoUrl, null);
   });
 
+  it('keeps showing a large SVG that an earlier version stored unchecked', async () => {
+    const legacy = svg(`<svg xmlns="http://www.w3.org/2000/svg"><desc>${'x'.repeat(2.5 * 1024 * 1024)}</desc><path d="M0 0h1v1z"/></svg>`);
+    Object.assign(settings(), { logoBase64: legacy });
+    const { logoUrl } = await (await app.request('/v1/branding')).json();
+    assert.equal((await app.request(logoUrl)).status, 200);
+  });
+
   it('never deletes an inline logo it cannot show until the admin replaces or removes it', async () => {
     Object.assign(settings(), { logoBase64: 'https://example.com/logo.png' });
     assert.equal((await (await app.request('/v1/branding')).json()).logoUrl, null);
@@ -211,6 +218,30 @@ describe('branding boundary', () => {
     assert.equal((await put({ logoBase64: pngOf(2048, 512) })).status, 200);
   });
 
+  it('counts every kind of SVG reference, the way browsers resolve them', async () => {
+    const ns = 'xmlns="http://www.w3.org/2000/svg"';
+    const tower = (levels, ref) => {
+      let defs = '<rect id="l0" width="1" height="1"/>';
+      for (let i = 1; i <= levels; i++) defs += `<g id="l${i}">${ref(i - 1)}${ref(i - 1)}</g>`;
+      return defs;
+    };
+    const chain = (tag, use) => {
+      let defs = `<${tag} id="c0"><rect width="1" height="1"/></${tag}>`;
+      for (let i = 1; i <= 30; i++) defs += `<${tag} id="c${i}">${use(i - 1)}${use(i - 1)}</${tag}>`;
+      return defs;
+    };
+    for (const image of [
+      `<svg ${ns} xmlns:q="http://www.w3.org/1999/xlink"><defs>${tower(40, i => `<use q:href="#l${i}"/>`)}</defs><use q:href="#l40"/></svg>`,
+      `<svg ${ns}><defs>${tower(30, i => `<use href="#l${i}"/>`)}<rect id="l30"/></defs><use href="#l30"/></svg>`,
+      `<svg ${ns}><defs>${chain('clipPath', i => `<rect clip-path="url(#c${i})" width="1" height="1"/>`)}</defs><rect clip-path="url(#c30)"/></svg>`,
+      `<svg ${ns}><defs>${chain('mask', i => `<rect style="mask:url('#c${i}')" width="1" height="1"/>`)}</defs><rect mask="url(#c30)"/></svg>`,
+    ]) {
+      assert.equal((await put({ logoBase64: svg(image) })).status, 400, image.slice(0, 120));
+    }
+    const gradient = '<defs><linearGradient id="g"><stop offset="0"/><stop offset="1"/></linearGradient></defs>';
+    assert.equal((await put({ logoBase64: svg(`<svg ${ns}>${gradient}${'<path fill="url(#g)" d="M0 0h1v1z"/>'.repeat(2000)}</svg>`) })).status, 200);
+  });
+
   it('deletes replaced and removed logo assets, so their old URLs stop resolving', async () => {
     assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 200);
     const first = (await (await app.request('/v1/branding')).json()).logoUrl;
@@ -224,14 +255,27 @@ describe('branding boundary', () => {
     assert.deepEqual(assets(), []);
   });
 
-  it('removes an asset it created when the settings write conflicts', async () => {
+  it('leaves an upload whose settings write conflicts unpublished, for the retry to reuse', async () => {
     const write = db.putSyncData;
     db.putSyncData = async (user, ...rest) => {
       if (user === '_system') throw Object.assign(new Error('Conflict'), { name: 'ConditionalCheckFailedException' });
       return write(user, ...rest);
     };
     assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 409);
-    assert.deepEqual(assets(), []);
+    assert.equal(settings().logoHash, undefined);
+    assert.equal((await (await app.request('/v1/branding')).json()).logoUrl, null);
+    db.putSyncData = write;
+    assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 200);
+    assert.deepEqual(assets(), [`_branding/logo:${settings().logoHash}`]);
+  });
+
+  it('stores the current logo again when its asset is missing', async () => {
+    assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 200);
+    const { logoUrl } = await (await app.request('/v1/branding')).json();
+    records.delete(`_branding/logo:${hashOf(logoUrl)}`);
+    assert.equal((await app.request(logoUrl)).status, 404);
+    assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 200);
+    assert.equal((await app.request(logoUrl)).status, 200);
   });
 
   it('reads settings with strong consistency before its versioned write', async () => {

@@ -75,7 +75,7 @@ Cloud Run + Cloud SQL deployment, runtime configuration, Direct VPC connectivity
 - Colors come from the semantic tokens in `client/src/index.css` (documented in `DESIGN.md`), in core and plugin UIs alike; raw Tailwind palette classes (`bg-green-50`, `text-blue-700`) fail `client/tests/design-tokens-contract.test.js`. Dark mode is a per-browser choice: the classroom header's `ThemeToggle` (an account-menu item under 30rem, and a toggle on the sign-in page and in the admin shell; all share `useTheme`) toggles `.dark` on `<html>` and saves `plato_theme` (`client/src/lib/theme.js`); an inline script in `client/index.html` reapplies it before first paint, and `color-scheme` follows it. With no saved choice, the page follows the device's `prefers-color-scheme`, including later changes. A classroom's dark colors (header, fills, surface tint) are derived from its primary by `buildThemeVars`, not configured ([details](docs/ARCHITECTURE.md#client-loading)).
 - Footer text: "Powered by plato." (with period, with GitHub link). Emails use classroom name/colors from settings with that footer.
 - API responses for user groups use `{ userGroups: [...] }` consistently (custom user fields mirror it: `{ userFields: [...] }`). User-created lesson IDs start with `custom-`. `loadLessons()` merges system lessons (`/v1/lessons`) with user sync-data lessons.
-- Favicon: defaults to plato's; generated dynamically (logo on rounded-rect with primary color) when an admin uploads a logo.
+- Favicon: plato's until branding loads, then a rounded tile in the primary color with the logo, or with the classroom name's initial when there is no logo, the logo is wider than 2:1, or it fails to load.
 
 ## Key files
 

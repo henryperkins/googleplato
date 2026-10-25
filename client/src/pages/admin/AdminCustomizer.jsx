@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
@@ -31,12 +31,19 @@ function useResource(path) {
   };
 }
 
-function ResourceState({ resource, name, onRetry, children }) {
+function ResourceState({ resource, name, headingRef, children }) {
+  // Focus stays on Retry while it works and if it fails again. When the content
+  // replaces the button, the page heading takes the focus.
+  const retried = useRef(false);
+  useLayoutEffect(() => {
+    if (resource.loading || !retried.current) return;
+    retried.current = false;
+    if (!resource.error && document.activeElement === document.body) headingRef.current?.focus();
+  }, [resource.loading, resource.error, headingRef]);
   if (resource.error) return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 text-sm text-danger-foreground" role="alert">
       <span>{name} could not be loaded. {resource.error}</span>
-      {/* The button leaves when the retry succeeds, so focus first moves to the page heading. */}
-      <Button variant="outline" size="sm" disabled={resource.loading} focusableWhenDisabled onClick={() => { onRetry(); resource.retry(); }}>
+      <Button variant="outline" size="sm" disabled={resource.loading} focusableWhenDisabled onClick={() => { retried.current = true; resource.retry(); }}>
         {resource.loading ? 'Retrying…' : `Retry ${name.toLowerCase()}`}
       </Button>
     </div>
@@ -55,7 +62,6 @@ export default function AdminCustomizer() {
   const knowledge = useResource('/v1/admin/knowledge-base');
   const kb = knowledge.data || {};
   const headingRef = useRef(null);
-  const focusHeading = () => headingRef.current?.focus();
 
   useEffect(() => { document.title = 'Classroom Customizer — plato'; }, []);
 
@@ -68,12 +74,12 @@ export default function AdminCustomizer() {
           <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
         </TabsList>
         <TabsContent value="styles">
-          <ResourceState resource={styles} name="Styles" onRetry={focusHeading}>
+          <ResourceState resource={styles} name="Styles" headingRef={headingRef}>
             {styles.data && <AdminStyles initialData={styles.data} onSaved={styles.update} />}
           </ResourceState>
         </TabsContent>
         <TabsContent value="knowledge">
-          <ResourceState resource={knowledge} name="Knowledge base" onRetry={focusHeading}>
+          <ResourceState resource={knowledge} name="Knowledge base" headingRef={headingRef}>
             {editing ? (
               <div>
                 <div className="flex items-center gap-3 mb-4">

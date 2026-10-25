@@ -9,11 +9,13 @@ export const MAX_LOGO_DATA_URL_CHARS = 128 * 1024;
 export const MAX_CLASSROOM_NAME = 100;
 // New uploads also bound the decoded area, which every visitor pays for.
 const MAX_LOGO_PIXELS = 1024 * 1024;
-// Logos saved before these limits are still shown, up to the largest data URL
-// the earlier Customizer could produce (an incompressible 512 x 512 PNG).
-const LEGACY_LOGO_DATA_URL_CHARS = 2 * 1024 * 1024;
-// <use> repeats other content, so count rendered instances rather than elements.
+// Logos saved before these limits are still shown. Earlier versions stored
+// SVG files unchecked, so this only bounds what one read may decode.
+const LEGACY_LOGO_DATA_URL_CHARS = 8 * 1024 * 1024;
+// References repeat other content, so count rendered instances, not elements.
 const MAX_SVG_INSTANCES = 10000;
+// Gradients paint without instancing their stops, so referencing one is cheap.
+const PAINT_SERVERS = new Set(['linearGradient', 'radialGradient']);
 const LOGO_OWNER = '_branding';
 const HASH = /^[a-f0-9]{64}$/;
 const SVG_ELEMENTS = new Set('svg g path rect circle ellipse line polyline polygon text tspan defs linearGradient radialGradient stop clipPath mask pattern use title desc'.split(' '));
@@ -58,9 +60,25 @@ export function classroomNameError(value) {
   return `Classroom name must be text of at most ${MAX_CLASSROOM_NAME} characters, without control characters.`;
 }
 
-/** True when <use> references expand the document to at most `limit` rendered elements. */
+/**
+ * True when references expand the document to at most `limit` rendered
+ * elements: <use> and any other href, plus url(#id) in any attribute (masks,
+ * clip paths, patterns), each counted the way a browser instantiates them.
+ */
 function boundedInstances(root, limit) {
-  const byId = new Map([root, ...root.querySelectorAll('[id]')].map(element => [element.getAttribute('id'), element]));
+  const byId = new Map();
+  for (const element of [root, ...root.querySelectorAll('*')]) {
+    const id = element.getAttribute('id');
+    if (id === null) continue;
+    // Browsers resolve the first of duplicate ids; refuse the ambiguity.
+    if (byId.has(id)) return false;
+    byId.set(id, element);
+  }
+  const targets = element => [...element.attributes].flatMap(({ name, value }) => [
+    // Any prefix can be bound to the XLink namespace, so match every `*:href`.
+    ...(name.toLowerCase() === 'href' || name.toLowerCase().endsWith(':href') ? [value.slice(1)] : []),
+    ...[...value.matchAll(/url\(\s*['"]?#([\w.-]+)['"]?\s*\)/gi)].map(match => match[1]),
+  ]).map(id => byId.get(id)).filter(target => target && !PAINT_SERVERS.has(target.localName));
   const counted = new Map();
   const open = new Set();
   const count = element => {
@@ -69,10 +87,7 @@ function boundedInstances(root, limit) {
     open.add(element);
     let total = 1;
     for (const child of element.children) total += count(child);
-    if (element.localName === 'use') {
-      const target = byId.get((element.getAttribute('href') ?? element.getAttribute('xlink:href') ?? '').slice(1));
-      if (target) total += count(target);
-    }
+    for (const target of targets(element)) total += count(target);
     open.delete(element);
     counted.set(element, total);
     return total;
@@ -211,13 +226,11 @@ export async function readLogo(hash, legacySettings) {
   return logo.hash === hash ? logo : null;
 }
 
-/** Store a logo asset. Resolves true when this call created the row. */
+/** Store a logo asset. Identical uploads share one content-addressed row. */
 export async function storeLogo(logo) {
   const key = `logo:${logo.hash}`;
-  // Identical uploads share one immutable asset.
-  if (await db.getSyncData(LOGO_OWNER, key, { consistentRead: true })) return false;
+  if (await db.getSyncData(LOGO_OWNER, key, { consistentRead: true })) return;
   await db.putSyncData(LOGO_OWNER, key, { dataUrl: logo.dataUrl, ...(logo.legacy ? { legacy: true } : {}) }, 0);
-  return true;
 }
 
 /**
