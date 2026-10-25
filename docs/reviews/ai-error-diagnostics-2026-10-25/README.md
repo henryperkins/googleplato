@@ -12,10 +12,12 @@ Local validation on Node 24 passed: 501 client tests and 694 server tests,
 with zero skips using a disposable PostgreSQL 17 instance. Lint reported zero
 errors and 20 existing client warnings, none in files this change touches.
 
-The Cloud Build test gate was reproduced from a `git archive` export of the
-branch head: `npm ci && npm run lint && npm test` in `node:24-bookworm-slim`
-against `postgres:17-bookworm` on a user-defined Docker network. The results
-matched.
+The Cloud Build test gate was reproduced in Docker: `npm ci && npm run lint &&
+npm test` in `node:24-bookworm-slim` against `postgres:17-bookworm` on a
+user-defined Docker network. The last run used a `git archive` export of `main`
+(500b2f3, which includes #15) merged with this branch's code at 0e74a33. Lint
+reported zero errors and 21 warnings; the new one came from `main`. 504 client
+tests and 694 server tests passed with zero skips.
 
 Restoring the previous behavior in `cloudflare-oauth.js` (every credential
 failure reported as Reconnect, and every failed renewal disabling the
