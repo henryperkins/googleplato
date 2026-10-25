@@ -77,9 +77,17 @@ still signs in and approves the Cloudflare consent screen.
 OAuth credentials take precedence over manually configured Workers AI credentials.
 Access tokens are renewed shortly before expiry using the refresh token. A shared
 database lease prevents concurrent requests from rotating the same refresh token.
-An uncertain or failed refresh disables the connection and requires **Reconnect
-Cloudflare**; Plato does not repeatedly submit an old refresh token or silently
-switch to another account.
+A renewal that could not reach Cloudflare at all never sent the refresh token, so
+it is still valid: the host name did not resolve, or no connection to any address
+opened within the 10-second connect timeout (the whole renewal request may take
+15 seconds). Plato keeps the connection and releases the lease, and the request
+fails as temporary. For the next 30 seconds, other requests fail the same way
+without trying again, so an outage doesn't keep rewriting the connection record.
+The first request after that renews. Any other failed or uncertain refresh,
+including a timeout after the connection opened, a dropped connection or an
+error response, disables the connection and requires **Reconnect Cloudflare**.
+Plato does not repeatedly submit an old refresh token or silently switch to
+another account.
 
 **Disconnect Cloudflare** requires confirmation and affects the entire classroom.
 Plato first disables the browser connection locally, then attempts to revoke its
@@ -103,6 +111,41 @@ credentials, if configured, are available again. Disconnect does not remove thos
 environment settings. A successful OAuth connection does not establish model or
 billing access; use **Test connection** for the selected model. Normal provider
 usage charges apply to tests and AI requests.
+
+## When AI requests fail
+
+Only conditions an administrator must fix ask for **Reconnect Cloudflare** or
+server setup. The browser gets `ai_unavailable` for these:
+
+- The connection was disabled after a failed or uncertain renewal.
+- Stored credentials can't be read, for example because the encryption key changed.
+- The OAuth client ID changed, or browser connection setup is incomplete.
+- No browser connection or manual credentials exist.
+
+Other credential failures don't ask anyone to reconnect a working account:
+
+- **Temporary (`ai_overloaded`):** another request is renewing the token and
+  didn't finish within 15 seconds, or a renewal couldn't reach Cloudflare in the
+  last 30 seconds. Non-streaming agents retry automatically.
+- **Server error (`ai_error`):** the database couldn't be read, or another
+  unexpected error happened.
+
+Every failed request logs `ai_provider_error` with `stage: credentials` and a
+`reason` ([fields](INFERENCE_TELEMETRY.md#failure-diagnostics)). Disabling the
+connection also logs `cloudflare_oauth_reconnect_required` once, from the request
+that disabled it, however many requests then fail. It records how the renewal
+failed:
+
+| Field | Meaning |
+| --- | --- |
+| `trigger` | `refresh-failed`, or `refresh-lease-expired` when another request took the renewal lease and never finished, so its token may have been rotated |
+| `reason` | The renewal failure's reason, usually `failed` |
+| `http_status` | The token endpoint's status, when it answered (`400` usually means the grant was revoked or expired) |
+| `error_name`, `cause_code` | The transport failure, such as `TimeoutError`, or `TypeError` with `ECONNRESET` |
+
+No token, authorization code or response body is logged. If learners report
+that AI stopped working, check **Admin → AI Settings** and Cloud Logging for this
+event first.
 
 ## Protocol and data boundaries
 

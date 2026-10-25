@@ -153,3 +153,85 @@ test('lesson-start enrichment inherits request context without changing plugin c
     assert.equal(finished().attempt_ref, undefined, 'request context cannot leak into unrelated invocations');
   } finally { unsubscribe(); }
 });
+
+const warnings = () => logger.recent().filter(e => e.code === 'ai_provider_error');
+
+test('a provider failure logs one content-free warning joined to its measurement', async () => {
+  mock.method(console, 'warn', () => {});
+  mock.method(globalThis, 'fetch', async () => new Response('secret upstream details', { status: 401 }));
+  await assert.rejects(ai.invoke('ignored', body), { name: 'WorkersAiError' });
+  assert.equal(warnings().length, 1);
+  const [warning] = warnings();
+  assert.equal(warning.level, 'warn');
+  assert.equal(warning.meta.inference_id, finished().inference_id);
+  assert.deepEqual({ ...warning.meta, inference_id: 'joined' }, {
+    schema_version: 1, inference_id: 'joined', provider: 'workers-ai', model, stream: false, agent_role: 'unknown',
+    error_code: 'ai_unavailable', stage: 'provider', reason: 'http', error_name: 'WorkersAiError', http_status: 401,
+    cause_code: null, credential_source: 'environment', token_expires_in_s: null,
+  });
+  assert.equal(finished().error_code, 'ai_unavailable');
+  assert.doesNotMatch(JSON.stringify(logger.recent()), /secret/);
+});
+
+test('missing credentials warn at the credentials stage without calling the provider', async () => {
+  mock.method(console, 'warn', () => {});
+  delete process.env.CLOUDFLARE_API_TOKEN;
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({}));
+  await assert.rejects(ai.invoke('ignored', body), { name: 'AiConfigurationError' });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  const { error_code, stage, reason, error_name } = warnings()[0].meta;
+  assert.deepEqual({ error_code, stage, reason, error_name },
+    { error_code: 'ai_unavailable', stage: 'credentials', reason: 'missing-credentials', error_name: 'AiConfigurationError' });
+});
+
+test('a failed stream warns, but a stream the caller cancels does not', async () => {
+  mock.method(console, 'warn', () => {});
+  mock.method(globalThis, 'fetch', async () => new Response('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n',
+    { headers: { 'Content-Type': 'text/event-stream' } }));
+  await assert.rejects(async () => { for await (const _event of ai.invokeStream('ignored', body)) { /* drain */ } });
+  const { error_code, reason, stream } = warnings()[0].meta;
+  assert.deepEqual({ error_code, reason, stream }, { error_code: 'ai_overloaded', reason: 'empty', stream: true });
+
+  logger._reset();
+  const controller = new AbortController();
+  mock.method(globalThis, 'fetch', (_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  }));
+  const pending = (async () => {
+    for await (const _event of ai.invokeStream('ignored', body, { signal: controller.signal })) { /* drain */ }
+  })();
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort();
+  await assert.rejects(pending);
+  assert.equal(finished().outcome, 'cancelled');
+  assert.equal(warnings().length, 0);
+});
+
+test('a throwing warning sink never changes the provider error', async () => {
+  mock.method(logger, 'warn', () => { throw new Error('sink unavailable'); });
+  mock.method(globalThis, 'fetch', async () => new Response('', { status: 429 }));
+  await assert.rejects(ai.invoke('ignored', body), err => err.name === 'WorkersAiError' && err.status === 429);
+  assert.equal(finished().error_code, 'ai_rate_limited');
+});
+
+test('an invalid or unreadable AI selection warns at the settings stage instead of failing silently', async () => {
+  mock.method(console, 'warn', () => {});
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({}));
+  active = { provider: 'workersai', workersAiModel: model }; // a mistyped AI_PROVIDER reaches the same check
+  await assert.rejects(ai.invoke('ignored', body, { context: inferenceContext('learner', { agentRole: 'coach' }) }), { name: 'AiConfigurationError' });
+  assert.deepEqual(warnings()[0].meta, {
+    schema_version: 1, inference_id: null, provider: null, model: null, stream: false, agent_role: 'coach',
+    error_code: 'ai_unavailable', stage: 'settings', reason: 'invalid-settings', error_name: 'AiConfigurationError',
+    http_status: null, cause_code: null, credential_source: null, token_expires_in_s: null,
+  });
+  assert.equal(finished(), undefined, 'no provider was invoked');
+
+  logger._reset();
+  mock.method(db, 'getSyncData', async () => { throw Object.assign(new Error('connect ECONNREFUSED 10.9.8.7:5432'), { code: 'ECONNREFUSED' }); });
+  await assert.rejects(async () => { for await (const _event of ai.invokeStream('ignored', body)) { /* drain */ } }, { name: 'AiSettingsError' });
+  const { stage, error_code, error_name, cause_code, stream } = warnings()[0].meta;
+  assert.deepEqual({ stage, error_code, error_name, cause_code, stream },
+    { stage: 'settings', error_code: 'ai_error', error_name: 'Error', cause_code: 'ECONNREFUSED', stream: true });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.doesNotMatch(JSON.stringify(logger.recent()), /10\.9\.8\.7/);
+});

@@ -12,7 +12,8 @@ const app = new Hono().route('/', admin).route('/', aiRoute);
 let saved;
 let writes;
 let calls;
-const env = Object.fromEntries(['AI_PROVIDER', 'WORKERS_AI_MODEL', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].map(key => [key, process.env[key]]));
+const env = Object.fromEntries(['AI_PROVIDER', 'WORKERS_AI_MODEL', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN',
+  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'].map(key => [key, process.env[key]]));
 
 async function request(method, path, body, role = 'admin', compatibilityHeaders = currentClientHeaders) {
   const token = await signAccessToken(`usr_${role}`, role);
@@ -81,6 +82,15 @@ describe('admin AI settings', () => {
     assert.equal(data.workersAiCredentials.configured, true);
     assert.equal(data.version, 0);
     assert.doesNotMatch(JSON.stringify(data), /test-token-never-return|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
+  });
+
+  it('reports whether this server has AWS credentials for Bedrock without returning them', async () => {
+    process.env.AWS_ACCESS_KEY_ID = 'AKIA-never-return';
+    process.env.AWS_SECRET_ACCESS_KEY = 'aws-secret-never-return';
+    const res = await request('GET', '/v1/admin/ai-settings');
+    const data = await res.json();
+    assert.deepEqual(data.bedrockCredentials, { configured: true });
+    assert.doesNotMatch(JSON.stringify(data), /never-return/);
   });
 
   it('forbids learners and anonymous users from reading, saving, or testing provider settings', async () => {

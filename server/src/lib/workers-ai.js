@@ -5,9 +5,10 @@ const TIMEOUT_MS = 115_000;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const STOP_REASONS = { stop: 'end_turn', length: 'max_tokens', content_filter: 'content_filtered', tool_calls: 'tool_use' };
 
-function providerError(status = 502) {
+function providerError(reason, httpStatus) {
   // Never retain the provider body: it may contain credentials or account data.
-  return Object.assign(new Error('Cloudflare Workers AI request failed.'), { name: 'WorkersAiError', status });
+  // `reason` and `httpStatus` are fixed identifiers for the ai_provider_error log.
+  return Object.assign(new Error('Cloudflare Workers AI request failed.'), { name: 'WorkersAiError', status: httpStatus || 502, httpStatus, reason });
 }
 
 function invalidRequest() {
@@ -57,10 +58,10 @@ function usage(data) {
 }
 
 function fromResponse(data) {
-  if (data?.error || data?.success === false) throw providerError();
+  if (data?.error || data?.success === false) throw providerError('error-payload');
   const choice = data?.choices?.[0];
   const text = choice?.message?.content;
-  if (typeof text !== 'string' || !text.trim()) throw providerError();
+  if (typeof text !== 'string' || !text.trim()) throw providerError('empty');
   return {
     content: [{ type: 'text', text }],
     stop_reason: STOP_REASONS[choice.finish_reason] || null,
@@ -83,7 +84,12 @@ async function request(model, body, stream, signal, observe) {
   });
   if (!response.ok) {
     await response.body?.cancel();
-    throw providerError(response.status);
+    // Which credentials were rejected, and how long the stored OAuth token had
+    // left; never the credentials themselves.
+    throw Object.assign(providerError('http', response.status), {
+      credentialSource: credentials.source,
+      ...(credentials.expiresAt ? { tokenExpiresInS: Math.round((credentials.expiresAt - Date.now()) / 1000) } : {}),
+    });
   }
   return response;
 }
@@ -91,7 +97,7 @@ async function request(model, body, stream, signal, observe) {
 // Frames may be split anywhere, including inside UTF-8 characters. Flush the
 // final unterminated frame and reject malformed/truncated streams explicitly.
 async function* readEvents(body) {
-  if (!body) throw providerError();
+  if (!body) throw providerError('malformed');
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -111,7 +117,7 @@ async function* readEvents(body) {
           lines = [];
           if (data === '[DONE]') return;
           let event;
-          try { event = JSON.parse(data); } catch { throw providerError(); }
+          try { event = JSON.parse(data); } catch { throw providerError('malformed'); }
           yield event;
         }
       }
@@ -145,12 +151,12 @@ const workersAi = {
     let tokenUsage = usage();
     try {
       const response = await request(model, body, true, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, observe);
-      if (!response.headers.get('content-type')?.includes('text/event-stream')) throw providerError();
+      if (!response.headers.get('content-type')?.includes('text/event-stream')) throw providerError('malformed');
       yield { type: 'message_start', message: { role: 'assistant', content: [] } };
       for await (const event of readEvents(response.body)) {
         observeInference(observe, { format: 'workers-ai', usage: event.usage,
           finalUsage: finished || Boolean(event.choices?.[0]?.finish_reason) });
-        if (event.error || event.success === false) throw providerError(event.error?.status || 502);
+        if (event.error || event.success === false) throw providerError('error-payload', event.error?.status);
         const choice = event.choices?.[0];
         const text = choice?.delta?.content;
         // Reasoning traces are intentionally excluded from learner-visible text.
@@ -164,7 +170,8 @@ const workersAi = {
           yield { type: 'message_delta', delta: { stop_reason: STOP_REASONS[choice.finish_reason] || null } };
         }
       }
-      if (!finished || !hasText) throw providerError();
+      // Unfinished, or finished without visible text: reasoning can use the whole budget.
+      if (!finished || !hasText) throw providerError(finished ? 'empty' : 'incomplete');
       yield { type: 'message_stop', usage: tokenUsage };
     } finally {
       controller.abort();

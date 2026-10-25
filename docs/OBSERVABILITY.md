@@ -13,6 +13,22 @@ Inference usage and lesson economics have a separate read-only
 [inference telemetry report](INFERENCE_TELEMETRY.md), backed by INFO events in
 Cloud Logging. It does not add individual inference events to save alarms.
 
+AI failures emit two WARN events, neither of them Tier A, since no learner
+data is lost:
+
+- **`ai_provider_error`** is one per failed invocation, with content-free
+  [failure diagnostics](INFERENCE_TELEMETRY.md#failure-diagnostics). It is
+  **Tier B**: one failure is retryable, so alert on a threshold, not on each one.
+- **`cloudflare_oauth_reconnect_required`** is logged once when the classroom's
+  Cloudflare connection is disabled. Every Workers AI request then fails until
+  an administrator reconnects. It is still Tier B, but the event marks the start
+  of an outage, not a single failed request, so one alert per event is not
+  per-occurrence alarming. See [CLOUDFLARE_OAUTH.md](CLOUDFLARE_OAUTH.md#when-ai-requests-fail).
+
+Neither has an alert policy yet. Until one exists, check
+`jsonPayload.event="cloudflare_oauth_reconnect_required"` first when learners
+report that the coach is down.
+
 How plato notices when something is wrong, and the framework for adding new
 checks. Read this before adding any new error detection or alert.
 

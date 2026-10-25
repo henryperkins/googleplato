@@ -4,7 +4,9 @@
  * The client maps the code, plus the surface that made the call, to
  * contextual copy (client/src/lib/aiErrors.js). The raw provider message never
  * leaves the server: an AWS AccessDenied message can include the account ID
- * and IAM role name. Server logs keep the full error.
+ * and IAM role name. aiErrorDiagnostics() keeps only identifiers for the
+ * ai_provider_error event. Callers that log an error themselves, such as the
+ * plugin hook runner, can still record its message.
  */
 
 const MESSAGES = {
@@ -29,7 +31,10 @@ const UNAVAILABLE = new Set([
 ]);
 
 const RATE_LIMITED = new Set(['ThrottlingException', 'ServiceQuotaExceededException']);
-const OVERLOADED = new Set(['ServiceUnavailableException', 'ModelNotReadyException', 'InternalServerException']);
+// AiCredentialsTemporaryError: another request is still renewing the shared
+// Cloudflare token, or the renewal could not reach Cloudflare. Credential reads
+// that fail unexpectedly (AiCredentialsError) fall through to ai_error.
+const OVERLOADED = new Set(['ServiceUnavailableException', 'ModelNotReadyException', 'InternalServerException', 'AiCredentialsTemporaryError']);
 const TIMEOUT = new Set(['ModelTimeoutException', 'TimeoutError', 'AbortError']);
 const NETWORK = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT']);
 
@@ -48,6 +53,32 @@ export function classifyAiError(err) {
   else if (NETWORK.has(err?.code) || NETWORK.has(err?.cause?.code)) code = 'ai_unavailable';
 
   return { code, message: MESSAGES[code] };
+}
+
+// No spaces or dots: error names, codes and reasons never need them, and a
+// hostname or IP address can't pass.
+const IDENTIFIER = /^[\w-]{1,64}$/;
+/** An error name or code fit for logs, or null for anything that could be free text. */
+export const safeIdentifier = value => typeof value === 'string' && IDENTIFIER.test(value) ? value : null;
+const CREDENTIAL_SOURCES = new Set(['oauth', 'oauth-refreshed', 'environment']);
+const STAGES = new Set(['settings', 'credentials']);
+
+/**
+ * Content-free fields for the ai_provider_error log: names, codes and statuses,
+ * never a message. A settings or credential failure reports its cause's
+ * identity, which the code that wraps it copies onto the error it throws.
+ */
+export function aiErrorDiagnostics(err) {
+  const status = err?.httpStatus ?? err?.$metadata?.httpStatusCode;
+  return {
+    stage: STAGES.has(err?.aiStage) ? err.aiStage : err?.name === 'CredentialsProviderError' ? 'credentials' : 'provider',
+    reason: safeIdentifier(err?.reason),
+    error_name: safeIdentifier(err?.causeName ?? err?.name),
+    http_status: Number.isSafeInteger(status) && status >= 100 && status <= 599 ? status : null,
+    cause_code: safeIdentifier(err?.causeCode ?? err?.code ?? err?.cause?.code),
+    credential_source: CREDENTIAL_SOURCES.has(err?.credentialSource) ? err.credentialSource : null,
+    token_expires_in_s: Number.isSafeInteger(err?.tokenExpiresInS) ? err.tokenExpiresInS : null,
+  };
 }
 
 export function aiErrorStatus(code) {

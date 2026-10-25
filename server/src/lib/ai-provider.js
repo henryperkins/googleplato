@@ -5,7 +5,7 @@
 import bedrock from './bedrock.js';
 import workersAi from './workers-ai.js';
 import { BEDROCK_MODEL, readAiSettings } from './ai-settings.js';
-import { createInferenceTelemetry, currentInferenceContext } from './inference-telemetry.js';
+import { createInferenceTelemetry, currentInferenceContext, recordSettingsFailure } from './inference-telemetry.js';
 import { classifyAiError } from './ai-errors.js';
 
 // Compatibility with existing browsers and ctx.LLM in plugins. The server's
@@ -14,7 +14,7 @@ export const LLM = BEDROCK_MODEL;
 
 const ai = {
   async invoke(_model, body, options) {
-    return ai.invokeWithSettings(await readAiSettings(), body, options);
+    return ai.invokeWithSettings(await selectedSettings(false, options?.context), body, options);
   },
 
   async invokeWithSettings(settings, body, { context } = {}) {
@@ -27,13 +27,14 @@ const ai = {
       return result;
     } catch (error) {
       errorCode = classifyAiError(error).code;
+      telemetry.fail(errorCode, error);
       throw error;
     } finally { telemetry.finish(outcome, errorCode); }
   },
 
   async *invokeStream(_model, body, { signal, context } = {}) {
     // Resolve once per request so a switch cannot change an in-flight stream.
-    const settings = await readAiSettings();
+    const settings = await selectedSettings(true, context);
     const { adapter, model, telemetry } = invocation(settings, true, context);
     let outcome = 'cancelled', errorCode;
     try {
@@ -45,10 +46,25 @@ const ai = {
     } catch (error) {
       outcome = signal?.aborted ? 'cancelled' : 'error';
       errorCode = classifyAiError(error).code;
+      if (outcome === 'error') telemetry.fail(errorCode, error);
       throw error;
     } finally { telemetry.finish(outcome, errorCode); }
   },
 };
+
+// The selection is read before an adapter or measurement exists, so report a
+// failure here too: an invalid AI_PROVIDER would otherwise fail every request
+// silently. A database error is a server error, never an unreachable provider.
+async function selectedSettings(stream, context) {
+  try { return await readAiSettings(); }
+  catch (error) {
+    const failure = error?.name === 'AiConfigurationError' ? error : Object.assign(new Error('AI settings could not be read.'), {
+      name: 'AiSettingsError', aiStage: 'settings', causeName: error?.name, causeCode: error?.code,
+    });
+    recordSettingsFailure({ stream, context: context ?? currentInferenceContext() }, classifyAiError(failure).code, failure);
+    throw failure;
+  }
+}
 
 function invocation(settings, stream, context) {
   const workers = settings.provider === 'workers-ai';

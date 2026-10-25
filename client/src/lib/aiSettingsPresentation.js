@@ -48,6 +48,16 @@ export function savedAiSettingsMessage(saved, changes) {
   return message;
 }
 
+/**
+ * Why Bedrock will likely fail on this server, or null. The server checks only
+ * for credential presence and cannot see an instance role, so this warns and
+ * never blocks. Servers that predate the check report nothing.
+ */
+export function bedrockCredentialWarning(settings) {
+  if (settings?.bedrockCredentials?.configured !== false) return null;
+  return 'No AWS credentials were found on this server, so Bedrock requests will fail unless the server uses an AWS instance role. Ask your server owner to set up AWS access, or use Cloudflare Workers AI.';
+}
+
 export function testedAiConfiguration(request, response) {
   const provider = response.provider || request.provider;
   return {
