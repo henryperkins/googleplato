@@ -7,7 +7,7 @@ Project-level instructions for Claude Code sessions working on plato.
 plato is an Open Source, AI-powered [microlearning](https://philosophers.group/platos-microlearning/) platform. Learners work through focused lessons in a continuous conversation with an AI coach, designed for completion in ~20 minutes.
 
 - `client/` — React 19 + Vite SPA
-- `server/` — Node.js + Hono, deployed as AWS Lambda (SAM)
+- `server/` — Node.js + Hono, deployed as Google Cloud Run (`server/start.js` + Cloud SQL PostgreSQL) or AWS Lambda (SAM + DynamoDB)
 - Brand: "plato" (always lowercase)
 
 ## Architecture
@@ -15,10 +15,10 @@ plato is an Open Source, AI-powered [microlearning](https://philosophers.group/p
 Quick map of the system. **Deep dives, incident history, and the *why* behind these invariants live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — read the relevant section before changing one of these subsystems.
 
 - Login required, all data server-side. JWT access (15 min) + refresh (30 day) tokens in localStorage (`plato_auth`); login accepts email or username. Unique editable `username` per user.
-- 2 Lambda functions (API Gateway buffered CRUD + Function URL streaming SSE for AI chat); 5 DynamoDB tables (users, invites, refresh-tokens, sync-data, audit-log).
+- Cloud Run runs the HTTP/SSE container (`server/start.js`) backed by Cloud SQL for PostgreSQL (`users`, `invites`, `refresh_tokens`, `sync_data`, `audit_log`) over Direct VPC egress (`@google-cloud/cloud-sql-connector` with Private IP and service identity auth). AWS deployments run 2 Lambda functions (API Gateway buffered CRUD + Function URL streaming SSE for AI chat) and 5 DynamoDB tables (`users`, `invites`, `refresh-tokens`, `sync-data`, `audit-log`).
 - Content is `_system` sync-data (`prompt:*`, `lesson:*`, `knowledgeBase`, `settings`). Prompts are bundled in `client/prompts/*.md` and upserted on every server startup — admins can't edit prompts directly. User-created lessons live under the user's sync-data (`lessons:custom-*`).
 - **9 AI agents** (prompts in `client/prompts/`, each with an HTML header documenting reads/callers/purpose): coach, lesson-creator, lesson-owner, lesson-extractor, knowledge-base-editor, knowledge-base-extractor, learner-profile-owner, learner-profile-update, course-progress-update. Program KB + Lesson Catalog are appended to system prompts at runtime (`client/js/orchestrator.js`).
-- **One open source model for all 9 agents** — `qwen.qwen3-vl-235b-a22b` (Apache-2.0), declared once as `LLM` in `server/src/lib/ai-provider.js`, mirrored in `client/js/api.js`, injected into plugins as `ctx.LLM`. **No per-agent routing.** Bedrock is the only backend (local dev included — the Anthropic API provider was removed). Non-Anthropic models require the **Converse API**: legacy `InvokeModel` doesn't reject them, it returns HTTP 200 with an OpenAI-shaped body, so callers silently read `undefined`. `server/src/lib/converse.js` translates between plato's internal Anthropic wire format and Converse. A replacement model must clear **four** bars: on Bedrock us-east-2 (UIC requirement), accepts images (learners paste screenshots), reliably emits plato's literal tags, and carries an **OSI-approved license**. That last one is a constraint, not a preference — plato is AGPL-3.0, so *open weight isn't enough*: Llama 4 and Gemma ship under non-OSI community licenses and are ineligible despite passing every functional check (Llama 4 Maverick measured faster and cheaper, and is the fallback only at the cost of that bar). **Prompt caching is Claude-only on Bedrock — don't add it.** → [details](docs/ARCHITECTURE.md#ai-provider--model-choice), [why this model](docs/MODEL_SELECTION.md)
+- **One model for all 9 agents** — admins select **Amazon Bedrock** (`qwen.qwen3-vl-235b-a22b`, Apache-2.0) or **Cloudflare Workers AI** (`@cf/deepseek-ai/deepseek-v4.1-flash-1017` with maximum reasoning, or Mistral Small 3.1 24B, connected via Cloudflare OAuth or API token) at `/plato/ai`. `LLM` in `server/src/lib/ai-provider.js` (mirrored in `client/js/api.js` and injected into plugins as `ctx.LLM`) is a compatibility hint; all 9 agents and plugin AI calls route through `server/src/lib/ai-provider.js` with no per-agent routing and no automatic provider fallback. On Bedrock, non-Anthropic models require the **Converse API**: legacy `InvokeModel` doesn't reject them, it returns HTTP 200 with an OpenAI-shaped body, so callers silently read `undefined`. `server/src/lib/converse.js` translates between plato's internal Anthropic wire format and Converse, and `server/src/lib/workers-ai.js` translates Chat Completions/SSE for Workers AI. For UIC Bedrock deployments, a replacement model must clear **four** bars: on Bedrock us-east-2, accepts images (learners paste screenshots), reliably emits plato's literal tags, and carries an **OSI-approved license**. That last one is a constraint, not a preference — plato is AGPL-3.0, so *open weight isn't enough*: Llama 4 and Gemma ship under non-OSI community licenses and are ineligible despite passing every functional check (Llama 4 Maverick measured faster and cheaper, and is the fallback only at the cost of that bar). **Prompt caching is Claude-only on Bedrock — don't add it.** → [details](docs/ARCHITECTURE.md#ai-provider--model-choice), [why this model](docs/MODEL_SELECTION.md), [Cloudflare OAuth](docs/CLOUDFLARE_OAUTH.md)
 - **Conversation & image persistence** — chat history is one append-only `messages:<lessonId>` record; progress is a separate `lessonKB:<lessonId>`. **Images are never inlined in `messages:`** — each is its own compressed `screenshot:*` record, referenced by `metadata.imageKeys` (DynamoDB's 400 KB item cap; inlining base64 silently lost conversations, #191/#193). The `LessonChat` resume effect keys on stable values, never the `lesson` object identity. → [details](docs/ARCHITECTURE.md#image--conversation-persistence-191-193)
 - **Link attachments** — a learner can attach a web page to a coach message. It's fetched + read **server-side** (`POST /v1/links/fetch`); the page text is injected into the coach call on that turn only (image parity), and only `{ url, title }` is persisted in `metadata.links`. SSRF defense (`server/src/lib/url-guard.js`) is load-bearing — the server fetches user URLs from inside AWS. → [details](docs/ARCHITECTURE.md#link-attachments)
 - **Lessons** — three statuses: `public`, `private` (visible to `sharedWith`), `draft` (admin-only, no markdown yet; true draft iff `status==='draft'` AND markdown empty). New lessons start as `draft`; "Create Lesson" flips `draft`→`private`. Editing is conversation-based (no raw markdown editor), deep-linked at `/plato/lessons/:lessonId/edit`, with a manually-refreshed markdown preview pane. An optional `## Coach Directive` section carries author-supplied runtime instructions for the coach (e.g. "reference the learner's project", "share this code") — extracted verbatim, parsed into `lesson.coachDirective`, and surfaced via `buildContext`; it never overrides completion semantics. Optional `course` taxonomy (`_system:course:<id>`) for grouping; delete cascades `course:null`. A per-learner `courseProgress:<courseId>` record carries a tiny distilled note of what the learner demonstrated in a course's *other* lessons — regenerated on completion by the `course-progress-update` agent (incremental, ~600-char cap) and injected into the coach context as `course.progress`; informational only, never overrides completion. → [details](docs/ARCHITECTURE.md#course-progress-cross-lesson-memory)
@@ -27,7 +27,7 @@ Quick map of the system. **Deep dives, incident history, and the *why* behind th
 - **Custom user fields (#364)** — admin-defined profile fields (text, textarea, dropdown, link, phone; optional or required). Definitions in `_system:settings.userFields`; values on the **user record** as `customFields` keyed by stable field id (so the Users list can search/filter without extra reads). `server/src/lib/user-fields.js` is the single validator. Required fields are collected by `ProfileCompletionGate` around the classroom routes — status fetched fresh each load, **fails open**, client-side only, not enforced at signup. → [details](docs/ARCHITECTURE.md#custom-user-fields-364)
 - **Wait list (#363)** — public `/waitlist` form and `POST /v1/waitlist` (open list, or a Bearer API key for outside forms). Entries are `invites` rows with `status: 'waitlist'`, no ttl, and a `profile`; config is `_system:waitlist`, not settings. Admin invites from Users → Wait List; signup fills in the entry's answers. → [details](docs/ARCHITECTURE.md#wait-list-363)
 - **Admin "View as User"** — read-only learner-classroom audit via `?asUserId=<id>` on GET `/v1/sync*` and `/v1/lessons*`; writes never carry the param (403 server-side + client throw). Session-granularity audit log. → [details](docs/ARCHITECTURE.md#admin-view-as-user)
-- **Observability** — errors flow `server/src/lib/logger.js` (snake_case `code`) → `GET /v1/admin/logs` (merges ring buffer + CloudWatch, aggregates by `code`) → pilot report + log-watch alarm. **Before adding any error detection or alert, read [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md)** (the three-tier model + decision guide).
+- **Observability** — errors flow `server/src/lib/logger.js` (snake_case `code` + Cloud Logging `severity`) → `GET /v1/admin/logs` (merges ring buffer + Cloud Logging on Cloud Run via `server/src/lib/cloud-logging.js`, or CloudWatch on Lambda via `server/src/lib/cloudwatch-logs.js`, and aggregates by `code`) → `scripts/log-watch.js` (queries Cloud Logging directly via ADC on Cloud Run) and pilot report. **Before adding any error detection or alert, read [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) and [`docs/SAVE_OBSERVABILITY.md`](docs/SAVE_OBSERVABILITY.md)** (the three-tier model + Cloud Run save observability).
 
 ## Plugins
 
@@ -58,9 +58,10 @@ AI route tests mock `ai-provider.js` (not `bedrock.js`), and use the real `conve
 
 ## Deploy
 
-Full procedure, SSM parameters, environments (prod / playground), CloudFront, and backups are in **[`docs/DEPLOY.md`](docs/DEPLOY.md)**. Automation (deploy dispatch, the agentic workflows, branch protection, versioning) is in **[`docs/AUTOMATION.md`](docs/AUTOMATION.md)**.
+Cloud Run + Cloud SQL deployment, runtime configuration, Direct VPC connectivity, and backup/recovery procedures are in **[`docs/CLOUD_RUN_STORAGE.md`](docs/CLOUD_RUN_STORAGE.md)**. AWS SAM procedure, SSM parameters, environments (prod / playground), CloudFront, and DynamoDB backups are in **[`docs/DEPLOY.md`](docs/DEPLOY.md)**. Automation (Cloud Build CI gate, deploy dispatch, agentic workflows, branch protection, versioning) is in **[`docs/AUTOMATION.md`](docs/AUTOMATION.md)**.
 
-- Prod (`plato` stack) auto-deploys on push to `main`; playground (`plato-playground`) on push to `playground` — both via `repository_dispatch` to the private fork. Merges to `main` auto-deploy to prod with live users.
+- **Cloud Run (`plato-shaped`, `idk-4e9b9` / `us-east1`):** pushes to `main` trigger the `plato-main` Cloud Build webhook (`deploy/cloudrun/cloudbuild.yaml`), which runs `npm ci && npm run lint && npm test` (including the PostgreSQL suite against a disposable `postgres:17-bookworm` container) before building `Dockerfile` and updating `app-container` (preserving the `nginx-container` sidecar, Direct VPC egress, Cloud SQL `plato-durable` connection, and Secret Manager bindings). Re-run `deploy/cloudrun/configure.sh` after editing `deploy/cloudrun/cloudbuild.yaml`. Never use AI Studio's Deploy button on `plato-shaped`.
+- **AWS (`plato` / `plato-playground` stacks):** prod auto-deploys on push to `main`; playground on push to `playground` — both via `repository_dispatch` to the private fork. Merges to `main` auto-deploy to prod with live users.
 - CloudFront → Lambda Function URL: the Origin Request Policy **must** be `AllViewerExceptHostHeader` (Function URLs reject mismatched Host headers).
 - The SAM build does not bundle the client — the `cp` steps for `client-dist` (SPA) and `client-content` (prompt seed files) are required; see `docs/DEPLOY.md`.
 
@@ -78,10 +79,18 @@ Full procedure, SSM parameters, environments (prod / playground), CloudFront, an
 
 ## Key files
 
-- `server/template.yaml` — SAM/CloudFormation infrastructure
-- `server/src/lib/email.js` — SES email templates (invite, reset)
-- `server/src/lib/ai-provider.js` — Bedrock abstraction + the single `LLM` constant
+- `server/start.js` — Cloud Run / production HTTP entry point (`0.0.0.0:$PORT`, graceful `SIGTERM` drain)
+- `server/src/lib/db-postgres.js` — Cloud SQL Connector (`@google-cloud/cloud-sql-connector`, Private IP) + `pg.Pool` initialization and startup retry
+- `server/src/lib/postgres-database.js` — PostgreSQL adapter (advisory-locked per-learner transactions, JSONB tables, atomic token consumption)
+- `server/src/lib/cloud-logging.js` — Cloud Run structured log reader (`entries:list` pagination + deduplication)
+- `deploy/cloudrun/cloudbuild.yaml` — Cloud Build test-gated pipeline and `gcloud run services update` step
+- `deploy/cloudrun/configure.sh` — Idempotent `plato-deploy` IAM setup and `plato-main` webhook trigger sync
+- `server/template.yaml` — AWS SAM/CloudFormation infrastructure
+- `server/src/lib/email.js` — SES email templates (invite, reset) and `SKIP_EMAIL` handling
+- `server/src/lib/ai-provider.js` — AI provider router (Bedrock / Workers AI) + the `LLM` constant
 - `server/src/lib/converse.js` — Anthropic ⇄ Bedrock Converse translation (pure, unit-tested)
+- `server/src/lib/workers-ai.js` — Cloudflare Workers AI Chat Completions / SSE adapter
+- `server/src/lib/cloudflare-oauth.js` — Encrypted Cloudflare OAuth PKCE flow and leased token refresh
 - `server/src/routes/sync.js` — sync CRUD + `applyActivityEffects` (denormalization single writer)
 - `server/src/lib/lesson-limits.js` — server-side mirror of microlearning limits
 - `server/src/lib/lesson-stats-cache.js` — stale-while-revalidate KPI cache
@@ -107,9 +116,14 @@ Full procedure, SSM parameters, environments (prod / playground), CloudFront, an
 ## Reference docs
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — subsystem deep-dives + incident history
-- [`docs/AUTOMATION.md`](docs/AUTOMATION.md) — CI/CD, agentic workflows, branch protection, versioning
+- [`docs/CLOUD_RUN_STORAGE.md`](docs/CLOUD_RUN_STORAGE.md) — Cloud Run & Cloud SQL architecture, Direct VPC networking, IAM, backups/PITR, and rollback
+- [`docs/SAVE_OBSERVABILITY.md`](docs/SAVE_OBSERVABILITY.md) — Cloud Logging save telemetry, `log-watch` ADC CLI, and exit codes
+- [`docs/INFERENCE_TELEMETRY.md`](docs/INFERENCE_TELEMETRY.md) — AI invocation telemetry and lesson cost reporting
+- [`docs/CLOUDFLARE_OAUTH.md`](docs/CLOUDFLARE_OAUTH.md) — Cloudflare OAuth setup for Workers AI
+- [`docs/FIRESTORE_RETIREMENT.md`](docs/FIRESTORE_RETIREMENT.md) — Firestore learner-data retirement and rules verification
+- [`docs/AUTOMATION.md`](docs/AUTOMATION.md) — Cloud Build CI, agentic workflows, branch protection, versioning
 - [`docs/MODEL_SELECTION.md`](docs/MODEL_SELECTION.md) — why Qwen3-VL: constraints, benchmarks, rejected candidates
 - [`docs/WAITLIST_API.md`](docs/WAITLIST_API.md) — public wait-list API guide for outside forms/integrations
 - [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) — error-reporting tiers + how to add an alert
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — AWS deploy, environments, backups
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — Cloud Run and AWS deploy, environments, backups
 - [`docs/plugins/`](docs/plugins/) — plugin authoring (human + AI guides, reference, examples)
