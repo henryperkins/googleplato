@@ -144,6 +144,12 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(layoutSrc, /overflow-y-auto/);
     assert.match(layoutSrc, /admin-bottom-nav/);
     assert.equal(/admin-bottom-nav[^"]*fixed bottom-0/.test(layoutSrc), false);
+    // Icon-only tabs still need a name, and the active icon must use the
+    // contrast-safe token (plain --primary is dimmer than inactive icons in dark mode).
+    const bottomNavSrc = layoutSrc.slice(layoutSrc.indexOf('admin-bottom-nav'));
+    assert.match(bottomNavSrc, /<span className="sr-only">\{label\}<\/span>/);
+    assert.match(bottomNavSrc, /aria-hidden="true"/);
+    assert.match(bottomNavSrc, /border-primary text-primary-text/);
 
     const homeSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminHome.jsx'), 'utf8');
     assert.equal(/text-\[10px\]/.test(homeSrc), false);

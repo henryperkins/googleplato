@@ -21,14 +21,15 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
+import { House, BookOpen, Users, Palette, Sparkles, Puzzle } from 'lucide-react';
 
 const NAV_LINKS = [
-  { to: '/plato', label: 'Home', end: true },
-  { to: '/plato/lessons', label: 'Lessons' },
-  { to: '/plato/users', label: 'Users' },
-  { to: '/plato/customizer', label: 'Customizer' },
-  { to: '/plato/ai', label: 'AI Settings' },
-  { to: '/plato/plugins', label: 'Plugins' },
+  { to: '/plato', label: 'Home', end: true, Icon: House },
+  { to: '/plato/lessons', label: 'Lessons', Icon: BookOpen },
+  { to: '/plato/users', label: 'Users', Icon: Users },
+  { to: '/plato/customizer', label: 'Customizer', Icon: Palette },
+  { to: '/plato/ai', label: 'AI Settings', Icon: Sparkles },
+  { to: '/plato/plugins', label: 'Plugins', Icon: Puzzle },
 ];
 
 function NavItems({ onClick }) {
@@ -229,23 +230,29 @@ export default function AdminLayout() {
 
         {/* Mobile bottom tab bar exposes admin destinations without requiring the drawer. */}
         <nav
-          className="admin-bottom-nav md:hidden shrink-0 flex flex-wrap items-center justify-around border-t bg-background pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
+          className="admin-bottom-nav md:hidden shrink-0 flex items-center justify-around border-t bg-background pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
           aria-label="Admin primary navigation"
         >
-          {NAV_LINKS.map(({ to, label, end }) => (
+          {NAV_LINKS.map(({ to, label, end, Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
+              title={label}
               className={({ isActive }) =>
-                `touch-target flex flex-auto items-center justify-center px-1.5 py-2 text-xs whitespace-nowrap transition-colors ${
+                `touch-target flex flex-1 items-center justify-center border-t-2 px-1 py-2.5 transition-colors ${
                   isActive
-                    ? 'font-semibold text-primary-text border-t-2 border-primary'
-                    : 'text-muted-foreground hover:text-foreground'
+                    ? 'border-primary text-primary-text'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`
               }
             >
-              {label}
+              {({ isActive }) => (
+                <>
+                  <Icon size={22} strokeWidth={isActive ? 2.25 : 1.9} aria-hidden="true" />
+                  <span className="sr-only">{label}</span>
+                </>
+              )}
             </NavLink>
           ))}
         </nav>

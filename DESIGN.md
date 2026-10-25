@@ -344,7 +344,7 @@ The spacing unit is a quarter rem (4 px at the inspected root size). The app use
 | User settings | Centered, up to 32 rem (512 px). |
 | Auth card | Up to 28 rem (448 px), within a full-height branded page. |
 | Administration | A fixed 14 rem (224 px) sidebar from 48 rem (768 px), with matching content offset; content is capped at 56 rem (896 px). |
-| Mobile administration | A top bar and bottom navigation replace the sidebar. Navigation items wrap into additional rows when enlarged labels need more space. A modal 16 rem (256 px) drawer holds utility actions, is capped to the viewport, contains keyboard focus, closes on Escape, and restores focus to its trigger. |
+| Mobile administration | A top bar and an icon-only bottom navigation replace the sidebar. Each tab keeps its label as screen-reader text and a tooltip, and the active tab takes a primary top border and a `--primary-text` icon, which stays brighter than the muted inactive icons in dark mode. A modal 16 rem (256 px) drawer holds utility actions, is capped to the viewport, contains keyboard focus, closes on Escape, and restores focus to its trigger. |
 | Standard dialog | Viewport width minus 32 px on small screens; up to 32 rem (512 px) from the small breakpoint. |
 | Authoring workspaces | Vertical stack initially; conversational editor and preview form a 3/5–2/5 split from the large breakpoint. |
 
