@@ -162,7 +162,7 @@ describe('monitoring.sh', () => {
     assert.deepEqual(state.channels.map(c => c.email), ['ops@example.test']);
     assert.equal(state.uptime.length, 1);
     assert.deepEqual(state.metrics.sort(), ['plato_ai_provider_error', 'plato_postgres_connect_retry']);
-    assert.equal(state.policies.length, 10);
+    assert.equal(state.policies.length, 11);
     const created = state.calls.find(call => call.slice(0, 3).join(' ') === 'monitoring uptime create');
     for (const expected of ['--resource-labels=host=plato-shaped.ai.studio,project_id=idk-4e9b9', '--protocol=https',
       '--path=/v1/health', '--validate-ssl=true', '--status-codes=200', '--regions=usa-iowa,usa-oregon,usa-virginia']) {
@@ -171,16 +171,17 @@ describe('monitoring.sh', () => {
     for (const call of state.calls) assert.ok(call.includes('--project=idk-4e9b9'), call.join(' '));
     for (const body of Object.values(state.bodies)) assert.deepEqual(body.notificationChannels, ['projects/idk-4e9b9/notificationChannels/1']);
     assert.match(state.bodies['health-check'].conditions[0].conditionThreshold.filter, /check_id="plato-health-1a2b"/);
+    assert.match(state.bodies['password-reset-failure'].conditions[0].conditionMatchedLog.filter, /jsonPayload\.event="password_reset_request_failed"/);
     assert.match(first.stdout, /created policy save-failure/);
 
     const second = gcloud.run(['--email', 'ops@example.test']);
     assert.equal(second.status, 0, second.stderr);
     state = gcloud.state();
     assert.equal(state.channels.length, 1);
-    assert.equal(state.policies.length, 10, 'policies are updated, not duplicated');
-    const repeat = mutations(state).slice(mutations(state).length - 13);
+    assert.equal(state.policies.length, 11, 'policies are updated, not duplicated');
+    const repeat = mutations(state).slice(mutations(state).length - 14);
     assert.equal(repeat.filter(call => call.includes('create')).length, 0);
-    assert.equal(repeat.filter(call => call.slice(0, 3).join(' ') === 'monitoring policies update').length, 10);
+    assert.equal(repeat.filter(call => call.slice(0, 3).join(' ') === 'monitoring policies update').length, 11);
     assert.match(second.stdout, /updated policy deploy-drift/);
   });
 
@@ -206,7 +207,7 @@ describe('monitoring.sh', () => {
     const gcloud = fakeGcloud({ readLines: 3 });
     const result = gcloud.run(['--check'], { FAKE_GCLOUD_READ_ONLY: '1' });
     assert.equal(result.status, 0, result.stderr);
-    for (const slug of ['save-failure', 'cloudflare-reconnect', 'ai-errors', 'db-connect-retry', 'deploy-drift']) {
+    for (const slug of ['save-failure', 'cloudflare-reconnect', 'password-reset-failure', 'ai-errors', 'db-connect-retry', 'deploy-drift']) {
       assert.match(result.stdout, new RegExp(`^${slug}: 3 matching log entries in the last 7 days$`, 'm'));
     }
     assert.equal(mutations(gcloud.state()).length, 0);

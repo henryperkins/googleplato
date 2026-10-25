@@ -70,8 +70,9 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   masks/clipping paths. Gradients do not instantiate
   geometry. Input structure is limited to 10,000 elements and depth 128; rendering
   data is limited to 128 KiB, excluding inert descriptions/metadata text. Cycles,
-  external references, entities, animation, filters, context paints, dynamic CSS, conditional
-  selectors and unsupported declarations are not displayed. Legacy SVGs may
+  external references (including `image-set`, `image`, and `src`), entities,
+  animation, filters, context paints, dynamic CSS, `!important` overrides,
+  conditional selectors and unsupported declarations are not displayed. Legacy SVGs may
   retain ordinary editor DOCTYPEs, namespaces and static stylesheets; these
   features stay unavailable to new API uploads. The Customizer
   accepts source files up to 5 MiB and rasterizes them to transparent PNG,

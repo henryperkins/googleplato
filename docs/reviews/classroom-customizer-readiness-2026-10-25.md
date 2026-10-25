@@ -61,7 +61,7 @@ coverage verifies transaction construction and error handling without an AWS tab
 
 | Check | Result |
 | --- | --- |
-| `POSTGRES_TEST_URL=... npm test` | Client 537/537; server 793/793; zero skips |
+| `POSTGRES_TEST_URL=... npm test` | Client 537/537; server 794/794; zero skips |
 | Customizer Chromium | 19/19 |
 | Customizer WebKit | 19/19 |
 | Customizer Firefox | 19/19 |
@@ -69,7 +69,7 @@ coverage verifies transaction construction and error handling without an AWS tab
 | `npm run build:client` | Passed |
 | Plugin tests / manifests | 6/6 tests; all three manifests valid |
 | `git diff --check` | Passed |
-| Independent final agent review | Two Important findings at `9f045fc`; both addressed in the regression-tested fix pass below. No confirmed Critical or Minor findings. |
+| Independent final agent review | Addressed `9f045fc` and `566079d` review findings with regression-tested fixes below. |
 
 The committed browser runner now selects Chromium, WebKit or Firefox with
 `PLATO_TEST_BROWSER`; it does not need a modified temporary test copy. The
@@ -104,6 +104,21 @@ One fresh GPT-6 Astra reviewer examined the entire PR from `32f5748` through
    context is modeled. New/stored expansion fixtures failed first, then passed;
    bounded inherited masks/clips still display. Blocked originals retain their
    existing recovery controls.
+3. A follow-up review at `566079d` found that `linkedom`'s CSSOM map kept only
+   the last duplicate property declaration (allowing `mask:url(#next) !important; mask:url(#dummy)`
+   to charge `#dummy` while browsers rendered `#next`), let `image-set("https://...")`
+   slip past `url(...)` checks, and left `password_reset_request_failed` without
+   a Cloud Monitoring alert policy. Further inspection of the same CSSOM/inheritance
+   path also showed that duplicate properties without `!important` (`mask:url(#next); mask:123`),
+   leading-parenthesis values (`opacity: (); fill: url(#next)` and `.decoy { fill: (;) } rect { ... }`),
+   and invalid child `fill="123"` attributes inside `<g fill="url(#p)">` could hide
+   active browser declarations from `linkedom`'s CSSOM or shadow ancestor `fill`/`stroke`
+   inheritance. `svgSafety.js` now parses rules and declarations directly without
+   `linkedom`'s CSSOM map, rejects `!important` and external CSS image functions
+   (`image-set`, `-webkit-image-set`, `image`, `src`, `cross-fade`, `element`),
+   keeps auto-inherited `fill`/`stroke` resources in the budget on painted descendants,
+   and returns `false` directly from `boundedSvg` on malformed CSS. `deploy/cloudrun/monitoring.js`
+   also adds the `password-reset-failure` log-match alert policy on `password_reset_request_failed`.
 
 The fix pass was verified with focused regressions and the complete suites,
 rather than claiming a second independent approval of the amended code. This

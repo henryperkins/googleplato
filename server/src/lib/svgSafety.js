@@ -15,6 +15,9 @@ const MAX_ELEMENTS = 10000;
 const MAX_DEPTH = 128;
 const MAX_RENDER_CHARS = 128 * 1024;
 const LOCAL_URL = /url\(\s*['"]?#([\w.-]+)['"]?\s*\)/gi;
+const COMPOUND_SELECTOR = '(?:[a-z_*][\\w-]*(?:[.#][a-z_][\\w-]*)*|(?:[.#][a-z_][\\w-]*)+)';
+const COMPLEX_SELECTOR = `${COMPOUND_SELECTOR}(?:(?:\\s+|\\s*[>+~]\\s*)${COMPOUND_SELECTOR})*`;
+const SELECTOR = new RegExp(`^\\s*${COMPLEX_SELECTOR}(?:\\s*,\\s*${COMPLEX_SELECTOR})*\\s*$`, 'i');
 const cleanCss = value => value.replace(/\/\*[\s\S]*?\*\//g, '');
 const urls = value => [...cleanCss(value).matchAll(LOCAL_URL)].map(match => match[1]);
 
@@ -30,16 +33,23 @@ function svgName(element) {
 function safeValue(value) {
   const clean = cleanCss(value);
   // Dynamic CSS can move references away from the node where they are counted.
-  // Escaped function names and non-local URLs are outside the supported subset.
-  return !/[\\@]/.test(clean) && !/\b(?:var|attr|env)\s*\(/i.test(clean)
+  // Priority overrides, escaped function names, and non-local URLs or image
+  // functions are outside the supported static subset.
+  return !/[\\@<>]|\/\*|\*\/|!\s*important/i.test(clean)
+    && !/(?:^|[^\w-])(?:var|attr|env|(?:-[a-z]+-)?image-set|image|src|cross-fade|element)\s*\(/i.test(clean)
     && !/url\s*\(/i.test(clean.replace(LOCAL_URL, ''));
 }
 
 function supportedStyle(name, value) {
-  return STYLE_PROPERTIES.has(name) && safeValue(value)
+  const clean = cleanCss(value).trim();
+  const withoutUrls = clean.replace(LOCAL_URL, '');
+  return Boolean(clean) && STYLE_PROPERTIES.has(name) && safeValue(value)
+    && !/[;:{}]/.test(withoutUrls)
+    && !/['"]/.test(withoutUrls.replace(/'[\w .-]*'|"[\w .-]*"/g, ''))
+    && !/[()]/.test(withoutUrls.replace(/(?:^|(?<=[^\w-]))[a-z-]+\([#\w .,%+-]*\)/gi, ''))
     // Context paints come from a use/marker's context, not normal inheritance.
     // Keep them out of the static subset until that context is modeled.
-    && !(RESOURCE_PROPERTIES.includes(name) && /\bcontext-(?:fill|stroke)\b/i.test(cleanCss(value)));
+    && !(RESOURCE_PROPERTIES.includes(name) && /\bcontext-(?:fill|stroke)\b/i.test(clean));
 }
 
 /** A bounded static rendering subset. Validation never changes the saved bytes. */
@@ -78,34 +88,55 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
   const resourceValues = new Map();
   const sizes = new Map();
   const stylesheets = [];
-  const cssDocument = new DOMParser().parseFromString('<html></html>', 'text/html');
   let renderChars = 0;
   let ruleCount = 0;
-  const rules = text => {
-    if (!safeValue(text)) throw new Error('Unsupported SVG CSS');
-    const style = cssDocument.createElement('style');
-    style.textContent = text;
-    const parsed = style.sheet.cssRules;
-    ruleCount += parsed.length;
-    if (ruleCount > 256 || parsed.some(rule => rule.type !== 1)) throw new Error('Unsupported SVG CSS rule');
-    return parsed;
-  };
   const declaration = (element, name, value) => {
-    if (!supportedStyle(name, value)) throw new Error('Unsupported SVG style');
+    if (!supportedStyle(name, value)) return false;
     sizes.set(element, sizes.get(element) + name.length + value.length);
     if (RESOURCE_PROPERTIES.includes(name)) {
       const values = resourceValues.get(element)[name] ||= [];
       values.push(value);
     } else references.get(element).push(...urls(value));
-  };
-  const declarations = (element, style) => {
-    for (let i = 0; i < style.length; i++) declaration(element, style[i].toLowerCase(), style.getPropertyValue(style[i]));
-  };
-  const supportedDeclarations = style => {
-    for (let i = 0; i < style.length; i++) {
-      if (!supportedStyle(style[i].toLowerCase(), style.getPropertyValue(style[i]))) return false;
-    }
     return true;
+  };
+  // Parse declarations directly instead of reading linkedom's CSSOM map, which
+  // keeps only the last duplicate property and misparses leading parentheses.
+  const parseDeclarations = text => {
+    const clean = cleanCss(text);
+    if (!safeValue(clean) || /[{}]/.test(clean)) return null;
+    const parsed = [];
+    for (const raw of clean.split(';')) {
+      const entry = raw.trim();
+      if (!entry) continue;
+      const colon = entry.indexOf(':');
+      if (colon <= 0) return null;
+      const name = entry.slice(0, colon).trim().toLowerCase();
+      const value = entry.slice(colon + 1).trim();
+      if (!supportedStyle(name, value)) return null;
+      parsed.push([name, value]);
+    }
+    return parsed;
+  };
+  const declarations = (element, list) => list !== null && list.every(([name, value]) => declaration(element, name, value));
+  const rules = text => {
+    const clean = cleanCss(text);
+    if (!safeValue(clean)) return null;
+    const parsed = [];
+    let rest = clean.trim();
+    while (rest) {
+      const open = rest.indexOf('{');
+      const close = rest.indexOf('}');
+      if (open <= 0 || close < open) return null;
+      const selectorText = rest.slice(0, open).trim();
+      const list = parseDeclarations(rest.slice(open + 1, close));
+      // Conditional/pseudo selectors and namespace rules need a full browser
+      // cascade. Keep the original for download instead of guessing at them.
+      if (selectorText.length > 256 || !SELECTOR.test(selectorText) || !list) return null;
+      parsed.push({ selectorText, declarations: list });
+      rest = rest.slice(close + 1).trim();
+    }
+    ruleCount += parsed.length;
+    return ruleCount <= 256 ? parsed : null;
   };
   for (const element of elements) {
     let depth = 0;
@@ -132,11 +163,10 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
         if (!/^#[\w.-]+$/.test(value)) return false;
         references.get(element).push(value.slice(1));
       }
-      if (RESOURCE_PROPERTIES.includes(name)) declaration(element, name, value);
-      else if (name === 'style') {
-        const parsed = rules(`.validation{${value}}`);
-        if (parsed.length !== 1) return false;
-        declarations(element, parsed[0].style);
+      if (RESOURCE_PROPERTIES.includes(name)) {
+        if (!declaration(element, name, value)) return false;
+      } else if (name === 'style') {
+        if (!declarations(element, parseDeclarations(value))) return false;
       } else references.get(element).push(...urls(value));
       sizes.set(element, sizes.get(element) + name.length + value.length);
     }
@@ -146,21 +176,28 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
     if (renderChars > MAX_RENDER_CHARS) return false;
   }
   for (const text of stylesheets) {
-    for (const rule of rules(text)) {
-      if (!supportedDeclarations(rule.style)) return false;
-      // Conditional/pseudo selectors and namespace rules need a full browser
-      // cascade. Keep the original for download instead of guessing at them.
-      if (rule.selectorText.length > 256 || /[:|\\]/.test(rule.selectorText)) return false;
-      const matches = [...root.querySelectorAll(rule.selectorText)];
-      if (root.matches(rule.selectorText)) matches.unshift(root);
-      for (const element of matches) declarations(element, rule.style);
+    const parsed = rules(text);
+    if (!parsed) return false;
+    for (const rule of parsed) {
+      let matches;
+      try {
+        matches = [...root.querySelectorAll(rule.selectorText)];
+        if (root.matches(rule.selectorText)) matches.unshift(root);
+      } catch {
+        return false;
+      }
+      for (const element of matches) {
+        if (!declarations(element, rule.declarations)) return false;
+      }
     }
   }
   const inherited = new Map();
   const resolvedResources = (element, parent = {}) => Object.fromEntries(RESOURCE_PROPERTIES.map(name => {
-    const own = resourceValues.get(element)[name];
-    return [name, own ? new Set(own.flatMap(value => /\b(?:inherit|unset|revert(?:-layer)?)\b/i.test(value)
-      ? [...(parent[name] || [])] : urls(value))) : AUTO_INHERITED.has(name) ? parent[name] || new Set() : new Set()];
+    const own = resourceValues.get(element)[name] || [];
+    // Browsers ignore invalid fill/stroke values and inherit the ancestor paint,
+    // so auto-inherited resources remain in the budget on painted descendants.
+    const inherit = AUTO_INHERITED.has(name) || own.some(value => /\b(?:inherit|unset|revert(?:-layer)?)\b/i.test(value));
+    return [name, new Set([...(inherit ? parent[name] || [] : []), ...own.flatMap(urls)])];
   }));
   const ordinaryResources = new Map();
   for (const element of elements) {

@@ -1,6 +1,7 @@
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseLogo } from '../../src/lib/branding.js';
+import { boundedSvg } from '../../src/lib/svgSafety.js';
 
 const svg = body => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">${body}</svg>`;
 const encoded = source => `data:image/svg+xml;base64,${Buffer.from(source).toString('base64')}`;
@@ -59,6 +60,42 @@ it('refuses unmodeled context paints in new and stored SVGs', () => {
     for (const legacy of [false, true]) assert.equal(accepted(source, legacy), false, `context-${property}`);
   }
   assert.equal(accepted(svg('<style>.shape{fill:context-fill}</style><rect class="shape"/>')), false);
+});
+
+it('refuses priority decoys, duplicate-property shadowing, CSSOM paren differentials and external image functions', () => {
+  const nestedMasks = styleOf => {
+    let defs = '<mask id="dummy"><rect width="1" height="1" fill="white"/></mask>';
+    for (let i = 0; i < 6; i++) {
+      const next = i + 1 < 6 ? `m${i + 1}` : 'dummy';
+      defs += `<mask id="m${i}">${`<rect width="10" height="10" fill="white" style="${styleOf(next)}"/>`.repeat(5)}</mask>`;
+    }
+    return svg(`<defs>${defs}</defs><rect width="10" height="10" style="mask:url(#m0)"/>`);
+  };
+  let inheritedPatterns = '<pattern id="p0" width="1" height="1"><rect width="1" height="1" fill="red"/></pattern>';
+  let parenStyles = '<pattern id="q0" width="1" height="1"><rect width="1" height="1" fill="red"/></pattern>';
+  for (let i = 1; i <= 6; i++) {
+    inheritedPatterns += `<pattern id="p${i}" width="1" height="1"><g fill="url(#p${i - 1})">${'<rect width="1" height="1" fill="123"/>'.repeat(10)}</g></pattern>`;
+    parenStyles += `<pattern id="q${i}" width="1" height="1"><g style="opacity: (); fill: url(#q${i - 1})">${'<rect width="1" height="1"/>'.repeat(10)}</g></pattern>`;
+  }
+  for (const source of [
+    nestedMasks(next => `mask:url(#${next}) !important; mask:url(#dummy)`),
+    nestedMasks(next => `mask:url(#${next}); mask:123`),
+    nestedMasks(next => `mask:url(#${next}); mask:url(#dummy)`),
+    svg(`<defs>${inheritedPatterns}</defs><rect width="10" height="10" fill="url(#p6)"/>`),
+    svg(`<defs>${parenStyles}</defs><rect width="10" height="10" fill="url(#q6)"/>`),
+    svg('<style>.decoy { fill: (;) } rect { filter: blur(100000px) }</style><rect width="10" height="10"/>'),
+    svg('<rect width="10" height="10" style="mask:image-set(&quot;https://example.com/t.png&quot; 1x)"/>'),
+    svg('<rect width="10" height="10" mask="image-set(&quot;https://example.com/t.png&quot; 1x)"/>'),
+    svg('<rect width="10" height="10" style="mask:-webkit-image-set(&quot;https://example.com/t.png&quot; 1x)"/>'),
+    svg('<rect width="10" height="10" style="fill:src(&quot;https://example.com/t.svg#p&quot;)"/>'),
+    svg('<rect width="10" height="10" style="fill:image(&quot;https://example.com/t.png&quot;)"/>'),
+  ]) {
+    for (const legacy of [false, true]) {
+      assert.equal(accepted(source, legacy), false, `legacy=${legacy}: ${source.slice(0, 140)}`);
+      assert.equal(boundedSvg(Buffer.from(source), { legacy }), false);
+    }
+  }
+  assert.equal(boundedSvg(Buffer.from(svg('<defs><mask id="a"><rect width="1" height="1"/></mask></defs><rect width="10" height="10" style="fill:red; } ; mask:url(#a)"/>'))), false);
 });
 
 it('refuses cycles, dynamic styles, animation, filters and oversized rendering structure', () => {
