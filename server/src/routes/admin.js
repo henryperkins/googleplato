@@ -11,7 +11,8 @@ import { fetchCloudWatchLogs } from '../lib/cloudwatch-logs.js';
 import { fetchCloudLoggingLogs, logEntryIdentity } from '../lib/cloud-logging.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
-import { classifyCache, kickoffAsyncRefresh } from '../lib/lesson-stats-cache.js';
+import { classifyCache, kickoffAsyncRefresh, refreshStaleLessonStats } from '../lib/lesson-stats-cache.js';
+import { mapWithConcurrency } from '../lib/concurrency.js';
 import { normalizeStatus, publicLessonIds } from '../lib/lesson-visibility.js';
 import aiSettings from './ai-settings.js';
 import {
@@ -117,15 +118,20 @@ admin.get('/v1/admin/users', async (c) => {
   const systemItems = await db.getAllSyncData('_system');
   const publicIds = publicLessonIds(systemItems);
   const lessonsAvailable = publicIds.size;
-  const enriched = await Promise.all(users.map(async (p) => {
+  // One bulk `lessonKB:` read for the whole classroom (PR-8), grouped by
+  // user — never a per-user read of the large screenshot:*/messages:*
+  // payloads. The heal/backfill writes below run with bounded concurrency.
+  const kbByUser = new Map();
+  for (const item of await db.getSyncDataByPrefixForAllUsers('lessonKB:')) {
+    if (!kbByUser.has(item.userId)) kbByUser.set(item.userId, []);
+    kbByUser.get(item.userId).push(item);
+  }
+  const enriched = await mapWithConcurrency(users, 4, async (p) => {
     // Recompute completed public lessons from sync-data. This also heals the
     // denormalized counter: legacy values (pre-#136) and any inflated values
     // (private/draft/custom completions counted before this filter existed)
-    // converge to the correct public-only count on the next admin read. Read
-    // ONLY the `lessonKB:*` records (sort-key prefix query) — never the large
-    // screenshot:*/messages:* payloads — so this stays cheap across hundreds
-    // of users.
-    const kbItems = await db.getSyncDataByPrefix(p.userId, 'lessonKB:');
+    // converge to the correct public-only count on the next admin read.
+    const kbItems = kbByUser.get(p.userId) || [];
     let counted = 0;
     for (const item of kbItems) {
       if (item.data?.status === 'completed' && publicIds.has(item.dataKey.slice('lessonKB:'.length))) counted++;
@@ -159,7 +165,7 @@ admin.get('/v1/admin/users', async (c) => {
       lessonsAvailable,
       lastActiveAt,
     };
-  }));
+  });
   return c.json(enriched);
 });
 
@@ -855,9 +861,9 @@ admin.delete('/v1/admin/users/:userId', async (c) => {
   // still in place. Hook errors are caught by emit() and don't block deletion.
   await emitHook('userDeleted', { userId, email: user.email, role: user.role });
 
-  // Delete all sync data for this user (cascades plugin userMeta:* records too)
-  const syncItems = await db.getAllSyncData(userId);
-  await Promise.all(syncItems.map((item) => db.deleteSyncData(userId, item.dataKey)));
+  // Delete all sync data for this user (cascades plugin userMeta:* records
+  // too) with one bulk delete — never a full read plus one delete per row.
+  await db.deleteAllSyncData(userId);
   await db.revokeUserTokens(userId);
   await db.deleteUser(userId);
   return c.json({ ok: true });
@@ -1376,14 +1382,19 @@ export async function computeLessonStats() {
   let learnersCompletedHalf = 0; // completed > 50% of lessons available to them
   const byLessonRaw = new Map();
 
+  // One bulk `lessonKB:` read for the whole classroom (PR-8), grouped by
+  // user. `messages:*` transcripts are fetched lazily, one lesson at a time,
+  // only for a completed public lesson whose KB lacks startedAt/completedAt
+  // (the legacy duration fallback below) — never for every user up front.
+  const kbByUser = new Map();
+  for (const item of await db.getSyncDataByPrefixForAllUsers('lessonKB:')) {
+    if (!kbByUser.has(item.userId)) kbByUser.set(item.userId, []);
+    kbByUser.get(item.userId).push(item);
+  }
+
   for (const user of users) {
     const isLearner = user.role !== 'admin';
-    // Only `lessonKB:*` (counts/pacing) and `messages:*` (duration fallback for
-    // legacy KBs without startedAt/completedAt) are needed — skip the large
-    // screenshot:* records entirely.
-    const kbItems = await db.getSyncDataByPrefix(user.userId, 'lessonKB:');
-    const msgItems = await db.getSyncDataByPrefix(user.userId, 'messages:');
-    const syncItems = kbItems.concat(msgItems);
+    const kbItems = kbByUser.get(user.userId) || [];
     let userHasStarted = false;
     let userCompleted = 0;
 
@@ -1412,7 +1423,7 @@ export async function computeLessonStats() {
         if (kb.startedAt && kb.completedAt) {
           durations.push((kb.completedAt - kb.startedAt) / 60000);
         } else {
-          const msgItem = syncItems.find(s => s.dataKey === `messages:${lessonId}`);
+          const msgItem = await db.getSyncData(user.userId, `messages:${lessonId}`);
           const msgs = msgItem?.data;
           if (Array.isArray(msgs) && msgs.length >= 2) {
             const first = msgs[0]?.timestamp;
@@ -1488,7 +1499,17 @@ admin.get('/v1/admin/stats/lessons', async (c) => {
       return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
     }
     if (hasByLesson && status === 'stale') {
-      kickoffAsyncRefresh(); // fire and forget
+      if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+        kickoffAsyncRefresh(); // fire and forget (Lambda self-invoke)
+        return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
+      }
+      // Off Lambda, post-response work isn't reliable (Cloud Run CPU
+      // throttling), so start/join the single-flight recompute and await it
+      // briefly: fresh if it lands within 2 s, stale otherwise (PR-8).
+      const refreshed = await refreshStaleLessonStats(() => recomputeAndCacheLessonStats());
+      if (refreshed) {
+        return c.json({ ...refreshed.stats, computedAt: refreshed.computedAt });
+      }
       return c.json({ ...cached.data.stats, computedAt: cached.data.computedAt });
     }
   }

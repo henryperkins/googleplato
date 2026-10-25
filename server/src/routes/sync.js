@@ -202,15 +202,17 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
 sync.get('/v1/sync', async (c) => {
   const resolved = resolveReadUserId(c);
   if (resolved.error) return resolved.error;
-  const items = await db.getAllSyncData(resolved.userId);
-  return c.json(items
-    .filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('screenshot:') && !item.dataKey?.startsWith('lessonGeneration:'))
-    .map((item) => ({
-      dataKey: item.dataKey,
-      data: item.data,
-      version: item.version,
-      updatedAt: item.updatedAt,
-    })));
+  // The adapter excludes the three families in the query itself, so the
+  // large screenshot:* bodies are never read or returned (PR-8).
+  const items = await db.getAllSyncData(resolved.userId, {
+    excludePrefixes: ['screenshot:', 'userMeta:', 'lessonGeneration:'],
+  });
+  return c.json(items.map((item) => ({
+    dataKey: item.dataKey,
+    data: item.data,
+    version: item.version,
+    updatedAt: item.updatedAt,
+  })));
 });
 
 // GET /v1/sync/:dataKey — get specific item
@@ -259,21 +261,29 @@ sync.put('/v1/sync/batch', async (c) => {
     return c.json({ code: 'sync_validation_failure', error: 'Duplicate data keys are not allowed in a batch.' }, 400);
   }
 
-  const results = await Promise.all(items.map(async (item) => {
+  // Sequential, not Promise.all: each putSyncData holds a pool client while
+  // it waits on the per-user advisory lock, so parallel items contend for
+  // the pool (PR-8, REL-9). Per-item results and the throw-to-500 behavior
+  // are unchanged, except that items after an unexpected error are no
+  // longer attempted — the safer behavior, since the batch has failed.
+  const results = [];
+  for (const item of items) {
     if (!validateDataKey(item.dataKey) || item.data === undefined) {
-      return { dataKey: item.dataKey, status: 'error', error: 'Invalid item' };
+      results.push({ dataKey: item.dataKey, status: 'error', error: 'Invalid item' });
+      continue;
     }
     // Size guard for screenshots (same defense-in-depth as single PUT)
     if (item.dataKey.startsWith('screenshot:')) {
       const size = estimateSyncDataSize(userId, item.dataKey, item.data);
       if (size > MAX_SCREENSHOT_RECORD_BYTES) {
-        return {
+        results.push({
           dataKey: item.dataKey,
           status: 'error',
           error: 'Screenshot too large',
           size,
           limit: MAX_SCREENSHOT_RECORD_BYTES,
-        };
+        });
+        continue;
       }
     }
     try {
@@ -281,18 +291,19 @@ sync.put('/v1/sync/batch', async (c) => {
       const result = await db.putSyncData(userId, item.dataKey, item.data, item.version, { strictVersion: true });
       await syncNameIfNeeded(userId, item.dataKey, item.data);
       await applyActivityEffects(userId, item.dataKey, oldStatus, item.data);
-      return { dataKey: item.dataKey, status: 'ok', version: result.version };
+      results.push({ dataKey: item.dataKey, status: 'ok', version: result.version });
     } catch (err) {
       if (err.name === 'ConditionalCheckFailedException') {
         const current = await db.getSyncData(userId, item.dataKey);
-        return {
+        results.push({
           dataKey: item.dataKey, status: 'conflict', code: 'sync_conflict',
           serverVersion: current?.version ?? null,
-        };
+        });
+        continue;
       }
       throw err;
     }
-  }));
+  }
 
   return c.json({ results });
 });

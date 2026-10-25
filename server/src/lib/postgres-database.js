@@ -187,8 +187,23 @@ export async function createPostgresDatabase(pool) {
     async getSyncData(userId, dataKey) {
       return (await pool.query(`SELECT ${syncColumns} FROM sync_data WHERE user_id = $1 AND data_key = $2`, [userId, dataKey])).rows[0] || null;
     },
-    async getAllSyncData(userId) {
-      return (await pool.query(`SELECT ${syncColumns} FROM sync_data WHERE user_id = $1`, [userId])).rows;
+    async getAllSyncData(userId, { excludePrefixes = [] } = {}) {
+      // Filter in SQL with left() comparisons (never LIKE, whose %/_ would
+      // stop being literal), so excluded rows are never detoasted or returned.
+      const values = [userId, ...excludePrefixes];
+      const excluded = excludePrefixes.length
+        ? ` AND NOT (${excludePrefixes.map((_, i) => `left(data_key, length($${i + 2})) = $${i + 2}`).join(' OR ')})`
+        : '';
+      return (await pool.query(`SELECT ${syncColumns} FROM sync_data WHERE user_id = $1${excluded}`, values)).rows;
+    },
+    async getSyncDataByPrefixForAllUsers(prefix) {
+      return (await pool.query(`SELECT ${syncColumns} FROM sync_data WHERE left(data_key, length($1)) = $1`, [prefix])).rows;
+    },
+    deleteAllSyncData(userId) {
+      return transaction(async client => {
+        const result = await client.query('DELETE FROM sync_data WHERE user_id = $1', [userId]);
+        return result.rowCount;
+      }, userId);
     },
     async getSyncDataByPrefix(userId, prefix) {
       return (await pool.query(`SELECT ${syncColumns} FROM sync_data WHERE user_id = $1 AND left(data_key, length($2)) = $2`, [userId, prefix])).rows;

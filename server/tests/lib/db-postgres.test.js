@@ -126,6 +126,25 @@ test('PostgreSQL persistence and concurrent writers', { skip: !process.env.POSTG
     assert.equal((await db.getAllSyncData('u')).length, 3);
   });
 
+  await t.test('excluded prefixes, bulk prefix reads and bulk delete', async () => {
+    await db.putSyncData('bulk-a', 'lessonKB:l1', { status: 'completed' }, 0);
+    await db.putSyncData('bulk-a', 'screenshot:s1', { blob: 'big' }, 0);
+    await db.putSyncData('bulk-b', 'lessonKB:l1', { status: 'active' }, 0);
+    const excluded = await db.getAllSyncData('bulk-a', { excludePrefixes: ['screenshot:'] });
+    assert.deepEqual(excluded.map(r => r.dataKey), ['lessonKB:l1']);
+    const literal = await db.getAllSyncData('u', { excludePrefixes: ['literal_%:'] });
+    assert.ok(!literal.some(r => r.dataKey === 'literal_%:a'));
+    assert.ok(literal.some(r => r.dataKey === 'literal_other:a'));
+    const bulk = await db.getSyncDataByPrefixForAllUsers('lessonKB:');
+    assert.ok(bulk.some(r => r.userId === 'bulk-a' && r.dataKey === 'lessonKB:l1'));
+    assert.ok(bulk.some(r => r.userId === 'bulk-b' && r.dataKey === 'lessonKB:l1'));
+    assert.ok(bulk.every(r => r.dataKey.startsWith('lessonKB:')));
+    await db.deleteAllSyncData('bulk-a');
+    assert.deepEqual(await db.getAllSyncData('bulk-a'), []);
+    assert.equal((await db.getAllSyncData('bulk-b')).length, 1);
+    await db.deleteAllSyncData('bulk-b');
+  });
+
   await t.test('two instances cannot commit divergent turns from the same base', async () => {
     const base = await db.getLessonState('u', 'race');
     const turns = [1, 2].map(id => ({ messages: [{ id: `m${id}`, role: 'assistant', content: `Reply ${id}` }], lessonKB: { score: id } }));

@@ -6,6 +6,13 @@ import sync from '../../src/routes/sync.js';
 import db from '../../src/lib/db.js';
 import { signAccessToken } from '../../src/lib/jwt.js';
 
+// Simulates the adapter contract for GET /v1/sync: rows matching an
+// excluded prefix are never returned by the query (PR-8).
+function honoringExclude(items) {
+  return async (_uid, { excludePrefixes = [] } = {}) =>
+    items.filter((i) => !excludePrefixes.some((p) => i.dataKey?.startsWith(p)));
+}
+
 async function authedReq(app, method, path, body) {
   const token = await signAccessToken('usr_test', 'user');
   return app.request(path, {
@@ -21,9 +28,9 @@ describe('GET /v1/sync', () => {
   });
 
   it('returns all sync data', async () => {
-    db.getAllSyncData = async () => [
+    db.getAllSyncData = honoringExclude([
       { dataKey: 'profile', data: { name: 'Test' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' },
-    ];
+    ]);
     const app = new Hono();
     app.route('/', sync);
     const res = await authedReq(app, 'GET', '/v1/sync');
@@ -34,12 +41,12 @@ describe('GET /v1/sync', () => {
   });
 
   it('filters out plugin userMeta:* records (admin-only by convention)', async () => {
-    db.getAllSyncData = async () => [
+    db.getAllSyncData = honoringExclude([
       { dataKey: 'profile', data: { name: 'T' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' },
       { dataKey: 'userMeta:teacher-comments', data: { text: 'private' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' },
       { dataKey: 'userMeta:other-plugin', data: { stuff: 'also private' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' },
       { dataKey: 'preferences', data: { theme: 'dark' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' },
-    ];
+    ]);
     const app = new Hono();
     app.route('/', sync);
     const res = await authedReq(app, 'GET', '/v1/sync');
@@ -49,17 +56,32 @@ describe('GET /v1/sync', () => {
   });
 
   it('filters out screenshot:* records (fetched on demand, not in the bulk payload)', async () => {
-    db.getAllSyncData = async () => [
+    db.getAllSyncData = honoringExclude([
       { dataKey: 'messages:wp-1', data: [], version: 1, updatedAt: '2024-01-01T00:00:00Z' },
       { dataKey: 'screenshot:lesson-wp-1-0', data: 'data:image/jpeg;base64,abc', version: 1, updatedAt: '2024-01-01T00:00:00Z' },
       { dataKey: 'screenshot:lesson-wp-2-0', data: 'data:image/jpeg;base64,def', version: 1, updatedAt: '2024-01-01T00:00:00Z' },
-    ];
+    ]);
     const app = new Hono();
     app.route('/', sync);
     const res = await authedReq(app, 'GET', '/v1/sync');
     const data = await res.json();
     const keys = data.map((d) => d.dataKey);
     assert.deepEqual(keys, ['messages:wp-1'], 'screenshot:* must stay out of the bulk sync payload');
+  });
+
+  it('asks the adapter to exclude screenshots, userMeta and lessonGeneration in the query', async () => {
+    let seenOptions;
+    db.getAllSyncData = async (_uid, options) => {
+      seenOptions = options;
+      return [{ dataKey: 'profile', data: { name: 'T' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' }];
+    };
+    const app = new Hono();
+    app.route('/', sync);
+    const res = await authedReq(app, 'GET', '/v1/sync');
+    assert.equal(res.status, 200);
+    assert.deepEqual(seenOptions, { excludePrefixes: ['screenshot:', 'userMeta:', 'lessonGeneration:'] });
+    const data = await res.json();
+    assert.deepEqual(data, [{ dataKey: 'profile', data: { name: 'T' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' }]);
   });
 });
 
@@ -155,6 +177,96 @@ describe('PUT /v1/sync/batch', () => {
     const result = await res.json();
     assert.equal(result.results.length, 2);
     assert.equal(result.results[0].status, 'ok');
+  });
+
+  it('writes items sequentially, never in parallel', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    db.putSyncData = async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      inFlight--;
+      return { version: 2, updatedAt: '2024-01-01T00:00:00Z' };
+    };
+    db.updateUser = async () => {};
+    const app = new Hono();
+    app.route('/', sync);
+    const res = await authedReq(app, 'PUT', '/v1/sync/batch', {
+      items: [
+        { dataKey: 'profile', data: { x: 1 }, version: 1 },
+        { dataKey: 'preferences', data: { x: 2 }, version: 0 },
+        { dataKey: 'work', data: { x: 3 }, version: 0 },
+      ],
+    });
+    assert.equal(res.status, 200);
+    const result = await res.json();
+    assert.deepEqual(result.results.map(r => r.status), ['ok', 'ok', 'ok']);
+    assert.equal(maxInFlight, 1, 'batch items must not hold pool clients in parallel');
+  });
+
+  it('keeps per-item conflict results and continues past them', async () => {
+    const conflict = new Error('conflict');
+    conflict.name = 'ConditionalCheckFailedException';
+    db.putSyncData = async (_uid, dataKey) => {
+      if (dataKey === 'profile') throw conflict;
+      return { version: 3, updatedAt: '2024-01-01T00:00:00Z' };
+    };
+    db.getSyncData = async () => ({ version: 7 });
+    db.updateUser = async () => {};
+    const app = new Hono();
+    app.route('/', sync);
+    const res = await authedReq(app, 'PUT', '/v1/sync/batch', {
+      items: [
+        { dataKey: 'profile', data: { x: 1 }, version: 1 },
+        { dataKey: 'preferences', data: { x: 2 }, version: 0 },
+      ],
+    });
+    assert.equal(res.status, 200);
+    const result = await res.json();
+    assert.deepEqual(result.results, [
+      { dataKey: 'profile', status: 'conflict', code: 'sync_conflict', serverVersion: 7 },
+      { dataKey: 'preferences', status: 'ok', version: 3 },
+    ]);
+  });
+
+  it('rejects an oversize screenshot per-item without writing it', async () => {
+    const written = [];
+    db.putSyncData = async (_uid, dataKey) => { written.push(dataKey); return { version: 1, updatedAt: '2024-01-01T00:00:00Z' }; };
+    db.updateUser = async () => {};
+    const app = new Hono();
+    app.route('/', sync);
+    const res = await authedReq(app, 'PUT', '/v1/sync/batch', {
+      items: [
+        { dataKey: 'screenshot:big', data: 'x'.repeat(500_000), version: 0 },
+        { dataKey: 'profile', data: { x: 1 }, version: 0 },
+      ],
+    });
+    assert.equal(res.status, 200);
+    const result = await res.json();
+    assert.equal(result.results[0].status, 'error');
+    assert.equal(result.results[0].error, 'Screenshot too large');
+    assert.equal(result.results[1].status, 'ok');
+    assert.deepEqual(written, ['profile']);
+  });
+
+  it('does not attempt items after an unexpected error', async () => {
+    const attempted = [];
+    db.putSyncData = async (_uid, dataKey) => {
+      attempted.push(dataKey);
+      throw new Error('db exploded');
+    };
+    db.updateUser = async () => {};
+    const app = new Hono();
+    app.route('/', sync);
+    const res = await authedReq(app, 'PUT', '/v1/sync/batch', {
+      items: [
+        { dataKey: 'profile', data: { x: 1 }, version: 0 },
+        { dataKey: 'preferences', data: { x: 2 }, version: 0 },
+      ],
+    });
+    assert.equal(res.status, 500, 'unexpected errors still fail the request');
+    assert.deepEqual(attempted, ['profile'], 'later items are not attempted after a failure');
   });
 });
 

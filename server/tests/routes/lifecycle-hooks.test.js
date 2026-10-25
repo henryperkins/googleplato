@@ -77,6 +77,7 @@ describe('userDeleted hook fires on self-delete', () => {
     db.createAuditLog = async () => {};
     db.getAllSyncData = async () => [];
     db.deleteSyncData = async () => {};
+    db.deleteAllSyncData = async () => {};
     db.deleteUser = async () => {};
     db.revokeUserTokens = async () => {};
   });
@@ -107,6 +108,7 @@ describe('userDeleted hook fires on admin-delete', () => {
     db.createAuditLog = async () => {};
     db.getAllSyncData = async () => [];
     db.deleteSyncData = async () => {};
+    db.deleteAllSyncData = async () => {};
     db.deleteUser = async () => {};
     db.revokeUserTokens = async () => {};
   });

@@ -165,6 +165,8 @@ describe('GET /v1/lessons/time-stats', () => {
     const allKbItems = buildKbItems();
     const userIds = [...new Set(allKbItems.map(i => i.userId))];
     db.listAllUsers = async () => userIds.map(uid => ({ userId: uid, role: 'user' }));
+    db.getSyncDataByPrefixForAllUsers = async (prefix) =>
+      allKbItems.filter(i => i.dataKey.startsWith(prefix));
     db.getAllSyncData = async (uid) => {
       if (uid === '_system') {
         return [
@@ -193,6 +195,29 @@ describe('GET /v1/lessons/time-stats', () => {
     const data = await res.json();
     assert.ok(data['pub-1'], 'public lesson stats included for any user');
     assert.equal(data['priv-1'], undefined, 'private lesson hidden from non-shared user');
+  });
+
+  it('reads lessonKB once in bulk, never per-user full sync data', async () => {
+    const perUserReads = [];
+    const bulkPrefixes = [];
+    db.getAllSyncData = async (uid) => {
+      if (uid === '_system') {
+        return [
+          { dataKey: 'lesson:pub-1', data: { name: 'Public', markdown: '# P', status: 'public' } },
+        ];
+      }
+      perUserReads.push(uid);
+      return [];
+    };
+    db.getSyncDataByPrefixForAllUsers = async (prefix) => {
+      bulkPrefixes.push(prefix);
+      return buildKbItems().filter(i => i.dataKey.startsWith(prefix));
+    };
+    const app = new Hono(); app.route('/', content);
+    const res = await userReq(app, 'GET', '/v1/lessons/time-stats', 'usr_1');
+    assert.equal(res.status, 200);
+    assert.deepEqual(bulkPrefixes, ['lessonKB:']);
+    assert.deepEqual(perUserReads, [], 'no per-user getAllSyncData on the learner-facing path');
   });
 
   it('does not eclipse /v1/lessons/:lessonId routing (route order)', async () => {

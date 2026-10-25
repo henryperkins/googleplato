@@ -6,17 +6,20 @@
 // the result in `_system:stats:lessons` and serve stale-while-revalidate:
 //
 //   age < FRESH_TTL_MS  -> serve cached, no recompute
-//   age < MAX_AGE_MS    -> serve cached + fire async refresh (self-invoke)
+//   age < MAX_AGE_MS    -> serve cached + refresh (see below)
 //   else                -> recompute synchronously, write back
 //
-// Async refresh in prod runs as a separate Lambda invocation
-// (InvocationType: 'Event'). The handler at server/src/index.js detects the
-// self-invoke payload and runs the refresh. Local dev / tests skip the
-// invoke (AWS_LAMBDA_FUNCTION_NAME unset) — the next request that finds the
-// cache stale will simply do another stale-serve until something eventually
-// crosses MAX_AGE_MS and recomputes synchronously.
+// Refresh in the stale window depends on the runtime:
+//   - Lambda: a separate self-invocation (InvocationType: 'Event'). The
+//     handler at server/src/index.js detects the payload and refreshes.
+//     The SDK client is imported lazily so non-Lambda runtimes (Cloud Run,
+//     local dev) never pay to load it.
+//   - Everywhere else: work after the response isn't reliable on Cloud Run
+//     (cpu-throttling: true), so the request starts — or joins — a single-
+//     flight recompute and awaits it for up to 2 s. Fresh result if it
+//     finishes, the stale cache otherwise; the flight keeps running so the
+//     next stale read can join it instead of starting a second recompute.
 
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { logger } from './logger.js';
 
 export const FRESH_TTL_MS = 10 * 60 * 1000;
@@ -25,8 +28,11 @@ export const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SELF_INVOKE_MARKER = 'refreshLessonStats';
 
 let _lambda = null;
-function getLambdaClient() {
-  if (!_lambda) _lambda = new LambdaClient({});
+async function getLambdaClient() {
+  if (!_lambda) {
+    const { LambdaClient } = await import('@aws-sdk/client-lambda');
+    _lambda = new LambdaClient({});
+  }
   return _lambda;
 }
 
@@ -51,9 +57,11 @@ export function classifyCache(cached) {
 
 export async function kickoffAsyncRefresh() {
   const fnName = process.env.AWS_LAMBDA_FUNCTION_NAME;
-  if (!fnName) return; // local dev / tests
+  if (!fnName) return; // local dev / tests / Cloud Run (single-flight below)
   try {
-    await getLambdaClient().send(new InvokeCommand({
+    const { InvokeCommand } = await import('@aws-sdk/client-lambda');
+    const lambda = await getLambdaClient();
+    await lambda.send(new InvokeCommand({
       FunctionName: fnName,
       InvocationType: 'Event',
       Payload: Buffer.from(JSON.stringify({ __platoInternal: SELF_INVOKE_MARKER })),
@@ -62,4 +70,41 @@ export async function kickoffAsyncRefresh() {
   } catch (err) {
     logger.error('stats_async_refresh_invoke_failed', { error: err?.message || String(err) });
   }
+}
+
+// Single-flight stale refresh for non-Lambda runtimes. Returns the fresh
+// { computedAt, stats } when the shared recompute finishes within
+// `timeoutMs`, or null when it doesn't (or fails) so callers serve stale.
+let _inFlightRefresh = null;
+
+export async function refreshStaleLessonStats(recompute, timeoutMs = 2000) {
+  if (!_inFlightRefresh) {
+    _inFlightRefresh = (async () => {
+      try {
+        return await recompute();
+      } finally {
+        _inFlightRefresh = null;
+      }
+    })();
+    // A failed flight must not surface as an unhandled rejection when no
+    // caller is still awaiting it; awaiting callers still see the failure
+    // through the raced promise below and fall back to stale.
+    _inFlightRefresh.catch(() => {});
+  }
+  let timer;
+  try {
+    return await Promise.race([
+      _inFlightRefresh,
+      new Promise((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); }),
+    ]);
+  } catch (err) {
+    logger.error('stats_async_refresh_failed', { error: err?.message || String(err) });
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function _resetStaleRefreshForTests() {
+  _inFlightRefresh = null;
 }

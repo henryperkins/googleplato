@@ -145,21 +145,17 @@ describe('GET /v1/me/export', () => {
 });
 
 describe('DELETE /v1/me', () => {
-  let deletedUser, deletedSync, auditCreated;
+  let deletedUser, bulkDeletedFor, auditCreated;
 
   beforeEach(() => {
     deletedUser = false;
-    deletedSync = [];
+    bulkDeletedFor = null;
     auditCreated = null;
     db.getUserById = async () => ({
       userId: 'usr_test', email: 'test@example.com', name: 'Test',
       userGroup: 'Org', role: 'user',
     });
-    db.getAllSyncData = async () => [
-      { dataKey: 'profile' },
-      { dataKey: 'work' },
-    ];
-    db.deleteSyncData = async (_uid, key) => { deletedSync.push(key); };
+    db.deleteAllSyncData = async (userId) => { bulkDeletedFor = userId; };
     db.revokeUserTokens = async () => {};
     db.deleteUser = async () => { deletedUser = true; };
     db.createAuditLog = async (entry) => { auditCreated = entry; };
@@ -173,7 +169,7 @@ describe('DELETE /v1/me', () => {
     const data = await res.json();
     assert.equal(data.ok, true);
     assert.ok(deletedUser);
-    assert.deepEqual(deletedSync, ['profile', 'work']);
+    assert.equal(bulkDeletedFor, 'usr_test', 'sync cascade is one bulk delete');
     assert.equal(auditCreated.action, 'user_deleted');
     assert.equal(auditCreated.details.selfDelete, true);
   });

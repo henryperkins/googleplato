@@ -509,10 +509,28 @@ const db = {
     return { ...row, data: JSON.parse(row.data) };
   },
 
-  async getAllSyncData(userId) {
-    const rows = sqlite.prepare('SELECT * FROM sync_data WHERE userId = ?').all(userId);
+  async getAllSyncData(userId, { excludePrefixes = [] } = {}) {
+    // Filter in SQL with substr() comparisons (never LIKE, whose %/_ would
+    // stop being literal), so excluded rows are never parsed or returned.
+    const conditions = excludePrefixes.map(() => 'substr(dataKey, 1, length(?)) <> ?').join(' AND ');
+    const params = [userId];
+    for (const prefix of excludePrefixes) params.push(prefix, prefix);
+    const rows = sqlite.prepare(
+      `SELECT * FROM sync_data WHERE userId = ?${conditions ? ` AND ${conditions}` : ''}`
+    ).all(...params);
     // Parse JSON data field
     return rows.map(r => ({ ...r, data: JSON.parse(r.data) }));
+  },
+
+  async getSyncDataByPrefixForAllUsers(prefix) {
+    const rows = sqlite.prepare(
+      'SELECT * FROM sync_data WHERE substr(dataKey, 1, length(?)) = ?'
+    ).all(prefix, prefix);
+    return rows.map(r => ({ ...r, data: JSON.parse(r.data) }));
+  },
+
+  async deleteAllSyncData(userId) {
+    return sqlite.prepare('DELETE FROM sync_data WHERE userId = ?').run(userId).changes;
   },
 
   // Mirror of the DynamoDB sort-key prefix query: fetch only sync-data records
