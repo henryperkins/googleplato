@@ -418,6 +418,10 @@ Structured, thinly bounded fields with 8 px corners and a transparent base surfa
 
 Keep labels, help text, validation wording, and accessible names connected to the control. The chat composer is its own textarea inside a bordered container, with attachment tools and a send action; it does not share every generic textarea style.
 
+AI Settings follows one aligned flow: saved configuration, compact provider choices, model and classroom access, then a grouped review and action area. Model and access sections use spacing and thin separators instead of nested cards. Reasoning, latency, paid-access requirements, and test charges stay visible; the raw model identifier is available in a disclosure. Pending changes and test results remain distinct from the saved configuration, and connection controls explain their immediate classroom-wide effect.
+
+Unsaved AI choices are retained per administrator in the current tab and restored only against the same saved-settings version. Save and explicit discard clear both ordinary and OAuth-handoff drafts. Connection actions keep keyboard focus while waiting, with a stable connection heading when success removes the control; deliberately moved focus is preserved. Incomplete responses retain the current form and report an unconfirmed outcome instead of announcing success.
+
 Password visibility controls remain centered through press states and disable with their input. On narrow screens or coarse pointers, password fields expand to 44 px to contain the toggle's touch target. Settings uses a page heading and section headings, explicit saving/disabled states, and persistent success or error feedback in live regions. Editing or resubmitting clears the previous feedback. The profile-feedback dialog exposes request errors, supports retry, and resets its submitting state after completion. Long email addresses wrap beneath their label on narrow screens.
 
 ### Badges and status indicators

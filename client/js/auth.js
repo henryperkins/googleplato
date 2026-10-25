@@ -23,8 +23,8 @@ let sessionGeneration = 0;
 const IMPERSONATION_KEY = 'plato_impersonation';
 
 function readImpersonatedUserId() {
-  if (typeof sessionStorage === 'undefined') return null;
   try {
+    if (typeof sessionStorage === 'undefined') return null;
     const raw = sessionStorage.getItem(IMPERSONATION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
@@ -35,8 +35,8 @@ function readImpersonatedUserId() {
 }
 
 export function getImpersonation() {
-  if (typeof sessionStorage === 'undefined') return null;
   try {
+    if (typeof sessionStorage === 'undefined') return null;
     const raw = sessionStorage.getItem(IMPERSONATION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {

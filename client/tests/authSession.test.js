@@ -28,6 +28,23 @@ beforeEach(async () => {
   globalThis.fetch = async () => json({ ok: true });
 });
 
+test('normal admin requests tolerate a denied session storage getter', async () => {
+  const original = globalThis.sessionStorage;
+  let request;
+  globalThis.fetch = async (url, options) => { request = { url, options }; return json({ ok: true }); };
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new DOMException('Blocked', 'SecurityError'); } });
+  try {
+    assert.doesNotThrow(() => auth.getImpersonation());
+    assert.equal(auth.getImpersonation(), null);
+    const response = await auth.authenticatedFetch('/v1/admin/ai-settings');
+    assert.equal(response.status, 200);
+    assert.equal(request.url, '/v1/admin/ai-settings');
+    assert.equal(new Headers(request.options.headers).get('Authorization'), 'Bearer access-a');
+  } finally {
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, writable: true, value: original });
+  }
+});
+
 test('logout snapshots and clears the old credentials before yielding to another login', async () => {
   const logout = auth.logout();
   assert.equal(localStorage.getItem('plato_auth'), null);
