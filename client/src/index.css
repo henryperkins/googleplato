@@ -266,6 +266,23 @@
   --ring: var(--header-foreground);
 }
 
+/* The admin top bar does the same with its own light text color. */
+.sidebar-control {
+  --ring: var(--sidebar-foreground);
+}
+
+/* Admin <main> takes focus from the skip link and when the admin page changes,
+   so the next Tab starts in the page. It is a region, not a control: no ring. */
+.admin-main:focus-visible {
+  outline: none;
+}
+
+/* Bottom tabs sit edge to edge, so their ring draws inside the tab rather than
+   over its neighbors and the active tab's top border. */
+.admin-bottom-nav a:focus-visible {
+  outline-offset: -3px;
+}
+
 /* Resolve roles at the branding boundary so nested classroom overrides work. */
 .classroom-theme {
   --header: var(--classroom-header-bg, var(--primary));
@@ -372,9 +389,19 @@ html {
   .compose-sticky-bar {
     position: static;
   }
-  .admin-bottom-nav,
   .admin-sticky-bar {
     position: static;
+  }
+  /* The admin shell stops framing a scrolling <main> between its bars: the
+     page scrolls as a whole, so the top bar and tabs scroll with it. */
+  .admin-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .admin-shell > main {
+    flex: 1 0 auto;
+    overflow: visible;
   }
   .compose-sticky-bar textarea {
     max-height: 4.5rem;
@@ -536,47 +563,11 @@ html {
   transition: transform 280ms var(--motion-arrive), background-color 150ms ease-out;
 }
 
-.admin-drawer {
-  transform: translateX(0);
-  transition: transform 220ms var(--motion-arrive);
-}
-
-.admin-drawer[data-starting-style],
-.admin-drawer[data-ending-style] {
-  transform: translateX(-100%);
-}
-
-.admin-drawer[data-ending-style] {
-  transition-duration: 140ms;
-}
-
-.admin-drawer-backdrop {
-  opacity: 1;
-  transition: opacity 160ms ease-out;
-}
-
-.admin-drawer-backdrop[data-starting-style],
-.admin-drawer-backdrop[data-ending-style] {
-  opacity: 0;
-}
-
 /* Keep state/color feedback while replacing travel, zoom, and rotation. */
 @media (prefers-reduced-motion: reduce) {
   .progress-fill {
     transition-property: background-color;
     transition-duration: 150ms;
-  }
-
-  .admin-drawer,
-  .admin-drawer[data-starting-style],
-  .admin-drawer[data-ending-style] {
-    transform: none;
-    transition: opacity 100ms ease-out;
-  }
-
-  .admin-drawer[data-starting-style],
-  .admin-drawer[data-ending-style] {
-    opacity: 0;
   }
 
   [data-slot="dialog-content"],

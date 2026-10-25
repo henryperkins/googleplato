@@ -723,13 +723,28 @@ async or something fails:
 - **Page titles name the page.** `client/src/lib/routeTitles.js` names lesson
   routes after their lesson for the title and the "Navigated to …" announcement;
   admin views that share a route component set their title per view.
+- **An admin page change works like a page load.** `adminPageName` names each
+  admin page by its first segment after `/plato`, so a view inside a page (a
+  user's edit view, the lesson editor) shares its page's name. When that name
+  changes, `ScreenReaderAnnounce` announces it and titles the tab
+  (`<page> — plato`), and `AdminLayout` scrolls the page to its top and focuses
+  `<main id="main-content">` in a layout effect, unless the new page already
+  placed focus itself. Moving within a page keeps scroll and focus. A skip link
+  leads to the same `<main>`, as in the classroom.
+- **The admin shell is one breakpoint.** Below `lg` (64rem) a top bar (brand,
+  theme, account menu) and bottom tabs frame a scrolling `<main>`; the tabs show
+  labels from 30rem, where all six fit. From `lg` a fixed sidebar takes over and
+  scrolls when the window is short. Under 34em tall the frame lets go: the whole
+  page scrolls, bars included, and `<main>` sizes to its content (`flex: 1 0
+  auto`; a 0% basis would leave it short, with the page running under the tabs).
 - **Refreshes don't unmount pages.** Admin pages show the full-page spinner only
   on the first load, so a refresh after a save or delete keeps the page, its
   scroll position, and any open dialog in place.
 - **A colored header keeps its focus color to itself.** The classroom header's
-  controls take its text color as their ring through `.header-control`. The
-  account menu is a native popover mounted inside the header, so a ring set on
-  `<header>` itself would reach the menu items and draw white on a white menu.
+  controls take its text color as their ring through `.header-control`, and the
+  admin top bar's through `.sidebar-control`. The account menu is a native
+  popover mounted inside the header, so a ring set on `<header>` itself would
+  reach the menu items and draw white on a white menu.
 - **An expired session returns to its page.** `RequireAuth` records the page in
   the sign-in redirect's state. After sign-in, `returnPath`
   (`client/src/lib/returnPath.js`) goes back there; only in-app paths qualify,
