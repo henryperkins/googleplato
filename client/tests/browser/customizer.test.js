@@ -157,8 +157,11 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.getByRole('alertdialog').waitFor();
       await page.getByRole('button', { name: 'Stay here', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer`);
-      const dialog = page.waitForEvent('dialog').then(async event => { assert.equal(event.type(), 'beforeunload'); await event.dismiss(); });
-      await Promise.allSettled([page.reload({ timeout: 3000 }), dialog]);
+      const dialog = page.waitForEvent('dialog', { timeout: 5000 }).then(async event => { assert.equal(event.type(), 'beforeunload'); await event.dismiss(); });
+      // Firefox's automation reload bypasses beforeunload. Request a normal
+      // document reload and require the dialog instead of swallowing its timeout.
+      await page.evaluate(() => { setTimeout(() => location.reload(), 0); });
+      await dialog;
       assert.equal(await page.getByLabel('Classroom Name', { exact: true }).inputValue(), 'Keep this draft');
       await page.evaluate(() => history.back());
       await page.getByRole('alertdialog').waitFor();

@@ -100,12 +100,17 @@ replacement clears them. Download uses an attachment Blob, never image rendering
 unknown addresses even if token storage or SES fails. Emit
 `password_reset_request_failed` with a fixed stage only, without exception text.
 
-- [ ] Add failing route tests using a failing SES client and failed token store;
+- [x] Add failing route tests using a failing SES client and failed token store;
   assert equal public responses and no secrets in operational logs.
-- [ ] Run focused tests; expected: known account receives 500 before the fix.
-- [ ] Catch account-dependent processing failures and log their fixed stage.
-- [ ] Run full suites against a disposable PostgreSQL database, lint, client
+- [x] Run focused tests; expected: known account receives 500 before the fix.
+- [x] Catch account-dependent processing failures and log their fixed stage.
+- [x] Run full suites against a disposable PostgreSQL database, lint, client
   build, plugin validation, and Customizer browsers. Expected: all pass.
-- [ ] Update documentation and record exact results and real-service/device gaps.
-- [ ] Commit, obtain one fresh whole-branch agent review, address confirmed
-  findings with regressions, then push the Draft PR branch without merging.
+- [x] Update documentation and record exact results and real-service/device gaps.
+- [x] Commit the implementation and record the qualification evidence.
+
+## Final review and integration
+
+- [ ] Obtain one fresh whole-branch agent review and address confirmed findings
+  with regressions.
+- [ ] Push the Draft PR branch and update its description without merging.

@@ -64,7 +64,7 @@ coverage verifies transaction construction and error handling without an AWS tab
 | `POSTGRES_TEST_URL=... npm test` | Client 536/536; server 791/791; zero skips |
 | Customizer Chromium | 19/19 |
 | Customizer WebKit | 19/19 |
-| Customizer Firefox | Pending final run |
+| Customizer Firefox | 19/19 |
 | `npm run lint` | Zero errors; 20 existing warnings |
 | `npm run build:client` | Passed |
 | Plugin tests / manifests | 6/6 tests; all three manifests valid |
@@ -74,7 +74,12 @@ coverage verifies transaction construction and error handling without an AWS tab
 The committed browser runner now selects Chromium, WebKit or Firefox with
 `PLATO_TEST_BROWSER`; it does not need a modified temporary test copy. The
 initial Firefox launch found its exact Playwright executable absent; installing
-that browser resolves the environment prerequisite before the final run.
+that browser resolves the environment prerequisite before the final run. A
+minimal standalone page then isolated a Firefox automation distinction:
+Playwright `page.reload()` emitted zero beforeunload dialogs, while
+`location.reload()` emitted one. The navigation regression now requests an
+ordinary document reload and requires the dialog; it no longer swallows a
+missing-dialog timeout. This changes the test harness, not the page guard.
 
 No live SES delivery, real DynamoDB table, physical device or screen-reader
 qualification was performed. Password-reset status/body parity does not claim
