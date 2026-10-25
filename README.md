@@ -85,6 +85,25 @@ Open [http://localhost:3000](http://localhost:3000).
 
 On first visit you'll name your classroom and create an admin account. Prompts and lessons are seeded automatically. The knowledge base is created by admins through the conversational KB Editor in the Customizer.
 
+### Tests
+
+Run `npm test` from the repository root for the client and server unit suites.
+The admin responsive browser regressions use Node's test runner and the
+[Playwright browser library](https://playwright.dev/docs/library):
+
+```bash
+npm ci
+npm run build:client
+npm --prefix client exec -- playwright install chromium
+npm --prefix client run test:browser:admin
+```
+
+The browser suite starts and stops its own local server, creates a temporary
+SQLite database and administrator, and removes its data afterward. It covers
+short desktop windows, enlarged navigation text, short-phone scrolling and
+keyboard navigation. It makes no AI requests. The client CI test job builds
+the app, installs Chromium and runs this suite after the unit tests.
+
 ### AI provider
 
 Open **Admin → AI Settings** (`/plato/ai`) to choose **Amazon Bedrock** or

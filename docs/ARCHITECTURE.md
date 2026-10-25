@@ -733,10 +733,13 @@ async or something fails:
   leads to the same `<main>`, as in the classroom.
 - **The admin shell is one breakpoint.** Below `lg` (64rem) a top bar (brand,
   theme, account menu) and bottom tabs frame a scrolling `<main>`; the tabs show
-  labels from 30rem, where all six fit. From `lg` a fixed sidebar takes over and
-  scrolls when the window is short. Under 34em tall the frame lets go: the whole
-  page scrolls, bars included, and `<main>` sizes to its content (`flex: 1 0
+  labels from 30rem. A text-relative container query lets labelled tabs use two
+  rows of three when enlarged text needs more room; each label stays inside its
+  target. From `lg` a fixed sidebar takes over and scrolls when the window is
+  short. Under 34em tall the frame lets go: the whole page scrolls, bars included,
+  and `<main>` keeps its content-based basis in the phone column (`flex: 1 0
   auto`; a 0% basis would leave it short, with the page running under the tabs).
+  The desktop row restores `flex: 1 1 0%` so content shrinks beside the sidebar.
 - **Refreshes don't unmount pages.** Admin pages show the full-page spinner only
   on the first load, so a refresh after a save or delete keeps the page, its
   scroll position, and any open dialog in place.

@@ -283,6 +283,20 @@
   outline-offset: -3px;
 }
 
+/* Labelled tabs keep their names when text grows: use two rows rather than
+   letting a label paint over its neighbour. Container rem units follow the
+   current root text size, unlike the viewport label-visibility breakpoint. */
+.admin-bottom-nav {
+  container: admin-tabs / inline-size;
+}
+@media (min-width: 30rem) {
+  @container admin-tabs (max-width: 29rem) {
+    .admin-bottom-nav > a {
+      flex-basis: calc(100% / 3);
+    }
+  }
+}
+
 /* Resolve roles at the branding boundary so nested classroom overrides work. */
 .classroom-theme {
   --header: var(--classroom-header-bg, var(--primary));
@@ -402,6 +416,13 @@ html {
   .admin-shell > main {
     flex: 1 0 auto;
     overflow: visible;
+  }
+  /* The desktop shell is a row: restore horizontal shrinking there without
+     shrinking the phone column below its content and into the bottom tabs. */
+  @media (min-width: 64rem) {
+    .admin-shell > main {
+      flex: 1 1 0%;
+    }
   }
   .compose-sticky-bar textarea {
     max-height: 4.5rem;
