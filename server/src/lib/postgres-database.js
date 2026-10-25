@@ -42,6 +42,7 @@ export async function createPostgresDatabase(pool) {
       CREATE TABLE IF NOT EXISTS invites (id TEXT PRIMARY KEY, document JSONB NOT NULL);
       CREATE INDEX IF NOT EXISTS invites_email ON invites (lower(document->>'email'));
       CREATE TABLE IF NOT EXISTS refresh_tokens (id TEXT PRIMARY KEY, document JSONB NOT NULL);
+      CREATE INDEX IF NOT EXISTS refresh_tokens_user ON refresh_tokens ((document->>'userId'));
       CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, document JSONB NOT NULL);
       CREATE INDEX IF NOT EXISTS audit_log_user ON audit_log ((document->>'userId'), (document->>'createdAt'));
       CREATE TABLE IF NOT EXISTS sync_data (
@@ -157,8 +158,8 @@ export async function createPostgresDatabase(pool) {
       if (result.rowCount !== 1) throw conflict('Invite missing or usage limit reached');
     },
 
-    storeRefreshToken: (tokenHash, userId) => insert('refresh_tokens', tokenHash, {
-      tokenHash, userId, type: 'refresh', createdAt: now(), ttl: expiresIn(REFRESH_TOKEN_TTL_DAYS * 86400),
+    storeRefreshToken: (tokenHash, userId, credentialVersion = null) => insert('refresh_tokens', tokenHash, {
+      tokenHash, userId, credentialVersion, type: 'refresh', createdAt: now(), ttl: expiresIn(REFRESH_TOKEN_TTL_DAYS * 86400),
     }),
     getRefreshToken: token => one('refresh_tokens', "id = $1 AND document->>'type' = 'refresh' AND (document->>'ttl')::bigint >= $2", [token, expiresIn(0)]),
     deleteRefreshToken: token => remove('refresh_tokens', token),
@@ -167,6 +168,21 @@ export async function createPostgresDatabase(pool) {
     }),
     getResetToken: token => one('refresh_tokens', "id = $1 AND document->>'type' = 'reset' AND (document->>'ttl')::bigint >= $2", [token, expiresIn(0)]),
     deleteResetToken: token => remove('refresh_tokens', token),
+    async consumeRefreshToken(token) {
+      const result = await pool.query(
+        `DELETE FROM refresh_tokens WHERE id = $1 AND document->>'type' = 'refresh' AND (document->>'ttl')::bigint >= $2 RETURNING document`,
+        [token, expiresIn(0)]);
+      return result.rows[0]?.document ?? null;
+    },
+    async consumeResetToken(token) {
+      const result = await pool.query(
+        `DELETE FROM refresh_tokens WHERE id = $1 AND document->>'type' = 'reset' AND (document->>'ttl')::bigint >= $2 RETURNING document`,
+        [token, expiresIn(0)]);
+      return result.rows[0]?.document ?? null;
+    },
+    async revokeUserTokens(userId) {
+      await pool.query("DELETE FROM refresh_tokens WHERE document->>'userId' = $1", [userId]);
+    },
 
     async getSyncData(userId, dataKey) {
       return (await pool.query(`SELECT ${syncColumns} FROM sync_data WHERE user_id = $1 AND data_key = $2`, [userId, dataKey])).rows[0] || null;

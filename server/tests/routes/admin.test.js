@@ -158,6 +158,9 @@ describe('POST /v1/admin/invites', () => {
     const data = await res.json();
     assert.ok(data.inviteToken);
     assert.equal(data.email, 'new@example.com');
+    // Email off: honest delivery state plus the shareable link (EML-1).
+    assert.equal(data.emailDelivery, 'off');
+    assert.ok(data.signupUrl.includes('/signup?token='));
     delete process.env.SKIP_EMAIL;
   });
 
@@ -183,7 +186,7 @@ describe('POST /v1/admin/invites/bulk', () => {
     delete process.env.SKIP_EMAIL;
   });
 
-  it('sends multiple invites', async () => {
+  it('reports link-only invites when email delivery is off', async () => {
     const app = new Hono();
     app.route('/', admin);
     const res = await adminReq(app, 'POST', '/v1/admin/invites/bulk', {
@@ -191,9 +194,13 @@ describe('POST /v1/admin/invites/bulk', () => {
     });
     assert.equal(res.status, 201);
     const data = await res.json();
-    assert.equal(data.sent, 2);
+    // SKIP_EMAIL is on for this suite: nothing was sent, so nothing may be
+    // counted as sent (EML-1). Each result carries its shareable link.
+    assert.equal(data.sent, 0);
+    assert.equal(data.linkOnly, 2);
     assert.equal(data.skipped, 0);
     assert.equal(data.total, 2);
+    assert.ok(data.results.every((r) => r.status === 'link_only' && r.signupUrl.includes('/signup?token=')));
   });
 
   it('skips existing users', async () => {
@@ -205,10 +212,11 @@ describe('POST /v1/admin/invites/bulk', () => {
     });
     assert.equal(res.status, 201);
     const data = await res.json();
-    assert.equal(data.sent, 1);
+    assert.equal(data.sent, 0);
+    assert.equal(data.linkOnly, 1);
     assert.equal(data.skipped, 1);
     assert.equal(data.results[0].status, 'skipped');
-    assert.equal(data.results[1].status, 'sent');
+    assert.equal(data.results[1].status, 'link_only');
   });
 
   it('rejects invalid emails', async () => {
@@ -219,7 +227,8 @@ describe('POST /v1/admin/invites/bulk', () => {
     });
     assert.equal(res.status, 201);
     const data = await res.json();
-    assert.equal(data.sent, 1);
+    assert.equal(data.sent, 0);
+    assert.equal(data.linkOnly, 1);
     assert.equal(data.skipped, 1);
     assert.equal(data.results[0].status, 'invalid');
   });
@@ -680,6 +689,7 @@ describe('DELETE /v1/admin/users/:userId', () => {
       return null;
     };
     db.deleteUser = async () => {};
+    db.revokeUserTokens = async () => {};
   });
 
   it('deletes user and sync data', async () => {
@@ -693,6 +703,33 @@ describe('DELETE /v1/admin/users/:userId', () => {
     const res = await adminReq(app, 'DELETE', '/v1/admin/users/usr_p1');
     assert.equal(res.status, 200);
     assert.ok(deleted);
+  });
+});
+
+describe('POST /v1/admin/users/:userId/reset-password (EML-1, D-2a)', () => {
+  beforeEach(() => {
+    db.getUserById = async (id) => {
+      if (id === 'usr_admin') return { userId: 'usr_admin', role: 'admin', name: 'Admin' };
+      if (id === 'usr_p1') return { userId: 'usr_p1', role: 'user', email: 'p1@example.com' };
+      return null;
+    };
+    process.env.SKIP_EMAIL = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.SKIP_EMAIL;
+  });
+
+  it('creates no token and returns no link when email is off', async () => {
+    let stored = false;
+    db.storeResetToken = async () => { stored = true; };
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'POST', '/v1/admin/users/usr_p1/reset-password');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.deepEqual(data, { ok: true, emailDelivery: 'off' });
+    assert.equal(stored, false);
   });
 });
 

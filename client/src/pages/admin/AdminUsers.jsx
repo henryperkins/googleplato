@@ -25,7 +25,9 @@ import WaitlistDialog from './WaitlistDialog.jsx';
 import WaitlistEntryEdit from './WaitlistEntryEdit.jsx';
 import CustomFieldInput from '../../components/CustomFieldInput.jsx';
 import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
+import CopyLinkField from '../../components/CopyLinkField.jsx';
 import { customFieldsMatch, matchesFieldFilter, missingRequired } from '../../lib/userFields.js';
+import { describeBulkInvites, describeSingleInvite, describeAdminReset } from '../../lib/inviteResults.js';
 
 const PAGE_SIZE = 20;
 
@@ -135,6 +137,7 @@ export default function AdminUsers() {
   const [emailQueue, setEmailQueue] = useState([]);
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteNotice, setInviteNotice] = useState(null);
+  const [inviteLinks, setInviteLinks] = useState([]);
   const csvRef = useRef(null);
 
   // Search, filter, pagination
@@ -162,7 +165,6 @@ export default function AdminUsers() {
 
   // Link invite state
   const [linkInvite, setLinkInvite] = useState(null);
-  const [linkCopied, setLinkCopied] = useState(false);
   const [linkGenerating, setLinkGenerating] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -288,10 +290,9 @@ export default function AdminUsers() {
     setInviteSending(true);
     try {
       const data = await adminApi('POST', '/v1/admin/invites/bulk', { emails: emailQueue });
-      const parts = [];
-      if (data.sent > 0) parts.push(`${data.sent} ${data.sent === 1 ? 'invite' : 'invites'} sent`);
-      if (data.skipped > 0) parts.push(`${data.skipped} skipped`);
-      setMessage({ text: parts.join('. ') + '.', type: data.sent > 0 ? 'success' : 'error' });
+      const outcome = describeBulkInvites(data);
+      setInviteLinks(outcome.links);
+      setMessage({ text: outcome.text, type: data.sent > 0 || data.linkOnly > 0 ? 'success' : 'error' });
       setEmailQueue([]);
       setInviteOpen(false);
       loadData();
@@ -444,27 +445,24 @@ export default function AdminUsers() {
     });
   }
 
-  function handleCopyLink() {
-    const url = `${window.location.origin}/signup?token=${linkInvite.inviteToken}`;
-    navigator.clipboard.writeText(url);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
-  }
-
   // -- User actions --
 
   async function resendInvite(email) {
     try {
-      await adminApi('POST', '/v1/admin/invites/resend', { email });
-      setMessage({ text: `Invite resent to ${email}.`, type: 'success' });
+      const data = await adminApi('POST', '/v1/admin/invites/resend', { email });
+      const outcome = describeSingleInvite(email, data);
+      setInviteLinks(outcome.links);
+      setMessage({ text: outcome.text, type: 'success' });
       loadData();
     } catch (e) { setMessage({ text: e.message, type: 'error' }); }
   }
 
   async function inviteFromWaitlist(token, email) {
     try {
-      await adminApi('POST', `/v1/admin/waitlist/${token}/invite`);
-      setMessage({ text: `Invite sent to ${email}.`, type: 'success' });
+      const data = await adminApi('POST', `/v1/admin/waitlist/${token}/invite`);
+      const outcome = describeSingleInvite(email, data);
+      setInviteLinks(outcome.links);
+      setMessage({ text: outcome.text, type: 'success' });
       loadData();
       return true;
     } catch (e) { setMessage({ text: e.message, type: 'error' }); return false; }
@@ -549,8 +547,8 @@ export default function AdminUsers() {
       variant: 'default',
       onConfirm: async () => {
         try {
-          await adminApi('POST', `/v1/admin/users/${userId}/reset-password`);
-          setMessage({ text: `Password reset email sent to ${email}.`, type: 'success' });
+          const data = await adminApi('POST', `/v1/admin/users/${userId}/reset-password`);
+          setMessage({ text: describeAdminReset(email, data), type: 'success' });
         } catch (e) {
           setMessage({ text: e.message, type: 'error' });
         }
@@ -931,8 +929,22 @@ export default function AdminUsers() {
           message.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'
         }`} role="alert">
           <span>{message.text}</span>
-          <button type="button" onClick={() => setMessage(null)} aria-label="Dismiss" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
+          <button type="button" onClick={() => { setMessage(null); setInviteLinks([]); }} aria-label="Dismiss" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
         </div>
+      )}
+
+      {inviteLinks.length > 0 && (
+        <ul className="mb-4 space-y-2" aria-label="Invite links to copy">
+          {inviteLinks.map(({ email, signupUrl }) => (
+            <li key={signupUrl} className="rounded-lg border border-border px-4 py-3">
+              <CopyLinkField
+                label={<span className="min-w-0 truncate"><span className="sr-only">Invite link for </span>{email}</span>}
+                value={signupUrl}
+                copyLabel={`Copy invite link for ${email}`}
+              />
+            </li>
+          ))}
+        </ul>
       )}
 
       {loadError && (
@@ -1352,18 +1364,13 @@ export default function AdminUsers() {
             ) : linkInvite ? (
               <div className="space-y-4">
                 <div className="rounded-lg border p-4 bg-muted/50">
-                  <Label htmlFor="invite-link">Shareable Invite Link</Label>
-                  <div className="flex gap-2 mt-2">
-                    <Input
-                      id="invite-link"
-                      readOnly
-                      value={`${window.location.origin}/signup?token=${linkInvite.inviteToken}`}
-                      className="font-mono text-base md:text-sm"
-                    />
-                    <Button onClick={handleCopyLink} variant="outline">
-                      {linkCopied ? 'Copied!' : 'Copy'}
-                    </Button>
-                  </div>
+                  <CopyLinkField
+                    key={linkInvite.inviteToken}
+                    id="invite-link"
+                    label="Shareable Invite Link"
+                    value={`${window.location.origin}/signup?token=${linkInvite.inviteToken}`}
+                    copyLabel="Copy shareable invite link"
+                  />
                 </div>
 
                 <div className="text-sm text-muted-foreground space-y-1">

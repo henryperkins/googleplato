@@ -9,6 +9,7 @@ import { pluginRegistry } from '../lib/plugins/registry.js';
 import { logger } from '../lib/logger.js';
 import { observeSyncSave } from '../middleware/saveObservability.js';
 import { inferenceContext, recordLessonAttemptSaved, withInferenceContext } from '../lib/inference-telemetry.js';
+import { MAX_SCREENSHOT_RECORD_BYTES } from '../lib/sync-limits.js';
 
 const sync = new Hono();
 
@@ -34,7 +35,7 @@ async function syncNameIfNeeded(userId, dataKey, data) {
 }
 
 function validateDataKey(dataKey) {
-  return typeof dataKey === 'string' && VALID_DATA_KEYS.test(dataKey);
+  return typeof dataKey === 'string' && dataKey.length <= 512 && VALID_DATA_KEYS.test(dataKey);
 }
 
 const validVersion = version => Number.isSafeInteger(version) && version >= 0 && version < Number.MAX_SAFE_INTEGER;
@@ -125,7 +126,7 @@ function estimateSyncDataSize(userId, dataKey, data) {
   return JSON.stringify(item).length;
 }
 
-const MAX_ITEM_SIZE = 380 * 1024; // 380 KB — slightly under DynamoDB's 400 KB limit for safety
+
 
 // Generated turns have a dedicated commit boundary. Retrying this endpoint
 // never runs inference, reapplies coach tags, or overwrites another session.
@@ -172,7 +173,7 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
   if (current.messages.data.some(saved => messages.some(message => message.id === saved.id))) return conflict();
   const desired = { messages: [...current.messages.data, ...messages], lessonKB };
   for (const [name, data] of Object.entries(desired)) {
-    if (Buffer.byteLength(JSON.stringify({ userId, dataKey: `${name}:${lessonId}`, data }), 'utf8') > MAX_ITEM_SIZE) {
+    if (Buffer.byteLength(JSON.stringify({ userId, dataKey: `${name}:${lessonId}`, data }), 'utf8') > MAX_SCREENSHOT_RECORD_BYTES) {
       return c.json({ error: 'The saved lesson is too large. Your reply is retained; ask an administrator for help.' }, 413);
     }
   }
@@ -265,13 +266,13 @@ sync.put('/v1/sync/batch', async (c) => {
     // Size guard for screenshots (same defense-in-depth as single PUT)
     if (item.dataKey.startsWith('screenshot:')) {
       const size = estimateSyncDataSize(userId, item.dataKey, item.data);
-      if (size > MAX_ITEM_SIZE) {
+      if (size > MAX_SCREENSHOT_RECORD_BYTES) {
         return {
           dataKey: item.dataKey,
           status: 'error',
           error: 'Screenshot too large',
           size,
-          limit: MAX_ITEM_SIZE,
+          limit: MAX_SCREENSHOT_RECORD_BYTES,
         };
       }
     }
@@ -321,12 +322,12 @@ sync.put('/v1/sync/:dataKey', async (c) => {
   // write silently fail with an unhandled DynamoDB error.
   if (dataKey.startsWith('screenshot:')) {
     const size = estimateSyncDataSize(userId, dataKey, data);
-    if (size > MAX_ITEM_SIZE) {
+    if (size > MAX_SCREENSHOT_RECORD_BYTES) {
       return c.json({
         error: 'Screenshot is too large',
         details: 'Images must be compressed to under 380 KB. Please use a smaller image or reduce quality.',
         size,
-        limit: MAX_ITEM_SIZE,
+        limit: MAX_SCREENSHOT_RECORD_BYTES,
       }, 413);
     }
   }

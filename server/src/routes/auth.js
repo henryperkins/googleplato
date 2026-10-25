@@ -5,7 +5,7 @@ import db from '../lib/db.js';
 import { generateUserId, generateRefreshToken, generateResetToken, hashToken } from '../lib/crypto.js';
 import { hashPassword, comparePassword } from '../lib/password.js';
 import { signAccessToken } from '../lib/jwt.js';
-import { sendResetEmail } from '../lib/email.js';
+import { sendResetEmail, emailDeliveryEnabled } from '../lib/email.js';
 import { seedDefaultContent } from '../lib/seed.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { getFieldDefinitions, mergeFieldValues } from '../lib/user-fields.js';
@@ -117,7 +117,7 @@ auth.post('/v1/auth/setup', async (c) => {
 
   const accessToken = await signAccessToken(userId, 'admin');
   const refreshToken = generateRefreshToken();
-  await db.storeRefreshToken(hashToken(refreshToken), userId);
+  await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(passwordHash));
 
   return c.json({
     accessToken,
@@ -264,7 +264,7 @@ auth.post('/v1/auth/signup', async (c) => {
 
   const accessToken = await signAccessToken(userId, 'user');
   const refreshToken = generateRefreshToken();
-  await db.storeRefreshToken(hashToken(refreshToken), userId);
+  await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(passwordHash));
 
   return c.json({
     accessToken,
@@ -296,7 +296,7 @@ auth.post('/v1/auth/login', async (c) => {
 
   const accessToken = await signAccessToken(user.userId, user.role);
   const refreshToken = generateRefreshToken();
-  await db.storeRefreshToken(hashToken(refreshToken), user.userId);
+  await db.storeRefreshToken(hashToken(refreshToken), user.userId, hashToken(user.passwordHash));
 
   // Activity-tracking writes are best-effort: login must succeed even if
   // audit-log / user-record writes are throttled or unavailable. The login
@@ -329,21 +329,37 @@ auth.post('/v1/auth/refresh', async (c) => {
   }
 
   const tokenHash = hashToken(refreshToken);
-  const stored = await db.getRefreshToken(tokenHash);
-  if (!stored) {
-    return c.json({ error: 'Invalid refresh token' }, 401);
-  }
-
-  const user = await db.getUserById(stored.userId);
+  // Read the user before consuming so a legacy token cannot straddle reset:
+  // revocation either removes it first, or its replacement keeps the previous
+  // credential version. DynamoDB must read the current password authoritatively.
+  const candidate = await db.getRefreshToken(tokenHash);
+  if (!candidate) return c.json({ error: 'Invalid refresh token' }, 401);
+  const user = await db.getUserById(candidate.userId, { consistentRead: true });
   if (!user) {
     await db.deleteRefreshToken(tokenHash);
     return c.json({ error: 'User not found' }, 401);
   }
+  // Atomic consume: only the request that deletes the row may rotate it, so
+  // two concurrent refreshes with the same token can't both succeed (SEC-3).
+  const stored = await db.consumeRefreshToken(tokenHash);
+  if (!stored) {
+    return c.json({ error: 'Invalid refresh token' }, 401);
+  }
 
-  // Rotate: delete old, issue new
-  await db.deleteRefreshToken(tokenHash);
+  const credentialVersion = hashToken(user.passwordHash || '');
+  if (stored.userId !== user.userId || (stored.credentialVersion != null && stored.credentialVersion !== credentialVersion)) {
+    return c.json({ error: 'Invalid refresh token' }, 401);
+  }
+
+  // Rotate: the old token is already consumed; issue the new one.
   const newRefreshToken = generateRefreshToken();
-  await db.storeRefreshToken(hashToken(newRefreshToken), user.userId);
+  const newTokenHash = hashToken(newRefreshToken);
+  await db.storeRefreshToken(newTokenHash, user.userId, credentialVersion);
+  const currentUser = await db.getUserById(user.userId, { consistentRead: true });
+  if (!currentUser || hashToken(currentUser.passwordHash || '') !== credentialVersion) {
+    await db.deleteRefreshToken(newTokenHash);
+    return c.json({ error: 'Invalid refresh token' }, 401);
+  }
 
   const accessToken = await signAccessToken(user.userId, user.role);
 
@@ -373,6 +389,12 @@ auth.post('/v1/auth/forgot-password', async (c) => {
     return c.json({ error: 'Email is required' }, 400);
   }
 
+  // With email off there is no delivery channel: create no token, and answer
+  // identically whether or not the account exists (no enumeration, EML-2).
+  if (!emailDeliveryEnabled()) {
+    return c.json({ ok: true, emailDelivery: 'off' });
+  }
+
   const user = await db.getUserByEmail(email);
   // Always return ok to avoid leaking whether an email exists
   if (!user) {
@@ -397,20 +419,21 @@ auth.post('/v1/auth/reset-password', async (c) => {
   }
 
   const tokenHash = hashToken(resetToken);
-  const stored = await db.getResetToken(tokenHash);
+  // Atomic consume makes the reset link single-use (SEC-3).
+  const stored = await db.consumeResetToken(tokenHash);
   if (!stored) {
     return c.json({ error: 'Invalid or expired reset link' }, 400);
   }
 
   const user = await db.getUserById(stored.userId);
   if (!user) {
-    await db.deleteResetToken(tokenHash);
     return c.json({ error: 'User not found' }, 400);
   }
 
   const passwordHash = await hashPassword(password);
   await db.updateUser(user.userId, { passwordHash });
-  await db.deleteResetToken(tokenHash);
+  // A password reset revokes every existing session for the account (SEC-3).
+  await db.revokeUserTokens(user.userId);
 
   return c.json({ ok: true });
 });
@@ -492,7 +515,7 @@ auth.post('/v1/auth/firebase', async (c) => {
 
     const accessToken = await signAccessToken(userId, 'admin');
     const refreshToken = generateRefreshToken();
-    await db.storeRefreshToken(hashToken(refreshToken), userId);
+    await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(passwordHash));
 
     return c.json({
       accessToken,
@@ -507,7 +530,7 @@ auth.post('/v1/auth/firebase', async (c) => {
   if (existingUser) {
     const accessToken = await signAccessToken(existingUser.userId, existingUser.role);
     const refreshToken = generateRefreshToken();
-    await db.storeRefreshToken(hashToken(refreshToken), existingUser.userId);
+    await db.storeRefreshToken(hashToken(refreshToken), existingUser.userId, hashToken(existingUser.passwordHash || ''));
 
     try {
       await db.createAuditLog({
@@ -650,7 +673,7 @@ auth.post('/v1/auth/firebase', async (c) => {
 
   const accessToken = await signAccessToken(userId, assignedRole);
   const refreshToken = generateRefreshToken();
-  await db.storeRefreshToken(hashToken(refreshToken), userId);
+  await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(passwordHash));
 
   return c.json({
     accessToken,

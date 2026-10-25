@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { hashPassword } from '../lib/password.js';
+import { generateRefreshToken, hashToken } from '../lib/crypto.js';
+import { signAccessToken } from '../lib/jwt.js';
 import { validateUsername } from './auth.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
 import { listEvents, emit as emitHook } from '../lib/plugins/hooks.js';
@@ -101,6 +103,15 @@ me.patch('/v1/me', async (c) => {
   }
 
   await db.updateUser(userId, updates);
+  // A password change revokes every session, like a reset (SEC-3), including
+  // legacy tokens that carry no credential fingerprint. This device gets a
+  // new pair bound to the new credential, so only the other sessions end.
+  let refreshToken;
+  if (updates.passwordHash) {
+    await db.revokeUserTokens(userId);
+    refreshToken = generateRefreshToken();
+    await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(updates.passwordHash));
+  }
   const updated = await db.getUserById(userId);
   if (!defs) defs = await loadFieldDefinitions();
 
@@ -112,6 +123,7 @@ me.patch('/v1/me', async (c) => {
     userGroup: updated.userGroup,
     role: updated.role,
     customFields: visibleFieldValues(defs, updated.customFields),
+    ...(refreshToken && { session: { accessToken: await signAccessToken(userId, updated.role), refreshToken } }),
   });
 });
 
@@ -178,7 +190,8 @@ me.delete('/v1/me', async (c) => {
     await db.deleteSyncData(userId, item.dataKey);
   }
 
-  // Delete user record
+  // Delete user record and any remaining session tokens
+  await db.revokeUserTokens(userId);
   await db.deleteUser(userId);
 
   return c.json({ ok: true, message: 'Account and all associated data have been permanently deleted' });

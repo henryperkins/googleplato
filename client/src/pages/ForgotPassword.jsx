@@ -58,12 +58,17 @@ export default function ForgotPassword() {
     const cleanEmail = email.trim();
 
     try {
-      await forgotPassword(cleanEmail);
+      const result = await forgotPassword(cleanEmail);
       try { sessionStorage.removeItem(FORGOT_DRAFT_KEY); } catch { /* ignore */ }
-      // The server answers the same whether or not the account exists, so the
-      // message can't claim an email was sent. Echoing the address shows typos.
-      // "1 hour" mirrors RESET_TOKEN_TTL_HOURS in server/src/config.js.
-      setMessage(`If ${cleanEmail} belongs to an account, a reset link is on its way. The link expires in 1\u00a0hour. If it doesn't arrive in a few minutes, check your spam folder.`);
+      if (result?.emailDelivery === 'off') {
+        // Email delivery is off in this classroom: no link was sent (EML-2).
+        setMessage("Password reset by email isn't available in this classroom. Contact your program admin, or sign in with Google if your account uses it.");
+      } else {
+        // The server answers the same whether or not the account exists, so the
+        // message can't claim an email was sent. Echoing the address shows typos.
+        // "1 hour" mirrors RESET_TOKEN_TTL_HOURS in server/src/config.js.
+        setMessage(`If ${cleanEmail} belongs to an account, a reset link is on its way. The link expires in 1\u00a0hour. If it doesn't arrive in a few minutes, check your spam folder.`);
+      }
     } catch (e) {
       setError(requestError(e, "We couldn't send the reset email. Try again."));
     } finally {

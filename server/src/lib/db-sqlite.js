@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   createdAt TEXT NOT NULL,
   ttl INTEGER
 );
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens (userId);
 
 CREATE TABLE IF NOT EXISTS sync_data (
   userId TEXT NOT NULL,
@@ -77,6 +78,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
 `);
 
 // -- Migrations ---------------------------------------------------------------
+
+if (!sqlite.prepare("SELECT 1 FROM pragma_table_info('refresh_tokens') WHERE name = 'credentialVersion'").get()) {
+  sqlite.exec('ALTER TABLE refresh_tokens ADD COLUMN credentialVersion TEXT');
+}
 
 // Add username column if missing (existing databases created before username support)
 const hasUsername = sqlite.prepare(
@@ -436,16 +441,37 @@ const db = {
 
   // ── Refresh Tokens ──
 
-  async storeRefreshToken(tokenHash, userId) {
+  async storeRefreshToken(tokenHash, userId, credentialVersion = null) {
     const ttl = Math.floor(Date.now() / 1000) + REFRESH_TOKEN_TTL_DAYS * 86400;
     sqlite.prepare(
-      `INSERT INTO refresh_tokens (tokenHash, userId, type, createdAt, ttl)
-       VALUES (?, ?, 'refresh', ?, ?)`
-    ).run(tokenHash, userId, new Date().toISOString(), ttl);
+      `INSERT INTO refresh_tokens (tokenHash, userId, type, createdAt, ttl, credentialVersion)
+       VALUES (?, ?, 'refresh', ?, ?, ?)`
+    ).run(tokenHash, userId, new Date().toISOString(), ttl, credentialVersion);
   },
 
   async getRefreshToken(tokenHash) {
-    return sqlite.prepare('SELECT * FROM refresh_tokens WHERE tokenHash = ?').get(tokenHash) || null;
+    const nowSec = Math.floor(Date.now() / 1000);
+    return sqlite.prepare(
+      "SELECT * FROM refresh_tokens WHERE tokenHash = ? AND (type = 'refresh' OR type IS NULL) AND ttl >= ?"
+    ).get(tokenHash, nowSec) || null;
+  },
+
+  async consumeRefreshToken(tokenHash) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return sqlite.prepare(
+      "DELETE FROM refresh_tokens WHERE tokenHash = ? AND (type = 'refresh' OR type IS NULL) AND ttl >= ? RETURNING *"
+    ).get(tokenHash, nowSec) || null;
+  },
+
+  async consumeResetToken(tokenHash) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return sqlite.prepare(
+      "DELETE FROM refresh_tokens WHERE tokenHash = ? AND type = 'reset' AND ttl >= ? RETURNING *"
+    ).get(tokenHash, nowSec) || null;
+  },
+
+  async revokeUserTokens(userId) {
+    sqlite.prepare('DELETE FROM refresh_tokens WHERE userId = ?').run(userId);
   },
 
   async deleteRefreshToken(tokenHash) {
@@ -465,6 +491,7 @@ const db = {
   async getResetToken(tokenHash) {
     const item = sqlite.prepare('SELECT * FROM refresh_tokens WHERE tokenHash = ?').get(tokenHash);
     if (!item || item.type !== 'reset') return null;
+    if (item.ttl < Math.floor(Date.now() / 1000)) return null;
     return item;
   },
 

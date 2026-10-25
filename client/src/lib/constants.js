@@ -5,6 +5,12 @@ export const MAX_EXCHANGES = 11;
 export const MIN_OBJECTIVES = 2;
 export const MAX_OBJECTIVES = 4;
 
+// Screenshot cap in encoded data URL characters. The server rejects the
+// whole `screenshot:*` JSON record over 380 KiB (sync-limits.js), so the
+// client caps the encoded string it sends, leaving ~10 KiB of headroom for
+// userId, dataKey, timestamps and JSON punctuation. Base64 needs no escaping.
+export const SCREENSHOT_MAX_DATA_URL_CHARS = 370 * 1024;
+
 // Exchange-based duration estimate. 11 exchanges ≈ 20 min target.
 // Used for derived duration metrics (admin dashboard) instead of wall-clock,
 // which inflates from multi-session or abandoned-then-resumed lessons.

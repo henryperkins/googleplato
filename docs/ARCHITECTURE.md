@@ -73,7 +73,28 @@ local rules testing, cutover order, and publication status.
   Google cleanup and account-switch protection without loading a data mirror.
 - **Password reset is plato's.** `/forgot-password` uses the server's
   `POST /v1/auth/forgot-password` endpoint. Firebase resets are not used for
-  plato password accounts.
+  plato password accounts. Reset links are single-use, and completing a reset
+  revokes every existing refresh session for the account on all three
+  database backends, so learners on other devices are signed out. Changing
+  the password in Settings (`PATCH /v1/me`) revokes them the same way, then
+  returns a `session` token pair bound to the new credential. The client
+  saves that pair, so only the device that made the change stays signed in.
+  Refresh rotation consumes the old token atomically: only the request that
+  deletes the stored row may issue its replacement, and reset tokens are never
+  accepted as refresh tokens. New refresh tokens carry a SHA-256 fingerprint
+  of the password hash used at issuance, never a second copy of that hash.
+  Refresh checks that fingerprint against the current user credential, using
+  a strongly consistent user read on DynamoDB. Legacy tokens are read before
+  the user lookup and consumed after it; a reset therefore deletes the old
+  token or invalidates its credential-bound replacement. A refresh that
+  observes a credential change after storing its replacement removes it and
+  returns 401. A login already in progress may finish with an access JWT, but
+  its old-credential refresh token cannot continue after reset. Existing
+  access JWTs keep their normal 15-minute expiry.
+  DynamoDB revocation uses a strongly consistent, paginated scan of the token
+  table and bounded retries for unprocessed batch deletes. An eventually
+  consistent index is not sufficient for this security boundary; exhausted
+  retries fail explicitly.
 
 Sign-out removes plato's local credentials and protected React state before
 waiting for any remote work. Server refresh-token revocation is best effort,
@@ -520,7 +541,10 @@ is its own `screenshot:<key>` record, and the message stores only
 - Images are compressed client-side on paste
   (`client/src/lib/imageCompression.js`) to stay well under the per-record
   limit, persisted one-per-record, and excluded from the bulk `GET /v1/sync`
-  payload (fetched on demand by key).
+  payload (fetched on demand by key). The cap is measured on the encoded
+  record: the client caps the data URL at `SCREENSHOT_MAX_DATA_URL_CHARS`
+  (370 KiB chars) and the server rejects the whole JSON record over
+  `MAX_SCREENSHOT_RECORD_BYTES` (380 KiB) in `server/src/lib/sync-limits.js`.
 - `ComposeBar.addImagesFromFiles` reads files via `FileReader` with
   `Promise.allSettled` (not `all`) so one unreadable file can't discard a whole
   batch, and surfaces the underlying `DOMException.name` in the alert
@@ -709,7 +733,7 @@ Admins invite users via email or shareable link. Invites expire after 7 days (TT
 ### Email invites
 
 - **Creation:** `POST /v1/admin/invites` (single) or `/v1/admin/invites/bulk` (up to 200). Bulk supports CSV upload.
-- **Delivery:** SES email (`server/src/lib/email.js`) with signup URL: `{APP_URL}/signup?token={inviteToken}`.
+- **Delivery:** SES email (`server/src/lib/email.js`) with signup URL: `{APP_URL}/signup?token={inviteToken}`. With `SKIP_EMAIL=true` nothing is sent or logged with the link: invite responses report `emailDelivery: 'off'` (bulk results use status `link_only` with separate `sent`/`linkOnly`/`skipped` counts) and return the signup URL so the admin can share it. Admin → Users shows each returned link (and the shareable invite link) in `CopyLinkField`: a read-only field plus a Copy button whose result is announced in a polite status region; when the clipboard is denied or unavailable, the field is focused and selected with instructions to copy by hand. Password-reset responses never include a link; with email off, `/v1/auth/forgot-password` and the admin reset create no token, answer `emailDelivery: 'off'`, and the forgot-password answer is identical for known and unknown addresses.
 - **Validation:** Invite token must exist, status `pending`, TTL not expired, and **email must match** the invite.
 - **One-time:** Marked `used` on signup; cannot be reused.
 
