@@ -82,6 +82,9 @@ describe('aiErrorDiagnostics', () => {
     assert.equal(aiErrorDiagnostics(fetchFailure).error_name, 'TypeError');
     assert.equal(aiErrorDiagnostics(fetchFailure).cause_code, 'ECONNREFUSED');
     assert.doesNotMatch(JSON.stringify(aiErrorDiagnostics(fetchFailure)), /10\.0\.0\.1/);
+    assert.equal(aiErrorDiagnostics(Object.assign(new Error('x'), { name: 'AiSettingsError', aiStage: 'settings' })).stage, 'settings');
+    assert.equal(aiErrorDiagnostics(Object.assign(new Error('x'), { aiStage: 'anything-else' })).stage, 'provider');
+    assert.equal(classifyAiError(Object.assign(new Error('AI settings could not be read.'), { name: 'AiSettingsError', causeCode: 'ECONNREFUSED' })).code, 'ai_error');
   });
 
   it('drops any value that could be free text', () => {

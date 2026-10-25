@@ -44,12 +44,14 @@ be counted and alerted on apart from the INFO measurements. Cancelled streams
 emit none. It shares `inference_id` with that invocation's `inference_finished`
 and repeats `provider`, `model`, `stream` and `agent_role`. `error_code` is the
 classified code the browser receives (`ai_unavailable`, `ai_overloaded`, ...),
-matching `inference_finished.error_code`.
+matching `inference_finished.error_code`. When the AI selection itself can't be
+read (`stage: settings`), no invocation starts, so `inference_id`, `provider` and
+`model` are `null` and no `inference_finished` follows.
 
 | Field | Meaning |
 | --- | --- |
-| `stage` | `credentials` when obtaining credentials failed (Workers AI OAuth or manual credentials, Bedrock's credential chain); otherwise `provider`. |
-| `reason` | Fixed reason, or `null`. Credentials: `reconnect-required`, `setup-required`, `missing-credentials`, `busy`, `unreachable`. Workers AI provider: `http`, `error-payload`, `empty` (finished without visible text), `incomplete`, `malformed`. |
+| `stage` | `settings` when the saved selection or `AI_PROVIDER` couldn't be read or is invalid; `credentials` when obtaining credentials failed (Workers AI OAuth or manual credentials, Bedrock's credential chain); otherwise `provider`. |
+| `reason` | Fixed reason, or `null`. Settings: `invalid-settings`. Credentials: `reconnect-required`, `setup-required`, `missing-credentials`, `busy`, `unreachable`. Workers AI provider: `http`, `error-payload`, `empty` (finished without visible text), `incomplete`, `malformed`. |
 | `error_name` | The failing error's name. For credentials, the underlying cause's name, such as a database error. |
 | `http_status` | The provider's HTTP status, or the status in a Workers AI stream error event. `null` when none was received. |
 | `cause_code` | A transport or database code, such as `ECONNRESET`, `UND_ERR_SOCKET` or a PostgreSQL SQLSTATE. |

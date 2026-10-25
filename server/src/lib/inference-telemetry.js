@@ -54,6 +54,18 @@ function emit(code, meta) {
 function warn(code, meta) {
   try { logger.warn(code, meta); } catch { /* optional telemetry */ }
 }
+// Failures are also a WARN, so they can be counted and alerted on apart from
+// the INFO measurements. Identifiers only, never the error's message.
+function warnFailure(sink, identity, errorCode, error) {
+  try { sink('ai_provider_error', { schema_version: 1, ...identity, error_code: errorCode, ...aiErrorDiagnostics(error) }); }
+  catch { /* optional telemetry */ }
+}
+
+/** The AI selection could not be read, so no provider, model or invocation exists yet. */
+export function recordSettingsFailure({ stream = false, context = {} } = {}, errorCode, error, { warn: warningSink = warn } = {}) {
+  warnFailure(warningSink, { inference_id: null, provider: null, model: null, stream,
+    agent_role: AGENTS.has(context?.agent_role) ? context.agent_role : 'unknown' }, errorCode, error);
+}
 
 export function recordLessonAttemptSaved(userId, lessonId, turnId, state) {
   const context = inferenceContext(userId, { lessonId, generation: state.generation, turnId });
@@ -101,14 +113,9 @@ export function createInferenceTelemetry({ provider, model, region, stream = fal
     visible(text) {
       if (firstVisible === null && typeof text === 'string' && text.trim()) firstVisible = now() - started;
     },
-    // Failures are also a WARN, so they can be counted and alerted on apart from
-    // the INFO measurements. Identifiers only, never the error's message.
     fail(errorCode, error) {
       if (finished) return;
-      try {
-        warningSink('ai_provider_error', { schema_version: 1, inference_id: common.inference_id, provider, model, stream,
-          agent_role: common.agent_role, error_code: errorCode, ...aiErrorDiagnostics(error) });
-      } catch { /* optional telemetry */ }
+      warnFailure(warningSink, { inference_id: common.inference_id, provider, model, stream, agent_role: common.agent_role }, errorCode, error);
     },
     finish(outcome, errorCode) {
       if (finished) return;

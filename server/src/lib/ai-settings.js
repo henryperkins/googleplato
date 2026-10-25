@@ -26,7 +26,7 @@ export async function readAiSettings() {
     workersAiModel: item?.data?.workersAiModel ?? process.env.WORKERS_AI_MODEL ?? DEFAULT_WORKERS_AI_MODEL,
   };
   if (validateAiSettings(settings)) {
-    throw Object.assign(new Error('Invalid server AI settings.'), { name: 'AiConfigurationError' });
+    throw Object.assign(new Error('Invalid server AI settings.'), { name: 'AiConfigurationError', aiStage: 'settings', reason: 'invalid-settings' });
   }
   return { ...settings, version: item?.version || 0 };
 }

@@ -3,9 +3,10 @@
  *
  * The client maps the code, plus the surface that made the call, to
  * contextual copy (client/src/lib/aiErrors.js). The raw provider message never
- * leaves the server, and logs never record it either: an AWS AccessDenied
- * message can include the account ID and IAM role name. aiErrorDiagnostics()
- * keeps only identifiers for the ai_provider_error event.
+ * leaves the server: an AWS AccessDenied message can include the account ID
+ * and IAM role name. aiErrorDiagnostics() keeps only identifiers for the
+ * ai_provider_error event. Callers that log an error themselves, such as the
+ * plugin hook runner, can still record its message.
  */
 
 const MESSAGES = {
@@ -58,16 +59,17 @@ const IDENTIFIER = /^[\w.-]{1,64}$/;
 /** An error name or code fit for logs, or null for anything that could be free text. */
 export const safeIdentifier = value => typeof value === 'string' && IDENTIFIER.test(value) ? value : null;
 const CREDENTIAL_SOURCES = new Set(['oauth', 'oauth-refreshed', 'environment']);
+const STAGES = new Set(['settings', 'credentials']);
 
 /**
  * Content-free fields for the ai_provider_error log: names, codes and statuses,
- * never a message. A credential failure reports its cause's identity, which
- * workersAiCredentials() copies onto the error it throws.
+ * never a message. A settings or credential failure reports its cause's
+ * identity, which the code that wraps it copies onto the error it throws.
  */
 export function aiErrorDiagnostics(err) {
   const status = err?.httpStatus ?? err?.$metadata?.httpStatusCode;
   return {
-    stage: err?.aiStage === 'credentials' || err?.name === 'CredentialsProviderError' ? 'credentials' : 'provider',
+    stage: STAGES.has(err?.aiStage) ? err.aiStage : err?.name === 'CredentialsProviderError' ? 'credentials' : 'provider',
     reason: safeIdentifier(err?.reason),
     error_name: safeIdentifier(err?.causeName ?? err?.name),
     http_status: Number.isSafeInteger(status) && status >= 100 && status <= 599 ? status : null,

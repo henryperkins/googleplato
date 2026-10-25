@@ -133,7 +133,8 @@ provider usage. Maximum reasoning can take longer; requests time out after
 Before the first admin save, `AI_PROVIDER` (`bedrock` or `workers-ai`) and
 `WORKERS_AI_MODEL` can set the initial defaults. Saved settings take precedence.
 Without either, requests use Bedrock, so set `AI_PROVIDER=workers-ai` on a server
-that has no AWS credentials. AI Settings warns when it finds none.
+that has no AWS credentials. AI Settings warns when it finds none. An unrecognized
+value fails every AI request; the server logs `ai_provider_error` with `stage: settings`.
 For Lambda, supply the optional `CloudflareAccountId` and `CloudflareApiToken`
 SAM parameters through your deployment secret configuration; both API and
 streaming functions receive them. Do not commit tokens in SAM config files.

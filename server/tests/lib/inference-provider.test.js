@@ -213,3 +213,25 @@ test('a throwing warning sink never changes the provider error', async () => {
   await assert.rejects(ai.invoke('ignored', body), err => err.name === 'WorkersAiError' && err.status === 429);
   assert.equal(finished().error_code, 'ai_rate_limited');
 });
+
+test('an invalid or unreadable AI selection warns at the settings stage instead of failing silently', async () => {
+  mock.method(console, 'warn', () => {});
+  const fetchMock = mock.method(globalThis, 'fetch', async () => Response.json({}));
+  active = { provider: 'workersai', workersAiModel: model }; // a mistyped AI_PROVIDER reaches the same check
+  await assert.rejects(ai.invoke('ignored', body, { context: inferenceContext('learner', { agentRole: 'coach' }) }), { name: 'AiConfigurationError' });
+  assert.deepEqual(warnings()[0].meta, {
+    schema_version: 1, inference_id: null, provider: null, model: null, stream: false, agent_role: 'coach',
+    error_code: 'ai_unavailable', stage: 'settings', reason: 'invalid-settings', error_name: 'AiConfigurationError',
+    http_status: null, cause_code: null, credential_source: null, token_expires_in_s: null,
+  });
+  assert.equal(finished(), undefined, 'no provider was invoked');
+
+  logger._reset();
+  mock.method(db, 'getSyncData', async () => { throw Object.assign(new Error('connect ECONNREFUSED 10.9.8.7:5432'), { code: 'ECONNREFUSED' }); });
+  await assert.rejects(async () => { for await (const _event of ai.invokeStream('ignored', body)) { /* drain */ } }, { name: 'AiSettingsError' });
+  const { stage, error_code, error_name, cause_code, stream } = warnings()[0].meta;
+  assert.deepEqual({ stage, error_code, error_name, cause_code, stream },
+    { stage: 'settings', error_code: 'ai_error', error_name: 'Error', cause_code: 'ECONNREFUSED', stream: true });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.doesNotMatch(JSON.stringify(logger.recent()), /10\.9\.8\.7/);
+});

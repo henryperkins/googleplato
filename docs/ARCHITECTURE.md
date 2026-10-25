@@ -209,6 +209,8 @@ It warns and never blocks.
 
 A failed invocation logs `ai_provider_error` (WARN) beside `inference_finished`,
 with content-free diagnostics ([INFERENCE_TELEMETRY.md](INFERENCE_TELEMETRY.md#failure-diagnostics)).
+So does a selection that can't be read, such as an invalid `AI_PROVIDER`
+(`stage: settings`).
 Only configuration states an administrator must fix are reported to the browser
 as `ai_unavailable`. A Workers AI credential read that fails temporarily or
 unexpectedly reports `ai_overloaded` or `ai_error` instead
