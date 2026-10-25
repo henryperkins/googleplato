@@ -86,9 +86,11 @@ report() {
   if [ -n "$DRY_RUN" ]; then echo "monitoring.sh: would $1 $2"; else echo "monitoring.sh: ${1}d $2"; fi
 }
 
+# Lookups use --verbosity=error: before anything exists, gcloud warns that the
+# filter keys match no resource.
 CHANNEL="$(gcloud beta monitoring channels list --project="$PROJECT" \
   --filter="type=\"email\" AND labels.email_address=\"$EMAIL\"" \
-  --format='value(name)' --limit=1 --quiet < /dev/null)"
+  --format='value(name)' --limit=1 --verbosity=error --quiet < /dev/null)"
 if [ -z "$CHANNEL" ]; then
   CREATE_CHANNEL=(gcloud beta monitoring channels create --project="$PROJECT"
     --display-name="$CHANNEL_NAME" --description="Cloud Monitoring alerts for $SERVICE"
@@ -101,9 +103,16 @@ if [ -z "$CHANNEL" ]; then
   fi
 fi
 echo "monitoring.sh: notification channel $CHANNEL"
+if [[ "$CHANNEL" != */DRY-RUN ]]; then
+  STATUS="$(gcloud beta monitoring channels describe "$CHANNEL" --project="$PROJECT" \
+    --format='value(verificationStatus)' --quiet < /dev/null)"
+  if [ "$STATUS" = UNVERIFIED ]; then
+    echo "monitoring.sh: $CHANNEL is unverified and can't deliver alerts until it's verified in Cloud Monitoring" >&2
+  fi
+fi
 
 UPTIME="$(gcloud monitoring uptime list-configs --project="$PROJECT" \
-  --filter="displayName=\"$UPTIME_NAME\"" --format='value(name)' --limit=1 --quiet < /dev/null)"
+  --filter="displayName=\"$UPTIME_NAME\"" --format='value(name)' --limit=1 --verbosity=error --quiet < /dev/null)"
 UPTIME_SETTINGS=(--path=/v1/health --period=5 --timeout=10 --validate-ssl=true)
 if [ -z "$UPTIME" ]; then
   CREATE_UPTIME=(gcloud monitoring uptime create "$UPTIME_NAME" --project="$PROJECT"
@@ -137,7 +146,7 @@ while IFS=$'\t' read -r -u 3 kind id file; do
       fi ;;
     policy)
       existing="$(gcloud monitoring policies list --project="$PROJECT" \
-        --filter="userLabels.plato_policy=$id" --format='value(name)' --limit=1 --quiet < /dev/null)"
+        --filter="userLabels.plato_policy=$id" --format='value(name)' --limit=1 --verbosity=error --quiet < /dev/null)"
       if [ -n "$existing" ]; then
         run gcloud monitoring policies update "$existing" --project="$PROJECT" --policy-from-file="$file" --quiet
         report update "policy $id"

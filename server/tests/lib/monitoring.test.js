@@ -99,6 +99,8 @@ if (mutation && process.env.FAKE_GCLOUD_READ_ONLY) done('', 3);
 const body = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 if (command === 'beta monitoring channels list') {
   done(state.channels.find(c => flag('filter').includes('"' + c.email + '"'))?.name);
+} else if (command === 'beta monitoring channels describe') {
+  done(state.channels.find(c => c.name === words[4])?.status || '');
 } else if (command === 'beta monitoring channels create') {
   const name = 'projects/idk-4e9b9/notificationChannels/' + (state.channels.length + 1);
   state.channels.push({ name, email: flag('channel-labels').replace('email_address=', '') });
@@ -178,6 +180,14 @@ describe('monitoring.sh', () => {
     assert.equal(repeat.filter(call => call.includes('create')).length, 0);
     assert.equal(repeat.filter(call => call.slice(0, 3).join(' ') === 'monitoring policies update').length, 8);
     assert.match(second.stdout, /updated policy deploy-drift/);
+  });
+
+  it('warns when the existing channel is unverified', () => {
+    const gcloud = fakeGcloud({ channels: [{ name: 'projects/idk-4e9b9/notificationChannels/9', email: 'ops@example.test', status: 'UNVERIFIED' }] });
+    const result = gcloud.run(['--email', 'ops@example.test']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /notificationChannels\/9 is unverified/);
+    assert.equal(gcloud.state().channels.length, 1);
   });
 
   it('changes nothing on a dry run and prints the planned commands', () => {

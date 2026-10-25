@@ -70,8 +70,9 @@ deploy/cloudrun/monitoring.sh --check                       # read-only: recent 
 The script is idempotent. Re-run it after editing `monitoring.js`. It matches
 the channel by email address, the uptime check by display name, metrics by
 name, and policies by their `plato_policy` label, then updates each in place.
-The address is passed at run time and never stored in the repository.
-`--check` counts the last 7 days' log entries matching each log-based alert,
+The address is passed at run time and never stored in the repository. If
+Cloud Monitoring marks the channel unverified, the script says so: alerts
+aren't delivered until it's verified. `--check` counts the last 7 days' log entries matching each log-based alert,
 for comparison with `node scripts/log-watch.js --dry-run`.
 
 Things to expect:
