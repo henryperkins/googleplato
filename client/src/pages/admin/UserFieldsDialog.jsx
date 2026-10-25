@@ -107,16 +107,18 @@ export function UserFieldsEditor({ fields, onChange }) {
     });
   }
 
-  function handleMove(idx, delta) {
+  async function handleMove(idx, delta) {
     const field = fields[idx];
     const newPos = idx + delta + 1;
-    if (field) {
-      setReorderAnnouncement(`Moved ${field.label} to position ${newPos} of ${fields.length}`);
-    }
     const ids = fields.map((f) => f.id);
     const [moved] = ids.splice(idx, 1);
     ids.splice(idx + delta, 0, moved);
-    run(() => adminApi('PUT', '/v1/admin/user-fields/order', { ids }));
+    const ok = await run(() => adminApi('PUT', '/v1/admin/user-fields/order', { ids }));
+    if (ok && field) {
+      setReorderAnnouncement(`Moved ${field.label} to position ${newPos} of ${fields.length}`);
+    } else if (!ok && field) {
+      setReorderAnnouncement(`Failed to reorder ${field.label}`);
+    }
   }
 
   return (

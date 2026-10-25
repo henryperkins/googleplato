@@ -640,7 +640,8 @@ on send. Three traps here each produced a shipped-but-broken fix:
    container, and the header silently stops sticking. With no clipping
    ancestor, wide content must contain its own horizontal overflow
    (`.coach-copy` wraps anywhere, and markdown tables scroll inside their own
-   `.md-table-scroll` wrapper). The footer isn't pinned to the viewport
+   `.md-table-scroll` wrapper, with `role="region"`, `tabindex="0"`, and visible
+   focus rings for keyboard-only panning). The footer isn't pinned to the viewport
    either, so the fixed compose overlay sits at `bottom-0`. Embedded authoring
    views can still have an element scrollport, and setting `scrollTop` on a
    non-scrolling element is a **silent no-op**, indistinguishable from an
@@ -1251,6 +1252,10 @@ a compact CompletionRing colored by progress.
   live region); nullish values always sort last regardless of direction so
   invites cluster predictably. Modals/dropdowns that don't need stats call the
   base endpoint to skip the lessons-available computation.
+- Both Users and Lessons tables standardize on `<Card className="p-0 overflow-hidden">`
+  containers with keyboard-accessible scroll regions (`role="region"`, `tabIndex={0}`,
+  `focus-visible:ring-inset`), semantic row headers, sticky column boundary separation,
+  and 20-item pagination.
 
 `CompletionRing` (`client/src/pages/admin/CompletionRing.jsx`) is an SVG donut
 showing completed / available lessons, color-coded (red <35%, yellow 35–89%,

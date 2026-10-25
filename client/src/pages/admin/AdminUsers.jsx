@@ -1173,7 +1173,7 @@ export default function AdminUsers() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7 + (filterField ? 1 : 0) + (slackConnected ? 1 : 0)} className="text-muted-foreground py-8 text-center">
+                <TableCell colSpan={7 + (filterField ? 1 : 0) + (slackConnected ? 1 : 0)} className="static! max-w-none! border-r-0! bg-transparent! whitespace-normal text-muted-foreground py-8 text-center">
                   {loadError ? 'Users could not be loaded. Retry above.' : search || filter !== 'all' ? 'No matching users.' : 'No users yet. Click "Invite Users" to get started.'}
                 </TableCell>
               </TableRow>

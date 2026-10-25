@@ -16,17 +16,16 @@ function Table({
       role="region"
       aria-label={ariaLabel}
       tabIndex={0}
-      className="relative w-full overflow-x-auto overscroll-x-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+      className="relative w-full overflow-x-auto overscroll-x-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
       <table
         data-slot="table"
         className={cn(
           "w-full caption-bottom text-sm tabular-nums",
           stickyFirstColumn &&
-            "[&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-10 [&_th:first-child]:bg-card [&_th:first-child]:max-w-[11rem] sm:[&_th:first-child]:max-w-none [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10 [&_td:first-child]:bg-card [&_td:first-child]:max-w-[11rem] sm:[&_td:first-child]:max-w-none [&_tr:hover_td:first-child]:bg-muted/50 [&_tr[data-state=selected]_td:first-child]:bg-muted [&_th:first-child]:border-r [&_th:first-child]:border-border/60 [&_td:first-child]:border-r [&_td:first-child]:border-border/60",
+            "[&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-10 [&_th:first-child]:bg-card [&_th:first-child]:max-w-[11rem] sm:[&_th:first-child]:max-w-none [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10 [&_td:first-child]:bg-card [&_td:first-child]:max-w-[11rem] sm:[&_td:first-child]:max-w-none [&_tr:hover_td:first-child]:bg-muted/50 [&_tbody_tr:hover_th:first-child]:bg-muted/50 [&_tr[data-state=selected]_td:first-child]:bg-muted [&_tbody_tr[data-state=selected]_th:first-child]:bg-muted [&_th:first-child]:border-r [&_th:first-child]:border-border/60 [&_td:first-child]:border-r [&_td:first-child]:border-border/60",
           className
         )}
-        aria-label={ariaLabel}
         {...props} />
     </div>
   );

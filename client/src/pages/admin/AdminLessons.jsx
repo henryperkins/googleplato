@@ -121,6 +121,13 @@ export default function AdminLessons() {
   const currentPage = Math.min(page, totalPages);
   const pageLessons = filteredLessons.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  // Deleting the last lesson on a page can shrink the page count while `page`
+  // still points past the end; clamp it so Previous moves to the page the
+  // admin is actually looking at.
+  useEffect(() => {
+    setPage((previous) => Math.min(previous, totalPages));
+  }, [totalPages]);
+
   useEffect(() => {
     loadLessons();
     loadCourses();
@@ -495,7 +502,7 @@ export default function AdminLessons() {
             })}
             {filteredLessons.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
+                <TableCell colSpan={6} className="static! max-w-none! border-r-0! bg-transparent! whitespace-normal text-center py-6 text-muted-foreground">
                   {lessonsError
                     ? 'Lessons could not be loaded. Retry above.'
                     : lessons.length === 0
