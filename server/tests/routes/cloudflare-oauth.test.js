@@ -786,6 +786,50 @@ describe('Cloudflare browser connection', () => {
     assert.equal((await infer()).status, 200);
   });
 
+  it('keeps the connection when a renewal never reached Cloudflare, and renews on a later request', async () => {
+    tokenReply.expires_in = 90;
+    await connect();
+    const now = Date.now();
+    mock.method(Date, 'now', () => now + 60_000);
+    const refused = () => Object.assign(new Error('connect ECONNREFUSED 104.16.0.1:443'), { code: 'ECONNREFUSED', syscall: 'connect' });
+    const failures = [
+      new TypeError('fetch failed', { cause: refused() }),
+      // Happy Eyeballs reports one connect error per address tried.
+      new TypeError('fetch failed', { cause: Object.assign(new AggregateError([refused(), refused()]), { code: 'ECONNREFUSED' }) }),
+      new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND dash.cloudflare.com'), { code: 'ENOTFOUND', syscall: 'getaddrinfo' }) }),
+      new TypeError('fetch failed', { cause: Object.assign(new Error('Connect Timeout Error'), { name: 'ConnectTimeoutError', code: 'UND_ERR_CONNECT_TIMEOUT' }) }),
+    ];
+    const originalFetch = globalThis.fetch;
+    for (const failure of failures) {
+      globalThis.fetch = (url, options) => String(url).endsWith('/token') ? Promise.reject(failure) : originalFetch(url, options);
+      const response = await infer();
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).code, 'ai_overloaded', 'a network failure before sending is temporary');
+      const data = await settings();
+      assert.equal(data.workersAiOAuth.connected, true);
+      assert.equal(data.workersAiOAuth.needsReconnect, false);
+    }
+    const row = (await db.getAllSyncData('_integrations')).find(item => item.dataKey === 'cloudflare-ai');
+    assert.equal(row.data.status, 'connected');
+    assert.equal(row.data.refreshLease, null);
+    assert.equal(logged('cloudflare_oauth_reconnect_required').length, 0);
+    assert.deepEqual(logged('ai_provider_error').map(({ meta }) => [meta.stage, meta.reason, meta.error_name, meta.cause_code]).reverse(), [
+      ['credentials', 'unreachable', 'TypeError', 'ECONNREFUSED'],
+      ['credentials', 'unreachable', 'TypeError', 'ECONNREFUSED'],
+      ['credentials', 'unreachable', 'TypeError', 'ENOTFOUND'],
+      ['credentials', 'unreachable', 'TypeError', 'UND_ERR_CONNECT_TIMEOUT'],
+    ]);
+    assert.doesNotMatch(JSON.stringify(logger.recent()), /104\.16\.0\.1|do-not-return/);
+
+    globalThis.fetch = originalFetch;
+    tokenReply = { ...tokenReply, access_token: 'rotated-access', refresh_token: 'rotated-refresh' };
+    assert.equal((await infer()).status, 200);
+    const refreshes = calls.filter(call => call.url.pathname.endsWith('/token') && new URLSearchParams(call.options.body).get('grant_type') === 'refresh_token');
+    assert.equal(refreshes.length, 1);
+    assert.equal(new URLSearchParams(refreshes[0].options.body).get('refresh_token'), 'oauth-refresh-do-not-return');
+    assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer rotated-access');
+  });
+
   it('still requires reconnect when a renewal may have reached Cloudflare, reporting the transition once', async () => {
     const ambiguous = [
       [() => Promise.reject(new TypeError('fetch failed', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET', syscall: 'read' }) })),

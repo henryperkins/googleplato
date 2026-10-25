@@ -49,7 +49,7 @@ matching `inference_finished.error_code`.
 | Field | Meaning |
 | --- | --- |
 | `stage` | `credentials` when obtaining credentials failed (Workers AI OAuth or manual credentials, Bedrock's credential chain); otherwise `provider`. |
-| `reason` | Fixed reason, or `null`. Credentials: `reconnect-required`, `setup-required`, `missing-credentials`, `busy`. Workers AI provider: `http`, `error-payload`, `empty` (finished without visible text), `incomplete`, `malformed`. |
+| `reason` | Fixed reason, or `null`. Credentials: `reconnect-required`, `setup-required`, `missing-credentials`, `busy`, `unreachable`. Workers AI provider: `http`, `error-payload`, `empty` (finished without visible text), `incomplete`, `malformed`. |
 | `error_name` | The failing error's name. For credentials, the underlying cause's name, such as a database error. |
 | `http_status` | The provider's HTTP status, or the status in a Workers AI stream error event. `null` when none was received. |
 | `cause_code` | A transport or database code, such as `ECONNRESET`, `UND_ERR_SOCKET` or a PostgreSQL SQLSTATE. |

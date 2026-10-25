@@ -31,8 +31,8 @@ const UNAVAILABLE = new Set([
 
 const RATE_LIMITED = new Set(['ThrottlingException', 'ServiceQuotaExceededException']);
 // AiCredentialsTemporaryError: another request is still renewing the shared
-// Cloudflare token. Credential reads that fail unexpectedly
-// (AiCredentialsError) fall through to ai_error.
+// Cloudflare token, or the renewal could not reach Cloudflare. Credential reads
+// that fail unexpectedly (AiCredentialsError) fall through to ai_error.
 const OVERLOADED = new Set(['ServiceUnavailableException', 'ModelNotReadyException', 'InternalServerException', 'AiCredentialsTemporaryError']);
 const TIMEOUT = new Set(['ModelTimeoutException', 'TimeoutError', 'AbortError']);
 const NETWORK = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT']);

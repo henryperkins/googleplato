@@ -243,9 +243,10 @@ and user sync records. The stable encryption key is supplied by the server owner
 there is no development-key fallback. Database reads are strongly consistent and
 all writes use strict versions. A database lease coordinates refresh-token rotation
 across instances. Ambiguous refresh failures require reconnect rather than retrying
-a potentially rotated token. The request that disables a connection logs
-`cloudflare_oauth_reconnect_required` once. Failed refresh credentials remain encrypted solely
-for explicit revocation. Disconnect first disables local access with a versioned
+a potentially rotated token. A renewal that never opened a connection to Cloudflare
+didn't send the token, so it keeps the connection and a later request renews. The
+request that disables a connection logs `cloudflare_oauth_reconnect_required` once.
+Failed refresh credentials remain encrypted solely for explicit revocation. Disconnect first disables local access with a versioned
 tombstone, then revokes the grant; failed revocation remains visible and retryable.
 Late callbacks and refresh completions cannot restore a disconnected connection.
 Issued credentials have a unique encrypted cleanup record until ownership passes

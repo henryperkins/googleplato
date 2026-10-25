@@ -77,9 +77,13 @@ still signs in and approves the Cloudflare consent screen.
 OAuth credentials take precedence over manually configured Workers AI credentials.
 Access tokens are renewed shortly before expiry using the refresh token. A shared
 database lease prevents concurrent requests from rotating the same refresh token.
-An uncertain or failed refresh disables the connection and requires **Reconnect
-Cloudflare**; Plato does not repeatedly submit an old refresh token or silently
-switch to another account.
+A renewal that could not reach Cloudflare at all (the host name did not resolve,
+or no connection opened to any address) never sent the refresh token, so it is
+still valid. Plato keeps the connection and releases the lease. The request fails
+as temporary, and a later request renews. Any other failed or uncertain refresh,
+including a timeout, a dropped connection or an error response, disables the
+connection and requires **Reconnect Cloudflare**. Plato does not repeatedly submit
+an old refresh token or silently switch to another account.
 
 **Disconnect Cloudflare** requires confirmation and affects the entire classroom.
 Plato first disables the browser connection locally, then attempts to revoke its
@@ -117,7 +121,8 @@ server setup. The browser gets `ai_unavailable` for these:
 Other credential failures don't ask anyone to reconnect a working account:
 
 - **Temporary (`ai_overloaded`):** another request is renewing the token and
-  didn't finish within 15 seconds. Non-streaming agents retry automatically.
+  didn't finish within 15 seconds, or the renewal couldn't reach Cloudflare.
+  Non-streaming agents retry automatically.
 - **Server error (`ai_error`):** the database couldn't be read, or another
   unexpected error happened.
 

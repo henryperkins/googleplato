@@ -23,6 +23,7 @@ const ERRORS = {
   'invalid-account': 'Choose one of the accounts authorized through Cloudflare.',
   'reconnect-required': 'Reconnect Cloudflare in AI settings to restore Workers AI access.',
   busy: 'A Cloudflare connection is being updated. Try again shortly.',
+  unreachable: 'Cloudflare could not be reached to renew Workers AI access. Try again shortly.',
 };
 
 function failure(code, status = 400) {
@@ -99,13 +100,24 @@ async function compareAndWrite(key, data, version) {
   catch (error) { if (conflict(error)) throw failure('changed', 409); throw error; }
 }
 
+// Resolving the host or opening the connection failed, for every address
+// tried: the request, and any token in it, never left this server. Any later
+// failure, including a timeout, is ambiguous.
+function neverSent(error) {
+  const causes = error?.cause?.errors ?? [error?.cause];
+  return causes.length > 0 && causes.every(cause => ['connect', 'getaddrinfo'].includes(cause?.syscall)
+    || ['ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT'].includes(cause?.code));
+}
+
 // Failures keep only identifiers for diagnostics: the transport error's name
 // and code, or the HTTP status. Never a message or a response body.
 async function providerFetch(url, options) {
   let response;
   try { response = await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(10_000) }); }
   catch (error) {
-    throw Object.assign(failure('failed', 502), { causeName: error?.name, causeCode: error?.cause?.code });
+    throw Object.assign(failure('failed', 502), {
+      causeName: error?.name, causeCode: error?.cause?.code, neverSent: neverSent(error),
+    });
   }
   if (!response.ok) {
     try { await response.body?.cancel(); } catch { /* The status is already known. */ }
@@ -475,6 +487,14 @@ async function oauthCredentials() {
     let renewed;
     try { renewed = await tokenRequest({ grant_type: 'refresh_token', refresh_token: tokens.refreshToken }, tokens.refreshToken); }
     catch (refreshError) {
+      if (refreshError.neverSent) {
+        // Cloudflare never received the refresh token, so it is still current.
+        // Release the lease for a later request instead of disabling the
+        // classroom connection over a network failure.
+        try { await write(CONNECTION_KEY, { ...connection.data, refreshLease: null }, connection.version + 1); }
+        catch (err) { if (!conflict(err)) throw err; }
+        throw Object.assign(failure('unreachable', 503), { causeName: refreshError.causeName, causeCode: refreshError.causeCode });
+      }
       try {
         await write(CONNECTION_KEY, { ...connection.data, status: 'reconnect-required', refreshLease: null }, connection.version + 1);
         reportReconnectRequired('refresh-failed', refreshError);
@@ -497,11 +517,11 @@ async function oauthCredentials() {
 }
 
 const CONFIGURATION_REASONS = new Set(['reconnect-required', 'setup-required']);
-const TEMPORARY_REASONS = new Set(['busy']);
+const TEMPORARY_REASONS = new Set(['busy', 'unreachable']);
 
 // Only states an administrator must fix ask for Reconnect (ai_unavailable). A
-// renewal still in progress elsewhere is temporary (ai_overloaded); a database
-// or unexpected error is a server error (ai_error).
+// renewal in progress elsewhere or unable to reach Cloudflare is temporary
+// (ai_overloaded); a database or unexpected error is a server error (ai_error).
 // The thrown error carries its cause's identifiers but no `code` or `status`
 // of its own, so a database network error cannot classify as an unreachable
 // AI provider.
