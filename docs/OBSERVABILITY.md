@@ -28,21 +28,23 @@ reporting is added deliberately and consistently, not ad hoc.
 
 Every error flows through the same layers:
 
-1. **`server/src/lib/logger.js`** — emits events keyed by a stable snake_case
-   `code` (e.g. `unhandled_error`). `code` is the unit everything else groups
-   and counts by. The global `onError` handler in `server/src/index.js` logs
-   any uncaught throw as `unhandled_error` with `{ path, method, error }`.
-2. **`GET /v1/admin/logs`** — merges the in-process ring buffer with
-   CloudWatch and aggregates into `groups` by `code` (count, first/last seen,
-   a sample). `server/src/lib/cloudwatch-logs.js` pulls and normalizes the
-   CloudWatch side.
-3. **Consumers** read that endpoint:
-   - **plato-pilot** (`pilot.yml`, once per weekday) — reviews every error
-     code in the daily report.
-   - **log-watch** (`log-watch.yml`, every 2h) — the *alarm*: raises a
-     GitHub issue the moment a critical-class error appears.
-
-No consumer needs AWS credentials — they all read the admin endpoint.
+1. **`server/src/lib/logger.js`** — emits structured JSON events keyed by a stable
+   snake_case `code` (e.g. `unhandled_error`) and a Cloud Logging `severity`
+   (`INFO`, `WARNING`, `ERROR`). `code` is the unit everything else groups and
+   counts by. The global `onError` handler in `server/start.js` and
+   `server/src/index.js` logs any uncaught throw as `unhandled_error` with
+   `{ path, method, error }`.
+2. **`GET /v1/admin/logs`** — merges the in-process ring buffer with the runtime
+   log service (`server/src/lib/cloud-logging.js` on Cloud Run when `K_SERVICE`
+   is set, or `server/src/lib/cloudwatch-logs.js` on Lambda) and aggregates into
+   `groups` by `code` (count, first/last seen, a sample).
+3. **Consumers**:
+   - **On Cloud Run:** `scripts/log-watch.js` queries Cloud Logging directly
+     across all revisions using ADC (`logging.read` scope, `roles/logging.viewer`),
+     without needing app-admin credentials. See [Save observability](SAVE_OBSERVABILITY.md).
+   - **On AWS Lambda (historical/portable):** `plato-pilot` (`pilot.yml`, once
+     per weekday) and `log-watch` (`log-watch.yml` with `LOG_WATCH_SOURCE=api`)
+     read `/v1/admin/logs`.
 
 ## The three tiers
 
@@ -171,9 +173,11 @@ benign condition, downgrade it to `logger.warn` or stop logging it.
 
 ## Key files
 
-- `server/src/lib/logger.js` — structured logger; `code` conventions.
-- `server/src/lib/cloudwatch-logs.js` — CloudWatch retrieval + noise filters.
+- `server/src/lib/logger.js` — structured logger; `code` and Cloud Logging `severity` conventions.
+- `server/src/lib/cloud-logging.js` — Cloud Run structured log retrieval, pagination, and deduplication.
+- `server/src/lib/cloudwatch-logs.js` — Lambda CloudWatch retrieval + noise filters.
 - `server/src/routes/admin.js` — `GET /v1/admin/logs` (the `view=groups` aggregation).
-- `scripts/log-watch.js` + `.github/workflows/log-watch.yml` — the alarm (Tier A).
+- `scripts/log-watch.js` — the Tier A alarm (direct Cloud Logging via ADC on Cloud Run; legacy API mode on Lambda).
+- `scripts/inference-report.js` — read-only Cloud Logging AI usage and lesson cost report.
 - `scripts/pilot-report.js` — the pilot's daily report, incl. the data-loss callout.
 - `.github/workflows/pilot.yml` — the severity interrupt in the picking order.

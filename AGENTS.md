@@ -6,7 +6,7 @@ plato is a React/Vite microlearning app with a Hono API.
 
 - `client/src/`: pages, components, contexts, hooks, and lesson engines; `client/js/`: storage and AI orchestration.
 - `client/assets/` holds images; `client/prompts/` holds bundled agent prompts.
-- `server/src/`: routes, middleware, database adapters, and plugin host; local development uses SQLite, production uses AWS Lambda/DynamoDB.
+- `server/src/`: routes, middleware, database adapters (`db-postgres.js`, `postgres-database.js`, `db-dynamodb.js`, `db-sqlite.js`), and plugin host; local development uses SQLite (`server/dev-sqlite.js`), production runs on Google Cloud Run (`server/start.js`) with Cloud SQL for PostgreSQL (`deploy/cloudrun/`), and AWS Lambda/DynamoDB (`server/template.yaml`) remains a supported deployment option.
 - `plugins/<id>/` contains extensions; `packages/plugin-sdk/` supplies types. Read `docs/plugins/AUTHORING.md` and `docs/plugins/AGENTS.md` before plugin work.
 
 ## Build, Test, and Development Commands
@@ -17,7 +17,7 @@ Use Node.js 20+ and npm. Install dependencies with `npm --prefix client ci` and 
 - `npm run dev:server`: start the SQLite API at `http://localhost:3000`.
 - `npm run dev:client`: start Vite with hot reload and API proxying.
 - `npm run build`: build client and server; requires AWS SAM CLI.
-- `npm test`: run both packages; `npm run test:client` or `npm run test:server` selects one.
+- `npm test`: run both packages; `npm run test:client` or `npm run test:server` selects one. Set `POSTGRES_TEST_URL=postgres://...` to include the PostgreSQL integration suite (`server/tests/lib/db-postgres.test.js`).
 - `npm --prefix client run lint` and `npm --prefix server run lint`: run ESLint.
 
 ## Coding Style & Naming Conventions
@@ -34,4 +34,4 @@ History uses short imperative subjects such as `Add admin-defined custom user fi
 
 ## Security & Configuration
 
-Copy `server/.env.example` to `server/.env`; keep credentials untracked. AI conversations require AWS Bedrock access. Preserve authentication and URL-fetch safeguards. Review `docs/ARCHITECTURE.md` before changing lesson completion or persistence.
+Copy `server/.env.example` to `server/.env`; keep credentials untracked. AI conversations use Amazon Bedrock or Cloudflare Workers AI (configured at `/plato/ai` or via `server/.env`). Preserve authentication and URL-fetch safeguards. Review `docs/ARCHITECTURE.md`, `docs/CLOUD_RUN_STORAGE.md`, and `docs/SAVE_OBSERVABILITY.md` before changing lesson completion, persistence, or Cloud Run/Cloud SQL configuration.

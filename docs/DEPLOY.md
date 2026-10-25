@@ -6,6 +6,11 @@ For a quick local development setup, see the [main README](../README.md#quick-st
 
 ## Cloud Run (`plato-shaped`)
 
+Production runs on Google Cloud Run (`plato-shaped` in `idk-4e9b9`, `us-east1`,
+`gen2` execution environment) connected to Cloud SQL for PostgreSQL 17
+(`plato-durable`, `idk-4e9b9:us-east1:plato-durable`) over Direct VPC egress
+(`plato-durable` VPC, `plato-run` subnet, `private-ranges-only`).
+
 Deploy `plato-shaped` only through the Cloud Build pipeline
 (`deploy/cloudrun/cloudbuild.yaml` via the `plato-main` trigger). Never use
 AI Studio's Deploy button for this service: an AI Studio deploy replaces
@@ -13,8 +18,27 @@ AI Studio's Deploy button for this service: an AI Studio deploy replaces
 startup probe (a 10-second budget), which would break the durable-storage
 deployment. If `app-container` ever shows `image: scratch` or a `1/10`
 probe, treat it as drift: the next push to `main` re-asserts the repository
-image, the 1-second × 240 probe, and CPU boost. See
-[CLOUD_RUN_STORAGE.md](CLOUD_RUN_STORAGE.md) for the gate and rollback.
+image, the 1-second × 240 probe, and CPU boost.
+
+- **Sync trigger after editing `deploy/cloudrun/cloudbuild.yaml`:**
+  ```bash
+  ./deploy/cloudrun/configure.sh
+  ```
+- **Deploy a pushed commit manually via Cloud Build:**
+  ```bash
+  gcloud builds submit --no-source --project=idk-4e9b9 --region=us-east1 \
+    --config=deploy/cloudrun/cloudbuild.yaml \
+    --substitutions=_SHA="$(git rev-parse HEAD)" \
+    --quiet
+  ```
+- **Create an on-demand Cloud SQL backup before major changes:**
+  ```bash
+  gcloud sql backups create --instance=plato-durable --project=idk-4e9b9 \
+    --description="Pre-deploy backup" --quiet
+  ```
+
+See [CLOUD_RUN_STORAGE.md](CLOUD_RUN_STORAGE.md) for the full runtime contract,
+IAM roles, connection-pool sizing, PITR recovery, and rollback procedures.
 
 ## Prerequisites
 
