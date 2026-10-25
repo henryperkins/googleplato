@@ -3,11 +3,12 @@
 **Current Cloud Run operations:** use [Save observability](SAVE_OBSERVABILITY.md).
 It defines structured save failures/recoveries, the direct Cloud Logging reader,
 and read-only `log-watch` usage with ADC. Hosted GitHub Actions are permanently
-unavailable for this deployment. Monitoring requires a local or external
-scheduler; issue creation is opt-in with `--create-issue`. The Lambda/CloudWatch
-and scheduled Actions pipeline below is historical context, not the active
-Cloud Run monitoring setup. A protected conflict or unconfirmed save is a
-signal to inspect, not proof of irrecoverable data loss.
+unavailable for this deployment. Cloud Monitoring emails the alerts in
+[Cloud Run alerting](#cloud-run-alerting); `log-watch` remains the read-only
+report, and its issue creation is opt-in with `--create-issue`. The
+Lambda/CloudWatch and scheduled Actions pipeline below is historical context,
+not the active Cloud Run monitoring setup. A protected conflict or unconfirmed
+save is a signal to inspect, not proof of irrecoverable data loss.
 
 Inference usage and lesson economics have a separate read-only
 [inference telemetry report](INFERENCE_TELEMETRY.md), backed by INFO events in
@@ -25,12 +26,68 @@ data is lost:
   of an outage, not a single failed request, so one alert per event is not
   per-occurrence alarming. See [CLOUDFLARE_OAUTH.md](CLOUDFLARE_OAUTH.md#when-ai-requests-fail).
 
-Neither has an alert policy yet. Until one exists, check
-`jsonPayload.event="cloudflare_oauth_reconnect_required"` first when learners
-report that the coach is down.
+Both have alert policies in [Cloud Run alerting](#cloud-run-alerting). When
+learners report that the coach is down, check AI Settings and
+`jsonPayload.event="cloudflare_oauth_reconnect_required"` first.
 
 How plato notices when something is wrong, and the framework for adding new
 checks. Read this before adding any new error detection or alert.
+
+## Cloud Run alerting
+
+`deploy/cloudrun/monitoring.sh` applies plato's Cloud Monitoring alerting for
+`plato-shaped` as code, all sent to one email notification channel.
+`deploy/cloudrun/monitoring.js` builds the policies, logs-based metrics and
+filters. The save alert's filter is generated from the same definition
+`log-watch` uses (`scripts/save-signals.js`), so the two can't drift.
+
+| Policy | Fires when | Severity | Emails |
+| --- | --- | --- | --- |
+| Save failure signal | Any `log-watch` save signal, except rejections caused by a client upgrade | Critical | At most 1 per hour |
+| Health check failing | `GET /v1/health` on `plato-shaped.ai.studio` fails from 2 of 3 US regions; checked every 5 minutes | Critical | While failing |
+| Cloudflare connection needs reconnecting | `cloudflare_oauth_reconnect_required` is logged | Error | At most 1 per 5 minutes |
+| Server errors above 5% | 5xx responses above 5% over 10 minutes with at least 20 requests, for 5 minutes | Error | While firing |
+| AI requests failing | 3 or more `ai_provider_error` in 15 minutes | Warning | While firing |
+| Database connection retries at startup | 2 or more `postgres_connect_retry` in an hour | Warning | While firing |
+| Cloud SQL capacity | More than 15 connections for 5 minutes, CPU above 80% for 15 minutes, or disk above 80% for 5 minutes | Warning | While firing |
+| Service changed outside the deploy pipeline | Anyone but `plato-deploy@` changes, or tries to change, the Cloud Run service | Warning | At most 1 per 5 minutes |
+
+Each email links to the relevant runbook. In tier terms, the save alert is the
+Tier A alarm. The AI, 5xx, database and Cloud SQL alerts are Tier B
+thresholds. The health check, reconnect and deploy alerts fire once per outage
+or change.
+
+Apply or update everything with an account that can manage Cloud Monitoring
+and logs-based metrics in the project, for example with the Monitoring Editor
+and Logs Configuration Writer roles. Node is required; `npm install` is not:
+
+```sh
+deploy/cloudrun/monitoring.sh --email <address> --dry-run   # look up and print the changes
+deploy/cloudrun/monitoring.sh --email <address>             # apply
+deploy/cloudrun/monitoring.sh --check                       # read-only: recent matches per log-based alert
+```
+
+The script is idempotent. Re-run it after editing `monitoring.js`. It matches
+the channel by email address, the uptime check by display name, metrics by
+name, and policies by their `plato_policy` label, then updates each in place.
+The address is passed at run time and never stored in the repository.
+`--check` counts the last 7 days' log entries matching each log-based alert,
+for comparison with `node scripts/log-watch.js --dry-run`.
+
+Things to expect:
+
+- The save alert leaves out two signals: `sync_validation_failure` with
+  `reason: client_upgrade_required`, and the client's matching
+  `client_save_unconfirmed` with `reason: upgrade_required`. Both are
+  protective rejections during a client upgrade. `log-watch` still counts them.
+- Any manual service change emails, including AI Studio's Deploy button, a
+  `gcloud run services update`, and failed attempts. The next push to `main`
+  reapplies the pipeline's settings.
+- At current traffic the 5xx alert rarely meets its 20-request minimum. The
+  health check covers a full outage.
+- Logs-based metrics count only entries written after the metric exists.
+  `ai_provider_error` and `cloudflare_oauth_reconnect_required` are logged only
+  by deployments that include them.
 
 ## Why this exists
 

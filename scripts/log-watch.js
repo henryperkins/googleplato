@@ -7,14 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fetchCloudLoggingLogs } from '../server/src/lib/cloud-logging.js';
+import { isSaveFailure } from './save-signals.js';
 
-const FAILURE_CODES = new Set(['sync_conflict', 'sync_validation_failure', 'client_save_unconfirmed']);
 const DEDUP_LABEL = 'data-loss';
-function isSaveFailure(code, meta = {}) {
-  return FAILURE_CODES.has(code) || (code === 'unhandled_error'
-    && ['PUT', 'POST', 'DELETE'].includes(String(meta.method).toUpperCase())
-    && /^\/v1\/sync(?:\/|$)/.test(meta.path || ''));
-}
 export function dataLossGroups(logs) {
   return (logs?.groups || []).filter(group => isSaveFailure(group.code, group.sample?.meta));
 }
