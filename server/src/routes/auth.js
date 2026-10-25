@@ -8,6 +8,7 @@ import { signAccessToken } from '../lib/jwt.js';
 import { sendResetEmail, emailDeliveryEnabled } from '../lib/email.js';
 import { DEFAULT_THEME, seedDefaultContent } from '../lib/seed.js';
 import { classroomNameError } from '../lib/branding.js';
+import { logger } from '../lib/logger.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { getFieldDefinitions, mergeFieldValues } from '../lib/user-fields.js';
 import { FIREBASE_PROJECT_ID, ADMIN_EMAIL } from '../config.js';
@@ -398,16 +399,21 @@ auth.post('/v1/auth/forgot-password', async (c) => {
     return c.json({ ok: true, emailDelivery: 'off' });
   }
 
-  const user = await db.getUserByEmail(email);
-  // Always return ok to avoid leaking whether an email exists
-  if (!user) {
-    return c.json({ ok: true });
+  let stage = 'lookup';
+  try {
+    const user = await db.getUserByEmail(email);
+    if (user) {
+      stage = 'token';
+      const token = generateResetToken();
+      await db.storeResetToken(hashToken(token), user.userId);
+      stage = 'email';
+      await sendResetEmail(user.email, token);
+    }
+  } catch {
+    // Provider/database failures must not turn a known address into a distinct
+    // public response. Exception text can contain addresses and reset links.
+    logger.warn('password_reset_request_failed', { stage });
   }
-
-  const token = generateResetToken();
-  await db.storeResetToken(hashToken(token), user.userId);
-  await sendResetEmail(user.email, token);
-
   return c.json({ ok: true });
 });
 

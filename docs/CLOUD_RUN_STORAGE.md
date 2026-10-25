@@ -45,6 +45,14 @@ Workers AI selection in **Admin → AI Settings**. For a new database, set
 default makes every AI request fail. AI Settings warns about missing AWS
 credentials on this service.
 
+On deployments with email enabled, public password-reset requests return the
+same HTTP 200 `{ok:true}` for known and unknown addresses, including lookup,
+token-storage and delivery failures. Operational failures emit
+`password_reset_request_failed` with only the fixed `lookup`, `token` or `email`
+stage; no recipient, token, link or provider exception text is logged. Operators
+must use that event to detect failed reset requests; the public response does
+not confirm delivery. This covers response status/body, not equal response time.
+
 For non-Cloud-SQL PostgreSQL deployments and local integration checks, `PGHOST`
 can replace `INSTANCE_CONNECTION_NAME`. Use the PostgreSQL client's TLS settings
 as appropriate for that environment. Cloud SQL uses Google's Node connector

@@ -1,5 +1,10 @@
 # Classroom Customizer follow-ups — 2026-10-25
 
+This report records the initial PR #23 follow-up at `fb179f9`. Its stored-SVG,
+asset cleanup, color-patch and reset-response policies are superseded by the
+[readiness follow-up](classroom-customizer-readiness-2026-10-25.md), which includes
+the final validation and recovery screenshots.
+
 Follow-up to [classroom-customizer-remediation-2026-10-25.md](classroom-customizer-remediation-2026-10-25.md)
 (commit `e2ce942`). That commit was checked against the original Customizer
 review by independent reviewers in Chromium, WebKit and Firefox and against the

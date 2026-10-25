@@ -124,7 +124,13 @@ local rules testing, cutover order, and publication status.
   Google cleanup and account-switch protection without loading a data mirror.
 - **Password reset is plato's.** `/forgot-password` uses the server's
   `POST /v1/auth/forgot-password` endpoint. Firebase resets are not used for
-  plato password accounts. Reset links are single-use, and completing a reset
+  plato password accounts. With delivery enabled, the public endpoint returns
+  HTTP 200 `{ok:true}` for known and unknown addresses even if account lookup,
+  token storage or email delivery fails. Failures log
+  `password_reset_request_failed` with a fixed stage only, without addresses,
+  tokens, links or provider exception text. This response is not confirmation
+  of delivery and does not promise equal response timing. Reset links are
+  single-use, and completing a reset
   revokes every existing refresh session for the account on all three
   database backends, so learners on other devices are signed out. Changing
   the password in Settings (`PATCH /v1/me`) revokes them the same way, then
