@@ -4,13 +4,13 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { chromium, webkit } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 import Database from 'better-sqlite3';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
@@ -19,7 +19,9 @@ let server;
 let directory;
 let base;
 let storageState;
-const browserName = process.env.PLATO_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
+const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
+const browserType = { chromium, firefox, webkit }[browserName];
+assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
 
 async function openPage(viewport, theme = 'light', colorScheme = 'light') {
   const context = await browser.newContext({ viewport, storageState, colorScheme });
@@ -77,7 +79,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
     }
     const initialBranding = await (await fetch(`${base}/v1/branding`)).json();
     assert.deepEqual(initialBranding.theme, { primary: '#8b1a1a' }, 'new classrooms match the primary accent');
-    browser = await (browserName === 'webkit' ? webkit : chromium).launch();
+    browser = await browserType.launch();
     const context = await browser.newContext();
     try {
       const page = await context.newPage();
@@ -528,6 +530,47 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
         return [img.naturalWidth, img.naturalHeight, [...ctx.getImageData(256, 64, 1, 1).data]];
       });
       assert.deepEqual(drawn, [512, 128, [18, 52, 86, 255]], 'a huge intrinsic size is drawn once, not blank');
+    } finally { await context.close(); }
+  });
+
+  it('keeps an unsafe stored SVG out of previews and lets the admin download or remove the original', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><g id="loop"><use href="#loop"/></g></svg>';
+    const original = `data:image/svg+xml;base64,${Buffer.from(source).toString('base64')}`;
+    const sqlite = new Database(join(directory, 'test.sqlite'));
+    try {
+      sqlite.prepare("UPDATE sync_data SET data = json_set(json_remove(data, '$.logoHash'), '$.logoBase64', ?) WHERE userId = '_system' AND dataKey = 'settings'").run(original);
+    } finally { sqlite.close(); }
+    try {
+      await navigate(page, 'customizer');
+      await page.getByText("This saved logo can't be displayed safely.", { exact: false }).waitFor();
+      assert.equal(await page.locator('figure img').count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Optimize logo', exact: true }).count(), 0);
+      const downloadButton = page.getByRole('button', { name: 'Download original logo', exact: true });
+      const assets = join(root, `output/playwright/customizer-readiness-2026-10-25/${browserName}`);
+      await mkdir(assets, { recursive: true });
+      await page.screenshot({ path: join(assets, 'blocked-logo-desktop.png'), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await downloadButton.scrollIntoViewIfNeeded();
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.screenshot({ path: join(assets, 'blocked-logo-phone.png'), fullPage: true });
+      await downloadButton.focus();
+      const downloaded = page.waitForEvent('download');
+      await page.keyboard.press('Enter');
+      const download = await downloaded;
+      assert.equal(download.suggestedFilename(), 'classroom-logo.svg');
+      assert.equal(await readFile(await download.path(), 'utf8'), source);
+      await page.getByLabel('Classroom Name', { exact: true }).fill('Original preserved');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      await page.reload();
+      await downloadButton.waitFor();
+      assert.equal(await page.locator('figure img').count(), 0);
+      assert.equal((await (await page.request.get(`${base}/v1/branding`)).json()).logoUrl, null);
+      await page.getByRole('button', { name: 'Remove logo image', exact: true }).click();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      assert.equal(await downloadButton.count(), 0);
     } finally { await context.close(); }
   });
 

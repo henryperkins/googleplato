@@ -80,6 +80,26 @@ export function dataUrlBlob(dataUrl) {
   return new Blob([Uint8Array.from(atob(encoded), ch => ch.charCodeAt(0))], { type });
 }
 
+/** Recover original bytes as an attachment. Never open or render a blocked SVG. */
+export function downloadOriginalLogo(value) {
+  let bytes;
+  let extension = 'txt';
+  try {
+    bytes = dataUrlBlob(value);
+    extension = { 'image/svg+xml': 'svg', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }[bytes.type] || 'txt';
+  } catch {
+    bytes = new Blob([value]);
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `classroom-logo.${extension}`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /**
  * Rasterize in image mode, preserving transparency and wordmark proportions.
  * `trim` also crops transparent edges.

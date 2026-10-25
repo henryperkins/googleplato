@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from '@/components/ui/alert-dialog';
 import { buildThemeVars, normalizeHex, themeColorNotes } from '../../lib/branding.js';
-import { MAX_CLASSROOM_NAME, dataUrlBlob, prepareLogo } from '../../lib/logoUpload.js';
+import { MAX_CLASSROOM_NAME, dataUrlBlob, downloadOriginalLogo, prepareLogo } from '../../lib/logoUpload.js';
 import { invalidatePublicBranding } from '../../lib/publicBranding.js';
 import { DEFAULT_STYLES, changedStyles, normalizeColor, publishedStyles, stylesFrom } from '../../lib/stylesDraft.js';
 import { adminApi } from './adminApi.js';
@@ -25,6 +25,7 @@ export default function AdminStyles({ initialData, onSaved }) {
   const [draft, setDraft] = useState(() => stylesFrom(initialData));
   const [saved, setSaved] = useState(draft);
   const [legacyLogo, setLegacyLogo] = useState(Boolean(initialData.logoLegacy));
+  const [logoBlocked, setLogoBlocked] = useState(Boolean(initialData.logoBlocked));
   const [preview, setPreview] = useState({ primary: draft.primary, accent: draft.accent });
   const [colorErrors, setColorErrors] = useState({});
   const [logoError, setLogoError] = useState('');
@@ -44,8 +45,9 @@ export default function AdminStyles({ initialData, onSaved }) {
   const previewVars = buildThemeVars({ primary: safePrimary, accent: safeAccent });
   const colorNotes = themeColorNotes({ primary: safePrimary });
   const classroomName = draft.classroomName.trim() || 'plato';
+  const blockedOriginal = Boolean(logoBlocked && draft.logoBase64 && draft.logoBase64 === saved.logoBase64);
   // Only rasters were padded: earlier versions stored SVG files unchanged.
-  const showLegacyNotice = legacyLogo && Boolean(draft.logoBase64) && draft.logoBase64 === saved.logoBase64
+  const showLegacyNotice = !blockedOriginal && legacyLogo && Boolean(draft.logoBase64) && draft.logoBase64 === saved.logoBase64
     && !draft.logoBase64.startsWith('data:image/svg+xml');
 
   useEffect(() => () => { uploadEpoch.current++; }, []);
@@ -180,12 +182,13 @@ export default function AdminStyles({ initialData, onSaved }) {
       // have been changed by another admin.
       let fresh = null;
       try { fresh = await adminApi('GET', '/v1/admin/theme'); } catch { /* Keep this tab's view. */ }
-      const snapshot = fresh || { ...publishedStyles(next), logoLegacy: legacyLogo && !('logoBase64' in data) };
+      const snapshot = fresh || { ...publishedStyles(next), logoLegacy: legacyLogo && !('logoBase64' in data), logoBlocked: logoBlocked && !('logoBase64' in data) };
       const view = fresh ? stylesFrom(fresh) : next;
       setDraft(view);
       setSaved(view);
       setPreview({ primary: view.primary, accent: view.accent });
       setLegacyLogo(Boolean(snapshot.logoLegacy));
+      setLogoBlocked(Boolean(snapshot.logoBlocked));
       onSaved(snapshot);
       invalidatePublicBranding(result.branding || null);
       setStyleMessage({ text: 'Saved.', type: 'success' });
@@ -238,7 +241,7 @@ export default function AdminStyles({ initialData, onSaved }) {
                 <div className={mode}>
                   <div className="classroom-theme rounded-lg overflow-hidden border" style={previewVars}>
                     <div className="px-4 py-2 flex min-h-12 items-center gap-2 text-sm bg-header text-header-foreground">
-                      {draft.logoBase64 ? <img src={draft.logoBase64} alt={classroomName} height="32" className="h-8 w-auto max-w-full object-contain" />
+                      {draft.logoBase64 && !blockedOriginal ? <img src={draft.logoBase64} alt={classroomName} height="32" className="h-8 w-auto max-w-full object-contain" />
                         : <span className="truncate font-semibold">{classroomName}</span>}
                     </div>
                     {/* Samples of the real controls, not controls: no tab stops. */}
@@ -289,6 +292,12 @@ export default function AdminStyles({ initialData, onSaved }) {
             {processingLogo && <p role="status" className="text-sm text-muted-foreground">Preparing logo...</p>}
             {logoError && <p id="logo-file-error" className="text-sm text-destructive" role="alert">{logoError}</p>}
           </div>
+          {blockedOriginal && (
+            <div className="space-y-2" role="note" aria-label="Saved logo unavailable">
+              <p className="text-sm text-warning-foreground">This saved logo can&apos;t be displayed safely. The original is preserved. Download it, choose a simpler image, or remove it.</p>
+              <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={() => downloadOriginalLogo(draft.logoBase64)}>Download original logo</Button>
+            </div>
+          )}
           {showLegacyNotice && (
             <div className="flex flex-wrap items-center gap-3">
               <p className="flex gap-2 text-sm text-muted-foreground">

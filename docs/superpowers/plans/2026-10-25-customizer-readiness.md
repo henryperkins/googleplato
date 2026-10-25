@@ -80,16 +80,16 @@ The admin theme response retains the raw original as `logoBase64` and includes
 URL for blocked originals. Unrelated writes retain them; explicit removal or
 replacement clears them. Download uses an attachment Blob, never image rendering.
 
-- [ ] Add failing tests for stored expansion via href, stylesheet resources,
+- [x] Add failing tests for stored expansion via href, stylesheet resources,
   namespace aliases, cycles, and inherited resources. Cover safe editor styles,
   gradients and metadata, and preservation across name/color saves.
-- [ ] Run focused tests; expected: unsafe stored originals still render.
-- [ ] Share bounded validation across new/stored SVGs with compatibility for
+- [x] Run focused tests; expected: unsafe stored originals still render.
+- [x] Share bounded validation across new/stored SVGs with compatibility for
   static editor markup. Bound parser input structure and rendering data. Reject
   unsupported dynamic CSS/rendering features from display, retaining originals.
-- [ ] Add a Styles warning, Download original and explicit removal; never put
+- [x] Add a Styles warning, Download original and explicit removal; never put
   blocked bytes into an image or Optimize. Test download bytes and keyboard use.
-- [ ] Run unit/routes and browser tests; expected: all pass. Commit.
+- [x] Run unit/routes and browser tests; expected: all pass. Commit.
 
 ### Task 4: Reset-response privacy and qualification
 

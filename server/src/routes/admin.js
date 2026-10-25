@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { MAX_LOGO_DATA_URL_CHARS, classroomName, classroomNameError, currentLogoHash, legacyLogo, normalizeThemeColor, parseLogo, publicBranding, publicTheme, readLogo } from '../lib/branding.js';
+import { MAX_LOGO_DATA_URL_CHARS, classroomName, classroomNameError, currentLogoHash, legacyLogo, normalizeThemeColor, parseLogo, publicBranding, publicTheme, readLogo, readLogoOriginal } from '../lib/branding.js';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -1204,11 +1204,13 @@ admin.get('/v1/admin/theme', async (c) => {
   const settings = item?.data || {};
   const hash = currentLogoHash(settings);
   const logo = hash ? await readLogo(hash, settings) : null;
+  const original = await readLogoOriginal(settings);
   return c.json({
     theme: publicTheme(settings.theme) || {},
-    logoBase64: logo?.dataUrl || null,
+    logoBase64: original?.dataUrl || null,
+    logoBlocked: Boolean(original?.dataUrl && !logo),
     // Saved by an earlier version, which padded images into squares.
-    logoLegacy: Boolean(logo?.legacy),
+    logoLegacy: Boolean(original?.legacy),
     classroomName: classroomName(settings),
   });
 });
@@ -1260,11 +1262,10 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   const previousHash = currentLogoHash(settings);
   let logo;
   if (typeof body.logoBase64 === 'string') {
-    // Sending back the current logo, while it still loads, is not an upload,
-    // even if it predates today's limits. Anything else must pass them; a
-    // current logo whose asset is missing is stored again.
-    const unchanged = previousHash && parseLogo(body.logoBase64, { legacy: true })?.hash === previousHash
-      && await readLogo(previousHash, settings);
+    // Returning existing original bytes is not an upload, including a blocked
+    // original. Anything else must pass upload validation; missing assets are
+    // stored again rather than acknowledged as already present.
+    const unchanged = (await readLogoOriginal(settings))?.dataUrl === body.logoBase64;
     if (!unchanged) {
       logo = parseLogo(body.logoBase64);
       if (!logo) return c.json({ error: LOGO_ERROR }, 400);
@@ -1304,7 +1305,7 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
     if (error.name === 'ConditionalCheckFailedException') return c.json({ error: 'Settings changed in another session. Retry saving.' }, 409);
     throw error;
   }
-  return c.json({ ok: true, branding: publicBranding(settings) });
+  return c.json({ ok: true, branding: await publicBranding(settings) });
 });
 
 

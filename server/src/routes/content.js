@@ -66,7 +66,7 @@ content.get('/v1/branding', async (c) => {
   c.header('Cache-Control', 'no-cache');
   const item = await db.getSyncData('_system', 'settings', { consistentRead: true });
   const settings = item?.data || {};
-  return c.json(publicBranding(settings));
+  return c.json(await publicBranding(settings));
 });
 
 content.get('/v1/branding/logo/:hash', async (c) => {

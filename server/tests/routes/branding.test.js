@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import admin from '../../src/routes/admin.js';
 import content from '../../src/routes/content.js';
@@ -239,6 +240,35 @@ describe('branding boundary', () => {
     assert.equal(settings().logoBase64, 'https://example.com/logo.png');
     assert.equal((await put({ logoBase64: null })).status, 200);
     assert.equal(settings().logoBase64, undefined);
+  });
+
+  it('preserves blocked SVG originals across unrelated saves without advertising or serving them', async () => {
+    let defs = '<rect id="n0" width="1" height="1"/>';
+    for (let i = 1; i <= 15; i++) defs += `<g id="n${i}"><use href="#n${i - 1}"/><use href="#n${i - 1}"/></g>`;
+    const source = `<svg xmlns="http://www.w3.org/2000/svg"><defs>${defs}</defs><use href="#n15"/></svg>`;
+    const original = svg(source);
+    const hash = createHash('sha256').update('image/svg+xml').update(source).digest('hex');
+    for (const storedAsAsset of [false, true]) {
+      delete settings().logoHash;
+      delete settings().logoBase64;
+      if (storedAsAsset) {
+        settings().logoHash = hash;
+        records.set(`_branding/logo:${hash}`, { version: 1, data: { dataUrl: original } });
+      } else settings().logoBase64 = original;
+      assert.equal((await (await app.request('/v1/branding')).json()).logoUrl, null);
+      assert.equal((await app.request(`/v1/branding/logo/${hash}`)).status, 404);
+      const before = await adminTheme();
+      assert.equal(before.logoBase64, original);
+      assert.equal(before.logoBlocked, true);
+      assert.equal((await put({ classroomName: 'Renamed', themePatch: { primary: '#123456' } })).status, 200);
+      assert.equal((await adminTheme()).logoBase64, original);
+      assert.equal((await adminTheme()).logoBlocked, true);
+      assert.equal((await put({ logoBase64: null })).status, 200);
+      assert.equal((await adminTheme()).logoBase64, null);
+      assert.equal(settings().logoBase64, undefined);
+      assert.equal(settings().logoHash, undefined);
+      assert.equal(records.has(`_branding/logo:${hash}`), false);
+    }
   });
 
   it('rejects SVG <use> expansion and large decoded areas in new uploads', async () => {

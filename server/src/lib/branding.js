@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { DOMParser } from 'linkedom';
+import { boundedSvg } from './svgSafety.js';
 import db from './db.js';
 
 // The encoded value is bounded, not just the decoded image: DynamoDB stores
@@ -8,16 +8,11 @@ export const MAX_LOGO_DATA_URL_CHARS = 128 * 1024;
 export const MAX_CLASSROOM_NAME = 100;
 // New uploads also bound the decoded area, which every visitor pays for.
 const MAX_LOGO_PIXELS = 1024 * 1024;
-// Logos saved before these limits are still shown. Earlier versions stored
-// SVG files unchecked, so this only bounds what one read may decode.
+// Earlier versions stored larger images. Keep their originals; the shared SVG
+// rendering policy decides whether they can be displayed safely.
 const LEGACY_LOGO_DATA_URL_CHARS = 8 * 1024 * 1024;
-// References repeat other content, so count rendered instances, not elements.
-const MAX_SVG_INSTANCES = 10000;
-// Gradients paint without instancing their stops, so referencing one is cheap.
-const PAINT_SERVERS = new Set(['linearGradient', 'radialGradient']);
 const LOGO_OWNER = '_branding';
 const HASH = /^[a-f0-9]{64}$/;
-const SVG_ELEMENTS = new Set('svg g path rect circle ellipse line polyline polygon text tspan defs linearGradient radialGradient stop clipPath mask pattern use title desc'.split(' '));
 
 export function normalizeThemeColor(value) {
   if (typeof value !== 'string' || !/^#(?:[\da-f]{3}|[\da-f]{6})$/i.test(value.trim())) return null;
@@ -58,71 +53,6 @@ export function classroomNameError(value) {
   if (typeof value === 'string' && value.trim().length <= MAX_CLASSROOM_NAME && !/[\u0000-\u001f\u007f]/.test(value) && value.isWellFormed()) return null;
   return `Classroom name must be text of at most ${MAX_CLASSROOM_NAME} characters, without control characters.`;
 }
-
-/**
- * True when references expand the document to at most `limit` rendered
- * elements: <use> and any other href, plus url(#id) in any attribute (masks,
- * clip paths, patterns), each counted the way a browser instantiates them.
- */
-function boundedInstances(root, limit) {
-  const byId = new Map();
-  for (const element of [root, ...root.querySelectorAll('*')]) {
-    const id = element.getAttribute('id');
-    if (id === null) continue;
-    // Browsers resolve the first of duplicate ids; refuse the ambiguity.
-    if (byId.has(id)) return false;
-    byId.set(id, element);
-  }
-  const targets = element => [...element.attributes].flatMap(({ name, value }) => [
-    // Any prefix can be bound to the XLink namespace, so match every `*:href`.
-    ...(name.toLowerCase() === 'href' || name.toLowerCase().endsWith(':href') ? [value.slice(1)] : []),
-    ...[...value.matchAll(/url\(\s*['"]?#([\w.-]+)['"]?\s*\)/gi)].map(match => match[1]),
-  ]).map(id => byId.get(id)).filter(target => target && !PAINT_SERVERS.has(target.localName));
-  const counted = new Map();
-  const open = new Set();
-  const count = element => {
-    if (counted.has(element)) return counted.get(element);
-    if (open.has(element)) return Infinity; // a reference cycle
-    open.add(element);
-    let total = 1;
-    for (const child of element.children) total += count(child);
-    for (const target of targets(element)) total += count(target);
-    open.delete(element);
-    counted.set(element, total);
-    return total;
-  };
-  return count(root) <= limit;
-}
-
-function staticSvg(bytes) {
-  const source = bytes.toString('utf8');
-  // No entities, stylesheet PIs, executable elements or external references.
-  // The endpoint also applies CSP sandboxing, including on direct navigation.
-  if (/<!DOCTYPE|<!ENTITY|<\?xml-stylesheet/i.test(source)) return false;
-  const document = new DOMParser().parseFromString(source, 'image/svg+xml');
-  const root = document.documentElement;
-  if (root?.localName !== 'svg' || root.getAttribute('xmlns') !== 'http://www.w3.org/2000/svg') return false;
-  for (const element of [root, ...root.querySelectorAll('*')]) {
-    if (!SVG_ELEMENTS.has(element.localName)) return false;
-    for (const attribute of element.attributes) {
-      const name = attribute.name.toLowerCase();
-      const value = attribute.value;
-      if (name.startsWith('on') || name === 'xml:base') return false;
-      if ((name === 'href' || name.endsWith(':href')) && !/^#[\w.-]+$/.test(value)) return false;
-      if (/[\\@]/.test(value) || /url\s*\(/i.test(value.replace(/url\(\s*['"]?#[\w.-]+['"]?\s*\)/gi, ''))) return false;
-    }
-  }
-  return boundedInstances(root, MAX_SVG_INSTANCES);
-}
-
-// Earlier Customizers stored SVG files unchanged, and every page already showed
-// them as images. Keep showing them: they only render through <img> (no script,
-// no fetches) and the logo endpoint sandboxes direct navigation. Refuse entity
-// declarations, which a parser would have to expand.
-const legacySvg = bytes => {
-  const source = bytes.toString('utf8');
-  return /<svg[\s>]/i.test(source) && !/<!ENTITY/i.test(source);
-};
 
 function pngSize(bytes) {
   if (bytes.length < 45 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
@@ -169,8 +99,8 @@ const RASTER_SIZE = { 'image/png': pngSize, 'image/jpeg': jpegSize, 'image/webp'
 /**
  * Only bounded, base64-encoded images; never an arbitrary browser-fetchable URL.
  * New uploads use the strict rules. `legacy` reads what is already stored: the
- * larger size of earlier versions and any SVG they kept, so tightening these
- * rules never hides a logo that is live.
+ * larger size and compatible editor markup of earlier versions. Both paths
+ * enforce the same SVG rendering budget; blocked originals remain stored.
  */
 export function parseLogo(value, { legacy = false } = {}) {
   if (typeof value !== 'string' || value.length > (legacy ? LEGACY_LOGO_DATA_URL_CHARS : MAX_LOGO_DATA_URL_CHARS)) return null;
@@ -181,7 +111,7 @@ export function parseLogo(value, { legacy = false } = {}) {
   if (!bytes.length || bytes.toString('base64') !== encoded) return null;
   let valid;
   if (mime === 'image/svg+xml') {
-    try { valid = legacy ? legacySvg(bytes) : staticSvg(bytes); } catch { return null; }
+    try { valid = boundedSvg(bytes, { legacy }); } catch { return null; }
   } else {
     const size = RASTER_SIZE[mime](bytes);
     valid = size && size.width > 0 && size.height > 0 && size.width <= 4096 && size.height <= 4096
@@ -208,19 +138,29 @@ export function currentLogoHash(settings) {
   return HASH.test(settings.logoHash || '') ? settings.logoHash : legacyLogo(settings)?.hash || null;
 }
 
-export function publicBranding(settings) {
+export async function publicBranding(settings) {
   const hash = currentLogoHash(settings);
-  return { theme: publicTheme(settings.theme), classroomName: classroomName(settings), logoUrl: hash ? `/v1/branding/logo/${hash}` : null };
+  const logo = hash ? await readLogo(hash, settings) : null;
+  return { theme: publicTheme(settings.theme), classroomName: classroomName(settings), logoUrl: logo ? `/v1/branding/logo/${hash}` : null };
+}
+
+/** Read original data for authenticated recovery, without approving it for rendering. */
+export async function readLogoOriginal(settings) {
+  if (HASH.test(settings.logoHash || '')) {
+    const item = await db.getSyncData(LOGO_OWNER, `logo:${settings.logoHash}`, { consistentRead: true });
+    if (typeof item?.data?.dataUrl === 'string') return { dataUrl: item.data.dataUrl, legacy: item.data.legacy === true };
+  }
+  return typeof settings.logoBase64 === 'string' ? { dataUrl: settings.logoBase64, legacy: true } : null;
 }
 
 export async function readLogo(hash, legacySettings) {
   if (!HASH.test(hash || '')) return null;
   // A newly acknowledged settings pointer must be readable immediately on DynamoDB.
   const item = await db.getSyncData(LOGO_OWNER, `logo:${hash}`, { consistentRead: true });
-  // Assets were checked when they were written. Read them by the stored-logo
-  // rules, so a later tightening never hides a logo that is already live.
+  // Apply today's rendering budget to stored assets too. Original bytes stay
+  // available to authenticated recovery even when display validation fails.
   // `legacy` marks a logo from an earlier version, inline or migrated.
-  const stored = parseLogo(item?.data?.dataUrl, { legacy: true });
+  const stored = legacyLogo({ logoBase64: item?.data?.dataUrl });
   const logo = stored ? { ...stored, legacy: item.data.legacy === true } : { ...legacyLogo(legacySettings), legacy: true };
   return logo.hash === hash ? logo : null;
 }

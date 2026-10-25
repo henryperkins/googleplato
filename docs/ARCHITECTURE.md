@@ -39,10 +39,14 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   downloaded or cached under earlier immutable responses cannot be revoked.
   A logo that fails to load shows the classroom name instead.
   No schema migration is required on any database adapter.
-- Logos saved by earlier versions stay visible. Stored logos (inline legacy
-  values and existing assets) are read by looser rules than new uploads: data
-  URLs up to 8 MiB, and any SVG without entity declarations, since they only
-  render through `<img>` and the logo endpoint sandboxes direct navigation. The
+- Compatible logos saved by earlier versions stay visible. Stored logos (inline
+  legacy values and existing assets) accept data URLs up to 8 MiB and bounded
+  static SVG editor metadata/styles. New and stored SVGs share a rendering
+  budget: sandboxed image rendering alone does not prevent expensive expansion.
+  Unsupported originals remain stored, are omitted from public metadata, and
+  return 404 at the image endpoint. Styles shows a recovery notice and an
+  attachment download, with replacement/removal controls; blocked bytes never
+  enter its previews or Optimize action. The
   next theme save moves a readable inline logo into its own asset, marked
   `legacy`. An inline value that can't be shown, such as a URL, is never deleted
   by an unrelated save; replacing or removing the logo clears it. Sending back
@@ -59,9 +63,16 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   are capped at 128 KiB, raster dimensions at 4096 pixels per edge and 1024 × 1024
   pixels in area; a request-body limit also bounds parsing. SVG accepts only
   static geometry/text/gradient elements with local references, unique ids, and
-  at most 10,000 rendered elements once references (`<use>` and other hrefs
-  under any prefix, and `url(#id)` in any attribute, except to gradients) are
-  expanded. The Customizer
+  a shared 10,000-unit expansion budget (one per element plus one per 64
+  characters of rendering data). References include `<use>` and other hrefs
+  under any prefix, local URLs in attributes and supported CSS, and inherited
+  fill/stroke resources, including use instances. Gradients do not instantiate
+  geometry. Input structure is limited to 10,000 elements and depth 128; rendering
+  data is limited to 128 KiB, excluding inert descriptions/metadata text. Cycles,
+  external references, entities, animation, filters, dynamic CSS, conditional
+  selectors and unsupported declarations are not displayed. Legacy SVGs may
+  retain ordinary editor DOCTYPEs, namespaces and static stylesheets; these
+  features stay unavailable to new API uploads. The Customizer
   accepts source files up to 5 MiB and rasterizes them to transparent PNG,
   preserving proportions within 1024 × 128 pixels (vector sources grow to fill
   it), shrinking in halving steps, and further to meet the cap. The classroom
