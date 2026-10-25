@@ -49,4 +49,12 @@ describe('Customizer styles draft', () => {
     assert.deepEqual(changedStyles({ ...independent, accent: '#abcdef' }, independent), { themePatch: { accent: '#abcdef' } });
     assert.deepEqual(changedStyles({ ...independent, matchPrimary: true }, independent), { themePatch: { accent: null } });
   });
+
+  it('keeps color patches independent when an edit equals the other stale color', () => {
+    const independent = stylesFrom({ theme: { primary: '#112233', accent: '#445566' } });
+    assert.deepEqual(changedStyles({ ...independent, primary: '#445566' }, independent), { themePatch: { primary: '#445566' } });
+    assert.deepEqual(changedStyles({ ...independent, accent: '#112233' }, independent), { themePatch: { accent: '#112233' } });
+    assert.deepEqual(changedStyles({ ...saved, matchPrimary: false, primary: '#abcdef' }, saved),
+      { themePatch: { primary: '#abcdef', accent: '#2a4b8c' } }, 'unmatching and changing primary retains the chosen independent accent');
+  });
 });

@@ -4,6 +4,8 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const ELEMENTS = new Set('svg g path rect circle ellipse line polyline polygon text tspan defs linearGradient radialGradient stop clipPath mask pattern use title desc'.split(' '));
 const PAINTED = new Set('path rect circle ellipse line polyline polygon text tspan'.split(' '));
 const GRADIENTS = new Set(['linearGradient', 'radialGradient']);
+const RESOURCE_PROPERTIES = ['fill', 'stroke', 'mask', 'clip-path'];
+const AUTO_INHERITED = new Set(['fill', 'stroke']);
 const STYLE_PROPERTIES = new Set(`fill fill-opacity fill-rule stroke stroke-opacity stroke-width stroke-linecap stroke-linejoin
   stroke-miterlimit stroke-dasharray stroke-dashoffset opacity color font-family font-size font-style font-weight font-stretch
   font-variant text-anchor dominant-baseline alignment-baseline letter-spacing word-spacing paint-order shape-rendering
@@ -31,6 +33,13 @@ function safeValue(value) {
   // Escaped function names and non-local URLs are outside the supported subset.
   return !/[\\@]/.test(clean) && !/\b(?:var|attr|env)\s*\(/i.test(clean)
     && !/url\s*\(/i.test(clean.replace(LOCAL_URL, ''));
+}
+
+function supportedStyle(name, value) {
+  return STYLE_PROPERTIES.has(name) && safeValue(value)
+    // Context paints come from a use/marker's context, not normal inheritance.
+    // Keep them out of the static subset until that context is modeled.
+    && !(RESOURCE_PROPERTIES.includes(name) && /\bcontext-(?:fill|stroke)\b/i.test(cleanCss(value)));
 }
 
 /** A bounded static rendering subset. Validation never changes the saved bytes. */
@@ -66,7 +75,7 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
   if (elements.length > MAX_ELEMENTS) return false;
   const byId = new Map();
   const references = new Map();
-  const paints = new Map();
+  const resourceValues = new Map();
   const sizes = new Map();
   const stylesheets = [];
   const cssDocument = new DOMParser().parseFromString('<html></html>', 'text/html');
@@ -82,10 +91,10 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
     return parsed;
   };
   const declaration = (element, name, value) => {
-    if (!STYLE_PROPERTIES.has(name) || !safeValue(value)) throw new Error('Unsupported SVG style');
+    if (!supportedStyle(name, value)) throw new Error('Unsupported SVG style');
     sizes.set(element, sizes.get(element) + name.length + value.length);
-    if (name === 'fill' || name === 'stroke') {
-      const values = paints.get(element)[name] ||= [];
+    if (RESOURCE_PROPERTIES.includes(name)) {
+      const values = resourceValues.get(element)[name] ||= [];
       values.push(value);
     } else references.get(element).push(...urls(value));
   };
@@ -94,7 +103,7 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
   };
   const supportedDeclarations = style => {
     for (let i = 0; i < style.length; i++) {
-      if (!STYLE_PROPERTIES.has(style[i].toLowerCase()) || !safeValue(style.getPropertyValue(style[i]))) return false;
+      if (!supportedStyle(style[i].toLowerCase(), style.getPropertyValue(style[i]))) return false;
     }
     return true;
   };
@@ -104,7 +113,7 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
     const kind = kinds.get(element);
     if ((!kind && !legacy) || (kind && !ELEMENTS.has(kind) && !(legacy && ['metadata', 'style'].includes(kind)))) return false;
     references.set(element, []);
-    paints.set(element, {});
+    resourceValues.set(element, {});
     sizes.set(element, 0);
     const id = element.getAttribute('id');
     if (id !== null) {
@@ -123,7 +132,7 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
         if (!/^#[\w.-]+$/.test(value)) return false;
         references.get(element).push(value.slice(1));
       }
-      if (name === 'fill' || name === 'stroke') declaration(element, name, value);
+      if (RESOURCE_PROPERTIES.includes(name)) declaration(element, name, value);
       else if (name === 'style') {
         const parsed = rules(`.validation{${value}}`);
         if (parsed.length !== 1) return false;
@@ -148,16 +157,16 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
     }
   }
   const inherited = new Map();
-  const resolvedPaint = (element, parent = {}) => Object.fromEntries(['fill', 'stroke'].map(name => {
-    const own = paints.get(element)[name];
+  const resolvedResources = (element, parent = {}) => Object.fromEntries(RESOURCE_PROPERTIES.map(name => {
+    const own = resourceValues.get(element)[name];
     return [name, own ? new Set(own.flatMap(value => /\b(?:inherit|unset|revert(?:-layer)?)\b/i.test(value)
-      ? [...(parent[name] || [])] : urls(value))) : parent[name] || new Set()];
+      ? [...(parent[name] || [])] : urls(value))) : AUTO_INHERITED.has(name) ? parent[name] || new Set() : new Set()];
   }));
-  const ordinaryPaint = new Map();
+  const ordinaryResources = new Map();
   for (const element of elements) {
-    const parent = ordinaryPaint.get(element.parentElement) || {};
+    const parent = ordinaryResources.get(element.parentElement) || {};
     inherited.set(element, parent);
-    ordinaryPaint.set(element, resolvedPaint(element, parent));
+    ordinaryResources.set(element, resolvedResources(element, parent));
   }
   // Spend a shared budget while expanding. Unlike a per-node memoized sum,
   // this also accounts for inherited paints inside use-instance shadow trees.
@@ -168,15 +177,17 @@ export function boundedSvg(bytes, { legacy = false } = {}) {
     remaining -= 1 + Math.floor(sizes.get(element) / 64);
     if (remaining < 0) return false;
     open.add(element);
-    const paint = resolvedPaint(element, parent);
-    const targets = [...references.get(element)];
-    if (PAINTED.has(kinds.get(element))) targets.push(...paint.fill, ...paint.stroke);
+    const resources = resolvedResources(element, parent);
+    // Masks and clips do not inherit by default, but explicit `inherit` applies
+    // the ancestor's resource separately to each descendant, including groups.
+    const targets = [...references.get(element), ...resources.mask, ...resources['clip-path']];
+    if (PAINTED.has(kinds.get(element))) targets.push(...resources.fill, ...resources.stroke);
     for (const id of targets) {
       const target = byId.get(id);
       if (!target || GRADIENTS.has(kinds.get(target))) continue;
-      if (!visit(target, kinds.get(element) === 'use' ? paint : inherited.get(target), depth + 1)) return false;
+      if (!visit(target, kinds.get(element) === 'use' ? resources : inherited.get(target), depth + 1)) return false;
     }
-    for (const child of element.children) if (!visit(child, paint, depth + 1)) return false;
+    for (const child of element.children) if (!visit(child, resources, depth + 1)) return false;
     open.delete(element);
     return true;
   };

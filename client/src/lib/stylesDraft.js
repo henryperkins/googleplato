@@ -25,13 +25,14 @@ export function stylesFrom(data) {
   };
 }
 
-/** The branding these styles publish: how the server would store them. */
+const color = value => normalizeColor(value) ?? value.trim().toLowerCase();
+
+/** The complete form representation, with matching colors normalized. */
 export function publishedStyles(styles) {
-  const color = value => normalizeColor(value) ?? value.trim().toLowerCase();
   const primary = color(styles.primary);
   const accent = styles.matchPrimary ? primary : color(styles.accent);
   return {
-    // An accent equal to the primary is stored as Match primary.
+    // Represent equal colors as Match primary in the complete form snapshot.
     theme: { primary, ...(accent === primary ? {} : { accent }) },
     classroomName: styles.classroomName.trim(),
     logoBase64: styles.logoBase64,
@@ -50,8 +51,17 @@ export function changedStyles(draft, saved) {
     .filter(key => next[key] !== previous[key]).map(key => [key, next[key]]));
   // Null explicitly removes an independent accent. Omitting a color leaves the
   // latest server value alone, including edits from another administrator.
-  const themePatch = Object.fromEntries(['primary', 'accent']
-    .filter(key => next.theme[key] !== previous.theme[key]).map(key => [key, next.theme[key] ?? null]));
+  const themePatch = {};
+  const primaryChanged = next.theme.primary !== previous.theme.primary;
+  if (primaryChanged) themePatch.primary = next.theme.primary;
+  const accent = color(draft.accent);
+  const savedAccent = saved.matchPrimary ? previous.theme.primary : color(saved.accent);
+  if (draft.matchPrimary && !saved.matchPrimary) themePatch.accent = null;
+  else if (!draft.matchPrimary && (accent !== savedAccent || (saved.matchPrimary && primaryChanged))) {
+    // Preserve the literal independent color even if it happens to equal the
+    // stale primary. Only an explicit Match primary choice clears the override.
+    themePatch.accent = accent;
+  }
   if (Object.keys(themePatch).length) changes.themePatch = themePatch;
   return changes;
 }

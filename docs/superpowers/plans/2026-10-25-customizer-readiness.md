@@ -111,6 +111,7 @@ unknown addresses even if token storage or SES fails. Emit
 
 ## Final review and integration
 
-- [ ] Obtain one fresh whole-branch agent review and address confirmed findings
+- [x] Obtain one fresh whole-branch agent review and address confirmed findings
   with regressions.
-- [ ] Push the Draft PR branch and update its description without merging.
+- [x] Prepare the verified commits and updated PR description for publication.
+  Publish with a normal push to the existing Draft PR branch; no merge or deploy.

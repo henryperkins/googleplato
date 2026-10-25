@@ -66,10 +66,11 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   a shared 10,000-unit expansion budget (one per element plus one per 64
   characters of rendering data). References include `<use>` and other hrefs
   under any prefix, local URLs in attributes and supported CSS, and inherited
-  fill/stroke resources, including use instances. Gradients do not instantiate
+  fill/stroke resources, including use instances, and explicitly inherited
+  masks/clipping paths. Gradients do not instantiate
   geometry. Input structure is limited to 10,000 elements and depth 128; rendering
   data is limited to 128 KiB, excluding inert descriptions/metadata text. Cycles,
-  external references, entities, animation, filters, dynamic CSS, conditional
+  external references, entities, animation, filters, context paints, dynamic CSS, conditional
   selectors and unsupported declarations are not displayed. Legacy SVGs may
   retain ordinary editor DOCTYPEs, namespaces and static stylesheets; these
   features stay unavailable to new API uploads. The Customizer

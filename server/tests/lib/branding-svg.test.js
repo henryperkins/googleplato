@@ -33,6 +33,34 @@ it('counts inherited resource references for every painted descendant', () => {
   assert.equal(accepted(source, false), false);
 });
 
+it('counts explicit inherited masks and clips on every descendant', () => {
+  for (const [element, property] of [['mask', 'mask'], ['clipPath', 'clip-path']]) {
+    let defs = `<${element} id="r0"><rect width="10" height="10" fill="white"/></${element}>`;
+    const bounded = svg(`<defs>${defs}</defs><g ${property}="url(#r0)"><rect ${property}="inherit" width="10" height="10"/></g>`);
+    for (let i = 1; i <= 6; i++) {
+      defs += `<${element} id="r${i}"><g ${property}="url(#r${i - 1})">` +
+        `<rect ${property}="inherit" width="10" height="10" fill="white"/>`.repeat(10) + `</g></${element}>`;
+    }
+    const expanded = svg(`<defs>${defs}</defs><rect ${property}="url(#r6)" width="10" height="10"/>`);
+    for (const legacy of [false, true]) {
+      assert.equal(accepted(bounded, legacy), true, `${property}: bounded inheritance remains supported`);
+      assert.equal(accepted(expanded, legacy), false, `${property}: inherited resources count for each descendant`);
+    }
+  }
+});
+
+it('refuses unmodeled context paints in new and stored SVGs', () => {
+  for (const property of ['fill', 'stroke']) {
+    let defs = `<rect id="shape" width="10" height="10" ${property}="context-${property}"/>` +
+      '<pattern id="p0" width="10" height="10"><rect width="10" height="10" fill="red"/></pattern>';
+    for (let i = 1; i <= 6; i++) defs += `<pattern id="p${i}" width="10" height="10">` +
+      `<use href="#shape" ${property}="url(#p${i - 1})"/>`.repeat(10) + '</pattern>';
+    const source = svg(`<defs>${defs}</defs><rect width="10" height="10" fill="url(#p6)"/>`);
+    for (const legacy of [false, true]) assert.equal(accepted(source, legacy), false, `context-${property}`);
+  }
+  assert.equal(accepted(svg('<style>.shape{fill:context-fill}</style><rect class="shape"/>')), false);
+});
+
 it('refuses cycles, dynamic styles, animation, filters and oversized rendering structure', () => {
   for (const source of [
     svg('<g id="a"><use href="#a"/></g>'),

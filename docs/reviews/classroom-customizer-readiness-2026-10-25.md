@@ -61,7 +61,7 @@ coverage verifies transaction construction and error handling without an AWS tab
 
 | Check | Result |
 | --- | --- |
-| `POSTGRES_TEST_URL=... npm test` | Client 536/536; server 791/791; zero skips |
+| `POSTGRES_TEST_URL=... npm test` | Client 537/537; server 793/793; zero skips |
 | Customizer Chromium | 19/19 |
 | Customizer WebKit | 19/19 |
 | Customizer Firefox | 19/19 |
@@ -69,7 +69,7 @@ coverage verifies transaction construction and error handling without an AWS tab
 | `npm run build:client` | Passed |
 | Plugin tests / manifests | 6/6 tests; all three manifests valid |
 | `git diff --check` | Passed |
-| Independent final agent review | Pending |
+| Independent final agent review | Two Important findings at `9f045fc`; both addressed in the regression-tested fix pass below. No confirmed Critical or Minor findings. |
 
 The committed browser runner now selects Chromium, WebKit or Firefox with
 `PLATO_TEST_BROWSER`; it does not need a modified temporary test copy. The
@@ -84,6 +84,37 @@ missing-dialog timeout. This changes the test harness, not the page guard.
 No live SES delivery, real DynamoDB table, physical device or screen-reader
 qualification was performed. Password-reset status/body parity does not claim
 constant response timing. No production settings or deployment were changed.
+
+## Independent review and final fix pass
+
+One fresh GPT-6 Astra reviewer examined the entire PR from `32f5748` through
+`9f045fc`, including the initial follow-ups. It found two Important issues:
+
+1. Equal colors could accidentally clear a newer accent. A primary edit equal
+   to the stale accent sent `accent:null`; an accent edit equal to the stale
+   primary also became a clear instead of the literal color entered. Patch
+   generation now follows each field's edit and the explicit Match primary
+   choice. The new unit regression and strengthened browser stale-form test
+   failed first, then passed. Unchecking Match primary without changing the
+   effective color remains a no-op.
+2. Explicit `mask="inherit"` and `clip-path="inherit"`, plus context paints,
+   bypassed the expansion budget. The validator now resolves explicit mask/clip
+   inheritance at every descendant, while retaining their non-inherited
+   defaults. It rejects `context-fill`/`context-stroke` until their rendering
+   context is modeled. New/stored expansion fixtures failed first, then passed;
+   bounded inherited masks/clips still display. Blocked originals retain their
+   existing recovery controls.
+
+The fix pass was verified with focused regressions and the complete suites,
+rather than claiming a second independent approval of the amended code. This
+was agent review; the repository still requires an approving review for merge.
+
+The review's explicitly unqualified areas remain recorded: equal reset-response
+timing, revocation of old downloaded/cached copies, the intentional initial
+favicon above 2:1, and real SES/DynamoDB/device/screen-reader behavior. A reset
+timing difference could still reveal information; the implemented privacy
+contract covers response status/body and operational logs. No actionable minor
+findings were deferred.
 
 ## Recovery UI
 

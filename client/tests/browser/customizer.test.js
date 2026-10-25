@@ -588,15 +588,19 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       assert.equal((await otherSave({ primary: '#123456', accent: '#654321' })).status, 200);
       await navigate(page, 'customizer');
       assert.equal((await otherSave({ primary: '#123456', accent: '#abcdef' })).status, 200);
-      await page.getByLabel('Primary color hex code', { exact: true }).fill('#112233');
+      // Equality with the stale accent must not select Match primary implicitly.
+      await page.getByLabel('Primary color hex code', { exact: true }).fill('#654321');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
       assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#abcdef');
       assert.equal((await otherSave({ primary: '#998877', accent: '#abcdef' })).status, 200);
-      await page.getByLabel('Accent color hex code', { exact: true }).fill('#fedcba');
+      // An explicitly typed accent stays literal even when it equals stale primary.
+      await page.getByLabel('Accent color hex code', { exact: true }).fill('#654321');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
       assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#998877');
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#654321');
+      assert.equal(await page.getByLabel('Match primary', { exact: true }).isChecked(), false);
       await page.getByLabel('Match primary', { exact: true }).check();
       await page.getByRole('button', { name: 'Save', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
