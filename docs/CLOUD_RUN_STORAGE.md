@@ -15,8 +15,14 @@ Change only the application container image and the documented runtime settings.
 
 Pushing to `main` automatically deploys to `plato-shaped` (`idk-4e9b9`, `us-east1`)
 through the GitHub push webhook and the `plato-main` Cloud Build webhook trigger
-(`deploy/cloudrun/cloudbuild.yaml`). After editing `deploy/cloudrun/cloudbuild.yaml`,
-run `deploy/cloudrun/configure.sh` to refresh the trigger's inline build config.
+(`deploy/cloudrun/cloudbuild.yaml`). Lint and tests (including the PostgreSQL
+suite against a disposable database) gate the build: the image is pushed as
+`:SHA` first, and `:latest` is pushed only after the new revision serves
+traffic. Every deploy re-asserts the startup probe
+(`tcpSocket.port=3000,periodSeconds=1,timeoutSeconds=1,failureThreshold=240`,
+the 240-second budget) and `--cpu-boost --max=1` on `app-container`. After
+editing `deploy/cloudrun/cloudbuild.yaml`, run `deploy/cloudrun/configure.sh`
+to refresh the trigger's inline build config.
 
 Required environment variables:
 

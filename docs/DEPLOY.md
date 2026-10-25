@@ -4,6 +4,18 @@ This guide covers production deployment to AWS via SAM, optional CI/CD from a pr
 
 For a quick local development setup, see the [main README](../README.md#quick-start).
 
+## Cloud Run (`plato-shaped`)
+
+Deploy `plato-shaped` only through the Cloud Build pipeline
+(`deploy/cloudrun/cloudbuild.yaml` via the `plato-main` trigger). Never use
+AI Studio's Deploy button for this service: an AI Studio deploy replaces
+`app-container` with a source build (`image: scratch`) and a 1-second × 10
+startup probe (a 10-second budget), which would break the durable-storage
+deployment. If `app-container` ever shows `image: scratch` or a `1/10`
+probe, treat it as drift: the next push to `main` re-asserts the repository
+image, the 1-second × 240 probe, and CPU boost. See
+[CLOUD_RUN_STORAGE.md](CLOUD_RUN_STORAGE.md) for the gate and rollback.
+
 ## Prerequisites
 
 - AWS SAM CLI

@@ -6,6 +6,9 @@
 # us-east1, which holds an inline copy of this file: after editing it, run
 # deploy/cloudrun/configure.sh to refresh the trigger's copy.
 #
+# Lint and tests (including the PostgreSQL suite) gate the build: :latest is
+# pushed only after the new revision serves traffic.
+#
 # To deploy a pushed commit by hand:
 #
 #   gcloud builds submit --no-source --project=idk-4e9b9 --region=us-east1 \
@@ -42,8 +45,40 @@ steps:
         git fetch -q --depth=1 origin "${_SHA}"
         git checkout -q FETCH_HEAD
 
+  # Disposable PostgreSQL for the test gate, reachable as plato-test-pg on the
+  # build network. Steps share the /workspace checkout from `source`.
+  - id: test-db
+    name: gcr.io/cloud-builders/docker
+    waitFor: [source]
+    args:
+      - run
+      - -d
+      - --network=cloudbuild
+      - --name=plato-test-pg
+      - -e
+      - POSTGRES_PASSWORD=plato-test
+      - postgres:17-bookworm
+
+  - id: test-db-ready
+    name: postgres:17-bookworm
+    entrypoint: bash
+    waitFor: [test-db]
+    args:
+      - -c
+      - 'for i in $(seq 1 60); do pg_isready -q -h plato-test-pg -U postgres && exit 0; sleep 1; done; exit 1'
+
+  - id: test
+    name: node:24-bookworm-slim
+    entrypoint: bash
+    waitFor: [test-db-ready]
+    env: [POSTGRES_TEST_URL=postgres://postgres:plato-test@plato-test-pg:5432/postgres]
+    args:
+      - -c
+      - 'npm ci --no-audit --no-fund && npm run lint && npm test'
+
   - id: build
     name: gcr.io/cloud-builders/docker
+    waitFor: [test]
     env: [DOCKER_BUILDKIT=1]
     args:
       - build
@@ -53,13 +88,15 @@ steps:
       - --tag=${_IMAGE}:latest
       - .
 
-  - id: push
+  - id: push-sha
     name: gcr.io/cloud-builders/docker
-    args: [push, --all-tags, "${_IMAGE}"]
+    waitFor: [build]
+    args: [push, "${_IMAGE}:${_SHA}"]
 
   - id: deploy-service
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
+    waitFor: [push-sha]
     args:
       - -c
       - |
@@ -67,12 +104,20 @@ steps:
         gcloud run services update "${_SERVICE}" \
           --region="${_REGION}" \
           --revision-suffix="" \
+          --cpu-boost \
+          --max=1 \
           --quiet \
           --container=app-container \
           --image="${_IMAGE}:${_SHA}" \
-          --update-env-vars="RELEASE_COMMIT=${_SHA}"
+          --update-env-vars="RELEASE_COMMIT=${_SHA}" \
+          --startup-probe=tcpSocket.port=3000,periodSeconds=1,timeoutSeconds=1,failureThreshold=240
         gcloud run services update-traffic "${_SERVICE}" \
           --region="${_REGION}" \
           --clear-tags \
           --to-latest \
           --quiet
+
+  - id: push-latest
+    name: gcr.io/cloud-builders/docker
+    waitFor: [deploy-service]
+    args: [push, "${_IMAGE}:latest"]
