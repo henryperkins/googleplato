@@ -113,6 +113,18 @@ describe('Focus inside colored headers', () => {
     const css = read('index.css');
     assert.match(css, /\.header-control\s*\{\s*--ring:/);
   });
+
+  it('does the same in the admin top bar, whose account menu renders inside it', () => {
+    const layout = read('pages/admin/AdminLayout.jsx');
+    const header = layout.slice(layout.indexOf('<header'), layout.indexOf('</header>'));
+    const headerTag = header.slice(0, header.indexOf('>'));
+    assert.equal(/'--ring'/.test(headerTag), false, '<header> must not set --ring for its subtree');
+    assert.equal(header.match(/sidebar-control/g)?.length >= 3, true, 'brand link, theme toggle, and account trigger');
+    assert.match(header, /<ThemeToggle className="sidebar-control[^"]*" \/>/);
+    assert.match(header, /<DropdownMenuTrigger\s+className="sidebar-control /);
+    assert.equal(/<DropdownMenuContent[^>]*sidebar-control/.test(header), false);
+    assert.match(read('index.css'), /\.sidebar-control\s*\{\s*--ring: var\(--sidebar-foreground\);/);
+  });
 });
 
 describe('Field boundaries', () => {

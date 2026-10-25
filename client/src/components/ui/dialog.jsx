@@ -87,7 +87,7 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
-  variant = 'dialog', // 'dialog' | 'sheet' | 'drawer'
+  variant = 'dialog', // 'dialog' | 'sheet'
   ...props
 }) {
   const ctx = React.useContext(DialogContext);
@@ -141,7 +141,6 @@ function DialogContent({
   if (!ctx?.open) return null;
 
   const isSheet = variant === 'sheet';
-  const isDrawer = variant === 'drawer';
 
   const onPointerDown = (e) => {
     if (!isSheet) return;
@@ -214,11 +213,9 @@ function DialogContent({
         }
         className={cn(
           'fixed z-50 m-0 flex flex-col overflow-hidden bg-popover p-0 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none backdrop:bg-black/35 backdrop:backdrop-blur-xs',
-          isDrawer
-            ? 'top-0 left-0 h-dvh max-h-dvh w-64 max-w-[calc(100%-3rem)] rounded-none bg-sidebar text-sidebar-foreground'
-            : isSheet
-              ? 'inset-x-0 bottom-0 top-auto w-full max-w-full max-h-[90dvh] rounded-t-2xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-[calc(100%-2rem)] sm:max-w-lg sm:max-h-[calc(100dvh-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl'
-              : 'top-1/2 left-1/2 w-[calc(100%-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl',
+          isSheet
+            ? 'inset-x-0 bottom-0 top-auto w-full max-w-full max-h-[90dvh] rounded-t-2xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-[calc(100%-2rem)] sm:max-w-lg sm:max-h-[calc(100dvh-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl'
+            : 'top-1/2 left-1/2 w-[calc(100%-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl',
           className
         )}
         {...props}

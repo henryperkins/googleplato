@@ -1,11 +1,11 @@
 /**
- * Page names for classroom routes (client/src/lib/routeTitles.js): a lesson
- * page is named after its lesson so tabs, history, and the route announcement
- * identify it (WCAG 2.4.2), not a generic "Lesson".
+ * Page names for classroom and admin routes (client/src/lib/routeTitles.js): a
+ * lesson page is named after its lesson so tabs, history, and the route
+ * announcement identify it (WCAG 2.4.2), not a generic "Lesson".
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { lessonIdFromPath, routePageName, pageTitle } from '../src/lib/routeTitles.js';
+import { lessonIdFromPath, routePageName, adminPageName, pageTitle } from '../src/lib/routeTitles.js';
 
 const lessons = [
   { lessonId: 'l-email', name: 'Write a Project Status Email' },
@@ -56,5 +56,41 @@ describe('routePageName', () => {
     assert.equal(pageTitle('Write a Project Status Email', ''), 'Write a Project Status Email — plato');
     assert.equal(pageTitle('Write a Project Status Email', '   '), 'Write a Project Status Email — plato');
     assert.equal(pageTitle('Write a Project Status Email', 'AI Leaders Academy'), 'Write a Project Status Email — AI Leaders Academy');
+  });
+});
+
+describe('adminPageName', () => {
+  it('names each admin page as its heading does', () => {
+    assert.equal(adminPageName('/plato'), 'Dashboard');
+    assert.equal(adminPageName('/plato/'), 'Dashboard');
+    assert.equal(adminPageName('/plato/lessons'), 'Lessons');
+    assert.equal(adminPageName('/plato/users'), 'Users');
+    assert.equal(adminPageName('/plato/customizer'), 'Classroom Customizer');
+    assert.equal(adminPageName('/plato/ai'), 'AI Settings');
+    assert.equal(adminPageName('/plato/plugins'), 'Plugins');
+    assert.equal(adminPageName('/plato/setup-kb'), 'Set Up Knowledge Base');
+  });
+
+  it('gives a view inside a page the page name, so moving between them is not a page change', () => {
+    assert.equal(adminPageName('/plato/users/usr_123'), 'Users');
+    assert.equal(adminPageName('/plato/users/waitlist/tok'), 'Users');
+    assert.equal(adminPageName('/plato/lessons/new'), 'Lessons');
+    assert.equal(adminPageName('/plato/lessons/l-email/edit'), 'Lessons');
+    assert.equal(adminPageName('/plato/customizer/knowledge/edit'), 'Classroom Customizer');
+  });
+
+  it('names nothing outside admin, redirect-only paths, or inherited object keys', () => {
+    assert.equal(adminPageName('/lessons'), null);
+    assert.equal(adminPageName('/platonic'), null);
+    assert.equal(adminPageName('/x/plato'), null);
+    assert.equal(adminPageName('/plato/courses'), null);
+    assert.equal(adminPageName('/plato/integrations'), null);
+    assert.equal(adminPageName('/plato/constructor'), null);
+    assert.equal(adminPageName(''), null);
+    assert.equal(adminPageName(undefined), null);
+  });
+
+  it('keeps plato in admin titles rather than the classroom name', () => {
+    assert.equal(pageTitle(adminPageName('/plato/ai')), 'AI Settings — plato');
   });
 });

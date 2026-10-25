@@ -144,6 +144,24 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(layoutSrc, /overflow-y-auto/);
     assert.match(layoutSrc, /admin-bottom-nav/);
     assert.equal(/admin-bottom-nav[^"]*fixed bottom-0/.test(layoutSrc), false);
+    // Tabs show their labels from 30rem, where six fit; narrower, the label is
+    // screen-reader text beside an aria-hidden icon. The active icon uses the
+    // contrast-safe token (plain --primary is dimmer than inactive icons in dark mode).
+    const bottomNavSrc = layoutSrc.slice(layoutSrc.indexOf('admin-bottom-nav'));
+    assert.match(bottomNavSrc, /<span className=\{`sr-only min-\[30rem\]:not-sr-only /);
+    assert.match(bottomNavSrc, /<Icon aria-hidden="true"/);
+    assert.match(bottomNavSrc, /border-primary text-primary-text/);
+    assert.equal(/\btitle=\{label\}/.test(bottomNavSrc), false, 'no hover-only tooltips standing in for labels');
+    // Phones and tablets keep the bottom tabs up to the large breakpoint, so a
+    // 768px tablet doesn't lose a third of its width to the sidebar.
+    assert.match(layoutSrc, /className="admin-bottom-nav lg:hidden /);
+    assert.match(layoutSrc, /className="hidden lg:flex lg:w-56 /);
+    assert.equal(/\bmd:/.test(layoutSrc), false, 'the shell switches at one breakpoint');
+    // A short window scrolls the sidebar instead of cutting off Sign Out.
+    assert.match(layoutSrc, /lg:fixed lg:top-0 lg:left-0 lg:overflow-y-auto/);
+    // The account menu replaces the drawer, so no text explains how to navigate.
+    assert.equal(/Use the tabs/.test(layoutSrc), false);
+    assert.match(layoutSrc, /<DropdownMenuTrigger\s+className="sidebar-control /);
 
     const homeSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminHome.jsx'), 'utf8');
     assert.equal(/text-\[10px\]/.test(homeSrc), false);
@@ -173,6 +191,38 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(hook, /SHORT_VIEWPORT_QUERY = '\(max-height: 34em\)'/);
     assert.match(hook, /matchMedia\?\.\(SHORT_VIEWPORT_QUERY\)/);
     assert.equal(/orientation: landscape/.test(css), false);
+  });
+
+  it('lets the admin page scroll as a whole on short viewports, bars included', () => {
+    const css = fs.readFileSync(path.join(SRC_DIR, 'index.css'), 'utf8');
+    const layoutSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminLayout.jsx'), 'utf8');
+    const short = css.slice(css.indexOf('@media (max-height: 34em)'));
+    const block = short.slice(0, short.indexOf('\n}\n'));
+    // The bars are pinned by the full-height flex column, not by position, so
+    // the column itself must give way; <main> then sizes to its content
+    // (a 0% flex basis would leave it short, with the page running under the tabs).
+    assert.match(block, /\.admin-shell \{\s*height: auto;\s*min-height: 100dvh;\s*overflow: visible;/);
+    assert.match(block, /\.admin-shell > main \{\s*flex: 1 0 auto;\s*overflow: visible;/);
+    assert.equal(/\.admin-bottom-nav[^{]*\{\s*position: static/.test(block), false);
+    assert.match(layoutSrc, /className="admin-shell flex h-dvh flex-col overflow-hidden /);
+  });
+
+  it('starts each admin page at its top, with focus and a skip link like the classroom', () => {
+    const layoutSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminLayout.jsx'), 'utf8');
+    const announceSrc = fs.readFileSync(path.join(SRC_DIR, 'components/ScreenReaderAnnounce.jsx'), 'utf8');
+    const css = fs.readFileSync(path.join(SRC_DIR, 'index.css'), 'utf8');
+    assert.match(layoutSrc, /<a href="#main-content" className="sr-only focus:not-sr-only/);
+    assert.match(layoutSrc, /id="main-content"\s+tabIndex=\{-1\}/);
+    // Keyed on the page, not the path, so a view inside a page keeps its place;
+    // a layout effect, so focus a page places itself still wins.
+    assert.match(layoutSrc, /const page = adminPageName\(location\.pathname\);/);
+    assert.match(layoutSrc, /useLayoutEffect\(\(\) => \{\s*if \(pageRef\.current === page\) return;/);
+    assert.match(layoutSrc, /main\.scrollTop = 0;\s*window\.scrollTo\(0, 0\);/);
+    assert.match(layoutSrc, /if \(fromChrome\) main\.focus\(\{ preventScroll: true \}\);/);
+    assert.match(announceSrc, /const adminName = adminPageName\(location\.pathname\);/);
+    assert.match(announceSrc, /if \(adminName\) document\.title = pageTitle\(adminName\);\s*\}, \[adminName\]\);/);
+    assert.match(css, /\.admin-main:focus-visible \{\s*outline: none;/);
+    assert.match(css, /\.admin-bottom-nav a:focus-visible \{\s*outline-offset: -3px;/);
   });
 
   it('keeps author-written names from truncating or overflowing on narrow screens', () => {
