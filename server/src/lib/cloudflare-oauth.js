@@ -10,6 +10,12 @@ const PRINCIPAL = '_integrations';
 const CONNECTION_KEY = 'cloudflare-ai';
 const REVOCATION_PREFIX = 'cloudflare-revoke:';
 const FLOW_TTL = 10 * 60_000;
+// Longer than undici's 10-second connect timeout, so a connection that never
+// opens fails as UND_ERR_CONNECT_TIMEOUT (never sent), not an ambiguous abort.
+const PROVIDER_TIMEOUT_MS = 15_000;
+// After a renewal fails to reach Cloudflare, later requests fail fast for this
+// long instead of each writing a new lease and bumping the connection version.
+const UNREACHABLE_RETRY_MS = 30_000;
 const CALLBACK = '/v1/oauth/cloudflare/callback';
 export const CLOUDFLARE_OAUTH_COOKIE = 'plato_cf_oauth';
 export const CLOUDFLARE_OAUTH_SCOPES = ['ai.read', 'ai.write', 'account-settings.read', 'offline_access'];
@@ -113,7 +119,7 @@ function neverSent(error) {
 // and code, or the HTTP status. Never a message or a response body.
 async function providerFetch(url, options) {
   let response;
-  try { response = await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(10_000) }); }
+  try { response = await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }); }
   catch (error) {
     throw Object.assign(failure('failed', 502), {
       causeName: error?.name, causeCode: error?.cause?.code, neverSent: neverSent(error),
@@ -481,6 +487,7 @@ async function oauthCredentials() {
       await delay(100);
       continue;
     }
+    if (connection.data.refreshRetryAt > Date.now()) throw failure('unreachable', 503);
     const lease = { id: randomUUID(), until: Date.now() + 30_000 };
     try { await write(CONNECTION_KEY, { ...connection.data, refreshLease: lease }, connection.version); }
     catch (err) { if (conflict(err)) continue; throw err; }
@@ -491,7 +498,8 @@ async function oauthCredentials() {
         // Cloudflare never received the refresh token, so it is still current.
         // Release the lease for a later request instead of disabling the
         // classroom connection over a network failure.
-        try { await write(CONNECTION_KEY, { ...connection.data, refreshLease: null }, connection.version + 1); }
+        const refreshRetryAt = Date.now() + UNREACHABLE_RETRY_MS;
+        try { await write(CONNECTION_KEY, { ...connection.data, refreshLease: null, refreshRetryAt }, connection.version + 1); }
         catch (err) { if (!conflict(err)) throw err; }
         throw Object.assign(failure('unreachable', 503), { causeName: refreshError.causeName, causeCode: refreshError.causeCode });
       }

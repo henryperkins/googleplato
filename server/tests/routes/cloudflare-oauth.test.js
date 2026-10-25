@@ -17,6 +17,8 @@ const { default: aiRoute } = await import('../../src/routes/ai.js');
 const { default: syncRoute } = await import('../../src/routes/sync.js');
 const { signAccessToken } = await import('../../src/lib/jwt.js');
 const { logger } = await import('../../src/lib/logger.js');
+const { createServer } = await import('node:net');
+const realFetch = globalThis.fetch;
 const app = new Hono().route('/', admin).route('/', aiRoute).route('/', syncRoute);
 app.get('/unrelated-health', c => c.json({ ok: true }));
 const base = 'https://plato.example';
@@ -789,8 +791,8 @@ describe('Cloudflare browser connection', () => {
   it('keeps the connection when a renewal never reached Cloudflare, and renews on a later request', async () => {
     tokenReply.expires_in = 90;
     await connect();
-    const now = Date.now();
-    mock.method(Date, 'now', () => now + 60_000);
+    let now = Date.now() + 60_000;
+    mock.method(Date, 'now', () => now);
     const refused = () => Object.assign(new Error('connect ECONNREFUSED 104.16.0.1:443'), { code: 'ECONNREFUSED', syscall: 'connect' });
     const failures = [
       new TypeError('fetch failed', { cause: refused() }),
@@ -802,6 +804,7 @@ describe('Cloudflare browser connection', () => {
     const originalFetch = globalThis.fetch;
     for (const failure of failures) {
       globalThis.fetch = (url, options) => String(url).endsWith('/token') ? Promise.reject(failure) : originalFetch(url, options);
+      now += 31_000; // past the pause that follows an unreachable renewal
       const response = await infer();
       assert.equal(response.status, 503);
       assert.equal((await response.json()).code, 'ai_overloaded', 'a network failure before sending is temporary');
@@ -823,11 +826,67 @@ describe('Cloudflare browser connection', () => {
 
     globalThis.fetch = originalFetch;
     tokenReply = { ...tokenReply, access_token: 'rotated-access', refresh_token: 'rotated-refresh' };
+    now += 31_000;
     assert.equal((await infer()).status, 200);
     const refreshes = calls.filter(call => call.url.pathname.endsWith('/token') && new URLSearchParams(call.options.body).get('grant_type') === 'refresh_token');
     assert.equal(refreshes.length, 1);
     assert.equal(new URLSearchParams(refreshes[0].options.body).get('refresh_token'), 'oauth-refresh-do-not-return');
     assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer rotated-access');
+  });
+
+  it('pauses renewals after Cloudflare was unreachable, so requests stop rewriting the connection', async () => {
+    tokenReply.expires_in = 90;
+    await connect();
+    let now = Date.now() + 60_000;
+    mock.method(Date, 'now', () => now);
+    const originalFetch = globalThis.fetch;
+    let attempts = 0;
+    const refused = Object.assign(new Error('connect ECONNREFUSED 104.16.0.1:443'), { code: 'ECONNREFUSED', syscall: 'connect' });
+    globalThis.fetch = (url, options) => {
+      if (!String(url).endsWith('/token')) return originalFetch(url, options);
+      attempts++;
+      return Promise.reject(new TypeError('fetch failed', { cause: refused }));
+    };
+    assert.equal((await infer()).status, 503);
+    const loaded = await settings();
+    for (let i = 0; i < 3; i++) {
+      const response = await infer();
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).code, 'ai_overloaded');
+    }
+    assert.equal(attempts, 1, 'requests inside the pause do not retry the renewal');
+    assert.equal((await settings()).workersAiOAuth.version, loaded.workersAiOAuth.version);
+    assert.deepEqual(logged('ai_provider_error').slice(0, 3).map(({ meta }) => [meta.reason, meta.cause_code]),
+      [['unreachable', null], ['unreachable', null], ['unreachable', null]]);
+
+    now += 31_000;
+    globalThis.fetch = originalFetch;
+    assert.equal((await infer()).status, 200, 'the first request after the pause renews');
+    const data = await settings();
+    assert.equal((await request('DELETE', '', { version: data.workersAiOAuth.version })).status, 200);
+  });
+
+  it('treats a connection that never opens as never sent, with real timeouts', { timeout: 30_000 }, async () => {
+    // Accepts TCP but never answers the TLS handshake, like dropped packets:
+    // undici's 10-second connect timeout must fire before the request's abort.
+    const silent = createServer(() => {}).listen(0, '127.0.0.1');
+    await new Promise(resolve => silent.once('listening', resolve));
+    try {
+      tokenReply.expires_in = 90;
+      await connect();
+      const now = Date.now();
+      mock.method(Date, 'now', () => now + 60_000);
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (url, options) => String(url).endsWith('/token')
+        ? realFetch(`https://127.0.0.1:${silent.address().port}/oauth2/token`, options) : originalFetch(url, options);
+      const response = await infer();
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).code, 'ai_overloaded');
+      assert.equal((await settings()).workersAiOAuth.needsReconnect, false);
+      const { reason, error_name, cause_code } = logged('ai_provider_error')[0].meta;
+      assert.deepEqual({ reason, error_name, cause_code }, { reason: 'unreachable', error_name: 'TypeError', cause_code: 'UND_ERR_CONNECT_TIMEOUT' });
+      assert.equal(logged('cloudflare_oauth_reconnect_required').length, 0);
+    } finally { silent.close(); }
   });
 
   it('still requires reconnect when a renewal may have reached Cloudflare, reporting the transition once', async () => {
