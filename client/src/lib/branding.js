@@ -274,7 +274,7 @@ export function applyThemeVarsToRoot(theme) {
 /**
  * Generate a favicon: classroom logo (or text initial) on a rounded-rect background.
  * Returns a data URL suitable for <link rel="icon">.
- * @param {string|null} logoBase64 - logo image data URL, or null for text-based
+ * @param {string|null} logoBase64 - logo data URL or same-origin asset URL; null for a text initial
  * @param {string} primaryColor - background color
  * @param {string} classroomName - used for text initial when no logo image
  */

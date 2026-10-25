@@ -7,6 +7,10 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { logger } from '../../src/lib/logger.js';
+import db from '../../src/lib/db.js';
+import { SESClient } from '@aws-sdk/client-ses';
+import { brandForeground } from '../../src/lib/branding.js';
+import { contrastRatio, contrastText } from '../../../client/src/lib/branding.js';
 
 const email = await import('../../src/lib/email.js');
 
@@ -66,5 +70,79 @@ describe('email delivery off', () => {
     assert.ok(!allLogged.includes('person@example.com'));
     assert.ok(!allLogged.includes('rst_secret_456'));
     assert.ok(!allLogged.includes('reset='));
+  });
+});
+
+describe('branded email output', () => {
+  let originalSend;
+  let originalRead;
+  let originalSkip;
+  let sent;
+  let settings;
+  beforeEach(() => {
+    originalSend = SESClient.prototype.send;
+    originalRead = db.getSyncData;
+    originalSkip = process.env.SKIP_EMAIL;
+    process.env.SKIP_EMAIL = 'false';
+    sent = [];
+    settings = { classroomName: 'École & <Partners>, "東京"', logoAlt: 'Old name', theme: { primary: '#f5c518' } };
+    db.getSyncData = async () => ({ data: settings });
+    SESClient.prototype.send = async command => { sent.push(command.input); return {}; };
+  });
+  afterEach(() => {
+    SESClient.prototype.send = originalSend;
+    db.getSyncData = originalRead;
+    if (originalSkip === undefined) delete process.env.SKIP_EMAIL;
+    else process.env.SKIP_EMAIL = originalSkip;
+  });
+
+  it('escapes branding and inviter text and uses UTF-8 MIME display names', async () => {
+    await email.sendInviteEmail('recipient@example.test', 'test-token', '<Admin> & Team');
+    const message = sent[0];
+    assert.match(message.Message.Body.Html.Data, /École &amp; &lt;Partners&gt;, &quot;東京&quot;/);
+    assert.match(message.Message.Body.Html.Data, /&lt;Admin&gt; &amp; Team has invited you/);
+    assert.ok(!message.Message.Body.Html.Data.includes('Old name'));
+    const words = [...message.Source.matchAll(/=\?UTF-8\?B\?([^?]+)\?=/g)];
+    assert.equal(words.map(word => Buffer.from(word[1], 'base64').toString('utf8')).join(''), settings.classroomName);
+    assert.ok(words.every(word => word[0].length <= 75));
+    assert.match(message.Source, /^[\x20-\x7e]+$/);
+    assert.equal(message.Message.Subject.Charset, 'UTF-8');
+    assert.equal(message.Message.Body.Html.Charset, 'UTF-8');
+  });
+
+  it('uses readable foregrounds on headers and buttons for invites and resets', async () => {
+    for (const primary of ['#f5c518', '#87ceeb', '#ffffff', '#470d99', '#757575']) {
+      settings.theme.primary = primary;
+      await email.sendInviteEmail('recipient@example.test', 'invite', 'Admin');
+      await email.sendResetEmail('recipient@example.test', 'reset');
+      const foreground = brandForeground(primary);
+      assert.ok(contrastRatio(foreground, primary) >= 4.5);
+      for (const message of sent.slice(-2)) {
+        assert.equal(message.Message.Body.Html.Data.split(`background: ${primary}; color: ${foreground};`).length - 1, 2);
+      }
+    }
+  });
+
+  it('splits long Unicode sender names into valid MIME words without breaking characters', async () => {
+    settings.classroomName = '東京🦉'.repeat(25);
+    await email.sendResetEmail('recipient@example.test', 'reset');
+    const words = [...sent[0].Source.matchAll(/=\?UTF-8\?B\?([^?]+)\?=/g)];
+    assert.ok(words.length > 1);
+    assert.ok(words.every(word => word[0].length <= 75));
+    assert.equal(words.map(word => Buffer.from(word[1], 'base64').toString('utf8')).join(''), settings.classroomName);
+  });
+
+  it('matches classroom foreground selection over a wide color sweep', () => {
+    for (let r = 0; r <= 255; r += 17) for (let g = 0; g <= 255; g += 17) for (let b = 0; b <= 255; b += 17) {
+      const color = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+      assert.equal(brandForeground(color), contrastText(color), color);
+    }
+  });
+
+  it('falls back safely for blank names and malformed legacy colors', async () => {
+    settings = { classroomName: '   ', logoAlt: 'Stale', theme: { primary: 'red; background-image: url(https://example.com/)' } };
+    await email.sendResetEmail('recipient@example.test', 'reset');
+    assert.equal(sent[0].Message.Subject.Data, 'Reset your plato password');
+    assert.ok(!sent[0].Message.Body.Html.Data.includes('background-image'));
   });
 });

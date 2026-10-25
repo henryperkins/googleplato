@@ -109,7 +109,7 @@ export default function Login() {
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
       {logo ? (
-        <img src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-16 mb-6 rounded-lg object-contain" />
+        <img src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-auto max-w-full mb-6 object-contain" />
       ) : (
         <p className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</p>
       )}

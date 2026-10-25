@@ -93,7 +93,7 @@ async function seedOnce() {
   const existing = await db.getSyncData('_system', 'settings');
   if (!existing?.data?.theme) {
     const settings = existing?.data || {};
-    settings.theme = { primary: '#8b1a1a', accent: '#dc2626' };
+    settings.theme = { primary: '#8b1a1a' };
     await db.putSyncData('_system', 'settings', settings, existing?.version || 0);
     seeded++;
   }

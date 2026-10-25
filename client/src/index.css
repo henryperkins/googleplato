@@ -8,7 +8,7 @@
    stops at each plugin's client directory matches nothing. */
 @source "../../plugins/*/client/**/*.{js,jsx}";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *):not(.light *));
 
 @theme inline {
     --font-heading: var(--font-sans);

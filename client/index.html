@@ -10,9 +10,11 @@
   <script>
     // Apply the saved theme before first paint, so a dark page never flashes
     // light while the app loads. Keep in sync with client/src/lib/theme.js.
-    try {
-      if (localStorage.getItem('plato_theme') === 'dark') document.documentElement.classList.add('dark');
-    } catch (e) { /* Storage can be unavailable; the page stays light. */ }
+    var savedTheme;
+    try { savedTheme = localStorage.getItem('plato_theme'); } catch (e) { /* Use the device preference. */ }
+    if (savedTheme === 'dark' || (savedTheme !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    }
   </script>
 </head>
 <body>

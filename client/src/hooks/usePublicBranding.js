@@ -41,22 +41,22 @@ export default function usePublicBranding(title) {
   // Generate and set favicon when classroom has custom branding (logo, name, or primary color)
   useEffect(() => {
     const hasCustomBranding = Boolean(
-      branding?.logoBase64 || branding?.classroomName?.trim() || branding?.theme?.primary
+      branding?.logoUrl || branding?.classroomName?.trim() || branding?.theme?.primary
     );
     if (!hasCustomBranding) return;
     let cancelled = false;
     let restoreFn;
     const primaryColor = normalizeHex(branding?.theme?.primary) || DEFAULT_PRIMARY;
-    generateFavicon(branding.logoBase64, primaryColor, branding.classroomName).then(dataUrl => {
+    generateFavicon(branding.logoUrl, primaryColor, branding.classroomName).then(dataUrl => {
       if (dataUrl && !cancelled) restoreFn = setFavicon(dataUrl);
     });
     return () => { cancelled = true; restoreFn?.(); };
-  }, [branding?.logoBase64, branding?.theme?.primary, branding?.classroomName]);
+  }, [branding?.logoUrl, branding?.theme?.primary, branding?.classroomName]);
 
   if (!branding) return null;
 
   return {
-    logo: branding.logoBase64 || null,
+    logo: branding.logoUrl || null,
     classroomName: branding.classroomName || 'plato',
     theme: branding.theme,
   };

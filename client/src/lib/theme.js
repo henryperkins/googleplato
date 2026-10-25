@@ -2,19 +2,26 @@
  * Light/dark theme. The `.dark` class on <html> switches every semantic token
  * in index.css to its dark value. The choice is remembered per browser, and an
  * inline script in index.html applies it before first paint so a dark page
- * never flashes light while the app loads. Light is the default.
+ * never flashes light while the app loads. Without a saved choice, follow the device.
  */
 
 /** Keep in sync with the inline script in client/index.html. */
 export const THEME_STORAGE_KEY = 'plato_theme';
 
-/** The saved theme, or 'light' when none is saved or storage is unavailable. */
-export function storedTheme() {
+let temporaryChoice = null;
+function savedChoice() {
+  if (temporaryChoice) return temporaryChoice;
   try {
-    return localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    return saved === 'dark' || saved === 'light' ? saved : null;
   } catch {
-    return 'light';
+    return temporaryChoice;
   }
+}
+
+/** A saved choice takes precedence over the device's current preference. */
+export function storedTheme() {
+  return savedChoice() || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 }
 
 /** The theme the page is showing. */
@@ -41,7 +48,8 @@ export function saveTheme(theme) {
   applyTheme(theme);
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch { /* Storage can be unavailable (private browsing, quota). */ }
+    temporaryChoice = null;
+  } catch { temporaryChoice = theme; /* Keep the choice for this page session. */ }
   notify();
 }
 
@@ -55,17 +63,34 @@ function notify() {
 }
 
 function onStorage(event) {
-  if (event.key !== THEME_STORAGE_KEY) return;
+  if (event.key !== THEME_STORAGE_KEY && event.key !== null) return;
+  temporaryChoice = null;
+  applyTheme(storedTheme());
+  notify();
+}
+
+let devicePreference;
+function onDeviceChange() {
+  if (savedChoice()) return;
   applyTheme(storedTheme());
   notify();
 }
 
 /** Call `listener` whenever the theme changes, here or in another tab. Returns an unsubscribe function. */
 export function subscribeTheme(listener) {
-  if (listeners.size === 0) window.addEventListener('storage', onStorage);
+  if (listeners.size === 0) {
+    window.addEventListener('storage', onStorage);
+    devicePreference = window.matchMedia?.('(prefers-color-scheme: dark)');
+    devicePreference?.addEventListener('change', onDeviceChange);
+    // The device may have changed while no theme control was mounted.
+    if (currentTheme() !== storedTheme()) applyTheme(storedTheme());
+  }
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) window.removeEventListener('storage', onStorage);
+    if (listeners.size === 0) {
+      window.removeEventListener('storage', onStorage);
+      devicePreference?.removeEventListener('change', onDeviceChange);
+    }
   };
 }

@@ -293,12 +293,12 @@ describe('root theme application, favicons, and customizer parity', () => {
   });
 
   it('aligns default colors, workspace preview surface, text fallback, and favicon wiring across branding consumers', () => {
-    const customizer = readSrc('pages/admin/AdminCustomizer.jsx');
+    const customizer = readSrc('pages/admin/AdminStyles.jsx');
     const brandingCtx = readSrc('contexts/BrandingContext.jsx');
     const publicHook = readSrc('hooks/usePublicBranding.js');
 
-    // Default purple shared via branding.js; no hardcoded #8b1a1a fallback in client hooks/customizer
-    assert.equal(/#8b1a1a/.test(customizer), false);
+    // Loading still uses the shared fallback; Reset uses the seeded classroom defaults.
+    assert.match(customizer, /normalizeHex\(data.theme\?\.primary\) \|\| DEFAULT_PRIMARY/);
     assert.equal(/#8b1a1a/.test(publicHook), false);
     assert.match(customizer, /bg-workspace text-sm space-y-2/);
     // One preview per theme, each scoped by its own .light/.dark wrapper, with
@@ -308,12 +308,12 @@ describe('root theme application, favicons, and customizer parity', () => {
     assert.match(customizer, /bg-header text-header-foreground/);
     assert.match(customizer, /themeColorNotes\(\{ primary: safePrimary \}\)/);
     assert.match(customizer, /aria-label="Color notes"/);
-    assert.match(customizer, /\{classroomName \|\| 'plato'\}/);
+    assert.match(customizer, /draft.classroomName.trim\(\) \|\| 'plato'/);
     assert.equal(/Your Classroom/.test(customizer), false);
 
     // Both BrandingContext and usePublicBranding apply vars to :root and pass classroomName to generateFavicon
     assert.match(brandingCtx, /applyThemeVarsToRoot\(branding\.theme\)/);
-    assert.match(brandingCtx, /generateFavicon\(branding\.logoBase64,\s*primaryColor,\s*branding\.classroomName\)/);
+    assert.match(brandingCtx, /generateFavicon\(branding\.logoUrl,\s*primaryColor,\s*branding\.classroomName\)/);
     assert.equal(/isAdmin/.test(brandingCtx), false);
     assert.match(publicHook, /applyThemeVarsToRoot\(branding\?\.theme\)/);
     // Auth pages paint their backdrop with the header tokens, which follow the
@@ -323,6 +323,6 @@ describe('root theme application, favicons, and customizer parity', () => {
       assert.match(src, /<main className="[^"]*\bbg-header text-header-foreground\b/, `${page} backdrop`);
       assert.equal(/backgroundColor: primary|color: foreground/.test(src), false, `${page} inline brand color`);
     }
-    assert.match(publicHook, /generateFavicon\(branding\.logoBase64,\s*primaryColor,\s*branding\.classroomName\)/);
+    assert.match(publicHook, /generateFavicon\(branding\.logoUrl,\s*primaryColor,\s*branding\.classroomName\)/);
   });
 });

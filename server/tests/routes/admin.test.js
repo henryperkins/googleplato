@@ -1660,6 +1660,7 @@ describe('PUT /v1/admin/theme — color validation', () => {
 
   beforeEach(() => {
     saved = [];
+    db.getUserById = async id => ({ userId: id, role: 'admin', name: 'Admin' });
     db.putSyncData = async (userId, dataKey, data) => { saved.push({ userId, dataKey, data }); };
   });
 

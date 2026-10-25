@@ -4,6 +4,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
+import { publicBranding, readLogo } from '../lib/branding.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -63,13 +64,29 @@ content.get('/v1/version', (c) => {
 // GET /v1/branding — public (needed for login page theming)
 content.get('/v1/branding', async (c) => {
   c.header('Cache-Control', 'no-cache');
-  const item = await db.getSyncData('_system', 'settings');
+  const item = await db.getSyncData('_system', 'settings', { consistentRead: true });
   const settings = item?.data || {};
-  return c.json({
-    theme: settings.theme || null,
-    logoBase64: settings.logoBase64 || null,
-    classroomName: settings.classroomName || settings.logoAlt || '',
-  });
+  return c.json(publicBranding(settings));
+});
+
+content.get('/v1/branding/logo/:hash', async (c) => {
+  const hash = c.req.param('hash');
+  let logo = await readLogo(hash);
+  if (!logo && /^[a-f0-9]{64}$/.test(hash)) {
+    const item = await db.getSyncData('_system', 'settings');
+    logo = await readLogo(hash, item?.data);
+  }
+  if (!logo) {
+    c.header('Cache-Control', 'no-store');
+    return c.notFound();
+  }
+  c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  c.header('ETag', `"${hash}"`);
+  c.header('Content-Type', logo.mime);
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+  if (c.req.header('If-None-Match')?.split(',').map(value => value.trim()).includes(`"${hash}"`)) return c.body(null, 304);
+  return c.body(logo.bytes);
 });
 
 // GET /v1/prompts/:name — get a system prompt

@@ -48,8 +48,8 @@ export default function AppShell({ children }) {
   const handleStopImpersonation = () => stopImpersonation();
   const handleStartedImpersonation = () => { /* AuthContext handles navigation */ };
 
-  const classroomLogo = branding?.logoBase64 || null;
-  const classroomName = branding?.classroomName || branding?.logoAlt || 'plato';
+  const classroomLogo = branding?.logoUrl || null;
+  const classroomName = (typeof branding?.classroomName === 'string' && branding.classroomName.trim()) || 'plato';
   const accountName = user?.name || user?.username || user?.email || 'Account';
   const impersonatedLabel =
     impersonatedUser?.name || impersonatedUser?.username || impersonatedUser?.email || 'learner';

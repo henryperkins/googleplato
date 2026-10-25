@@ -48,4 +48,31 @@ describe('loadPublicBranding', () => {
     await loadPublicBranding();
     assert.equal(calls, 2);
   });
+
+  it('does not let an older request or its caller restore branding after a save', async () => {
+    let finish;
+    respond = () => new Promise(resolve => { finish = resolve; });
+    const older = loadPublicBranding();
+    const saved = { classroomName: 'New classroom' };
+    invalidatePublicBranding(saved);
+    finish({ ok: true, json: async () => ({ classroomName: 'Old classroom' }) });
+    assert.equal(await older, saved);
+    assert.equal(cachedPublicBranding(), saved);
+    assert.equal(calls, 1);
+  });
+
+  it('keeps a replacement request pending when an invalidated request finishes', async () => {
+    const finishes = [];
+    respond = () => new Promise(resolve => { finishes.push(resolve); });
+    const older = loadPublicBranding();
+    invalidatePublicBranding();
+    const newer = loadPublicBranding();
+    finishes[0]({ ok: true, json: async () => ({ classroomName: 'Old' }) });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(loadPublicBranding(), newer);
+    finishes[1]({ ok: true, json: async () => ({ classroomName: 'New' }) });
+    assert.equal((await older).classroomName, 'New');
+    assert.equal((await newer).classroomName, 'New');
+    assert.equal(calls, 2);
+  });
 });

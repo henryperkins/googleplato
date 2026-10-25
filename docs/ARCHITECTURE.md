@@ -24,8 +24,24 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   server startup — admins cannot edit prompts directly.
 - User-created lessons stored under the user's own sync-data:
   `lessons:custom-*`. User-created lesson IDs start with `custom-`.
-- Classroom branding (colors, logo, name) stored in `_system` settings, fetched
-  via `/v1/branding` (public, no auth).
+- Classroom branding metadata (colors, name, logo hash) lives in `_system`
+  settings. `/v1/branding` returns only this public metadata and a same-origin
+  logo URL. Bounded images live separately as `_branding:logo:<sha256>` records,
+  outside shared settings and bulk `_system` reads. The public
+  `/v1/branding/logo/:hash` endpoint serves immutable, cacheable image bytes with
+  an ETag, `nosniff`, and a restrictive CSP sandbox. Content-addressed assets are
+  retained so cached pages can still resolve previous logo URLs; removal clears
+  the current reference. Safe legacy inline logos remain readable and migrate
+  on the next theme save. No schema migration is required on any database adapter.
+- The theme write accepts only primary/accent hex colors, an optional trimmed
+  classroom name of at most 100 characters without control characters, and a
+  PNG/JPEG/WebP/static-SVG base64 image or `null`. Encoded logos are capped at
+  128 KiB and raster dimensions at 4096 pixels per edge; a request-body limit
+  also bounds parsing. SVG accepts only static
+  geometry/text/gradient elements with local references. The Customizer accepts
+  source files up to 5 MiB and rasterizes them to transparent PNG, preserving
+  proportions within 1024 × 128 pixels and shrinking further to meet the cap.
+  Re-upload an old oversized or unsupported SVG logo through the Customizer.
 
 ## Save observability
 
@@ -123,7 +139,25 @@ one request between auth pages (`usePublicBranding`) and the classroom
 (`BrandingProvider`), caches the result for the page session, and doesn't cache
 failures. Auth pages apply the cached colors in a layout effect, before first
 paint, so they never flash plato's default purple. Saving in the Customizer
-invalidates the cache.
+replaces the cache with the acknowledged metadata. A request generation prevents
+older in-flight requests, including their original callers, from restoring stale
+branding after a save. Logo loading no longer delays the metadata response.
+
+The Customizer loads Styles and Knowledge independently, with per-tab retry.
+Styles tracks edits against its last acknowledged save; discard restores that
+snapshot, and reset stages the seeded defaults for an explicit Save. A data-router
+navigation blocker protects links and browser history, and `beforeunload` protects
+reloads/closing the page. The existing route tree remains in `App`. Knowledge
+editor mode is derived from `/plato/customizer/knowledge/edit`, never local state.
+An omitted accent means “Match primary”; new classrooms use that mode, while
+existing explicit accents remain unchanged. Both previews use real button styles,
+classroom identity, and isolated light/dark tokens. Partial hex input keeps the
+last complete color until blur or Save accepts a shorthand value.
+
+Invitation and reset emails use the validated primary with the same WCAG
+foreground selection as the classroom. All inserted names are HTML escaped;
+the SES display name uses bounded UTF-8 MIME words, and subject/body declare UTF-8.
+The current `classroomName` takes precedence over the legacy `logoAlt` field.
 
 The light/dark choice works the same way. The header's **Dark mode** toggle
 (`ThemeToggle`) puts `.dark` on `<html>` and saves `plato_theme` in
@@ -134,7 +168,10 @@ single storage listener follows a choice made in another tab. An inline script
 in `client/index.html` reapplies the choice before the bundle loads, so a dark
 page never flashes light. That script and
 `client/src/lib/theme.js` must share the key; `client/tests/theme.test.js` runs
-the script to hold them together. Light is the default.
+the script to hold them together. With no saved choice, the first paint and the
+theme store follow `prefers-color-scheme`, including later device changes. An
+explicit light/dark choice takes precedence, even if storage is unavailable for
+the current page session. Clearing the saved choice resumes device following.
 
 A classroom's dark colors are derived, not configured. `buildThemeVars`
 (`client/src/lib/branding.js`) computes a dark header, fill, text color, and

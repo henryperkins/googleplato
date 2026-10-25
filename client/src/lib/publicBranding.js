@@ -10,6 +10,7 @@
 
 let cached = null;
 let pending = null;
+let generation = 0;
 const listeners = new Set();
 
 function notify() {
@@ -29,10 +30,14 @@ export function subscribePublicBranding(fn) {
 export function loadPublicBranding() {
   if (cached) return Promise.resolve(cached);
   if (!pending) {
+    const started = generation;
     pending = fetch('/v1/branding')
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null)
       .then((data) => {
+        // Existing callers must also receive the new generation, otherwise
+        // their own setState can restore stale branding after a save.
+        if (started !== generation) return loadPublicBranding();
         pending = null;
         if (data) {
           cached = data;
@@ -45,8 +50,9 @@ export function loadPublicBranding() {
 }
 
 /** Forget the cached branding after an admin saves new settings. */
-export function invalidatePublicBranding() {
-  cached = null;
+export function invalidatePublicBranding(saved = null) {
+  generation += 1;
+  cached = saved;
   pending = null;
   notify();
 }

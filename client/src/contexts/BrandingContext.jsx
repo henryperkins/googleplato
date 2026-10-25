@@ -9,7 +9,7 @@ import {
 } from '../lib/branding.js';
 import { cachedPublicBranding, loadPublicBranding, subscribePublicBranding } from '../lib/publicBranding.js';
 
-const EMPTY_BRANDING = { theme: null, logoBase64: null, classroomName: '' };
+const EMPTY_BRANDING = { theme: null, logoUrl: null, classroomName: '' };
 
 const BrandingContext = createContext(null);
 
@@ -49,17 +49,17 @@ export function BrandingProvider({ children }) {
   // Generate and set favicon when classroom has custom branding (logo, name, or primary color)
   useEffect(() => {
     const hasCustomBranding = Boolean(
-      branding.logoBase64 || branding.classroomName?.trim() || branding.theme?.primary
+      branding.logoUrl || branding.classroomName?.trim() || branding.theme?.primary
     );
     if (!hasCustomBranding) return;
     let cancelled = false;
     let restoreFn;
     const primaryColor = normalizeHex(branding.theme?.primary) || DEFAULT_PRIMARY;
-    generateFavicon(branding.logoBase64, primaryColor, branding.classroomName).then(dataUrl => {
+    generateFavicon(branding.logoUrl, primaryColor, branding.classroomName).then(dataUrl => {
       if (dataUrl && !cancelled) restoreFn = setFavicon(dataUrl);
     });
     return () => { cancelled = true; restoreFn?.(); };
-  }, [branding.logoBase64, branding.theme?.primary, branding.classroomName]);
+  }, [branding.logoUrl, branding.theme?.primary, branding.classroomName]);
 
   const classroomStyle = buildThemeVars(branding.theme);
 

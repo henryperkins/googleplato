@@ -1,6 +1,7 @@
 import { SES_FROM_EMAIL, APP_URL } from '../config.js';
 import db from './db.js';
 import { logger } from './logger.js';
+import { brandForeground, classroomName, publicTheme } from './branding.js';
 
 // SES is lazy-loaded on first real send: importing this module must not
 // construct a client (or require AWS credentials) on deployments that
@@ -23,17 +24,34 @@ export function emailDeliveryEnabled() {
 async function getClassroom() {
   const item = await db.getSyncData('_system', 'settings');
   const s = item?.data || {};
+  const primary = publicTheme(s.theme)?.primary || '#470d99';
   return {
-    name: s.logoAlt || 'plato',
-    primary: s.theme?.primary || '#470d99',
+    name: classroomName(s) || 'plato',
+    primary,
+    foreground: brandForeground(primary),
   };
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+}
+
+// SES requires an ASCII Source. RFC 2047 words quote punctuation as well as
+// Unicode. Keep each word below 75 characters and never split a UTF-8 character.
+function sender(name) {
+  const chunks = [''];
+  for (const character of name) {
+    if (Buffer.byteLength(chunks.at(-1) + character) > 45) chunks.push('');
+    chunks[chunks.length - 1] += character;
+  }
+  return `${chunks.map(chunk => `=?UTF-8?B?${Buffer.from(chunk).toString('base64')}?=`).join(' ')} <${SES_FROM_EMAIL}>`;
 }
 
 function emailWrapper(classroom, body) {
   return `
     <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-      <div style="background: ${classroom.primary}; color: #fff; padding: 16px 20px; border-radius: 8px 8px 0 0; font-weight: 700;">
-        ${classroom.name}
+      <div style="background: ${classroom.primary}; color: ${classroom.foreground}; padding: 16px 20px; border-radius: 8px 8px 0 0; font-weight: 700;">
+        ${escapeHtml(classroom.name)}
       </div>
       <div style="border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px; padding: 24px 20px;">
         ${body}
@@ -46,7 +64,7 @@ function emailWrapper(classroom, body) {
 }
 
 export async function sendInviteEmail(toEmail, inviteToken, invitedByName) {
-  const signupUrl = `${APP_URL}/signup?token=${inviteToken}`;
+  const signupUrl = `${APP_URL}/signup?token=${encodeURIComponent(inviteToken)}`;
 
   if (!emailDeliveryEnabled()) {
     // Never log the recipient or the tokenized URL (SEC-1): the invite link
@@ -59,7 +77,7 @@ export async function sendInviteEmail(toEmail, inviteToken, invitedByName) {
   const subject = `Welcome to ${classroom.name} — Your AI-Powered Learning Journey`;
   const html = emailWrapper(classroom, `
     <p style="color: #1a1a1a; line-height: 1.5; margin: 0 0 16px;">
-      ${invitedByName ? `${invitedByName} has invited you` : 'You\'ve been invited'} to join <strong>${classroom.name}</strong>, an AI-powered microlearning platform where you'll work through focused lessons in conversation with an AI coach.
+      ${invitedByName ? `${escapeHtml(invitedByName)} has invited you` : 'You\'ve been invited'} to join <strong>${escapeHtml(classroom.name)}</strong>, an AI-powered microlearning platform where you'll work through focused lessons in conversation with an AI coach.
     </p>
     <p style="color: #1a1a1a; line-height: 1.5; margin: 0 0 16px;">
       <strong>What to expect:</strong>
@@ -72,7 +90,7 @@ export async function sendInviteEmail(toEmail, inviteToken, invitedByName) {
     <p style="color: #1a1a1a; line-height: 1.5; margin: 0 0 20px;">
       Ready to get started? Create your account and begin your first lesson.
     </p>
-    <a href="${signupUrl}" style="display: inline-block; background: ${classroom.primary}; color: #fff; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+    <a href="${escapeHtml(signupUrl)}" style="display: inline-block; background: ${classroom.primary}; color: ${classroom.foreground}; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
       Create your account
     </a>
     <p style="color: #555; font-size: 13px; line-height: 1.5; margin: 20px 0 0;">
@@ -82,11 +100,11 @@ export async function sendInviteEmail(toEmail, inviteToken, invitedByName) {
 
   const ses = await getSes();
   await ses.client.send(new ses.SendEmailCommand({
-    Source: `${classroom.name} <${SES_FROM_EMAIL}>`,
+    Source: sender(classroom.name),
     Destination: { ToAddresses: [toEmail] },
     Message: {
-      Subject: { Data: subject },
-      Body: { Html: { Data: html } },
+      Subject: { Data: subject, Charset: 'UTF-8' },
+      Body: { Html: { Data: html, Charset: 'UTF-8' } },
     },
   }));
 
@@ -94,7 +112,7 @@ export async function sendInviteEmail(toEmail, inviteToken, invitedByName) {
 }
 
 export async function sendResetEmail(toEmail, resetToken) {
-  const resetUrl = `${APP_URL}/reset-password?reset=${resetToken}`;
+  const resetUrl = `${APP_URL}/reset-password?reset=${encodeURIComponent(resetToken)}`;
 
   if (!emailDeliveryEnabled()) {
     // Never log the recipient or the tokenized URL (SEC-1). No URL is
@@ -109,7 +127,7 @@ export async function sendResetEmail(toEmail, resetToken) {
     <p style="color: #1a1a1a; line-height: 1.5; margin: 0 0 16px;">
       A password reset was requested for your account. Click the button below to set a new password.
     </p>
-    <a href="${resetUrl}" style="display: inline-block; background: ${classroom.primary}; color: #fff; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+    <a href="${escapeHtml(resetUrl)}" style="display: inline-block; background: ${classroom.primary}; color: ${classroom.foreground}; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
       Reset password
     </a>
     <p style="color: #555; font-size: 13px; line-height: 1.5; margin: 20px 0 0;">
@@ -119,11 +137,11 @@ export async function sendResetEmail(toEmail, resetToken) {
 
   const ses = await getSes();
   await ses.client.send(new ses.SendEmailCommand({
-    Source: `${classroom.name} <${SES_FROM_EMAIL}>`,
+    Source: sender(classroom.name),
     Destination: { ToAddresses: [toEmail] },
     Message: {
-      Subject: { Data: subject },
-      Body: { Html: { Data: html } },
+      Subject: { Data: subject, Charset: 'UTF-8' },
+      Body: { Html: { Data: html, Charset: 'UTF-8' } },
     },
   }));
 

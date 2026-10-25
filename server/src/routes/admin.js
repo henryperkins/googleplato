@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
+import { MAX_CLASSROOM_NAME, MAX_LOGO_DATA_URL_CHARS, classroomName, normalizeThemeColor, parseLogo, publicBranding, publicTheme, readLogo, storeLogo } from '../lib/branding.js';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -1193,38 +1195,46 @@ admin.put('/v1/admin/knowledge-base/conversation', async (c) => {
 
 // GET /v1/admin/theme
 admin.get('/v1/admin/theme', async (c) => {
-  const item = await db.getSyncData('_system', 'settings');
+  const item = await db.getSyncData('_system', 'settings', { consistentRead: true });
   const settings = item?.data || {};
+  const logo = settings.logoHash ? await readLogo(settings.logoHash) : parseLogo(settings.logoBase64);
   return c.json({
-    theme: settings.theme || {},
-    logoBase64: settings.logoBase64 || null,
-    classroomName: settings.classroomName || settings.logoAlt || '',
+    theme: publicTheme(settings.theme) || {},
+    logoBase64: logo?.dataUrl || null,
+    classroomName: classroomName(settings),
   });
 });
 
-const HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{6})$/i;
-
-/** `#rgb` or `#rrggbb` as lowercase `#rrggbb`; null for anything else. */
-export function normalizeThemeColor(value) {
-  if (typeof value !== 'string' || !HEX_COLOR.test(value.trim())) return null;
-  const hex = value.trim().slice(1).toLowerCase();
-  return `#${hex.length === 3 ? [...hex].map((ch) => ch + ch).join('') : hex}`;
-}
+export { normalizeThemeColor };
 
 // PUT /v1/admin/theme
 // Theme colors reach every learner page header and the auth pages, so they
 // are validated here rather than trusted from the customizer form.
-admin.put('/v1/admin/theme', async (c) => {
-  const body = await c.req.json();
+admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 * 1024, onError: c => c.json({ error: 'The logo upload is too large.' }, 413) }), async (c) => {
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'A JSON object is required.' }, 400); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'A JSON object is required.' }, 400);
+  // eslint-disable-next-line no-control-regex
+  const controlCharacter = /[\u0000-\u001f\u007f]/;
+  if (body.classroomName !== undefined && (typeof body.classroomName !== 'string'
+    || body.classroomName.trim().length > MAX_CLASSROOM_NAME || controlCharacter.test(body.classroomName))) {
+    return c.json({ error: `Classroom name must be text of at most ${MAX_CLASSROOM_NAME} characters, without control characters.` }, 400);
+  }
+  let logo;
+  if (body.logoBase64 !== undefined && body.logoBase64 !== null) {
+    if (typeof body.logoBase64 === 'string' && body.logoBase64.length > MAX_LOGO_DATA_URL_CHARS) return c.json({ error: 'The encoded logo must be at most 128 KiB.' }, 413);
+    logo = parseLogo(body.logoBase64);
+    if (!logo) return c.json({ error: 'Logo must be a PNG, JPEG, WebP, or static SVG image encoded as base64, or null to remove it.' }, 400);
+  }
   let theme;
   if (body.theme !== undefined) {
     if (!body.theme || typeof body.theme !== 'object' || Array.isArray(body.theme)) {
       return c.json({ error: 'Theme must include primary and accent colors.' }, 400);
     }
-    theme = { ...body.theme };
+    theme = {};
     for (const key of ['primary', 'accent']) {
-      if (theme[key] === undefined) continue;
-      const color = normalizeThemeColor(theme[key]);
+      if (body.theme[key] === undefined) continue;
+      const color = normalizeThemeColor(body.theme[key]);
       if (!color) return c.json({ error: `The ${key} color must be a hex value like #8b1a1a.` }, 400);
       theme[key] = color;
     }
@@ -1232,13 +1242,27 @@ admin.put('/v1/admin/theme', async (c) => {
   const current = await db.getSyncData('_system', 'settings');
   const settings = { ...(current?.data || {}) };
   if (theme !== undefined) settings.theme = theme;
-  if (body.logoBase64 !== undefined) settings.logoBase64 = body.logoBase64;
-  if (body.classroomName !== undefined) {
-    settings.classroomName = body.classroomName;
-    settings.logoAlt = body.classroomName; // backward compat
+  // Migrate a legacy inline logo on the next save. Assets live outside
+  // `_system`, so bulk lesson/settings reads cannot pull them in either.
+  if (body.logoBase64 === undefined && !settings.logoHash) logo = parseLogo(settings.logoBase64);
+  if (logo) {
+    await storeLogo(logo);
+    settings.logoHash = logo.hash;
+  } else if (body.logoBase64 === null) {
+    delete settings.logoHash;
   }
-  await db.putSyncData('_system', 'settings', settings, current?.version || 0);
-  return c.json({ ok: true });
+  delete settings.logoBase64;
+  if (body.classroomName !== undefined) {
+    settings.classroomName = body.classroomName.trim();
+    settings.logoAlt = settings.classroomName; // backward compat
+  }
+  try {
+    await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') return c.json({ error: 'Settings changed in another session. Retry saving.' }, 409);
+    throw error;
+  }
+  return c.json({ ok: true, branding: publicBranding(settings) });
 });
 
 

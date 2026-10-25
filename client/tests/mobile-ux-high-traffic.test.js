@@ -250,7 +250,7 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(tabsSrc, /group-data-\[variant=default\]\/tabs-list:after:hidden/);
 
     // Links inside sentences use the inline hit area, never a 44px-tall box.
-    for (const rel of ['pages/admin/AdminHome.jsx', 'pages/admin/AdminCustomizer.jsx', 'pages/admin/AdminPlugins.jsx']) {
+    for (const rel of ['pages/admin/AdminHome.jsx', 'pages/admin/AdminStyles.jsx', 'pages/admin/AdminPlugins.jsx']) {
       const src = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');
       assert.match(src, /touch-target-inline underline/, `${rel} inline link`);
       assert.equal(/touch-target inline-flex items-center underline/.test(src), false, `${rel} stretches its sentence`);

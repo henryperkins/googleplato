@@ -4,7 +4,7 @@
  * saved choice before first paint using the same storage key, and every
  * control reads one store that follows other tabs.
  */
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,12 +50,17 @@ let root;
 let styles;
 let frames;
 let storageListeners;
+let deviceListeners;
+let device;
 beforeEach(() => {
   root = fakeRoot();
   styles = new Set();
   frames = [];
   storageListeners = new Set();
+  deviceListeners = new Set();
+  device = { matches: false, addEventListener: (_type, listener) => deviceListeners.add(listener), removeEventListener: (_type, listener) => deviceListeners.delete(listener) };
   globalThis.window = {
+    matchMedia: () => device,
     addEventListener: (type, listener) => { if (type === 'storage') storageListeners.add(listener); },
     removeEventListener: (type, listener) => { if (type === 'storage') storageListeners.delete(listener); },
   };
@@ -73,14 +78,21 @@ beforeEach(() => {
 
 const nextFrame = () => frames.splice(0).forEach((callback) => callback());
 const transitionsPaused = () => [...styles].some((el) => /transition:\s*none/.test(el.textContent));
+afterEach(() => {
+  // A fresh page has no volatile choice left over from blocked storage.
+  globalThis.localStorage = fakeStorage();
+  saveTheme('light');
+});
 
 describe('theme choice', () => {
-  it('defaults to light when nothing usable is saved', () => {
+  it('uses the device when nothing usable is saved', () => {
     assert.equal(storedTheme(), 'light');
+    device.matches = true;
+    assert.equal(storedTheme(), 'dark');
     localStorage.setItem(THEME_STORAGE_KEY, 'sepia');
-    assert.equal(storedTheme(), 'light');
+    assert.equal(storedTheme(), 'dark');
     globalThis.localStorage = unavailableStorage;
-    assert.equal(storedTheme(), 'light');
+    assert.equal(storedTheme(), 'dark');
   });
 
   it('puts .dark on <html> and remembers the choice', () => {
@@ -99,6 +111,16 @@ describe('theme choice', () => {
     globalThis.localStorage = unavailableStorage;
     assert.doesNotThrow(() => saveTheme('dark'));
     assert.equal(currentTheme(), 'dark');
+  });
+
+  it('keeps a session choice when storage is readable but writes fail', () => {
+    const stop = subscribeTheme(() => {});
+    localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+    saveTheme('dark');
+    assert.equal(storedTheme(), 'dark');
+    for (const listener of deviceListeners) listener();
+    assert.equal(currentTheme(), 'dark');
+    stop();
   });
 
   it('shows a theme saved elsewhere without saving it again', () => {
@@ -120,12 +142,12 @@ describe('theme choice', () => {
 describe('first paint', () => {
   // Run index.html's inline <head> script the way the browser does: before
   // the body paints and before the app's module script loads.
-  function firstPaint(storage) {
+  function firstPaint(storage, darkDevice = false) {
     const head = read('index.html').split('</head>')[0];
     const inline = [...head.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join('\n');
     assert.ok(inline, 'index.html should apply the saved theme from an inline script in <head>');
     const documentElement = fakeRoot();
-    vm.runInNewContext(inline, { localStorage: storage, document: { documentElement } });
+    vm.runInNewContext(inline, { localStorage: storage, document: { documentElement }, window: { matchMedia: () => ({ matches: darkDevice }) } });
     return documentElement.classList.contains('dark') ? 'dark' : 'light';
   }
 
@@ -136,6 +158,9 @@ describe('first paint', () => {
     assert.equal(firstPaint(localStorage), 'light');
     assert.equal(firstPaint(fakeStorage()), 'light');
     assert.equal(firstPaint(unavailableStorage), 'light');
+    assert.equal(firstPaint(fakeStorage(), true), 'dark');
+    assert.equal(firstPaint(unavailableStorage, true), 'dark');
+    assert.equal(firstPaint(localStorage, true), 'light', 'a saved light choice overrides a dark device');
   });
 
   it('switches native controls and scrollbars with the theme', () => {
@@ -146,6 +171,23 @@ describe('first paint', () => {
 });
 
 describe('theme store', () => {
+  it('follows device changes until an explicit choice is saved', () => {
+    const seen = [];
+    const stop = subscribeTheme(() => seen.push(currentTheme()));
+    assert.equal(deviceListeners.size, 1);
+    device.matches = true;
+    for (const listener of deviceListeners) listener();
+    assert.equal(currentTheme(), 'dark');
+    saveTheme('light');
+    for (const listener of deviceListeners) listener();
+    assert.equal(currentTheme(), 'light');
+    localStorage.setItem(THEME_STORAGE_KEY, '');
+    for (const listener of storageListeners) listener({ key: null });
+    assert.equal(currentTheme(), 'dark');
+    assert.deepEqual(seen, ['dark', 'light', 'dark']);
+    stop();
+    assert.equal(deviceListeners.size, 0);
+  });
   it('tells every subscriber when the theme changes, until it unsubscribes', () => {
     const seen = [];
     const stopA = subscribeTheme(() => seen.push(`a:${currentTheme()}`));

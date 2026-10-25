@@ -78,10 +78,10 @@ describe('Admin state as text and semantics', () => {
   });
 
   it('announces logo errors and validates hex colors', () => {
-    const customizer = read('pages/admin/AdminCustomizer.jsx');
+    const customizer = read('pages/admin/AdminStyles.jsx');
     assert.match(customizer, /<p id="logo-file-error" className="text-sm text-destructive" role="alert">/);
     assert.match(customizer, /aria-describedby=\{logoError \? 'logo-file-error logo-file-hint' : 'logo-file-hint'\}/);
-    assert.match(customizer, /aria-invalid=\{colorErrors\.primary \? true : undefined\}/);
+    assert.match(customizer, /aria-invalid=\{colorErrors\[field\] \? true : undefined\}/);
     assert.match(customizer, /<CardTitle as="h2">Colors<\/CardTitle>/);
   });
 
