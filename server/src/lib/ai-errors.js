@@ -55,7 +55,9 @@ export function classifyAiError(err) {
   return { code, message: MESSAGES[code] };
 }
 
-const IDENTIFIER = /^[\w.-]{1,64}$/;
+// No spaces or dots: error names, codes and reasons never need them, and a
+// hostname or IP address can't pass.
+const IDENTIFIER = /^[\w-]{1,64}$/;
 /** An error name or code fit for logs, or null for anything that could be free text. */
 export const safeIdentifier = value => typeof value === 'string' && IDENTIFIER.test(value) ? value : null;
 const CREDENTIAL_SOURCES = new Set(['oauth', 'oauth-refreshed', 'environment']);

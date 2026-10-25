@@ -98,6 +98,8 @@ describe('aiErrorDiagnostics', () => {
     });
     assert.equal(safeIdentifier('UND_ERR_CONNECT_TIMEOUT'), 'UND_ERR_CONNECT_TIMEOUT');
     assert.equal(safeIdentifier('57P01'), '57P01');
+    assert.equal(safeIdentifier('reconnect-required'), 'reconnect-required');
     assert.equal(safeIdentifier(20), null);
+    for (const value of ['10.1.2.3', 'dash.cloudflare.com', 'fd00::1']) assert.equal(safeIdentifier(value), null, value);
   });
 });
