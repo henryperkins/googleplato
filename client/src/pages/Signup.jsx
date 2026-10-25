@@ -15,6 +15,7 @@ import {
   Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter,
 } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
+import ClassroomLogo from '../components/ClassroomLogo.jsx';
 
 export default function Signup() {
   const [searchParams] = useSearchParams();
@@ -218,7 +219,7 @@ export default function Signup() {
 
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
-      {branding.logo ? (<img src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-auto max-w-full mb-6 object-contain" />) : (<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</p>)}
+      <ClassroomLogo src={branding.logo} alt={branding.classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-auto max-w-full mb-6 object-contain" fallback={<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{branding.classroomName}</p>} />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle as="h1" className="text-2xl">Create your account</CardTitle>

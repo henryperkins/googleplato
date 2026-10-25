@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import slackPlugin from '../../../plugins/slack/server/index.js';
+import slackPlugin, { inviteMessage } from '../../../plugins/slack/server/index.js';
 import db from '../../src/lib/db.js';
 import { signAccessToken } from '../../src/lib/jwt.js';
 
@@ -129,21 +129,20 @@ describe('Slack routes that need a stored token', () => {
   });
 });
 
-describe('Slack invite message — grammar', () => {
+describe('Slack invite message', () => {
+  const url = 'https://plato.example/signup?token=t';
+
   it('reads correctly for both named and unnamed admins', () => {
-    // We can't easily run the full invite flow without mocking Slack API + email,
-    // but we can spot-check the message-template logic by inspecting the source:
-    // - With name:    "${name} has invited you to join *${classroom}*."
-    // - Without name: "You've been invited to join *${classroom}*."
+    assert.match(inviteMessage('Alice', 'Acme', url), /^Alice has invited you to join \*Acme\*\./);
+    assert.match(inviteMessage(null, 'Acme', url), /^You've been invited to join \*Acme\*\./);
+    assert.match(inviteMessage('', 'Acme', url), /^You've been invited to join \*Acme\*\./);
     // The previous bug was "You've been invited you to join" (double "you").
-    const compose = (name, classroom) => {
-      const opener = name ? `${name} has invited you` : `You've been invited`;
-      return `${opener} to join *${classroom}*.`;
-    };
-    assert.equal(compose('Alice', 'Acme'), 'Alice has invited you to join *Acme*.');
-    assert.equal(compose(null, 'Acme'), "You've been invited to join *Acme*.");
-    assert.equal(compose('', 'Acme'), "You've been invited to join *Acme*.");
-    // Critically, the unnamed branch must NOT produce "invited you you to join":
-    assert.doesNotMatch(compose(null, 'Acme'), /invited you you/);
+    assert.doesNotMatch(inviteMessage(null, 'Acme', url), /invited you you/);
+  });
+
+  it('escapes Slack control characters in names but keeps the signup link', () => {
+    const message = inviteMessage('<!channel> & Co', 'R&D <Lab>', url);
+    assert.match(message, /^&lt;!channel&gt; &amp; Co has invited you to join \*R&amp;D &lt;Lab&gt;\*\./);
+    assert.ok(message.includes(`<${url}|Create your account>`));
   });
 });

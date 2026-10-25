@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
@@ -22,22 +22,26 @@ function useResource(path) {
   }, [path, attempt]);
   return {
     ...state,
+    // The error stays up, with its button showing progress, until the retry settles.
     retry: () => {
-      setState(previous => ({ ...previous, loading: true, error: null }));
+      setState(previous => ({ ...previous, loading: true }));
       setAttempt(value => value + 1);
     },
     update: data => setState({ loading: false, data, error: null }),
   };
 }
 
-function ResourceState({ resource, name, children }) {
-  if (resource.loading) return <p className="py-12 text-muted-foreground" role="status">Loading {name}...</p>;
+function ResourceState({ resource, name, onRetry, children }) {
   if (resource.error) return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 text-sm text-danger-foreground" role="alert">
       <span>{name} could not be loaded. {resource.error}</span>
-      <Button variant="outline" size="sm" onClick={resource.retry}>Retry {name.toLowerCase()}</Button>
+      {/* The button leaves when the retry succeeds, so focus first moves to the page heading. */}
+      <Button variant="outline" size="sm" disabled={resource.loading} focusableWhenDisabled onClick={() => { onRetry(); resource.retry(); }}>
+        {resource.loading ? 'Retrying…' : `Retry ${name.toLowerCase()}`}
+      </Button>
     </div>
   );
+  if (resource.loading) return <p className="py-12 text-muted-foreground" role="status">Loading {name}...</p>;
   return children;
 }
 
@@ -50,24 +54,26 @@ export default function AdminCustomizer() {
   const styles = useResource('/v1/admin/theme');
   const knowledge = useResource('/v1/admin/knowledge-base');
   const kb = knowledge.data || {};
+  const headingRef = useRef(null);
+  const focusHeading = () => headingRef.current?.focus();
 
   useEffect(() => { document.title = 'Classroom Customizer — plato'; }, []);
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-4">Classroom Customizer</h1>
+      <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold mb-4">Classroom Customizer</h1>
       <Tabs value={tab} onValueChange={value => navigate(value === 'knowledge' ? '/plato/customizer/knowledge' : '/plato/customizer', { replace: true })} className="space-y-4">
         <TabsList aria-label="Customizer sections">
           <TabsTrigger value="styles">Styles</TabsTrigger>
           <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
         </TabsList>
         <TabsContent value="styles">
-          <ResourceState resource={styles} name="Styles">
+          <ResourceState resource={styles} name="Styles" onRetry={focusHeading}>
             {styles.data && <AdminStyles initialData={styles.data} onSaved={styles.update} />}
           </ResourceState>
         </TabsContent>
         <TabsContent value="knowledge">
-          <ResourceState resource={knowledge} name="Knowledge base">
+          <ResourceState resource={knowledge} name="Knowledge base" onRetry={focusHeading}>
             {editing ? (
               <div>
                 <div className="flex items-center gap-3 mb-4">

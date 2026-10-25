@@ -282,52 +282,70 @@ export function generateFavicon(logoBase64, primaryColor, classroomName = '') {
   return new Promise((resolve) => {
     const bg = normalizeHex(primaryColor) || DEFAULT_PRIMARY;
     const size = 32;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
+    // A fresh tile each time: a canvas that drew an unreadable image stays tainted.
+    const tile = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
 
-    // Rounded rect background
-    const radius = 6;
-    ctx.beginPath();
-    ctx.moveTo(radius, 0);
-    ctx.lineTo(size - radius, 0);
-    ctx.quadraticCurveTo(size, 0, size, radius);
-    ctx.lineTo(size, size - radius);
-    ctx.quadraticCurveTo(size, size, size - radius, size);
-    ctx.lineTo(radius, size);
-    ctx.quadraticCurveTo(0, size, 0, size - radius);
-    ctx.lineTo(0, radius);
-    ctx.quadraticCurveTo(0, 0, radius, 0);
-    ctx.closePath();
-    ctx.fillStyle = bg;
-    ctx.fill();
-
-    if (logoBase64) {
-      // Draw logo image centered with padding
-      const img = new Image();
-      img.onload = () => {
-        const pad = 4;
-        const area = size - pad * 2;
-        const scale = Math.min(area / img.width, area / img.height);
-        const w = img.width * scale;
-        const h = img.height * scale;
-        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-        resolve(canvas.toDataURL('image/png'));
-      };
-      img.onerror = () => resolve(null);
-      img.src = logoBase64;
-    } else {
-      // Draw text initial
-      const initial = ((classroomName || '').trim() || 'P').charAt(0).toUpperCase();
-      const textColor = contrastText(bg);
-      ctx.fillStyle = textColor;
+      // Rounded rect background
+      const radius = 6;
+      ctx.beginPath();
+      ctx.moveTo(radius, 0);
+      ctx.lineTo(size - radius, 0);
+      ctx.quadraticCurveTo(size, 0, size, radius);
+      ctx.lineTo(size, size - radius);
+      ctx.quadraticCurveTo(size, size, size - radius, size);
+      ctx.lineTo(radius, size);
+      ctx.quadraticCurveTo(0, size, 0, size - radius);
+      ctx.lineTo(0, radius);
+      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.closePath();
+      ctx.fillStyle = bg;
+      ctx.fill();
+      return { canvas, ctx };
+    };
+    const drawInitial = () => {
+      const { canvas, ctx } = tile();
+      // The first character, never half of a surrogate pair.
+      const initial = (Array.from((classroomName || '').trim())[0] || 'P').toUpperCase();
+      ctx.fillStyle = contrastText(bg);
       ctx.font = 'bold 20px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(initial, size / 2, size / 2 + 1);
       resolve(canvas.toDataURL('image/png'));
+    };
+
+    if (!logoBase64) {
+      drawInitial();
+      return;
     }
+    // Draw logo image centered with padding
+    const img = new Image();
+    img.onload = () => {
+      // A wordmark wider than 2:1 would shrink to an unreadable strip; the initial reads better.
+      if (!img.width || !img.height || img.width > img.height * 2) {
+        drawInitial();
+        return;
+      }
+      const { canvas, ctx } = tile();
+      const pad = 4;
+      const area = size - pad * 2;
+      const scale = Math.min(area / img.width, area / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+      try {
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        drawInitial();
+      }
+    };
+    // A logo that fails to load still gets the classroom's tile.
+    img.onerror = drawInitial;
+    img.src = logoBase64;
   });
 }
 

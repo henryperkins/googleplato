@@ -8,20 +8,41 @@ import { signAccessToken } from '../../src/lib/jwt.js';
 
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==';
 const svg = text => `data:image/svg+xml;base64,${Buffer.from(text).toString('base64')}`;
+// A structurally valid PNG of any declared size, padded to a given byte length.
+function pngOf(width, height, padding = 0) {
+  const chunk = (type, data) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    return Buffer.concat([length, Buffer.from(type, 'ascii'), data, Buffer.alloc(4)]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const bytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', Buffer.alloc(padding, 1)), chunk('IEND', Buffer.alloc(0))]);
+  return `data:image/png;base64,${bytes.toString('base64')}`;
+}
 const app = new Hono();
 app.route('/', admin);
 app.route('/', content);
 let records;
 let originals;
-async function put(body) {
+async function put(body, path = '/v1/admin/theme') {
   const token = await signAccessToken('admin', 'admin');
-  return app.request('/v1/admin/theme', { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return app.request(path, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+async function adminTheme() {
+  const token = await signAccessToken('admin', 'admin');
+  return (await app.request('/v1/admin/theme', { headers: { Authorization: `Bearer ${token}` } })).json();
 }
 const settings = () => records.get('_system/settings')?.data;
+const assets = () => [...records.keys()].filter(key => key.startsWith('_branding/'));
+const hashOf = url => url.split('/').pop();
 
 describe('branding boundary', () => {
   beforeEach(() => {
-    originals = { getSyncData: db.getSyncData, putSyncData: db.putSyncData, getUserById: db.getUserById };
+    originals = { getSyncData: db.getSyncData, putSyncData: db.putSyncData, deleteSyncData: db.deleteSyncData, getUserById: db.getUserById };
     records = new Map([['_system/settings', { version: 4, data: { userGroups: ['Staff'], customUserFields: [{ id: 'team' }] } }]]);
     db.getUserById = async () => ({ userId: 'admin', role: 'admin' });
     db.getSyncData = async (user, key) => records.get(`${user}/${key}`) || null;
@@ -30,6 +51,7 @@ describe('branding boundary', () => {
       records.set(`${user}/${key}`, item);
       return item;
     };
+    db.deleteSyncData = async (user, key) => { records.delete(`${user}/${key}`); };
   });
   afterEach(() => Object.assign(db, originals));
 
@@ -135,5 +157,105 @@ describe('branding boundary', () => {
     const response = await put({ classroomName: 'Unacknowledged' });
     assert.equal(response.status, 409);
     assert.equal(settings().classroomName, undefined);
+  });
+
+  it('keeps showing logos saved before the size limit, and moves them out of settings on the next save', async () => {
+    const legacy = pngOf(512, 512, 150 * 1024);
+    assert.ok(legacy.length > 128 * 1024);
+    Object.assign(settings(), { logoBase64: legacy });
+    const { logoUrl } = await (await app.request('/v1/branding')).json();
+    assert.match(logoUrl, /^\/v1\/branding\/logo\/[a-f0-9]{64}$/);
+    assert.equal((await app.request(logoUrl)).status, 200);
+    const view = await adminTheme();
+    assert.equal(view.logoBase64, legacy);
+    assert.equal(view.logoLegacy, true);
+    assert.equal((await put({ classroomName: 'Renamed' })).status, 200);
+    assert.equal(settings().logoBase64, undefined);
+    assert.equal(settings().logoHash, hashOf(logoUrl));
+    assert.equal(records.get(`_branding/logo:${hashOf(logoUrl)}`).data.legacy, true);
+    assert.equal((await (await app.request('/v1/branding')).json()).logoUrl, logoUrl);
+    assert.equal((await app.request(logoUrl)).status, 200);
+    assert.equal((await adminTheme()).logoLegacy, true);
+  });
+
+  it('keeps showing design-tool SVGs saved before the allowlist, sandboxed, and accepts them sent back unchanged', async () => {
+    const legacy = svg('<?xml version="1.0"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg xmlns="http://www.w3.org/2000/svg" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" viewBox="0 0 10 10"><sodipodi:namedview pagecolor="#ffffff"/><defs><style>.a{fill:#123456}</style></defs><path class="a" d="M0 0h10v10H0z"/></svg>');
+    Object.assign(settings(), { logoBase64: legacy });
+    const { logoUrl } = await (await app.request('/v1/branding')).json();
+    const logo = await app.request(logoUrl);
+    assert.equal(logo.headers.get('content-type'), 'image/svg+xml');
+    assert.match(logo.headers.get('content-security-policy'), /sandbox/);
+    assert.equal((await put({ logoBase64: legacy, classroomName: 'Kept' })).status, 200);
+    assert.equal(settings().logoHash, hashOf(logoUrl));
+    assert.equal((await put({ logoBase64: svg('<svg xmlns="http://www.w3.org/2000/svg"><style>.b{fill:red}</style></svg>') })).status, 400);
+    Object.assign(settings(), { logoHash: undefined, logoBase64: svg('<!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg">&a;</svg>') });
+    assert.equal((await (await app.request('/v1/branding')).json()).logoUrl, null);
+  });
+
+  it('never deletes an inline logo it cannot show until the admin replaces or removes it', async () => {
+    Object.assign(settings(), { logoBase64: 'https://example.com/logo.png' });
+    assert.equal((await (await app.request('/v1/branding')).json()).logoUrl, null);
+    assert.equal((await put({ classroomName: 'Renamed', theme: { primary: '#123456' } })).status, 200);
+    assert.equal(settings().logoBase64, 'https://example.com/logo.png');
+    assert.equal((await put({ logoBase64: null })).status, 200);
+    assert.equal(settings().logoBase64, undefined);
+  });
+
+  it('rejects SVG <use> expansion and large decoded areas in new uploads', async () => {
+    let defs = '<rect id="l0" width="1" height="1"/>';
+    for (let i = 1; i <= 5; i++) defs += `<g id="l${i}">${`<use href="#l${i - 1}"/>`.repeat(10)}</g>`;
+    assert.equal((await put({ logoBase64: svg(`<svg xmlns="http://www.w3.org/2000/svg"><defs>${defs}</defs><use href="#l5"/></svg>`) })).status, 400);
+    assert.equal((await put({ logoBase64: svg('<svg xmlns="http://www.w3.org/2000/svg"><g id="a"><use href="#a"/></g></svg>') })).status, 400);
+    assert.equal((await put({ logoBase64: svg('<svg xmlns="http://www.w3.org/2000/svg"><defs><path id="p" d="M0 0h1v1z"/></defs><use href="#p"/><use href="#p" x="2"/></svg>') })).status, 200);
+    assert.equal((await put({ logoBase64: pngOf(4096, 4096) })).status, 400);
+    assert.equal((await put({ logoBase64: pngOf(2048, 512) })).status, 200);
+  });
+
+  it('deletes replaced and removed logo assets, so their old URLs stop resolving', async () => {
+    assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 200);
+    const first = (await (await app.request('/v1/branding')).json()).logoUrl;
+    assert.equal((await put({ logoBase64: pngOf(32, 8) })).status, 200);
+    const second = (await (await app.request('/v1/branding')).json()).logoUrl;
+    assert.notEqual(first, second);
+    assert.equal((await app.request(first)).status, 404);
+    assert.equal((await app.request(second)).status, 200);
+    assert.equal((await put({ logoBase64: null })).status, 200);
+    assert.equal((await app.request(second)).status, 404);
+    assert.deepEqual(assets(), []);
+  });
+
+  it('removes an asset it created when the settings write conflicts', async () => {
+    const write = db.putSyncData;
+    db.putSyncData = async (user, ...rest) => {
+      if (user === '_system') throw Object.assign(new Error('Conflict'), { name: 'ConditionalCheckFailedException' });
+      return write(user, ...rest);
+    };
+    assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 409);
+    assert.deepEqual(assets(), []);
+  });
+
+  it('reads settings with strong consistency before its versioned write', async () => {
+    const reads = [];
+    const read = db.getSyncData;
+    db.getSyncData = async (user, key, options) => { reads.push(`${user}/${key}:${options?.consistentRead === true}`); return read(user, key); };
+    assert.equal((await put({ classroomName: 'Consistent' })).status, 200);
+    assert.deepEqual(reads.filter(read => read.startsWith('_system/settings')), ['_system/settings:true']);
+  });
+
+  it('rejects names that are not well-formed Unicode, and never cuts a stored name inside a character', async () => {
+    assert.equal((await put({ classroomName: 'Acme\ud83e' })).status, 400);
+    settings().classroomName = `${'a'.repeat(99)}🦉 Academy`;
+    const { classroomName } = await (await app.request('/v1/branding')).json();
+    assert.ok(classroomName.isWellFormed());
+    assert.equal(classroomName, `${'a'.repeat(99)}🦉`);
+  });
+
+  it('keeps branding out of the raw settings merge', async () => {
+    for (const key of ['theme', 'classroomName', 'logoAlt', 'logoBase64', 'logoHash']) {
+      assert.equal((await put({ [key]: 'x' }, '/v1/admin/settings')).status, 400, key);
+    }
+    assert.equal((await put({ welcome: 'Hello' }, '/v1/admin/settings')).status, 200);
+    assert.equal(settings().welcome, 'Hello');
+    assert.deepEqual(settings().userGroups, ['Staff']);
   });
 });

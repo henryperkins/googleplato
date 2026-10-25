@@ -11,6 +11,7 @@ import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
+import { MAX_CLASSROOM_NAME } from '../lib/logoUpload.js';
 
 const SETUP_DRAFT_KEY = 'plato_setup_draft';
 
@@ -153,12 +154,13 @@ export default function Setup() {
                 enterKeyHint="next"
                 placeholder="e.g. AI Leaders Academy"
                 autoComplete="organization"
+                maxLength={MAX_CLASSROOM_NAME}
                 aria-describedby="setup-classroom-hint"
                 value={classroomName}
                 onChange={e => setClassroomName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); nameRef.current?.focus(); } }}
               />
-              <p id="setup-classroom-hint" className="text-xs text-muted-foreground">This appears in the header and on login pages. You can change it later.</p>
+              <p id="setup-classroom-hint" className="text-xs text-muted-foreground">This appears in the header and on login pages. Up to 100 characters; you can change it later.</p>
             </div>
             <hr className="border-border" />
             <Button

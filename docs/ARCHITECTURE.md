@@ -29,19 +29,34 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   logo URL. Bounded images live separately as `_branding:logo:<sha256>` records,
   outside shared settings and bulk `_system` reads. The public
   `/v1/branding/logo/:hash` endpoint serves immutable, cacheable image bytes with
-  an ETag, `nosniff`, and a restrictive CSP sandbox. Content-addressed assets are
-  retained so cached pages can still resolve previous logo URLs; removal clears
-  the current reference. Safe legacy inline logos remain readable and migrate
-  on the next theme save. No schema migration is required on any database adapter.
+  an ETag, `nosniff`, and a restrictive CSP sandbox. Replacing or removing the
+  logo deletes the previous asset after the settings write succeeds, so a
+  mistaken upload stops resolving; pages that cached it keep their copy, and a
+  logo that fails to load shows the classroom name instead. No schema migration
+  is required on any database adapter.
+- Logos saved by earlier versions stay visible. Stored logos (inline legacy
+  values and existing assets) are read by looser rules than new uploads: data
+  URLs up to 2 MiB, and any SVG without entity declarations, since they only
+  render through `<img>` and the logo endpoint sandboxes direct navigation. The
+  next theme save moves a readable inline logo into its own asset, marked
+  `legacy`. An inline value that can't be shown, such as a URL, is never deleted
+  by an unrelated save; replacing or removing the logo clears it. Sending the
+  current logo back unchanged is not treated as an upload. The Customizer flags
+  legacy logos, which the old pipeline padded into 512 × 512 squares, and
+  **Optimize logo** trims that padding and prepares the logo again.
 - The theme write accepts only primary/accent hex colors, an optional trimmed
-  classroom name of at most 100 characters without control characters, and a
-  PNG/JPEG/WebP/static-SVG base64 image or `null`. Encoded logos are capped at
-  128 KiB and raster dimensions at 4096 pixels per edge; a request-body limit
-  also bounds parsing. SVG accepts only static
-  geometry/text/gradient elements with local references. The Customizer accepts
-  source files up to 5 MiB and rasterizes them to transparent PNG, preserving
-  proportions within 1024 × 128 pixels and shrinking further to meet the cap.
-  Re-upload an old oversized or unsupported SVG logo through the Customizer.
+  classroom name of at most 100 characters of well-formed text without control
+  characters, and a PNG/JPEG/WebP/static-SVG base64 image or `null`. First-run
+  setup (`/v1/auth/setup` and Google setup) checks the name the same way, and
+  the raw `PUT /v1/admin/settings` merge refuses branding fields. Encoded logos
+  are capped at 128 KiB, raster dimensions at 4096 pixels per edge and 1024 × 1024
+  pixels in area; a request-body limit also bounds parsing. SVG accepts only
+  static geometry/text/gradient elements with local references, and at most
+  10,000 rendered elements once `<use>` references are expanded. The Customizer
+  accepts source files up to 5 MiB and rasterizes them to transparent PNG,
+  preserving proportions within 1024 × 128 pixels (vector sources grow to fill
+  it), shrinking in halving steps, and further to meet the cap. The classroom
+  name is read by code point, so a stored name is never cut inside a character.
 
 ## Save observability
 
@@ -149,15 +164,26 @@ snapshot, and reset stages the seeded defaults for an explicit Save. A data-rout
 navigation blocker protects links and browser history, and `beforeunload` protects
 reloads/closing the page. The existing route tree remains in `App`. Knowledge
 editor mode is derived from `/plato/customizer/knowledge/edit`, never local state.
-An omitted accent means “Match primary”; new classrooms use that mode, while
-existing explicit accents remain unchanged. Both previews use real button styles,
-classroom identity, and isolated light/dark tokens. Partial hex input keeps the
-last complete color until blur or Save accepts a shorthand value.
+An omitted accent, or one equal to the primary, means “Match primary”; new
+classrooms use that mode, while a different saved accent stays independent.
+Unmatching starts the accent from the color it was showing. Save sends only the
+fields that would publish something different, so an unchanged logo is never
+resent and a stale form can't overwrite another admin's name or logo; edits that
+publish nothing (trailing spaces, a matched accent) don't count as unsaved. Both
+previews use real button styles, classroom identity, and isolated light/dark
+tokens; their sample controls are inert. Partial hex input keeps the last
+complete color until blur or Save accepts a shorthand value, with or without the
+`#`. Pressing an action button keeps focus in a hex field, so committing a
+shorthand value can't reflow the button away before the click lands.
 
 Invitation and reset emails use the validated primary with the same WCAG
-foreground selection as the classroom. All inserted names are HTML escaped;
-the SES display name uses bounded UTF-8 MIME words, and subject/body declare UTF-8.
-The current `classroomName` takes precedence over the legacy `logoAlt` field.
+foreground selection as the classroom; a primary under 3:1 against white gets a
+visible header and button edge, and the footer is #666 (5.7:1). All inserted
+names are HTML escaped and made well-formed, since a lone surrogate makes the
+SES SDK's encoding throw. The SES display name stays plain for simple names,
+is quoted for other ASCII, and otherwise uses bounded UTF-8 MIME words; only the
+address of a `Name <address>` sender setting is used. Subject and body declare
+UTF-8. The current `classroomName` takes precedence over the legacy `logoAlt` field.
 
 The light/dark choice works the same way. The header's **Dark mode** toggle
 (`ThemeToggle`) puts `.dark` on `<html>` and saves `plato_theme` in
@@ -169,7 +195,9 @@ in `client/index.html` reapplies the choice before the bundle loads, so a dark
 page never flashes light. That script and
 `client/src/lib/theme.js` must share the key; `client/tests/theme.test.js` runs
 the script to hold them together. With no saved choice, the first paint and the
-theme store follow `prefers-color-scheme`, including later device changes. An
+theme store follow `prefers-color-scheme`, including later device changes;
+`main.jsx` keeps one subscription for the page's life, so pages without a theme
+control follow them too. An
 explicit light/dark choice takes precedence, even if storage is unavailable for
 the current page session. Clearing the saved choice resumes device following.
 
