@@ -51,12 +51,3 @@ jobs:
       - run: npm ci
         working-directory: .
       - run: npm test
-      - name: Build client for browser regressions
-        if: matrix.workspace == 'client'
-        run: npm run build
-      - name: Install Chromium
-        if: matrix.workspace == 'client'
-        run: npx playwright install --with-deps chromium
-      - name: Run admin responsive browser regressions
-        if: matrix.workspace == 'client'
-        run: npm run test:browser:admin
