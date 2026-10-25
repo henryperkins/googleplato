@@ -216,6 +216,21 @@ export async function createPostgresDatabase(pool) {
         return writeSync(client, userId, dataKey, data, (expectedVersion || 0) + 1);
       }, userId);
     },
+    putBrandingSettings(data, expectedVersion, { logo = null, previousLogoHash = null } = {}) {
+      // The settings lock also serializes asset publication/restoration and
+      // cleanup across connections. An asset is never deleted after this commit.
+      return transaction(async client => {
+        const current = (await client.query('SELECT version FROM sync_data WHERE user_id = $1 AND data_key = $2', ['_system', 'settings'])).rows[0];
+        if (expectedVersion === 0 ? !!current : !current || current.version !== expectedVersion) throw conflict('Settings changed');
+        if (logo) await writeSync(client, '_branding', `logo:${logo.hash}`,
+          { dataUrl: logo.dataUrl, ...(logo.legacy ? { legacy: true } : {}) }, 1);
+        const saved = await writeSync(client, '_system', 'settings', data, expectedVersion + 1);
+        if (previousLogoHash && previousLogoHash !== data.logoHash) {
+          await client.query('DELETE FROM sync_data WHERE user_id = $1 AND data_key = $2', ['_branding', `logo:${previousLogoHash}`]);
+        }
+        return saved;
+      }, '_system');
+    },
     getLessonState: (userId, lessonId) => readLesson(pool, userId, lessonId),
     commitLessonTurn(userId, lessonId, base, desired) {
       return transaction(async client => {

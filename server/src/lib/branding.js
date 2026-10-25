@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { DOMParser } from 'linkedom';
 import db from './db.js';
-import { logger } from './logger.js';
 
 // The encoded value is bounded, not just the decoded image: DynamoDB stores
 // base64 as text. Keep these limits aligned with client/src/lib/logoUpload.js.
@@ -224,29 +223,6 @@ export async function readLogo(hash, legacySettings) {
   const stored = parseLogo(item?.data?.dataUrl, { legacy: true });
   const logo = stored ? { ...stored, legacy: item.data.legacy === true } : { ...legacyLogo(legacySettings), legacy: true };
   return logo.hash === hash ? logo : null;
-}
-
-/** Store a logo asset. Identical uploads share one content-addressed row. */
-export async function storeLogo(logo) {
-  const key = `logo:${logo.hash}`;
-  if (await db.getSyncData(LOGO_OWNER, key, { consistentRead: true })) return;
-  await db.putSyncData(LOGO_OWNER, key, { dataUrl: logo.dataUrl, ...(logo.legacy ? { legacy: true } : {}) }, 0);
-}
-
-/**
- * Remove a logo asset that settings no longer point to, so a replaced or
- * removed logo stops being fetchable by its URL. Best effort: a leftover row
- * costs only storage, and the save it follows has already succeeded.
- */
-export async function deleteUnusedLogo(hash) {
-  if (!HASH.test(hash || '')) return;
-  try {
-    const current = await db.getSyncData('_system', 'settings', { consistentRead: true });
-    if (current?.data?.logoHash === hash) return;
-    await db.deleteSyncData(LOGO_OWNER, `logo:${hash}`);
-  } catch (error) {
-    logger.warn('branding_logo_cleanup_failed', { reason: error.name });
-  }
 }
 
 /** Same WCAG foreground selection as client branding, including the black fallback. */

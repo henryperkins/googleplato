@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { MAX_LOGO_DATA_URL_CHARS, classroomName, classroomNameError, currentLogoHash, deleteUnusedLogo, legacyLogo, normalizeThemeColor, parseLogo, publicBranding, publicTheme, readLogo, storeLogo } from '../lib/branding.js';
+import { MAX_LOGO_DATA_URL_CHARS, classroomName, classroomNameError, currentLogoHash, legacyLogo, normalizeThemeColor, parseLogo, publicBranding, publicTheme, readLogo } from '../lib/branding.js';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -1263,7 +1263,6 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   if (!logo && legacy && body.logoBase64 !== null) logo = { ...legacy, legacy: true };
   if (theme !== undefined) settings.theme = theme;
   if (logo) {
-    await storeLogo(logo);
     settings.logoHash = logo.hash;
     delete settings.logoBase64;
   } else if (body.logoBase64 === null) {
@@ -1275,14 +1274,11 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
     settings.logoAlt = settings.classroomName; // backward compat
   }
   try {
-    await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+    await db.putBrandingSettings(settings, current?.version || 0, { logo, previousLogoHash: previousHash });
   } catch (error) {
-    // A new asset stays behind for the retry; its URL was never published.
     if (error.name === 'ConditionalCheckFailedException') return c.json({ error: 'Settings changed in another session. Retry saving.' }, 409);
     throw error;
   }
-  // A replaced or removed logo stops being fetchable by its old URL.
-  if (previousHash && previousHash !== settings.logoHash) await deleteUnusedLogo(previousHash);
   return c.json({ ok: true, branding: publicBranding(settings) });
 });
 

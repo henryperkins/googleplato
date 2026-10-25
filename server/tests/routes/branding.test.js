@@ -42,7 +42,7 @@ const hashOf = url => url.split('/').pop();
 
 describe('branding boundary', () => {
   beforeEach(() => {
-    originals = { getSyncData: db.getSyncData, putSyncData: db.putSyncData, deleteSyncData: db.deleteSyncData, getUserById: db.getUserById };
+    originals = { getSyncData: db.getSyncData, putSyncData: db.putSyncData, putBrandingSettings: db.putBrandingSettings, deleteSyncData: db.deleteSyncData, getUserById: db.getUserById };
     records = new Map([['_system/settings', { version: 4, data: { userGroups: ['Staff'], customUserFields: [{ id: 'team' }] } }]]);
     db.getUserById = async () => ({ userId: 'admin', role: 'admin' });
     db.getSyncData = async (user, key) => records.get(`${user}/${key}`) || null;
@@ -52,6 +52,15 @@ describe('branding boundary', () => {
       return item;
     };
     db.deleteSyncData = async (user, key) => { records.delete(`${user}/${key}`); };
+    db.putBrandingSettings = async (data, version, { logo, previousLogoHash } = {}) => {
+      const current = records.get('_system/settings');
+      if ((current?.version || 0) !== version) throw Object.assign(new Error('Conflict'), { name: 'ConditionalCheckFailedException' });
+      if (logo) records.set(`_branding/logo:${logo.hash}`, { version: 1,
+        data: { dataUrl: logo.dataUrl, ...(logo.legacy ? { legacy: true } : {}) } });
+      records.set('_system/settings', { data, version: version + 1 });
+      if (previousLogoHash && previousLogoHash !== data.logoHash) records.delete(`_branding/logo:${previousLogoHash}`);
+      return { version: version + 1 };
+    };
   });
   afterEach(() => Object.assign(db, originals));
 
@@ -102,7 +111,7 @@ describe('branding boundary', () => {
     const logo = await app.request(branding.logoUrl);
     assert.equal(logo.status, 200);
     assert.equal(logo.headers.get('content-type'), 'image/png');
-    assert.match(logo.headers.get('cache-control'), /public.*immutable/);
+    assert.match(logo.headers.get('cache-control'), /public.*no-cache/);
     assert.deepEqual(Buffer.from(await logo.arrayBuffer()), Buffer.from(png.split(',')[1], 'base64'));
     const unchanged = await app.request(branding.logoUrl, { headers: { 'If-None-Match': logo.headers.get('etag') } });
     assert.equal(unchanged.status, 304);
@@ -146,14 +155,14 @@ describe('branding boundary', () => {
   });
 
   it('does not publish a logo pointer when its asset write fails', async () => {
-    db.putSyncData = async () => { throw new Error('Asset store unavailable'); };
+    db.putBrandingSettings = async () => { throw new Error('Asset store unavailable'); };
     assert.equal((await put({ logoBase64: png })).status, 500);
     assert.equal(settings().logoHash, undefined);
     assert.equal(records.get('_system/settings').version, 4);
   });
 
   it('reports a settings conflict without changing the previous branding', async () => {
-    db.putSyncData = async () => { throw Object.assign(new Error('Conflict'), { name: 'ConditionalCheckFailedException' }); };
+    db.putBrandingSettings = async () => { throw Object.assign(new Error('Conflict'), { name: 'ConditionalCheckFailedException' }); };
     const response = await put({ classroomName: 'Unacknowledged' });
     assert.equal(response.status, 409);
     assert.equal(settings().classroomName, undefined);
@@ -255,16 +264,14 @@ describe('branding boundary', () => {
     assert.deepEqual(assets(), []);
   });
 
-  it('leaves an upload whose settings write conflicts unpublished, for the retry to reuse', async () => {
-    const write = db.putSyncData;
-    db.putSyncData = async (user, ...rest) => {
-      if (user === '_system') throw Object.assign(new Error('Conflict'), { name: 'ConditionalCheckFailedException' });
-      return write(user, ...rest);
-    };
+  it('rolls back an upload whose settings write conflicts, then stores it on retry', async () => {
+    const write = db.putBrandingSettings;
+    db.putBrandingSettings = async () => { throw Object.assign(new Error('Conflict'), { name: 'ConditionalCheckFailedException' }); };
     assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 409);
     assert.equal(settings().logoHash, undefined);
+    assert.deepEqual(assets(), []);
     assert.equal((await (await app.request('/v1/branding')).json()).logoUrl, null);
-    db.putSyncData = write;
+    db.putBrandingSettings = write;
     assert.equal((await put({ logoBase64: pngOf(64, 16) })).status, 200);
     assert.deepEqual(assets(), [`_branding/logo:${settings().logoHash}`]);
   });

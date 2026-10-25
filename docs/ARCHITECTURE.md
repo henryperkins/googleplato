@@ -28,12 +28,16 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   settings. `/v1/branding` returns only this public metadata and a same-origin
   logo URL. Bounded images live separately as `_branding:logo:<sha256>` records,
   outside shared settings and bulk `_system` reads. The public
-  `/v1/branding/logo/:hash` endpoint serves immutable, cacheable image bytes with
-  an ETag, `nosniff`, and a restrictive CSP sandbox. Replacing or removing the
-  logo deletes the previous asset after the settings write succeeds, so a
-  mistaken upload stops resolving; pages that cached it keep their copy, and a
-  logo that fails to load shows the classroom name instead. An asset written by
-  a save that then conflicts is left for the retry; its URL was never published.
+  `/v1/branding/logo/:hash` endpoint serves image bytes with an ETag, `nosniff`,
+  a restrictive CSP sandbox, and `no-cache, must-revalidate`. Logo storage,
+  settings publication and deletion of the previous asset commit together in
+  `putBrandingSettings`, with an exact settings-version check. A conflict or
+  storage failure rolls back every change; restoring a previous logo cannot
+  race with delayed cleanup. This uses an immediate SQLite transaction, the
+  PostgreSQL `_system` advisory transaction lock, or one DynamoDB transaction.
+  Removed assets return 404 even for conditional requests. Copies already
+  downloaded or cached under earlier immutable responses cannot be revoked.
+  A logo that fails to load shows the classroom name instead.
   No schema migration is required on any database adapter.
 - Logos saved by earlier versions stay visible. Stored logos (inline legacy
   values and existing assets) are read by looser rules than new uploads: data

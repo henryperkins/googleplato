@@ -138,6 +138,12 @@ User email and username uniqueness are enforced case-insensitively. Invite usage
 limits and activity counters are atomic database updates. Expired refresh/reset
 tokens cannot authenticate and expired token/invite rows are removed at startup.
 
+Branding saves use `putBrandingSettings` under the same `_system` transaction
+lock as other settings writers. The transaction checks the exact settings
+version, stores the new logo bytes, publishes its pointer, and deletes the old
+asset together. Failed or competing saves cannot leave a missing active logo
+or an orphan upload. SQLite and DynamoDB implement the same atomic contract.
+
 ## Validation
 
 Run `npm ci`, `npm test`, `npm run lint` and `npm run build:client`.

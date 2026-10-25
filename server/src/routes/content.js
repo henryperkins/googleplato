@@ -80,7 +80,9 @@ content.get('/v1/branding/logo/:hash', async (c) => {
     c.header('Cache-Control', 'no-store');
     return c.notFound();
   }
-  c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  // Keep conditional GETs, but require validation so removed assets stop being
+  // reused. Copies cached under older immutable responses cannot be revoked.
+  c.header('Cache-Control', 'public, no-cache, must-revalidate');
   c.header('ETag', `"${hash}"`);
   c.header('Content-Type', logo.mime);
   c.header('X-Content-Type-Options', 'nosniff');

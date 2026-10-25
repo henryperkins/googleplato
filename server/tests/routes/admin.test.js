@@ -1662,6 +1662,7 @@ describe('PUT /v1/admin/theme — color validation', () => {
     saved = [];
     db.getUserById = async id => ({ userId: id, role: 'admin', name: 'Admin' });
     db.putSyncData = async (userId, dataKey, data) => { saved.push({ userId, dataKey, data }); };
+    db.putBrandingSettings = async data => { saved.push({ userId: '_system', dataKey: 'settings', data }); };
   });
 
   it('stores colors as lowercase #rrggbb', async () => {
