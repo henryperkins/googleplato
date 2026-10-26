@@ -21,6 +21,15 @@
         ],
         "createdAt": "2026-10-20T04:42:26.567Z",
         "reason": "Claude: L49 is a regex in a source-contract assertion (/<img[^>]+width=/), not rendered markup"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "client/src/index.css"
+        ],
+        "createdAt": "2026-10-26T09:19:50.473Z",
+        "reason": "Agent: the existing .coach-copy blockquote uses a neutral 3px quote marker with an explicit contrast comment. It identifies semantic quoted text and predates the save-notice change."
       }
     ]
   }

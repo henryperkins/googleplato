@@ -606,6 +606,25 @@ html {
   --motion-arrive: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* One brief confirmation, then make room for the conversation. Its duration
+   matches the notice cleanup in LessonChat. */
+.saved-reply-notice {
+  transform-origin: left center;
+  animation: saved-reply-notice 1600ms ease-out both;
+}
+
+@keyframes saved-reply-notice {
+  0% { opacity: 0.6; transform: scale(0.98); }
+  20% { opacity: 1; transform: scale(1.015); }
+  40%, 65% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+
+@keyframes saved-reply-fade {
+  0%, 65% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* Progress changes explain state without relaying out the surrounding text. */
 .progress-fill {
   width: 100%;
@@ -615,6 +634,10 @@ html {
 
 /* Keep state/color feedback while replacing travel, zoom, and rotation. */
 @media (prefers-reduced-motion: reduce) {
+  .saved-reply-notice {
+    animation-name: saved-reply-fade;
+  }
+
   .progress-fill {
     transition-property: background-color;
     transition-duration: 150ms;
