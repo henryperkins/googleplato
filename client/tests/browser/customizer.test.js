@@ -706,7 +706,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       if (browserName === 'chromium') {
         const { nodes } = await (await context.newCDPSession(page)).send('Accessibility.getFullAXTree');
         const field = nodes.find(node => node.name?.value === 'Primary color hex code');
-        assert.match(field?.description?.value || '', /Warning: In light mode.*barely stand out from white/);
+        assert.match(field?.description?.value || '', /Warning: In light mode.*header in this color barely stands out from white/);
       }
       for (const sample of await page.locator('figure button').all()) {
         assert.equal(await sample.evaluate(element => { element.focus(); return document.activeElement === element; }), false);

@@ -2,7 +2,6 @@ import { useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import PublicFooter from '../components/PublicFooter.jsx';
-import { Button } from '@/components/ui/button';
 import ClassroomLogo from '../components/ClassroomLogo.jsx';
 import {
   Card, CardHeader, CardTitle, CardContent,
