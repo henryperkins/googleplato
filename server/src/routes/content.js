@@ -5,21 +5,11 @@ import { fileURLToPath } from 'url';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { publicBranding, readLogo } from '../lib/branding.js';
+import { normalizeStatus } from '../lib/lesson-visibility.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const content = new Hono();
-
-/**
- * Normalize a lesson's visibility status.
- * `draft` is a first-class status for in-progress lessons that have no markdown yet.
- * Legacy records with `status: 'draft'` AND markdown present are treated as `private`.
- */
-function normalizeStatus(status, hasMarkdown = true) {
-  if (status === 'published' || status === 'public') return 'public';
-  if (status === 'draft' && !hasMarkdown) return 'draft';
-  return 'private';
-}
 
 // All content routes require authentication
 content.use('/v1/prompts/*', authenticate);
@@ -132,6 +122,7 @@ content.get('/v1/lessons', async (c) => {
       return {
         lessonId: i.dataKey.slice('lesson:'.length),
         ...data,
+        status: normalizeStatus(data.status, !!data.markdown),
         course,
         updatedAt: i.updatedAt,
       };
@@ -238,7 +229,7 @@ content.get('/v1/lessons/:lessonId', async (c) => {
       };
     }
   }
-  return c.json({ lessonId, ...data, course, updatedAt: item.updatedAt });
+  return c.json({ lessonId, ...data, status, course, updatedAt: item.updatedAt });
 });
 
 // GET /v1/knowledge-base — get the knowledge base content

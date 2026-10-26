@@ -79,6 +79,7 @@ function LessonConversation() {
   const [loadingEnrichments, setLoadingEnrichments] = useState([]);
   const [error, setError] = useState('');
   const [persistence, setPersistence] = useState(null);
+  const [submissionNotice, setSubmissionNotice] = useState(false);
   const [resuming, setResuming] = useState(true);
   const upgradeRequired = useSyncExternalStore(onClientUpgrade, isClientUpgradeRequired, () => false);
   const [upgradeError, setUpgradeError] = useState('');
@@ -86,6 +87,8 @@ function LessonConversation() {
   const savingRef = useRef(false);
   const sendingRef = useRef(false);
   const pendingSave = !!persistence && persistence.status !== 'saved';
+  const transientSaveNotice = persistence?.status === 'saved' && !!persistence.message
+    && !persistence.state?.lessonKB.data?.assessmentReviewRequired;
   // A failed lesson start has no conversation to fall back on, so it offers
   // its own retry instead of sending the learner to reload the page.
   const [startFailed, setStartFailed] = useState(false);
@@ -133,7 +136,7 @@ function LessonConversation() {
   };
 
   useEffect(() => {
-    if (displayText === null && pendingAfterStreamRef.current) {
+    if (!submissionNotice && displayText === null && pendingAfterStreamRef.current) {
       const { msgs, p, achieved } = pendingAfterStreamRef.current;
       pendingAfterStreamRef.current = null;
       if (msgs) {
@@ -174,7 +177,7 @@ function LessonConversation() {
       }
       setLoading('');
     }
-  }, [displayText]);
+  }, [displayText, submissionNotice]);
 
   useEffect(() => {
     if (!pendingSave && !loading) return;
@@ -186,6 +189,25 @@ function LessonConversation() {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [pendingSave, loading]);
+
+  // Save feedback belongs only to the UI, never the conversation. Dismiss the
+  // routine success notice after its animation; recovery/reassessment stays.
+  useEffect(() => {
+    if (!transientSaveNotice) return;
+    const timeout = setTimeout(() => {
+      setPersistence(current => current === persistence ? { ...current, message: '' } : current);
+    }, 1600);
+    return () => clearTimeout(timeout);
+  }, [persistence, transientSaveNotice]);
+
+  // The input is already verified in this tab's recovery journal. Give that
+  // acknowledgment one short beat before revealing a fast coach response;
+  // generation and server saving continue throughout the animation.
+  useEffect(() => {
+    if (!submissionNotice) return;
+    const timeout = setTimeout(() => setSubmissionNotice(false), 1600);
+    return () => clearTimeout(timeout);
+  }, [submissionNotice]);
 
   useEffect(() => () => {
     if (srClearTimeoutRef.current) clearTimeout(srClearTimeoutRef.current);
@@ -213,6 +235,7 @@ function LessonConversation() {
     setPhase(null);
     setError('');
     setPersistence(null);
+    setSubmissionNotice(false);
     setStartFailed(false);
     setLoading('');
     setStreamingText(null);
@@ -293,6 +316,9 @@ function LessonConversation() {
     const hasImages = Array.isArray(imageDataUrls) && imageDataUrls.length > 0;
     const hasLinks = Array.isArray(links) && links.length > 0;
     setError('');
+    // A previous save must not look like confirmation of this new submission.
+    setPersistence(null);
+    setSubmissionNotice(true);
     setLoading('qa');
     setStreamingText('');
 
@@ -316,7 +342,12 @@ function LessonConversation() {
         (partial) => { if (activeView.current === viewKey) setStreamingText(partial); }
       );
       if (activeView.current !== viewKey) return;
-      setPersistence(result.persistence || null);
+      // The local acknowledgment has already played. Keep the server outcome
+      // for recovery and assessment, without a second routine success notice.
+      const saved = result.persistence?.status === 'saved';
+      setPersistence(saved && !result.lessonKB?.assessmentReviewRequired
+        ? { ...result.persistence, message: '' } : result.persistence || null);
+      if (!saved) setSubmissionNotice(false);
       pendingAfterStreamRef.current = {
         msgs: result.conversation, p: result.phase,
         achieved: result.achieved && result.persistence?.status === 'saved',
@@ -327,6 +358,7 @@ function LessonConversation() {
       if (activeView.current !== viewKey) return;
       setError(aiErrorMessage(e, 'coach-reply'));
       setMessages(prev => prev.filter(message => message !== optimisticMessage));
+      setSubmissionNotice(false);
       setStreamingText(null);
       setLoading('');
     } finally { sendingRef.current = false; }
@@ -595,10 +627,15 @@ function LessonConversation() {
       ) : (
         <ChatArea ref={chatAreaRef} announcement={srAnnouncement}>
           {messages.map(renderMessage)}
-          {displayText != null && displayText.length > 0 && (
+          {submissionNotice && (
+            <p className="saved-reply-notice px-1 py-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+              Your reply is saved in this tab.
+            </p>
+          )}
+          {!submissionNotice && displayText != null && displayText.length > 0 && (
             <AssistantMessage content={displayText} streaming />
           )}
-          {loading === 'qa' && !displayText && <ThinkingSpinner />}
+          {loading === 'qa' && !submissionNotice && !displayText && <ThinkingSpinner />}
           {submission && submission.status !== 'sending' && !resuming && !pendingSave && (
             <section aria-label="Unsent response" className="space-y-3 px-1 py-3">
               <p className="text-sm" role="status">Your earlier response is retained. Retry it, move it back to an empty draft to edit, or discard it.</p>
@@ -620,7 +657,7 @@ function LessonConversation() {
           {/* Notices share the coach's left edge (its copy is inset px-1). */}
           {persistence?.message && (
             <div className="space-y-2 px-1 py-2">
-              <p className="text-sm" role="status" aria-live="polite">{persistence.message}</p>
+              <p className={`text-sm${transientSaveNotice ? ' saved-reply-notice text-muted-foreground' : ''}`} role="status" aria-live="polite">{persistence.message}</p>
               {pendingSave && !persistence.persistedLocally && (
                 <p className="text-sm text-destructive">Keep this tab open until saving succeeds. A recovery copy could not be stored in your browser.</p>
               )}

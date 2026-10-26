@@ -620,6 +620,16 @@ same IDs. Conflicts preserve the copy and require an explicit discard to load
 the current saved conversation. The browser cache receives a generated turn only
 after the authoritative API acknowledges it.
 
+Save confirmations are transient UI state, separate from transcript messages
+and coach request context. After the submitted input passes recovery-journal
+readback, “Your reply is saved in this tab.” pulses once and fades over 1.6
+seconds before the coach's text is revealed. Generation and server saving run
+during this brief acknowledgment; a normal server save does not repeat it.
+After retrying a failed save, “Your reply is saved.” appears only on server
+acknowledgment and fades on the same timer. Starting another response clears
+the previous confirmation immediately. Reduced motion uses only the fade.
+Save failures, retry controls and changed-requirements notices stay visible.
+
 The local journal remains scoped to the current tab/session. The server also
 retains the latest generated result for each learner/lesson, recovered through
 `GET /v1/ai/coach/:lessonId?turnId=...` without inference. Compressed fragments
@@ -1194,12 +1204,22 @@ automatically. Filter and page changes are announced via an always-mounted
 `role="status" aria-live="polite"` region — no visible "N lessons" subhead.
 
 Lessons are grouped by course, and each course on the page gets a header with
-an "N of M lessons" progress bar (#395). The counts come from
+an "N of M public lessons" progress bar (#395). Grouping uses course IDs, so
+courses whose names sort equally still have one group each on the page. The counts come from
 `courseCompletion()` (`client/src/lib/courseCompletion.js`) over **all** of
-the learner's lessons — never the filtered or paginated view, so a status
+the course's public lessons — never the filtered or paginated view, so a status
 filter like "Not started" can't turn "5 of 8" into "0 of 3". The learner's own
-`custom-*` lessons don't count toward a course. Purely informational; it reads
-`lessonKB.status` and never affects completion.
+`custom-*` lessons and private lessons shared with the learner are excluded
+from both counts, matching the public-only admin KPI definition. Private shared
+lessons remain visible and usable in the grid. Courses without public lessons
+have no progress bar. Purely informational; it reads `lessonKB.status` and never
+affects completion.
+
+Both learner lesson endpoints return normalized visibility in `status`, using
+the same `normalizeStatus()` helper as dashboard/activity stats: legacy
+`published` becomes `public`, and legacy drafts with markdown become `private`.
+`loadLessons()` preserves this field alongside course metadata. Only an explicit
+`public` status contributes to progress; missing or unknown visibility does not.
 
 `loadLessons()` merges system lessons (`/v1/lessons`) with user lessons from
 sync-data. To preview a lesson as a learner sees it (the live coach experience),

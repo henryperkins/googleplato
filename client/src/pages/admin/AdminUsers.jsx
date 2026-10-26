@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { ArrowDown, ArrowUp, ChevronDown, LoaderCircle, Plus, SlidersHorizontal } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { adminApi } from './adminApi.js';
@@ -19,7 +20,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { PluginSlot } from '@/lib/plugins/Slot.jsx';
 import UserStatsPanel from './UserStatsPanel.jsx';
-import CompletionRing from './CompletionRing.jsx';
+import UserMobileList, { UserCompletion } from './UserMobileList.jsx';
+import UsersFeedback from './UsersFeedback.jsx';
 import UserFieldsDialog from './UserFieldsDialog.jsx';
 import WaitlistDialog from './WaitlistDialog.jsx';
 import WaitlistEntryEdit from './WaitlistEntryEdit.jsx';
@@ -31,6 +33,22 @@ import { describeBulkInvites, describeSingleInvite, describeAdminReset } from '.
 import { toCsv, usersCsvRows } from '../../lib/csv.js';
 
 const PAGE_SIZE = 20;
+const MOBILE_QUERY = '(max-width: 47.999rem)';
+function subscribeToLayout(callback) {
+  const query = window.matchMedia(MOBILE_QUERY);
+  query.addEventListener('change', callback);
+  return () => query.removeEventListener('change', callback);
+}
+const mobileSnapshot = () => window.matchMedia(MOBILE_QUERY).matches;
+const serverSnapshot = () => false;
+
+const FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'active', label: 'Learners' },
+  { key: 'admins', label: 'Admins' },
+  { key: 'invited', label: 'Invited' },
+  { key: 'waitlist', label: 'Wait List' },
+];
 
 const SORT_LABELS = {
   name: 'name', email: 'email', username: 'username',
@@ -72,9 +90,9 @@ function SortHeader({ sortKey, sortBy, onSort, align = 'left', children }) {
       >
         {children}
         {/* Unsorted columns show a muted arrow, not a near-invisible one. */}
-        <span aria-hidden="true" className={`text-xs ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
-          {active ? (sortBy.dir === 'asc' ? '↑' : '↓') : '↕'}
-        </span>
+        {active && sortBy.dir === 'desc'
+          ? <ArrowDown aria-hidden="true" className="size-3.5" />
+          : <ArrowUp aria-hidden="true" className={`size-3.5 ${active ? '' : 'text-muted-foreground'}`} />}
       </button>
     </TableHead>
   );
@@ -104,6 +122,7 @@ function parseCsvEmails(text) {
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AdminUsers() {
+  const isMobile = useSyncExternalStore(subscribeToLayout, mobileSnapshot, serverSnapshot);
   const navigate = useNavigate();
   const { userId: paramUserId, waitlistToken } = useParams();
   const { user: currentUser } = useAuth();
@@ -122,9 +141,19 @@ export default function AdminUsers() {
   const [linkLoadFailed, setLinkLoadFailed] = useState(false);
   const [waitlistLoadFailed, setWaitlistLoadFailed] = useState(false);
   const [message, setMessage] = useState(null);
+  const [pendingRows, setPendingRows] = useState({});
+  const pendingRowsRef = useRef(new Set());
+  const headingRef = useRef(null);
+  const editorHeadingRef = useRef(null);
+  const returnToRowRef = useRef(null);
+  const refreshFocusRef = useRef(null);
+  const lastViewRef = useRef(null);
 
   // Modal states
   const [inviteOpen, setInviteOpen] = useState(false);
+  const inviteOpenRef = useRef(false);
+  useEffect(() => { inviteOpenRef.current = inviteOpen; }, [inviteOpen]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [waitlistOpen, setWaitlistOpen] = useState(false);
@@ -132,12 +161,16 @@ export default function AdminUsers() {
   const [userFields, setUserFields] = useState([]);
   const [editUser, setEditUser] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', username: '', userGroup: '', role: '', customFields: {} });
+  const [editSaving, setEditSaving] = useState(false);
+  const editSavingRef = useRef(false);
 
   // Invite modal state
   const [inviteInput, setInviteInput] = useState('');
   const [emailQueue, setEmailQueue] = useState([]);
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteNotice, setInviteNotice] = useState(null);
+  const [inviteError, setInviteError] = useState(null);
+  const inviteSendingRef = useRef(false);
   const [inviteLinks, setInviteLinks] = useState([]);
   const csvRef = useRef(null);
 
@@ -179,6 +212,9 @@ export default function AdminUsers() {
         adminApi('GET', '/v1/admin/invites/link').then((data) => ({ ok: true, data }), () => ({ ok: false })),
         adminApi('GET', '/v1/admin/waitlist').then((data) => ({ ok: true, data }), () => ({ ok: false })),
       ]);
+      const active = document.activeElement;
+      const row = active?.closest?.('[data-user-key]');
+      refreshFocusRef.current = row ? { element: active, key: row.dataset.userKey } : null;
       setUsers(Array.isArray(usersRes) ? usersRes : []);
       setPendingInvites(Array.isArray(invitesRes) ? invitesRes.filter(x => x.status === 'pending') : []);
       setGroups(settingsRes.userGroups || []);
@@ -201,7 +237,7 @@ export default function AdminUsers() {
     }
     setLoading(false);
     setLoaded(true);
-  }, []);
+  }, [setUserFields]);
 
   useEffect(() => {
     loadData();
@@ -287,7 +323,9 @@ export default function AdminUsers() {
   }
 
   async function sendInvites() {
-    if (emailQueue.length === 0) return;
+    if (emailQueue.length === 0 || inviteSendingRef.current) return;
+    inviteSendingRef.current = true;
+    setInviteError(null);
     setInviteSending(true);
     try {
       const data = await adminApi('POST', '/v1/admin/invites/bulk', { emails: emailQueue });
@@ -298,8 +336,11 @@ export default function AdminUsers() {
       setInviteOpen(false);
       loadData();
     } catch (e) {
-      setMessage({ text: e.message, type: 'error' });
+      const text = e.message || 'Invites could not be sent. Try again.';
+      if (inviteOpenRef.current) setInviteError(text);
+      else setMessage({ text, type: 'error' });
     } finally {
+      inviteSendingRef.current = false;
       setInviteSending(false);
     }
   }
@@ -314,6 +355,7 @@ export default function AdminUsers() {
       setSlackSearchResults([]);
       setInviteTab('email');
       setInviteNotice(null);
+      setInviteError(null);
     }
     setInviteOpen(open);
   }
@@ -383,7 +425,9 @@ export default function AdminUsers() {
   }
 
   async function sendSlackInvites() {
-    if (slackQueue.length === 0) return;
+    if (slackQueue.length === 0 || inviteSendingRef.current) return;
+    inviteSendingRef.current = true;
+    setInviteError(null);
     setSlackSending(true);
     try {
       const data = await adminApi('POST', '/v1/plugins/slack/admin/invites', { users: slackQueue });
@@ -395,8 +439,11 @@ export default function AdminUsers() {
       setInviteOpen(false);
       loadData();
     } catch (e) {
-      setMessage({ text: e.message, type: 'error' });
+      const text = e.message || 'Slack invites could not be sent. Try again.';
+      if (inviteOpenRef.current) setInviteError(text);
+      else setMessage({ text, type: 'error' });
     } finally {
+      inviteSendingRef.current = false;
       setSlackSending(false);
     }
   }
@@ -448,7 +495,10 @@ export default function AdminUsers() {
 
   // -- User actions --
 
-  async function resendInvite(email) {
+  async function resendInvite(email, key = email) {
+    if (pendingRowsRef.current.has(key)) return;
+    pendingRowsRef.current.add(key);
+    setPendingRows(prev => ({ ...prev, [key]: true }));
     try {
       const data = await adminApi('POST', '/v1/admin/invites/resend', { email });
       const outcome = describeSingleInvite(email, data);
@@ -456,9 +506,16 @@ export default function AdminUsers() {
       setMessage({ text: outcome.text, type: 'success' });
       loadData();
     } catch (e) { setMessage({ text: e.message, type: 'error' }); }
+    finally {
+      pendingRowsRef.current.delete(key);
+      setPendingRows(prev => { const next = { ...prev }; delete next[key]; return next; });
+    }
   }
 
   async function inviteFromWaitlist(token, email) {
+    if (pendingRowsRef.current.has(token)) return false;
+    pendingRowsRef.current.add(token);
+    setPendingRows(prev => ({ ...prev, [token]: true }));
     try {
       const data = await adminApi('POST', `/v1/admin/waitlist/${token}/invite`);
       const outcome = describeSingleInvite(email, data);
@@ -467,9 +524,13 @@ export default function AdminUsers() {
       loadData();
       return true;
     } catch (e) { setMessage({ text: e.message, type: 'error' }); return false; }
+    finally {
+      pendingRowsRef.current.delete(token);
+      setPendingRows(prev => { const next = { ...prev }; delete next[token]; return next; });
+    }
   }
 
-  function removeFromWaitlist(token, email, onRemoved) {
+  function removeFromWaitlist(token, email, onRemoved, onError) {
     setConfirmModal({
       title: 'Remove from Wait List?',
       message: `Remove ${email} from the wait list?`,
@@ -481,7 +542,8 @@ export default function AdminUsers() {
           loadData();
           if (onRemoved) onRemoved();
         } catch (e) {
-          setMessage({ text: e.message, type: 'error' });
+          if (onError) onError(e);
+          else setMessage({ text: e.message, type: 'error' });
         }
       },
     });
@@ -601,6 +663,8 @@ export default function AdminUsers() {
   const seededUserIdRef = useRef(null);
 
   function openEditUser(u) {
+    returnToRowRef.current = u.userId;
+    setMessage(null);
     navigate(`/plato/users/${u.userId}`);
   }
 
@@ -653,13 +717,16 @@ export default function AdminUsers() {
   }, [paramUserId, editForm]);
 
   async function saveEditUser() {
-    if (!editUser) return;
+    if (!editUser || editSavingRef.current) return;
     const missing = missingRequired(userFields, editForm.customFields);
     if (missing.length) {
       const labels = userFields.filter(f => missing.includes(f.id)).map(f => f.label);
       setMessage({ text: `Fill in required ${labels.length === 1 ? 'field' : 'fields'}: ${labels.join(', ')}.`, type: 'error' });
       return;
     }
+    editSavingRef.current = true;
+    setEditSaving(true);
+    setMessage(null);
     try {
       await adminApi('PATCH', `/v1/admin/users/${editUser.userId}`, {
         name: editForm.name,
@@ -676,6 +743,7 @@ export default function AdminUsers() {
       closeEditUser();
       loadData();
     } catch (e) { setMessage({ text: e.message, type: 'error' }); }
+    finally { editSavingRef.current = false; setEditSaving(false); }
   }
 
   // -- Filtering, search, pagination --
@@ -728,6 +796,7 @@ export default function AdminUsers() {
         (i.email && i.email.toLowerCase().includes(q)) ||
         (i.name && i.name.toLowerCase().includes(q)) ||
         (i.username && i.username.toLowerCase().includes(q)) ||
+        (i.userGroup && i.userGroup.toLowerCase().includes(q)) ||
         customFieldsMatch(i.customFields, q)
       );
     }
@@ -774,6 +843,44 @@ export default function AdminUsers() {
   const totalPages = Math.max(1, Math.ceil(sortedList.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageItems = sortedList.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const hasFilters = !!search.trim() || filter !== 'all' || !!filterField;
+  const resultLabel = `${filteredList.length} of ${combinedList.length} people`;
+  const emptyLabel = loadError ? 'Users could not be loaded. Retry above.'
+    : hasFilters ? 'No users match these filters.' : 'No users yet. Invite someone to get started.';
+
+  function clearFilters() {
+    setSearch('');
+    setFilter('all');
+    setFieldFilter({ fieldId: '', value: '' });
+    setPage(1);
+  }
+
+  // Give each route-backed editor an entry point and return to the same
+  // person when possible. Never leave keyboard focus on a removed row.
+  const viewKey = editUser?.userId || editEntry?.inviteToken || 'list';
+  useLayoutEffect(() => {
+    if (!loaded || lastViewRef.current === viewKey) return;
+    const previous = lastViewRef.current;
+    lastViewRef.current = viewKey;
+    if (viewKey !== 'list') {
+      const main = document.getElementById('main-content');
+      if (main) main.scrollTop = 0;
+      (editorHeadingRef.current || main?.querySelector('h1'))?.focus();
+    } else if (previous) {
+      const row = returnToRowRef.current && document.querySelector(`[data-user-key="${CSS.escape(returnToRowRef.current)}"]`);
+      const target = row?.querySelector('button') || headingRef.current;
+      target?.focus();
+      returnToRowRef.current = null;
+    }
+  }, [viewKey, loaded]);
+
+  useLayoutEffect(() => {
+    const previous = refreshFocusRef.current;
+    refreshFocusRef.current = null;
+    if (!previous || previous.element.isConnected || document.activeElement !== document.body) return;
+    const row = document.querySelector(`[data-user-key="${CSS.escape(previous.key)}"]`);
+    (row?.querySelector('button') || headingRef.current)?.focus();
+  }, [combinedList]);
 
   function handleSort(key) {
     setSortBy((prev) => {
@@ -816,10 +923,11 @@ export default function AdminUsers() {
           entry={editEntry}
           groups={groups}
           userFields={userFields}
+          isMobile={isMobile}
           onBack={back}
           onSaved={(text) => { setMessage({ text, type: 'success' }); back(); loadData(); }}
-          onInvite={async (e) => { if (await inviteFromWaitlist(e.inviteToken, e.email)) back(); }}
-          onRemove={(e) => { removeFromWaitlist(e.inviteToken, e.email, back); }}
+          onInvite={async (e) => { const ok = await inviteFromWaitlist(e.inviteToken, e.email); if (ok) back(); return ok; }}
+          onRemove={(e, onError) => { removeFromWaitlist(e.inviteToken, e.email, back, onError); }}
         />
         {confirmModalElement}
       </>
@@ -829,35 +937,44 @@ export default function AdminUsers() {
   // Edit user view
   if (editUser) {
     const isSelf = editUser.userId === currentUser?.userId;
-    return (
-      <div>
-        <div className="flex items-center gap-3 mb-4">
-          <Button variant="ghost" size="sm" onClick={closeEditUser} aria-label="Back to users">&larr; Back</Button>
-          <h1 className="text-2xl font-bold">Edit User</h1>
+    const editActions = (
+      <div className={isMobile ? 'users-mobile-actions admin-sticky-bar space-y-3' : 'pt-2'}>
+        {isMobile && message && <UsersFeedback message={message} />}
+        <div className="flex items-center gap-3">
+          <Button className="min-w-24 flex-1 md:flex-none" onClick={saveEditUser} disabled={editSaving} focusableWhenDisabled>
+            {editSaving && <LoaderCircle aria-hidden="true" className="animate-spin" />}
+            {editSaving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="outline" onClick={closeEditUser} disabled={editSaving} focusableWhenDisabled>Cancel</Button>
         </div>
-        {message && (
-          <div className={`rounded-lg border px-4 py-3 mb-4 text-sm ${message.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'}`} role="alert">
-            {message.text}
-          </div>
-        )}
+        <span role="status" className="sr-only">{editSaving ? 'Saving user…' : ''}</span>
+      </div>
+    );
+    return (
+      <div className="users-page users-editor">
+        <div className="flex items-center gap-3 mb-4">
+          <Button variant="ghost" size="sm" onClick={closeEditUser} disabled={editSaving} focusableWhenDisabled aria-label="Back to users">&larr; Back</Button>
+          <h1 ref={editorHeadingRef} tabIndex={-1} className="text-2xl font-bold outline-none">Edit User</h1>
+        </div>
+        {!isMobile && message && <div className="mb-4"><UsersFeedback message={message} /></div>}
         <Card>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="edit-name">Name</Label>
-              <Input id="edit-name" type="text" enterKeyHint="done" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
+              <Input id="edit-name" type="text" enterKeyHint="next" readOnly={editSaving} value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-email">Email</Label>
-              <Input id="edit-email" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} />
+              <Input id="edit-email" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="next" readOnly={editSaving} value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-username">Username</Label>
-              <Input id="edit-username" type="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" value={editForm.username} onChange={e => setEditForm({ ...editForm, username: e.target.value })} />
+              <Input id="edit-username" type="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" readOnly={editSaving} value={editForm.username} onChange={e => setEditForm({ ...editForm, username: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-group">User Group</Label>
-              <select id="edit-group" value={editForm.userGroup}
-                onChange={e => setEditForm({ ...editForm, userGroup: e.target.value })}
+              <select id="edit-group" value={editForm.userGroup} aria-readonly={editSaving || undefined}
+                onChange={e => { if (!editSaving) setEditForm({ ...editForm, userGroup: e.target.value }); }}
                 className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm">
                 <option value="">None</option>
                 {groups.map(g => <option key={g} value={g}>{g}</option>)}
@@ -869,29 +986,29 @@ export default function AdminUsers() {
                 field={f}
                 idPrefix="edit-field"
                 value={editForm.customFields[f.id]}
+                readOnly={editSaving}
                 onChange={(v) => setEditForm(prev => ({ ...prev, customFields: { ...prev.customFields, [f.id]: v } }))}
               />
             ))}
             {!isSelf && (
               <div className="space-y-2">
                 <Label htmlFor="edit-role">Role</Label>
-                <select id="edit-role" value={editForm.role}
-                  onChange={e => setEditForm({ ...editForm, role: e.target.value })}
+                <select id="edit-role" value={editForm.role} aria-readonly={editSaving || undefined}
+                  onChange={e => { if (!editSaving) setEditForm({ ...editForm, role: e.target.value }); }}
                   className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm">
-                  <option value="user">User</option>
+                  <option value="user">Learner</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
             )}
-            <div className="flex flex-wrap items-center gap-3 pt-2">
-              <Button onClick={saveEditUser}>Save</Button>
-              <Button variant="outline" onClick={closeEditUser}>Cancel</Button>
+            {!isMobile && editActions}
+            <div className="flex flex-wrap items-center gap-3 border-t pt-4">
               {!isSelf && (
-                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto">
-                  <Button variant="outline" onClick={() => resetUserPassword(editUser.userId, editUser.email)}>
+                <div className="flex flex-wrap items-center gap-2 w-full">
+                  <Button variant="outline" disabled={editSaving} focusableWhenDisabled onClick={() => resetUserPassword(editUser.userId, editUser.email)}>
                     Reset Password
                   </Button>
-                  <Button variant="destructive" onClick={() => deleteUser(editUser.userId, editUser.name || editUser.email, closeEditUser)}>
+                  <Button variant="destructive" disabled={editSaving} focusableWhenDisabled onClick={() => deleteUser(editUser.userId, editUser.name || editUser.email, closeEditUser)}>
                     Delete User
                   </Button>
                 </div>
@@ -903,32 +1020,56 @@ export default function AdminUsers() {
         <div className="mt-4">
           <UserStatsPanel key={editUser.userId} userId={editUser.userId} />
         </div>
+        {isMobile && editActions}
         {confirmModalElement}
       </div>
     );
   }
 
-  const filterButtons = [
-    { key: 'all', label: 'All' },
-    { key: 'active', label: 'Learners' },
-    { key: 'admins', label: 'Admins' },
-    { key: 'invited', label: 'Invited' },
-    { key: 'waitlist', label: 'Wait List' },
-  ];
+  const fieldControls = userFields.length > 0 && (
+    <div className="flex flex-wrap gap-2 min-w-0 max-w-full" role="group" aria-label="Filter by custom field">
+      <select
+        aria-label="Custom field"
+        value={fieldFilter.fieldId}
+        onChange={e => setFieldFilter({ fieldId: e.target.value, value: e.target.value ? '__set' : '' })}
+        className="min-h-11 md:min-h-10 min-w-0 max-w-full flex-1 rounded-lg border border-input bg-background px-3 text-base md:text-sm"
+      >
+        <option value="">Any field</option>
+        {userFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+      </select>
+      {filterField && (
+        <select
+          aria-label={`${filterField.label} value`}
+          value={fieldFilter.value}
+          onChange={e => setFieldFilter(prev => ({ ...prev, value: e.target.value }))}
+          className="min-h-11 md:min-h-10 min-w-0 max-w-full flex-1 rounded-lg border border-input bg-background px-3 text-base md:text-sm"
+        >
+          <option value="__set">Has a value</option>
+          <option value="__empty">Empty</option>
+          {filterField.type === 'dropdown' && (filterField.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      )}
+    </div>
+  );
+
+  const clearSearchFilters = () => {
+    clearFilters();
+    document.getElementById('users-search')?.focus();
+  };
 
   return (
-    <div>
-      <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-5">
-        <h1 className="text-2xl font-bold">Users</h1>
+    <div className="users-page">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold outline-none">Users</h1>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => setInviteOpen(true)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          {!isMobile && <Button onClick={() => setInviteOpen(true)}>
+            <Plus aria-hidden="true" />
             Invite Users
-          </Button>
+          </Button>}
           <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-medium whitespace-nowrap hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
+            <DropdownMenuTrigger className="touch-target inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-medium whitespace-nowrap hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
               Manage
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              <ChevronDown aria-hidden="true" className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => setGroupsOpen(true)}>User Groups</DropdownMenuItem>
@@ -944,11 +1085,8 @@ export default function AdminUsers() {
       </div>
 
       {message && (
-        <div className={`flex items-center justify-between rounded-lg border px-4 py-3 mb-4 text-sm ${
-          message.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'
-        }`} role="alert">
-          <span>{message.text}</span>
-          <button type="button" onClick={() => { setMessage(null); setInviteLinks([]); }} aria-label="Dismiss" className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70">&times;</button>
+        <div className="users-list-feedback mb-4">
+          <UsersFeedback message={message} onDismiss={() => { setMessage(null); setInviteLinks([]); headingRef.current?.focus(); }} />
         </div>
       )}
 
@@ -987,7 +1125,7 @@ export default function AdminUsers() {
       )}
 
       {/* Search and filters */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-4">
+      <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 mb-3">
         <Label htmlFor="users-search" className="sr-only">Search users</Label>
         <Input
           id="users-search"
@@ -997,13 +1135,28 @@ export default function AdminUsers() {
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
-          placeholder={userFields.length ? 'Search by email, username, name, or field...' : 'Search by email, username, or name...'}
+          placeholder="Search users"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full sm:max-w-xs"
+          className="min-h-11 md:min-h-10 w-full md:max-w-xs"
         />
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter users">
-          {filterButtons.map(f => (
+        {isMobile ? (
+          <div className="flex flex-wrap gap-2">
+            <select
+              aria-label="Filter users"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              className="min-h-11 min-w-0 max-w-full flex-1 basis-32 rounded-lg border border-input bg-background px-3 text-base"
+            >
+              {FILTERS.map(f => <option key={f.key} value={f.key}>{f.key === 'all' ? 'All people' : f.label} ({filterCounts[f.key]})</option>)}
+            </select>
+            <Button variant="outline" className="min-h-11 flex-1" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
+              <SlidersHorizontal aria-hidden="true" />
+              Filter &amp; sort{filterField ? ' (1)' : ''}
+            </Button>
+          </div>
+        ) : <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter users">
+          {FILTERS.map(f => (
             <Button
               key={f.key}
               variant={filter === f.key ? 'default' : 'outline'}
@@ -1014,45 +1167,41 @@ export default function AdminUsers() {
               {f.label} <span className="ml-1 opacity-60 tabular-nums">{filterCounts[f.key]}</span>
             </Button>
           ))}
-        </div>
-        {userFields.length > 0 && (
-          <div className="flex flex-wrap gap-2 min-w-0 max-w-full" role="group" aria-label="Filter by custom field">
-            <select
-              aria-label="Custom field"
-              value={fieldFilter.fieldId}
-              onChange={e => setFieldFilter({ fieldId: e.target.value, value: e.target.value ? '__set' : '' })}
-              className="h-9 min-w-0 max-w-full truncate rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
-            >
-              <option value="">Any field</option>
-              {userFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-            </select>
-            {filterField && (
-              <select
-                aria-label={`${filterField.label} value`}
-                value={fieldFilter.value}
-                onChange={e => setFieldFilter(prev => ({ ...prev, value: e.target.value }))}
-                className="h-9 min-w-0 max-w-full truncate rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
-              >
-                <option value="__set">Has a value</option>
-                <option value="__empty">Empty</option>
-                {filterField.type === 'dropdown' && (filterField.options || []).map(o => <option key={o} value={o}>{o}</option>)}
-              </select>
-            )}
-          </div>
-        )}
+        </div>}
+        {!isMobile && fieldControls}
+      </div>
+
+      <div className="mb-2 flex min-h-6 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm text-muted-foreground">
+        <p role="status" aria-live="polite">{resultLabel}{loading ? ' · Updating…' : ''}</p>
+        {hasFilters && <Button variant="ghost" size="sm" onClick={clearSearchFilters}>Clear filters</Button>}
       </div>
 
       {/* Polite live region announces sort changes for screen-reader users
           (aria-sort attribute changes aren't reliably announced by NVDA/JAWS). */}
       <div role="status" aria-live="polite" className="sr-only">{sortAnnouncement}</div>
 
-      <Card className="p-0 overflow-hidden">
+      {isMobile ? (filteredList.length > 0 ? (
+        <UserMobileList
+          items={pageItems}
+          currentUserId={currentUser?.userId}
+          filterField={filterField}
+          slackConnected={slackConnected}
+          pendingRows={pendingRows}
+          onEdit={openEditUser}
+          onEditWaitlist={item => { returnToRowRef.current = item._key; navigate(`/plato/users/waitlist/${item._key}`); }}
+          onInvite={inviteFromWaitlist}
+          onResend={resendInvite}
+          onRevoke={revokeInvite}
+          onRemove={removeFromWaitlist}
+          onDelete={deleteUser}
+        />
+      ) : <div className="border-y border-border py-10 text-center text-sm text-muted-foreground"><p>{emptyLabel}</p></div>) : <Card className="p-0 overflow-hidden">
         <Table aria-label="Users and invites">
           <TableHeader>
             <TableRow>
               <SortHeader sortKey="name" sortBy={sortBy} onSort={handleSort}>User</SortHeader>
               <SortHeader sortKey="group" sortBy={sortBy} onSort={handleSort}>Group</SortHeader>
-              <SortHeader sortKey="role" sortBy={sortBy} onSort={handleSort}>Role</SortHeader>
+              <SortHeader sortKey="role" sortBy={sortBy} onSort={handleSort}>Status</SortHeader>
               <SortHeader sortKey="completed" sortBy={sortBy} onSort={handleSort} align="center">Completed</SortHeader>
               <SortHeader sortKey="lastActive" sortBy={sortBy} onSort={handleSort}>Last active</SortHeader>
               <SortHeader sortKey="date" sortBy={sortBy} onSort={handleSort}>Date added</SortHeader>
@@ -1064,10 +1213,10 @@ export default function AdminUsers() {
           <TableBody>
             {filteredList.length > 0 ? (
               pageItems.map(item => item._type === 'waitlist' ? (
-                <TableRow key={item._key} className="hover:bg-muted/50">
+                <TableRow key={item._key} data-user-key={item._key} className="hover:bg-muted/50">
                   <TableCell as="th" scope="row" className="whitespace-normal font-normal text-left">
                     <div className="min-w-0 max-w-56">
-                      <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => navigate(`/plato/users/waitlist/${item._key}`)}>
+                      <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit wait list entry for ${item.name || item.email}`} onClick={() => { returnToRowRef.current = item._key; navigate(`/plato/users/waitlist/${item._key}`); }}>
                         {item.name || item.email}
                       </button>
                       <span className="block truncate text-xs text-muted-foreground">{item.name ? item.email : 'Wait list'}</span>
@@ -1088,15 +1237,15 @@ export default function AdminUsers() {
                   {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button variant="outline" size="xs" aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>Invite</Button>
-                      <Button variant="ghost" size="icon-xs" title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>
+                      <Button variant="outline" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>{pendingRows[item._key] ? 'Sending…' : 'Invite'}</Button>
+                      <Button variant="ghost" size="icon-xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                       </Button>
                     </div>
                   </TableCell>
                 </TableRow>
               ) : item._type === 'invite' ? (
-                <TableRow key={item._key}>
+                <TableRow key={item._key} data-user-key={item._key}>
                   <TableCell as="th" scope="row" className="whitespace-normal font-normal text-left text-muted-foreground">
                     <div className="min-w-0 max-w-56">
                       <span className="block truncate max-w-full font-medium text-foreground" title={item.email}>{item.email}</span>
@@ -1112,17 +1261,17 @@ export default function AdminUsers() {
                   {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="icon-xs" title="Resend" aria-label={`Resend invite to ${item.email}`} onClick={() => resendInvite(item.email)}>
+                      <Button variant="ghost" size="icon-xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled title="Resend" aria-label={`Resend invite to ${item.email}`} onClick={() => resendInvite(item.email, item._key)}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                       </Button>
-                      <Button variant="ghost" size="icon-xs" title="Revoke" aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._invite.inviteToken, item.email)}>
+                      <Button variant="ghost" size="icon-xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled title="Revoke" aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._invite.inviteToken, item.email)}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                       </Button>
                     </div>
                   </TableCell>
                 </TableRow>
               ) : (
-                <TableRow key={item._key} className="hover:bg-muted/50">
+                <TableRow key={item._key} data-user-key={item._key} className="hover:bg-muted/50">
                   <TableCell as="th" scope="row" className="whitespace-normal font-normal text-left">
                     <div className="min-w-0 max-w-56">
                       <button type="button" className="touch-target block max-w-full truncate rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link" aria-label={`Edit ${item.name || item.email}`} onClick={() => openEditUser(item._user)}>
@@ -1136,26 +1285,16 @@ export default function AdminUsers() {
                   <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
                   <TableCell>
                     <Badge variant={item.role === 'admin' ? 'default' : 'secondary'}>
-                      {item.role === 'admin' ? 'Admin' : 'User'}
+                      {item.role === 'admin' ? 'Admin' : 'Learner'}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-center">
-                    {typeof item._user.lessonsCompleted === 'number' ? (
-                      <div className="inline-flex">
-                        <CompletionRing
-                          completed={item._user.lessonsCompleted}
-                          available={item._user.lessonsAvailable}
-                          size={40}
-                          strokeWidth={5}
-                          compact
-                        />
-                      </div>
-                    ) : <span className="text-muted-foreground">&mdash;</span>}
+                    <UserCompletion user={item._user} compact />
                   </TableCell>
                   <TableCell>
                     {item._user.lastActiveAt
                       ? new Date(item._user.lastActiveAt).toLocaleDateString()
-                      : <span className="text-muted-foreground">&mdash;</span>}
+                      : <span className="text-muted-foreground">Never</span>}
                   </TableCell>
                   <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
                   {filterField && (
@@ -1193,17 +1332,19 @@ export default function AdminUsers() {
             ) : (
               <TableRow>
                 <TableCell colSpan={7 + (filterField ? 1 : 0) + (slackConnected ? 1 : 0)} className="static! max-w-none! border-r-0! bg-transparent! whitespace-normal text-muted-foreground py-8 text-center">
-                  {loadError ? 'Users could not be loaded. Retry above.' : search || filter !== 'all' ? 'No matching users.' : 'No users yet. Click "Invite Users" to get started.'}
+                  {emptyLabel}
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
-      </Card>
+      </Card>}
+
+      {!isMobile && filteredList.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Completion counts all published lessons.</p>}
 
       {/* Pagination */}
       {filteredList.length > 0 && totalPages > 1 && (
-        <nav className="flex items-center justify-center gap-3 mt-4" aria-label="Pagination">
+        <nav className="flex flex-wrap items-center justify-center gap-3 my-4" aria-label="Pagination">
           <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage(p => p - 1)} aria-label="Previous page">
             Previous
           </Button>
@@ -1216,9 +1357,41 @@ export default function AdminUsers() {
         </nav>
       )}
 
+      {isMobile && <div className="users-mobile-actions admin-sticky-bar">
+        <Button className="min-h-11 w-full" onClick={() => setInviteOpen(true)}><Plus aria-hidden="true" />Invite Users</Button>
+      </div>}
+
+      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <DialogContent variant="sheet" className="users-sheet">
+          <DialogHeader>
+            <DialogTitle>Filter &amp; sort</DialogTitle>
+            <DialogDescription>Find people by profile details and choose their order.</DialogDescription>
+          </DialogHeader>
+          {isMobile && fieldControls}
+          <div className="space-y-2">
+            <Label htmlFor="users-sort">Sort by</Label>
+            <select id="users-sort" value={sortBy.key} onChange={e => setSortBy(prev => ({ ...prev, key: e.target.value }))} className="min-h-11 w-full rounded-lg border border-input bg-background px-3 text-base">
+              {['name', 'group', 'role', 'completed', 'lastActive', 'date'].map(key => <option key={key} value={key}>{SORT_LABELS[key][0].toUpperCase() + SORT_LABELS[key].slice(1)}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="users-sort-order">Order</Label>
+            <select id="users-sort-order" value={sortBy.dir} onChange={e => setSortBy(prev => ({ ...prev, dir: e.target.value }))} className="min-h-11 w-full rounded-lg border border-input bg-background px-3 text-base">
+              <option value="asc">{['date', 'lastActive'].includes(sortBy.key) ? 'Oldest first' : sortBy.key === 'completed' ? 'Lowest first' : 'A to Z'}</option>
+              <option value="desc">{['date', 'lastActive'].includes(sortBy.key) ? 'Newest first' : sortBy.key === 'completed' ? 'Highest first' : 'Z to A'}</option>
+            </select>
+          </div>
+          <p role="status" className="text-sm text-muted-foreground">{resultLabel}</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={clearFilters} disabled={!hasFilters} focusableWhenDisabled>Clear filters</Button>
+            <Button onClick={() => setFiltersOpen(false)}>Show {filteredList.length} {filteredList.length === 1 ? 'person' : 'people'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Invite Users Modal */}
       <Dialog open={inviteOpen} onOpenChange={handleInviteClose}>
-        <DialogContent variant="sheet">
+        <DialogContent variant="sheet" className="users-sheet">
           <DialogHeader>
             <DialogTitle>Invite Users</DialogTitle>
             <DialogDescription>
@@ -1232,7 +1405,7 @@ export default function AdminUsers() {
             <p className="text-sm text-warning-foreground" role="status">{inviteNotice}</p>
           )}
 
-          <Tabs defaultValue="email" value={inviteTab} onValueChange={(v) => { setInviteTab(v); setInviteNotice(null); if (v === 'slack' && slackChannels.length === 0) loadSlackChannels(); }}>
+          <Tabs defaultValue="email" value={inviteTab} onValueChange={(v) => { if (inviteSending || slackSending) return; setInviteTab(v); setInviteNotice(null); setInviteError(null); if (v === 'slack' && slackChannels.length === 0) loadSlackChannels(); }}>
             <TabsList className="mb-4" aria-label="Invite method">
               <TabsTrigger value="email" aria-label="Invite via email">Email</TabsTrigger>
               {slackConnected && <TabsTrigger value="slack" aria-label="Invite via Slack">Slack</TabsTrigger>}
@@ -1246,14 +1419,14 @@ export default function AdminUsers() {
                 <Label htmlFor="modal-inv-email">Email(s)</Label>
                 <div className="flex gap-2">
                   <Input id="modal-inv-email" type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" placeholder="user@example.com, another@example.com"
-                    value={inviteInput} onChange={e => setInviteInput(e.target.value)}
+                    readOnly={inviteSending} value={inviteInput} onChange={e => { setInviteInput(e.target.value); setInviteError(null); }}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleAddEmails(); } }} className="flex-1" />
-                  <Button variant="outline" onClick={handleAddEmails}>Add</Button>
+                  <Button variant="outline" disabled={inviteSending} focusableWhenDisabled onClick={handleAddEmails}>Add</Button>
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="modal-csv">Or upload CSV</Label>
-                <Input id="modal-csv" type="file" accept=".csv,text/csv" ref={csvRef} onChange={handleCsvFile} />
+                <Input id="modal-csv" type="file" accept=".csv,text/csv" ref={csvRef} disabled={inviteSending} onChange={handleCsvFile} />
               </div>
 
               {emailQueue.length > 0 && (
@@ -1266,6 +1439,7 @@ export default function AdminUsers() {
                           <span className="truncate">{email}</span>
                           <button
                             type="button"
+                            disabled={inviteSending}
                             onClick={() => removeFromQueue(email)}
                             className="compose-chip-remove shrink-0 inline-flex items-center justify-center rounded-full hover:text-destructive"
                             aria-label={`Remove ${email}`}
@@ -1279,9 +1453,11 @@ export default function AdminUsers() {
                 </div>
               )}
 
-              <DialogFooter>
-                <Button onClick={sendInvites} disabled={emailQueue.length === 0 || inviteSending}>
-                  {inviteSending ? 'Sending...' : `Send ${emailQueue.length} ${emailQueue.length === 1 ? 'invite' : 'invites'}`}
+              <DialogFooter className="flex-col sm:flex-col">
+                {inviteError && <UsersFeedback message={{ type: 'error', text: inviteError }} />}
+                <Button onClick={sendInvites} disabled={emailQueue.length === 0 || inviteSending} focusableWhenDisabled>
+                  {inviteSending && <LoaderCircle aria-hidden="true" className="animate-spin" />}
+                  {inviteSending ? 'Sending…' : `Send ${emailQueue.length} ${emailQueue.length === 1 ? 'invite' : 'invites'}`}
                 </Button>
               </DialogFooter>
             </div>
@@ -1367,8 +1543,9 @@ export default function AdminUsers() {
                 </div>
               )}
 
-              <DialogFooter>
-                <Button onClick={sendSlackInvites} disabled={slackQueue.length === 0 || slackSending}>
+              <DialogFooter className="flex-col sm:flex-col">
+                {inviteError && <UsersFeedback message={{ type: 'error', text: inviteError }} />}
+                <Button onClick={sendSlackInvites} disabled={slackQueue.length === 0 || slackSending} focusableWhenDisabled>
                   {slackSending ? 'Sending...' : `Send ${slackQueue.length} Slack ${slackQueue.length === 1 ? 'invite' : 'invites'}`}
                 </Button>
               </DialogFooter>

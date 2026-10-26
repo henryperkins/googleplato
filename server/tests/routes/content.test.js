@@ -36,6 +36,8 @@ describe('GET /v1/lessons — visibility filtering', () => {
     assert.ok(ids.includes('priv-1'), 'should include private shared with user');
     assert.ok(!ids.includes('priv-2'), 'should exclude private not shared with user');
     assert.ok(!ids.includes('priv-3'), 'should exclude private with no sharedWith');
+    assert.equal(data.find(l => l.lessonId === 'pub-1').status, 'public');
+    assert.equal(data.find(l => l.lessonId === 'priv-1').status, 'private');
   });
 
   it('strips sharedWith from response', async () => {
@@ -66,6 +68,7 @@ describe('GET /v1/lessons — visibility filtering', () => {
     const data = await res.json();
     assert.equal(data.length, 1);
     assert.equal(data[0].lessonId, 'legacy');
+    assert.equal(data[0].status, 'public', 'The client receives normalized visibility for progress counts');
   });
 
   it('normalizes legacy "draft" status as private', async () => {
@@ -77,6 +80,18 @@ describe('GET /v1/lessons — visibility filtering', () => {
     const data = await res.json();
     assert.equal(data.length, 1);
     assert.equal(data[0].lessonId, 'old-draft');
+    assert.equal(data[0].status, 'private');
+  });
+
+  it('returns missing or unknown visibility as private only to shared users', async () => {
+    db.getAllSyncData = async () => [
+      { dataKey: 'lesson:missing', data: { markdown: '# Missing', sharedWith: ['usr_1'] } },
+      { dataKey: 'lesson:unknown', data: { markdown: '# Unknown', status: 'unknown', sharedWith: ['usr_1'] } },
+    ];
+    const app = new Hono(); app.route('/', content);
+    const shared = await (await userReq(app, 'GET', '/v1/lessons', 'usr_1')).json();
+    assert.deepEqual(shared.map(l => [l.lessonId, l.status]), [['missing', 'private'], ['unknown', 'private']]);
+    assert.deepEqual(await (await userReq(app, 'GET', '/v1/lessons', 'usr_99')).json(), []);
   });
 
   it('hides true drafts (status=draft, no markdown) from learners even when shared', async () => {
@@ -119,6 +134,16 @@ describe('GET /v1/lessons/:lessonId — access control', () => {
     assert.equal(res.status, 200);
     const data = await res.json();
     assert.equal(data.sharedWith, undefined, 'sharedWith should be stripped');
+  });
+
+  it('returns the same normalized visibility as the lesson list', async () => {
+    const app = new Hono(); app.route('/', content);
+    for (const [stored, expected] of [['published', 'public'], ['draft', 'private'], [undefined, 'private']]) {
+      db.getSyncData = async () => ({ data: { markdown: '# Legacy', status: stored, sharedWith: ['usr_1'] }, version: 1 });
+      const res = await userReq(app, 'GET', '/v1/lessons/legacy');
+      assert.equal(res.status, 200);
+      assert.equal((await res.json()).status, expected);
+    }
   });
 
   it('returns 404 for drafts even when shared', async () => {

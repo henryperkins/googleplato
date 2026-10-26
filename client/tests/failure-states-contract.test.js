@@ -65,7 +65,7 @@ describe('Destructive and credential actions', () => {
 
   it('holds Invite until wait-list edits are saved', () => {
     const edit = read('pages/admin/WaitlistEntryEdit.jsx');
-    assert.match(edit, /disabled=\{saving \|\| dirty\}/);
+    assert.match(edit, /disabled=\{saving \|\| dirty \|\| inviting\}/);
     assert.match(edit, /aria-describedby=\{dirty \? 'wl-edit-invite-hint' : undefined\}/);
   });
 });

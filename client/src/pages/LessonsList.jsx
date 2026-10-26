@@ -177,8 +177,8 @@ export default function LessonsList() {
     });
   }, [lessons, courseFilter, statusFilter, lessonData]);
 
-  // Course progress counts every lesson the learner has, not just the filtered
-  // view, so a status filter can't skew "N of M" (#395).
+  // Course progress counts public lessons from the full catalog, so a status
+  // filter can't skew "N of M" (#395). Shared private lessons remain available.
   const progressByCourse = useMemo(() => courseCompletion(lessons, lessonData), [lessons, lessonData]);
 
   // Pagination math. We clamp the current page to the available range so a
@@ -402,20 +402,19 @@ export default function LessonsList() {
   );
 }
 
-// Course progress header — completed / total lessons in the course (the
-// learner's own custom-* lessons excluded) with a visual progress bar.
+// Course progress header — completed / total public lessons in the course.
 function CourseProgressHeader({ courseName, completed, total }) {
   if (total === 0) return null;
   const pct = Math.round((completed / total) * 100);
 
   return (
     <div className="mb-3">
-      <div className="flex items-baseline justify-between gap-3 mb-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="flex min-w-0 flex-col gap-1 mb-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+        <h2 className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           {courseName}
         </h2>
-        <span className="text-sm tabular-nums text-muted-foreground">
-          {completed} of {total} lesson{total === 1 ? '' : 's'}
+        <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+          {completed} of {total} public lesson{total === 1 ? '' : 's'}
         </span>
       </div>
       <div
@@ -423,7 +422,7 @@ function CourseProgressHeader({ courseName, completed, total }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={pct}
-        aria-label={`${courseName} progress: ${completed} of ${total} lessons completed`}
+        aria-label={`${courseName} progress: ${completed} of ${total} public lessons completed`}
         className="h-1.5 rounded-full bg-muted overflow-hidden"
       >
         <div

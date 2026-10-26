@@ -606,6 +606,125 @@ html {
   --motion-arrive: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Users is a list on phones. Its action bar sticks inside the admin main
+   scroller, above the shell's navigation, without assuming the nav's height. */
+.users-page {
+  position: relative;
+}
+
+@media (max-width: 47.999rem) {
+  .admin-main:has(.users-page) {
+    scroll-padding-bottom: 7rem;
+  }
+
+  .admin-main > div:has(> .users-page) {
+    display: flex;
+    min-height: 100%;
+    flex-direction: column;
+    padding-bottom: 0;
+  }
+
+  .users-page {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .users-mobile-actions {
+    position: sticky;
+    z-index: 20;
+    bottom: -1rem;
+    margin: auto -1rem -1rem;
+    border-top: 1px solid var(--border);
+    background: var(--background);
+    padding: 0.75rem 1rem;
+  }
+
+  .users-editor input,
+  .users-editor select {
+    min-height: 44px;
+  }
+
+  .users-list-feedback {
+    position: sticky;
+    top: 0;
+    z-index: 25;
+  }
+}
+
+@media (min-width: 40rem) and (max-width: 47.999rem) {
+  .users-mobile-actions {
+    bottom: -1.5rem;
+    margin-inline: -1.5rem;
+    margin-bottom: -1.5rem;
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (max-height: 34em) {
+  .users-mobile-actions {
+    position: static;
+    margin-top: 1rem;
+  }
+}
+
+/* Motion explains an opened sheet, an expanded row, and a completed action.
+   The directory itself is immediately visible; rows never enter in a parade. */
+.users-sheet[open] {
+  animation: users-sheet-arrive 220ms var(--motion-arrive);
+}
+
+.users-detail-chevron {
+  transition: transform 180ms var(--motion-arrive);
+}
+
+.users-row-details[open] > summary .users-detail-chevron {
+  transform: rotate(180deg);
+}
+
+.users-feedback {
+  animation: users-feedback-arrive 150ms ease-out;
+}
+
+.users-result-icon path {
+  stroke-dasharray: 24;
+  animation: users-result-check 320ms var(--motion-arrive);
+}
+
+@keyframes users-sheet-arrive {
+  from { transform: translateY(1rem); opacity: 0.7; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes users-feedback-arrive {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+
+@keyframes users-result-check {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* One brief confirmation, then make room for the conversation. Its duration
+   matches the notice cleanup in LessonChat. */
+.saved-reply-notice {
+  transform-origin: left center;
+  animation: saved-reply-notice 1600ms ease-out both;
+}
+
+@keyframes saved-reply-notice {
+  0% { opacity: 0.6; transform: scale(0.98); }
+  20% { opacity: 1; transform: scale(1.015); }
+  40%, 65% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+
+@keyframes saved-reply-fade {
+  0%, 65% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* Progress changes explain state without relaying out the surrounding text. */
 .progress-fill {
   width: 100%;
@@ -615,6 +734,22 @@ html {
 
 /* Keep state/color feedback while replacing travel, zoom, and rotation. */
 @media (prefers-reduced-motion: reduce) {
+  .saved-reply-notice {
+    animation-name: saved-reply-fade;
+  }
+
+  .users-sheet[open] {
+    animation: users-feedback-arrive 120ms ease-out;
+  }
+
+  .users-detail-chevron {
+    transition: none;
+  }
+
+  .users-result-icon path {
+    animation: none;
+  }
+
   .progress-fill {
     transition-property: background-color;
     transition-duration: 150ms;

@@ -181,7 +181,8 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(waitlistDialogSrc, /<DialogContent variant="sheet">/);
 
     const waitlistEditSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/WaitlistEntryEdit.jsx'), 'utf8');
-    assert.match(waitlistEditSrc, /flex flex-wrap items-center gap-3 pt-2/);
+    assert.match(waitlistEditSrc, /flex flex-wrap items-center gap-2/);
+    assert.match(waitlistEditSrc, /users-mobile-actions admin-sticky-bar/);
   });
 
   it('relaxes sticky bars on short viewports in em, so zoom and enlarged text count as short', () => {

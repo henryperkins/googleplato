@@ -12,7 +12,7 @@ let cacheRevision = 0;
 
 /**
  * Load all lessons from the server.
- * Returns an array of { lessonId, name, description, exemplar, learningObjectives }.
+ * Returns parsed lessons with course metadata and normalized visibility status.
  */
 export async function loadLessons() {
   if (lessonsCache) return lessonsCache;
@@ -25,9 +25,10 @@ export async function loadLessons() {
   if (!Array.isArray(serverLessons)) throw new Error('Lessons could not be loaded.');
   for (const lesson of serverLessons) {
     if (lesson.markdown) {
-      // Course metadata is carried alongside the parsed lesson markdown.
+      // Preserve server-normalized visibility for public-only course counts.
       const parsed = parseLessonPrompt(lesson.lessonId, lesson.markdown);
       if (lesson.course) parsed.course = lesson.course;
+      parsed.status = lesson.status;
       lessons.push(parsed);
     }
   }

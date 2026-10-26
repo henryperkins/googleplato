@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadLessons, invalidateLessonsCache, getLessonsInCourse } from '../js/lessonOwner.js';
 import { clearCache, _populateCache } from '../js/storage.js';
+import { courseCompletion } from '../src/lib/courseCompletion.js';
 
 const originalFetch = globalThis.fetch;
 const originalStorage = globalThis.localStorage;
@@ -9,6 +10,7 @@ const lesson = {
   lessonId: 'feedback',
   markdown: '# Give useful feedback\n\nPractice specific feedback.\n\n## Exemplar\nWrite useful feedback.\n\n## Learning Objectives\n- Name the behavior.',
   course: { id: 'communication', name: 'Communication' },
+  status: 'public',
 };
 const response = data => new Response(JSON.stringify(data), {
   headers: { 'Content-Type': 'application/json' },
@@ -64,6 +66,24 @@ describe('lesson loading and recovery', () => {
     _populateCache('lessons:custom-1', { lessonId: 'custom-1', markdown: '# A custom lesson\n\nPractice a skill.' }, 1);
     globalThis.fetch = async () => response([lesson]);
     assert.deepEqual((await loadLessons()).map(item => item.lessonId), ['custom-1', 'feedback']);
+  });
+
+  it('keeps shared private lessons available while only public lessons count toward course progress', async () => {
+    globalThis.fetch = async () => response([
+      lesson,
+      { ...lesson, lessonId: 'private-shared', status: 'private' },
+      { ...lesson, lessonId: 'public-unfinished' },
+    ]);
+    _populateCache('lessons:custom-1', { ...lesson, lessonId: 'custom-1' }, 1);
+    const loaded = await loadLessons();
+    assert.equal(loaded.length, 4, 'Private and custom lessons stay available');
+    assert.equal(loaded.find(item => item.lessonId === 'feedback').status, 'public');
+    assert.equal(loaded.find(item => item.lessonId === 'private-shared').status, 'private');
+    assert.deepEqual(courseCompletion(loaded, {
+      feedback: { status: 'completed' },
+      'private-shared': { status: 'completed' },
+      'custom-1': { status: 'completed' },
+    }), { communication: { completed: 1, total: 2 } });
   });
 
   it('provides the course agent with the names and descriptions for its course', async () => {
