@@ -45,6 +45,31 @@ test('an acknowledgement for an older turn cannot remove a newer recovery copy',
   assert.equal(createGeneratedTurnStore({ storage: () => storage }).read('learner-a', 'lesson-1'), null);
 });
 
+test('explicit dismissal survives reload and only suppresses that account, lesson and turn', () => {
+  const storage = disk();
+  const store = createGeneratedTurnStore({ storage: () => storage });
+  store.stage(turn);
+  assert.equal(store.dismiss(turn.userId, turn.lessonId, turn.turnId), true);
+  const reloaded = createGeneratedTurnStore({ storage: () => storage });
+  assert.equal(reloaded.read(turn.userId, turn.lessonId), null);
+  assert.equal(reloaded.wasDismissed(turn.userId, turn.lessonId, turn.turnId), true);
+  assert.equal(reloaded.wasDismissed('other', turn.lessonId, turn.turnId), false);
+  assert.equal(reloaded.wasDismissed(turn.userId, 'other', turn.turnId), false);
+  assert.equal(reloaded.wasDismissed(turn.userId, turn.lessonId, 'new-turn'), false);
+  reloaded.stage({ ...turn, turnId: 'new-turn' });
+  assert.equal(reloaded.dismiss(turn.userId, turn.lessonId, turn.turnId), false);
+  assert.equal(reloaded.read(turn.userId, turn.lessonId).turn.turnId, 'new-turn');
+});
+
+test('dismissal refuses to lose the reply when the tombstone cannot be verified', () => {
+  const storage = disk();
+  const store = createGeneratedTurnStore({ storage: () => storage });
+  store.stage(turn);
+  storage.setItem = () => {};
+  assert.equal(store.dismiss(turn.userId, turn.lessonId, turn.turnId), false);
+  assert.deepEqual(store.read(turn.userId, turn.lessonId).turn, turn);
+});
+
 test('reload requires a readable recovery copy even if storage was cleared after staging', () => {
   const storage = disk();
   const store = createGeneratedTurnStore({ storage: () => storage });

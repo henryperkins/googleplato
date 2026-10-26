@@ -380,6 +380,32 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal(await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).inputValue(), 'A private feedback draft');
   }));
 
+  it('acknowledges unchanged profile feedback without writes and still retains malformed responses', t => withPage(t, async page => {
+    await page.goto(`${base}/settings`);
+    let result = { changed: false };
+    const writes = [];
+    page.on('request', request => {
+      if (request.method() === 'PUT' && /\/v1\/sync\/profile(?:Summary)?$/.test(request.url())) writes.push(request.url());
+    });
+    await page.route('**/v1/ai/messages', route => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(result) }] }) }));
+    await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+    const input = page.getByRole('textbox', { name: 'Profile feedback', exact: true });
+    await input.fill('My profile already describes my preferences.');
+    await page.getByRole('button', { name: 'Update profile', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden', timeout: 3000 });
+    await page.getByRole('status').filter({ hasText: 'Your profile is already up to date.' }).waitFor();
+    assert.deepEqual(writes, []);
+    await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+    assert.equal(await input.inputValue(), '');
+    result = {};
+    await input.fill('Retain this feedback if the response is malformed.');
+    await page.getByRole('button', { name: 'Update profile', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'The profile update was empty.' }).waitFor();
+    assert.equal(await input.inputValue(), 'Retain this feedback if the response is malformed.');
+    assert.deepEqual(writes, []);
+  }));
+
   it('delayed feedback generation cannot save into the next account', t => withPage(t, async page => {
     await page.goto(`${base}/settings`);
     const reached = deferred(), released = deferred();

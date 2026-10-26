@@ -39,6 +39,7 @@ function AccountSettings() {
   const [name, setName] = useState(user?.name || state.preferences?.name || '');
   const [username, setUsername] = useState(user?.username || '');
   const [profileSummary, setProfileSummary] = useState('');
+  const [profileFeedback, setProfileFeedback] = useState(null);
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -383,6 +384,7 @@ function AccountSettings() {
           <Button variant="outline" onClick={() => setFeedbackOpen(true)}>
             Add Feedback
           </Button>
+          <SettingsFeedback id="profile-feedback-status" feedback={profileFeedback} />
         </CardContent>
       </Card>
 
@@ -390,8 +392,9 @@ function AccountSettings() {
         userId={user?.userId}
         open={feedbackOpen}
         onOpenChange={setFeedbackOpen}
-        onDone={async () => {
+        onDone={async ({ changed }) => {
           setProfileSummary(await getLearnerProfileSummary());
+          setProfileFeedback({ type: 'success', message: changed ? 'Your profile has been updated.' : 'Your profile is already up to date.' });
         }}
       />
     </div>
@@ -425,17 +428,19 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
         lessonName: 'Settings', activityType: 'feedback', activityGoal: 'User-provided profile feedback',
       }, { userId });
       await assertTurnOwner(userId);
-      if (result?.profile) {
+      if (result?.changed !== false) {
+        if (!result?.profile || typeof result.profile !== 'object' || Array.isArray(result.profile)) {
+          throw new Error('The profile update was empty. Your feedback is retained; try again.');
+        }
         const merged = mergeProfile(profile, result.profile);
         await saveLearnerProfile(merged, options);
         if (result.summary) await saveLearnerProfileSummary(result.summary, options);
       }
-      else throw new Error('The profile update was empty. Your feedback is retained; try again.');
       await assertTurnOwner(userId);
       settingsDrafts.clear(userId, 'feedback', text);
       onOpenChange(false);
       setText('');
-      if (onDone) onDone();
+      if (onDone) onDone({ changed: result.changed !== false });
     } catch (e) {
       setError(aiErrorMessage(e, 'profile-feedback'));
     } finally {

@@ -65,6 +65,28 @@ test('streaming keeps quoted markers and suppresses the real metadata prefix', (
   assert.deepEqual(seen, ['The text "[PROGRESS: 10]" is an example.', 'Visible feedback.', 'Explain why reliability matters here.']);
 });
 
+for (const body of [
+  'Here is a literal example:\n~~~text\n[PROGRESS: 10]\n~~~\nContinue working.',
+  'Here is a literal example:\n````text\n```\n[PROGRESS: 10]\n````\nContinue working.',
+  'An indented example:\r\n    ~~~~text\r\n[KB_UPDATE: literal]\r\n    ~~~~\r\nContinue working.',
+]) {
+  test(`protocol scanning preserves literal fenced content: ${JSON.stringify(body)}`, () => {
+    const parsed = parseCoachResponse(reply(6, {}, body));
+    assert.equal(parsed.valid, true);
+    assert.equal(parsed.text, body);
+    assert.equal(parsed.progress, 6);
+    const seen = [];
+    cleanStream(value => seen.push(value))(reply(6, {}, body));
+    assert.equal(seen[0], body);
+  });
+}
+
+test('streaming retains an unfinished protocol-looking line inside a code example', () => {
+  const seen = [];
+  cleanStream(value => seen.push(value))('Example:\n~~~text\n[PRO');
+  assert.equal(seen[0], 'Example:\n~~~text\n[PRO');
+});
+
 test('10 requires evidence for every authored objective and the exemplar', () => {
   const parsed = parseCoachResponse(reply(10, { evidence: evidence().slice(0, 1) }));
   const result = applyCoachResponseToKB(kb(), parsed);

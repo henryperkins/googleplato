@@ -657,6 +657,12 @@ After reload, the original turn IDs, base snapshot, reply, and progress restore;
 a replacement nor runs optional profile/course models. A lost acknowledgement
 still reconciles through the existing idempotent commit contract.
 
+Explicitly discarding a generated reply replaces its local record with a small,
+verified dismissal for that account, lesson, and turn ID. Server recovery ignores
+that exact turn after navigation or reload, while a newer turn remains eligible.
+If browser storage cannot retain the dismissal, the reply stays available and
+the action reports the failure instead of claiming it was discarded.
+
 Already-open legacy bundles cannot acquire this UI retroactively. Their existing
 account-scoped generated-turn journal remains readable after manual reload, but
 legacy `plato_compose_draft:<lessonId>` text has no owner identity and is left
@@ -685,6 +691,12 @@ and the existing keep-this-tab-open warning still applies. Upgrade reload also
 verifies every retained submission. Owner-bound image/model/profile requests
 reject an account change before sending, and late profile acknowledgements do
 not populate the next account's cache or credentials.
+
+Background profile and course enrichment capture the account when queued. They
+recheck it before reading context and after inference, and bind each save to
+that account. Owner-bound reads also reject late cache population. These writes
+are already awaited and are not repeated by an unowned debounce. An account
+switch stops the optional enrichment instead of applying it to the new account.
 
 Generic single and batch PUTs require an explicit nonnegative safe integer
 `version` below `Number.MAX_SAFE_INTEGER`: `0` creates only an absent key;
@@ -1538,6 +1550,10 @@ old global `plato_settings_fields_draft` and `plato_profile_feedback_draft` keys
 have no trustworthy owner and are discarded rather than assigned to a user.
 Passwords are never part of these drafts. Feedback remains retained if its
 generated profile or summary cannot be confirmed saved.
+
+A valid `changed: false` profile-feedback result is acknowledged as already up
+to date, clears the submitted feedback draft, and performs no profile writes.
+Malformed results still retain feedback and report a failure.
 
 **API.**
 

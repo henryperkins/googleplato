@@ -189,7 +189,15 @@ export async function discardLessonReply(lessonId) {
   const user = await getAuthUser();
   const entry = generatedTurns.read(user?.userId, lessonId);
   const state = await readLessonState(user?.userId, lessonId);
-  if (entry) generatedTurns.clear(user.userId, lessonId, entry.turn.turnId);
+  if (entry) {
+    if (!generatedTurns.dismiss(user.userId, lessonId, entry.turn.turnId)) {
+      throw new Error('The dismissal could not be kept for recovery. Your reply is still retained; free browser storage and try again.');
+    }
+    const submission = lessonSubmissions.read(user.userId, lessonId);
+    if (submission?.id === entry.turn.turnId && !lessonSubmissions.clear(submission)) {
+      throw new Error('The submitted input could not be removed. It is still retained for recovery.');
+    }
+  }
   for (const name of ['messages', 'lessonKB']) _populateCache(`${name}:${lessonId}`, state[name].data, state[name].version);
 }
 
@@ -208,12 +216,13 @@ export async function startLesson(lessonId, lesson, onStream, onProgress) {
       return { messages: await hydrateMessageImages(base.messages.data), lessonKB: base.lessonKB.data,
         phase: base.lessonKB.data?.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING };
     }
-    await ensureProfileExists();
+    await ensureProfileExists('', { expectedUserId: userId });
     if (onProgress) onProgress('initializing');
     const recovered = await recoverCoachTurn(lessonId, userId);
     await assertTurnOwner(userId);
     if (onProgress) onProgress('starting');
-    const turn = recovered && JSON.stringify(recovered.base) === JSON.stringify(base) ? recovered
+    const turn = recovered && !generatedTurns.wasDismissed(userId, lessonId, recovered.turnId)
+      && JSON.stringify(recovered.base) === JSON.stringify(base) ? recovered
       : await requestCoachTurn(lessonId, { kind: 'start', turnId, base, telemetry }, onStream, userId);
     await assertTurnOwner(userId);
     const entry = generatedTurns.stage(turn);
@@ -409,7 +418,7 @@ export async function resumeLesson(lessonId) {
     if (!generatedTurns.read(user.userId, lessonId)) {
       const recovered = await recoverCoachTurn(lessonId, user.userId, submission?.id).catch(() => null);
       await assertTurnOwner(user.userId);
-      if (recovered) {
+      if (recovered && !generatedTurns.wasDismissed(user.userId, lessonId, recovered.turnId)) {
         const state = await readLessonState(user.userId, lessonId);
         if (!recovered.messages.every(message => state.messages.data.some(saved => saved.id === message.id))) generatedTurns.stage(recovered);
       }

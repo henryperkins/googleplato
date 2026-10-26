@@ -25,12 +25,14 @@ export function _populateCache(syncKey, data, version) {
   _versions.set(syncKey, version);
 }
 
-async function fetchSyncData(syncKey) {
+async function fetchSyncData(syncKey, { expectedUserId } = {}) {
+  if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return null;
   if (_cache.has(syncKey)) return _cache.get(syncKey);
   try {
-    const res = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`);
+    const res = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, { expectedUserId });
     if (!res.ok) return null;
     const item = await res.json();
+    if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return null;
     _cache.set(syncKey, item.data);
     _versions.set(syncKey, item.version);
     return item.data;
@@ -134,8 +136,8 @@ export async function savePreferences(prefs) {
 
 // -- Learner profile ----------------------------------------------------------
 
-export async function getLearnerProfile() {
-  return fetchSyncData('profile');
+export async function getLearnerProfile(options) {
+  return fetchSyncData('profile', options);
 }
 
 export async function saveLearnerProfile(profile, options) {
@@ -172,12 +174,13 @@ export async function deleteLessonKB(lessonId) {
 // lessons. Regenerated in the background on each completion; injected into the
 // coach context for every other lesson in the course. See courseProgressQueue.
 
-export async function getCourseProgress(courseId) {
-  return fetchSyncData(`courseProgress:${courseId}`);
+export async function getCourseProgress(courseId, options) {
+  return fetchSyncData(`courseProgress:${courseId}`, options);
 }
 
-export async function saveCourseProgress(courseId, progress) {
-  await putSyncData(`courseProgress:${courseId}`, progress);
+export async function saveCourseProgress(courseId, progress, options) {
+  const saved = await putSyncData(`courseProgress:${courseId}`, progress, options);
+  if (options?.expectedUserId && !saved) throw new Error('Your course progress update could not be confirmed saved.');
 }
 
 // -- Activity KB --------------------------------------------------------------

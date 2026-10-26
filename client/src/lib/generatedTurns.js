@@ -4,7 +4,31 @@ const keyFor = (userId, lessonId) => `plato_generated_turn:${encodeURIComponent(
 
 export function createGeneratedTurnStore({ storage = () => sessionStorage } = {}) {
   const memory = new Map();
+  const dismissed = new Map();
   return {
+    wasDismissed(userId, lessonId, turnId) {
+      const key = keyFor(userId, lessonId);
+      if (dismissed.get(key) === turnId) return true;
+      try {
+        const saved = JSON.parse(storage().getItem(key));
+        return saved?.userId === userId && saved.lessonId === lessonId && saved.dismissedTurnId === turnId;
+      } catch { return false; }
+    },
+    dismiss(userId, lessonId, turnId) {
+      if (this.read(userId, lessonId)?.turn.turnId !== turnId) return false;
+      const key = keyFor(userId, lessonId);
+      // Replace the larger reply with a small, verified tombstone so server
+      // recovery cannot resurrect an explicitly discarded turn after reload.
+      try {
+        const target = storage();
+        const value = JSON.stringify({ userId, lessonId, dismissedTurnId: turnId });
+        target.setItem(key, value);
+        if (target.getItem(key) !== value) return false;
+      } catch { return false; }
+      dismissed.set(key, turnId);
+      memory.delete(key);
+      return true;
+    },
     stage(turn) {
       const key = keyFor(turn.userId, turn.lessonId);
       const entry = { turn: structuredClone(turn), persistedLocally: false };

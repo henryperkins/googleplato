@@ -44,22 +44,30 @@ function unwrap(raw) {
 function controlLines(text) {
   const matches = [];
   let offset = 0;
-  let fenced = false;
+  let fence = null;
   for (const line of text.split('\n')) {
-    if (/^\s*```/.test(line)) fenced = !fenced;
-    if (!fenced && /^\[(?:PROGRESS|KB_UPDATE|PROFILE_UPDATE)(?::|\s|\])/.test(line)) matches.push(offset);
+    const wasFenced = !!fence;
+    const marker = line.replace(/\r$/, '').match(/^[ \t]*(`{3,}|~{3,})(.*)$/);
+    if (marker) {
+      if (fence) {
+        if (marker[1][0] === fence.marker && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+      } else if (marker[1][0] !== '`' || !marker[2].includes('`')) {
+        fence = { marker: marker[1][0], length: marker[1].length };
+      }
+    }
+    if (!wasFenced && !fence && /^\[(?:PROGRESS|KB_UPDATE|PROFILE_UPDATE)(?::|\s|\])/.test(line)) matches.push(offset);
     offset += line.length + 1;
   }
-  return matches;
+  return { matches, fenced: !!fence };
 }
 
 export function visibleCoachText(raw, { partial = false } = {}) {
   let text = unwrap(raw);
   // Suppress a model's full-response fence during streaming as well.
   if (partial) text = text.replace(/^```(?:text|plaintext|markdown)?\s*\n/, '');
-  const [first] = controlLines(text);
+  const { matches: [first], fenced } = controlLines(text);
   if (first !== undefined) text = text.slice(0, first);
-  if (partial) {
+  if (partial && !fenced) {
     const newline = text.lastIndexOf('\n');
     const last = text.slice(newline + 1);
     if (last.startsWith('[') && tags.some(tag => `[${tag}:`.startsWith(last))) text = text.slice(0, Math.max(0, newline));
@@ -87,7 +95,7 @@ function readJSON(text, start) {
 export function parseCoachResponse(raw) {
   const text = unwrap(raw);
   const result = { text: visibleCoachText(text), progress: null, kbUpdate: null, profileUpdate: null, valid: false, issues: [] };
-  const [first] = controlLines(text);
+  const { matches: [first] } = controlLines(text);
   const invalid = reason => { result.issues.push(reason); return result; };
   if (first === undefined) return invalid('missing_metadata');
   if (!result.text) return invalid('missing_message');
