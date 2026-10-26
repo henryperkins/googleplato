@@ -37,17 +37,19 @@ export function mergeProfile(existing, returned) {
     merged[key] = [...new Set(combined)];
   }
   for (const key of ['strengths', 'weaknesses']) {
-    merged[key] = (returned[key]?.length > 0) ? returned[key] : (existing[key] || []);
+    merged[key] = Array.isArray(returned[key]) ? returned[key] : (existing[key] || []);
   }
   merged.preferences = { ...(existing.preferences || {}), ...(returned.preferences || {}) };
+  for (const key of Object.keys(merged.preferences)) if (merged.preferences[key] === null) delete merged.preferences[key];
   merged.createdAt = existing.createdAt || returned.createdAt;
   merged.updatedAt = returned.updatedAt || Date.now();
   return merged;
 }
 
 async function saveProfileResult(existing, result) {
+  if (result?.changed === false) return;
   if (!result?.profile) {
-    console.error('[plato] Profile update agent returned no profile:', result);
+    console.error('[plato] Profile update agent returned an invalid result.');
     return;
   }
   const merged = mergeProfile(existing, result.profile);
@@ -91,8 +93,10 @@ export function updateProfileOnCompletionInBackground(lessonKB, lesson, context)
     // masteredLessons is system-managed (no longer echoed by the agent —
     // see orchestrator.profileForAgent). Record the completion in code so
     // mergeProfile unions it into the stored profile.
+    if (result?.changed === false) result.profile = {};
     if (result?.profile) {
-      result.profile.masteredLessons = [...new Set([...(result.profile.masteredLessons || []), lesson.lessonId])];
+      result.changed = true;
+      result.profile.masteredLessons = [lesson.lessonId];
     }
     await saveProfileResult(profile, result);
   });

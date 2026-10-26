@@ -15,7 +15,7 @@ You receive a JSON object:
 - `courseName`: the course's name
 - `lessonsInCourse`: `[{ name, description }]` — every lesson in the course, for naming and framing
 - `priorSummary`: the current note (may be empty on the first completion)
-- `completedLesson`: `{ name, learnerPosition, insights }` — the lesson the learner just finished
+- `completedLesson`: `{ name, demonstratedObjectives }` — the lesson the learner just finished
 - `completedLessonIds`: ids of lessons already complete — **context only**. The platform tracks this list itself; you don't manage or return it.
 
 ## Core principle: revise, don't accumulate
@@ -39,3 +39,5 @@ Respond with ONLY valid JSON, no markdown fencing:
 }
 
 Return only the `summary`. The platform records which lessons are complete on its own (it already knows the just-completed lesson's id) — you don't need to track or emit lesson ids.
+
+Use only demonstratedObjectives as new learning evidence. Do not infer traits or personal facts from the lesson title or from prior prose.

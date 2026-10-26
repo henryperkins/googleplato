@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { logger } from './logger.js';
 import { aiErrorDiagnostics } from './ai-errors.js';
 
-const AGENTS = new Set(['coach', 'lesson-owner', 'lesson-creator', 'lesson-extractor', 'knowledge-base-editor',
+const AGENTS = new Set(['coach', 'coach-assessment-repair', 'lesson-owner', 'lesson-creator', 'lesson-extractor', 'knowledge-base-editor',
   'knowledge-base-extractor', 'learner-profile-owner', 'learner-profile-update', 'course-progress-update', 'lesson-enrichment', 'admin-test']);
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const id = value => typeof value === 'string' && /^[\w-]{1,128}$/.test(value);

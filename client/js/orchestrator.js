@@ -80,7 +80,7 @@ function parseJSON(text) {
   throw new ApiError('parse', 'Failed to parse agent JSON response.');
 }
 
-async function callWithValidation(agentFn, validator) {
+export async function callWithValidation(agentFn, validator) {
   const parsed = await agentFn();
   const error = validator(parsed);
   if (!error) return parsed;
@@ -89,7 +89,7 @@ async function callWithValidation(agentFn, validator) {
   const retryError = validator(retry);
   if (retryError) {
     console.error(`[plato] Validation failed after retry: ${retryError}`);
-    if (retryError.includes('unsafe')) throw new ApiError('safety', retryError);
+    throw new ApiError(retryError.includes('unsafe') ? 'safety' : 'validation', retryError);
   }
   return retry;
 }
@@ -173,6 +173,7 @@ export async function initializeLessonKB(lesson, profileSummary, context) {
     lessonId: lesson.lessonId, lessonName: lesson.name,
     lessonDescription: lesson.description, exemplar: lesson.exemplar,
     learningObjectives: lesson.learningObjectives,
+    coachDirective: lesson.coachDirective || '',
     learnerProfile: profileSummary || 'New learner, no profile yet.',
   });
   const callAgent = async () => {
@@ -182,7 +183,7 @@ export async function initializeLessonKB(lesson, profileSummary, context) {
     });
     return parseJSON(content);
   };
-  return callWithValidation(callAgent, validateLessonKB);
+  return callWithValidation(callAgent, value => validateLessonKB(value, lesson));
 }
 
 // The profile-update agents only revise the "soft" fields (name, goal,
@@ -203,12 +204,17 @@ function profileForAgent(profile) {
 
 export async function updateProfileOnCompletion(fullProfile, lessonKB, lessonName, lessonId, activitiesCompleted, context) {
   const systemPrompt = await loadPrompt('learner-profile-owner');
-  const userContent = JSON.stringify({ currentProfile: profileForAgent(fullProfile), lessonKB, activitiesCompleted, lessonName, lessonId });
+  const userContent = JSON.stringify({ currentProfile: profileForAgent(fullProfile), lessonKB: completionEvidenceForProfile(lessonKB), activitiesCompleted, lessonName, lessonId });
   const { content } = await callApi({
     model: LLM, systemPrompt, agentRole: 'learner-profile-owner', context,
     messages: [{ role: 'user', content: userContent }], maxTokens: 1024,
   });
   return parseJSON(content);
+}
+
+export function completionEvidenceForProfile(lessonKB) {
+  const met = new Set((lessonKB.evidence || []).filter(item => item.status === 'met').map(item => item.objectiveId));
+  return { demonstratedObjectives: (lessonKB.objectives || []).filter(item => met.has(item.id)).map(item => item.objective) };
 }
 
 // -- Learner Profile Owner (code — incremental merge) -------------------------
@@ -226,7 +232,7 @@ export function incrementalProfileUpdate(profile, lessonId) {
 export async function updateProfileFromFeedback(fullProfile, feedbackText, activityContext, context) {
   const systemPrompt = await loadPrompt('learner-profile-update');
   const userContent = JSON.stringify({
-    currentProfile: profileForAgent(fullProfile), learnerFeedback: feedbackText,
+    currentProfile: profileForAgent(fullProfile), observation: feedbackText,
     context: { lessonName: activityContext.lessonName, activityType: activityContext.activityType, activityGoal: activityContext.activityGoal, timestamp: Date.now() },
   });
   const { content } = await callApi({

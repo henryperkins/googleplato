@@ -4,12 +4,12 @@ import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { clientCompatibility, requireCurrentClient } from '../middleware/clientCompatibility.js';
 import { isPublicLessonRecord } from '../lib/lesson-visibility.js';
-import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
-import { logger } from '../lib/logger.js';
 import { observeSyncSave } from '../middleware/saveObservability.js';
-import { inferenceContext, recordLessonAttemptSaved, withInferenceContext } from '../lib/inference-telemetry.js';
+import { recordLessonAttemptSaved } from '../lib/inference-telemetry.js';
 import { MAX_SCREENSHOT_RECORD_BYTES } from '../lib/sync-limits.js';
+import { verifyCoachTurn } from '../lib/coach-receipt.js';
+import { resolveCoachLesson, lessonCriteriaHash, collectLessonEnrichments } from '../lib/lesson-coaching.js';
 
 const sync = new Hono();
 
@@ -39,6 +39,26 @@ function validateDataKey(dataKey) {
 }
 
 const validVersion = version => Number.isSafeInteger(version) && version >= 0 && version < Number.MAX_SAFE_INTEGER;
+const controlledKey = key => /^(lessonKB|messages):/.test(key);
+
+// The sole generic transcript update allowed is the existing image migration.
+// Every text, identity, assessment provenance and non-image field is identical.
+async function legacyImageMigration(userId, dataKey, data) {
+  if (!dataKey.startsWith('messages:') || !Array.isArray(data)) return false;
+  const old = (await db.getSyncData(userId, dataKey))?.data;
+  if (!Array.isArray(old) || old.length !== data.length) return false;
+  for (let i = 0; i < old.length; i++) {
+    if (isDeepStrictEqual(old[i], data[i])) continue;
+    const urls = old[i]?.metadata?.imageDataUrls;
+    const keys = data[i]?.metadata?.imageKeys;
+    if (!Array.isArray(urls) || !urls.length || old[i].metadata.imageKeys || !Array.isArray(keys) || keys.length !== urls.length) return false;
+    const { imageDataUrls: _urls, ...oldMeta } = old[i].metadata;
+    const { imageKeys: _keys, ...newMeta } = data[i].metadata;
+    if (!isDeepStrictEqual(oldMeta, newMeta) || !isDeepStrictEqual({ ...old[i], metadata: null }, { ...data[i], metadata: null })) return false;
+    for (const key of keys) if (!(await db.getSyncData(userId, `screenshot:${key}`))?.data) return false;
+  }
+  return true;
+}
 
 // Maintain denormalized activity counters on the user record (#136). Called
 // after each successful sync write. `oldStatus` is the lessonKB status as
@@ -144,7 +164,8 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
   const lessonId = c.req.param('lessonId');
   const body = await c.req.json();
   if (body?.userId !== userId) return c.json({ error: 'Return to the original account to save this reply.' }, 403);
-  const { turnId, base, messages, lessonKB } = body;
+  const { turnId, base } = body;
+  let { messages, lessonKB } = body;
   const object = value => value && typeof value === 'object' && !Array.isArray(value);
   const validRecord = record => object(record) && Number.isSafeInteger(record.version) && record.version >= 0;
   if (typeof turnId !== 'string' || !/^[\w-]{1,100}$/.test(turnId)
@@ -158,10 +179,23 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
     return c.json({ error: 'Invalid generated lesson turn.' }, 400);
   }
   const conflict = () => c.json({ code: 'lesson_turn_conflict', error: 'This lesson changed in another session. Your reply is retained; the saved lesson has not been overwritten.' }, 409);
+  const sameMessage = (saved, message) => {
+    if (body.receipt !== undefined) return isDeepStrictEqual(saved, message);
+    const { assessmentProvenance: _saved, ...a } = saved;
+    const { assessmentProvenance: _message, ...b } = message;
+    return isDeepStrictEqual(a, b);
+  };
   const replay = state => state.generation === base.generation && Array.isArray(state.messages.data)
-    && messages.every(message => state.messages.data.some(saved => saved.id === message.id && isDeepStrictEqual(saved, message)))
+    && messages.every(message => state.messages.data.some(saved => saved.id === message.id && sameMessage(saved, message)))
     && state.lessonKB.data?.startedAt === lessonKB.startedAt;
   const current = await db.getLessonState(userId, lessonId);
+  if (body.receipt !== undefined && (body.lessonId !== lessonId || !verifyCoachTurn(body))) return c.json({ error: 'The generated reply receipt is invalid. The retained reply has not been overwritten.' }, 403);
+  if (body.receipt === undefined) {
+    messages = messages.map(message => ({ ...message, assessmentProvenance: 'legacy-unverified' }));
+    // Retain old output verbatim, while preserving only the already saved
+    // assessment. Unverified assistant assertions never enter coach evidence.
+    lessonKB = current.lessonKB.data || { lessonId, startedAt: lessonKB.startedAt, status: 'active', progress: 0, activitiesCompleted: 0, assessmentProvenance: 'legacy-unverified' };
+  }
   const acknowledge = state => {
     recordLessonAttemptSaved(userId, lessonId, turnId, state);
     return c.json(state);
@@ -171,6 +205,14 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
   // Existing identities may never be reassigned, even if a client supplies
   // a fresh base snapshot with a different reply under an old turn ID.
   if (current.messages.data.some(saved => messages.some(message => message.id === saved.id))) return conflict();
+  if (body.receipt !== undefined && current.lessonKB.data?.status !== 'completed') {
+    let currentCriteria;
+    try { currentCriteria = lessonCriteriaHash(await resolveCoachLesson(userId, lessonId)); }
+    catch (error) { if (![404, 422].includes(error.status)) throw error; }
+    if (lessonKB.criteriaHash !== currentCriteria) {
+      lessonKB = { ...(current.lessonKB.data || lessonKB), progress: 0, status: 'active', evidence: [], exemplarEvidence: { status: 'missing', observation: '', sourceIds: [] }, assessmentReviewRequired: true };
+    }
+  }
   const desired = { messages: [...current.messages.data, ...messages], lessonKB };
   for (const [name, data] of Object.entries(desired)) {
     if (Buffer.byteLength(JSON.stringify({ userId, dataKey: `${name}:${lessonId}`, data }), 'utf8') > MAX_SCREENSHOT_RECORD_BYTES) {
@@ -205,7 +247,7 @@ sync.get('/v1/sync', async (c) => {
   // The adapter excludes the three families in the query itself, so the
   // large screenshot:* bodies are never read or returned (PR-8).
   const items = await db.getAllSyncData(resolved.userId, {
-    excludePrefixes: ['screenshot:', 'userMeta:', 'lessonGeneration:'],
+    excludePrefixes: ['screenshot:', 'userMeta:', 'lessonGeneration:', 'coachResult:', 'coachAttempt:'],
   });
   return c.json(items.map((item) => ({
     dataKey: item.dataKey,
@@ -260,6 +302,7 @@ sync.put('/v1/sync/batch', async (c) => {
   if (new Set(items.map(item => item.dataKey)).size !== items.length) {
     return c.json({ code: 'sync_validation_failure', error: 'Duplicate data keys are not allowed in a batch.' }, 400);
   }
+  if (items.some(item => controlledKey(item.dataKey))) return c.json({ error: 'Lesson assessment and conversations require a generated turn.' }, 403);
 
   // Sequential, not Promise.all: each putSyncData holds a pool client while
   // it waits on the per-user advisory lock, so parallel items contend for
@@ -274,6 +317,11 @@ sync.put('/v1/sync/batch', async (c) => {
     }
     // Size guard for screenshots (same defense-in-depth as single PUT)
     if (item.dataKey.startsWith('screenshot:')) {
+      const existing = await db.getSyncData(userId, item.dataKey);
+      if (existing && !isDeepStrictEqual(existing.data, item.data)) {
+        results.push({ dataKey: item.dataKey, status: 'error', error: 'Screenshot identities are immutable.' });
+        continue;
+      }
       const size = estimateSyncDataSize(userId, item.dataKey, item.data);
       if (size > MAX_SCREENSHOT_RECORD_BYTES) {
         results.push({
@@ -326,12 +374,15 @@ sync.put('/v1/sync/:dataKey', async (c) => {
   if (!validVersion(version)) {
     return c.json({ code: 'sync_validation_failure', error: 'A nonnegative safe integer version is required.' }, 400);
   }
+  if (controlledKey(dataKey) && !await legacyImageMigration(userId, dataKey, data)) return c.json({ error: 'Lesson assessment and conversations require a generated turn.' }, 403);
 
   // Defense-in-depth size check: reject items that will exceed DynamoDB's
   // 400 KB limit. Screenshots should be compressed client-side, but if
   // compression fails or is bypassed, reject here rather than letting the
   // write silently fail with an unhandled DynamoDB error.
   if (dataKey.startsWith('screenshot:')) {
+    const existing = await db.getSyncData(userId, dataKey);
+    if (existing && !isDeepStrictEqual(existing.data, data)) return c.json({ error: 'Screenshot identities are immutable.' }, 409);
     const size = estimateSyncDataSize(userId, dataKey, data);
     if (size > MAX_SCREENSHOT_RECORD_BYTES) {
       return c.json({
@@ -373,6 +424,16 @@ sync.delete('/v1/sync', async (c) => {
   const userId = c.get('userId');
   const items = await db.getAllSyncData(userId);
   const deletable = items.filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('lessonGeneration:'));
+  // A generated opening may have recovery fragments but no committed lesson
+  // records yet. Rotate its reset marker before removing that recovery copy.
+  for (const item of deletable) {
+    if (item.dataKey?.startsWith('coachAttempt:') && item.data?.turnId) {
+      await db.deleteSyncData(userId, `lessonKB:${item.dataKey.slice('coachAttempt:'.length)}`, { invalidateLesson: true });
+    }
+    if (item.dataKey?.startsWith('coachResult:') && item.data?.format === 1 && Array.isArray(item.data.chunks)) {
+      await db.deleteSyncData(userId, `lessonKB:${item.dataKey.slice('coachResult:'.length)}`, { invalidateLesson: true });
+    }
+  }
   // Preserve reset markers and serialize the two records of each lesson so
   // their DynamoDB transactions do not contend on the same marker.
   for (const item of deletable) await db.deleteSyncData(userId, item.dataKey, { invalidateLesson: true });
@@ -428,7 +489,13 @@ sync.post('/v1/sync/lesson-started', async (c) => {
   const reject = rejectWriteIfImpersonating(c);
   if (reject) return reject;
   const userId = c.get('userId');
-  const { lessonId, lesson, lessonKB, telemetry } = await c.req.json();
+  const { lessonId, lesson: requestedLesson, lessonKB: requestedKB, telemetry } = await c.req.json();
+  if (!requestedLesson || !requestedKB) return c.json({ error: 'lessonId, lesson, and lessonKB are required' }, 400);
+  if (typeof lessonId !== 'string' || !lessonId) return c.json({ error: 'lessonId is required' }, 400);
+  let lesson;
+  try { lesson = await resolveCoachLesson(userId, lessonId); }
+  catch (error) { if (error.status) return c.json({ error: error.message }, error.status); throw error; }
+  const lessonKB = (await db.getSyncData(userId, `lessonKB:${lessonId}`))?.data || { lessonId, status: 'active', progress: 0 };
 
   if (!lessonId || !lesson || !lessonKB) {
     return c.json({ error: 'lessonId, lesson, and lessonKB are required' }, 400);
@@ -461,27 +528,7 @@ sync.post('/v1/sync/lesson-started', async (c) => {
   // can return enrichment data: { context, sources, reasoning, pluginId, label }.
   // Cap at 30s so a slow plugin never holds up lesson start indefinitely —
   // the client's fail-open handler treats any non-200 as "no enrichment".
-  const ENRICHMENT_TIMEOUT_MS = 30_000;
-  const enrichments = await Promise.race([
-    withInferenceContext(inferenceContext(userId, { ...telemetry, lessonId, agentRole: 'lesson-enrichment' }), () => emitHook('lessonStarted', {
-      userId,
-      lessonId,
-      lesson: {
-        name: lesson.name,
-        markdown: lesson.markdown,
-        exemplar: lesson.exemplar,
-        learningObjectives: lesson.learningObjectives,
-        coachDirective: lesson.coachDirective,
-      },
-      lessonKB
-    })),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('lessonStarted enrichment timed out')), ENRICHMENT_TIMEOUT_MS)
-    ),
-  ]).catch((err) => {
-    logger.error('lesson_enrichment_timeout', { lessonId, error: err?.message });
-    return [];
-  });
+  const enrichments = await collectLessonEnrichments(userId, lesson, lessonKB, telemetry);
 
   return c.json({
     enrichments: enrichments || [],

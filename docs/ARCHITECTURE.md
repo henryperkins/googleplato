@@ -229,12 +229,13 @@ it, and its purpose:
 - **learner-profile-update** — Reads: learner profile (minus the bookkeeping arrays), activity context. Incremental profile updates during lessons; same soft-fields-only contract as `learner-profile-owner`.
 - **course-progress-update** — Reads: prior course summary, just-completed lesson KB, course lesson list. Maintains the per-learner `courseProgress:<courseId>` note injected into the coach as `course.progress`.
 
-Context appended at runtime (`client/js/orchestrator.js`):
+Context assembled at runtime (server `lesson-coaching.js` for the coach;
+`client/js/orchestrator.js` for authoring agents):
 
 - **Program Knowledge Base** appended to agent system prompts for agents in `KB_AGENTS`.
-- **Lesson Catalog**: public lessons for `PUBLIC_CATALOG_AGENTS` (coach); all
-  lessons with `[PRIVATE]` tags for `ADMIN_CATALOG_AGENTS` (lesson-creator,
-  knowledge-base-editor).
+- **Lesson Catalog**: lessons the learner can access for coaching; finalized
+  public/private lessons with `[PRIVATE]` tags for authoring agents. Drafts are
+  excluded.
 - Knowledge base is created/edited by admins via the KB Editor agent in the
   Customizer (not directly editable).
 
@@ -511,9 +512,10 @@ A learner's chat history for a lesson lives in one `messages:<lessonId>`
 sync-data record; progress lives separately in `lessonKB:<lessonId>`.
 Generated learner turns commit both records together through
 `POST /v1/sync/lesson-turn/:lessonId` (a PostgreSQL/SQLite transaction or DynamoDB
-`TransactWrite`). The engine first reads a consistent snapshot through the GET
-of that endpoint, generates once, applies coach tags once, and assigns stable
-turn/message IDs. The commit compares the original versions, values, and
+`TransactWrite`). The engine first reads a consistent snapshot through the GET of that endpoint.
+`POST /v1/ai/coach/:lessonId` loads the authorized lesson, profile and saved
+history on the server, generates once, applies the shared assessment contract,
+and returns stable turn/message IDs with a signed receipt. The commit compares the original versions, values, and
 reset generation; it never merges a stale turn over another session's work.
 An exact replay acknowledges the existing messages without appending again
 or reapplying completion effects. Sync deletes of either lesson record rotate
@@ -530,9 +532,15 @@ same IDs. Conflicts preserve the copy and require an explicit discard to load
 the current saved conversation. The browser cache receives a generated turn only
 after the authoritative API acknowledges it.
 
-Recovery is limited to the current browser tab/session. If browser storage is
-unavailable or full, the UI warns that only the in-memory copy is available and
-asks the learner to keep the tab open. Save attempts time out after 15 seconds;
+The local journal remains scoped to the current tab/session. The server also
+retains the latest generated result for each learner/lesson, recovered through
+`GET /v1/ai/coach/:lessonId?turnId=...` without inference. Compressed fragments
+are each at most 300,000 ASCII bytes so the combined base, conversation and KB
+cannot exceed a DynamoDB item limit. A manifest is published after its fragments,
+and strongly consistent reads check its digest and signed receipt. A small
+`coachAttempt:<lessonId>` marker lets clear-all resets fence in-flight openings
+before any conversation or assessment has committed. When local storage is unavailable
+or full, the existing UI still conservatively asks the learner to keep the tab open. Save attempts time out after 15 seconds;
 image hydration is bounded to five seconds so a stalled image read cannot hide
 retained text and retry controls indefinitely. Missing images keep their keys.
 Optional profile/course model enrichment runs only after an acknowledged initial
@@ -1503,3 +1511,83 @@ strip with an "Exit" button surfaces underneath while impersonation is active.
   `{ targetUserId }` writes the start entry and returns the target profile for
   the banner; POST `/v1/admin/impersonation/end` is best-effort (no-op if the
   admin closes the tab — the start entry is the source of truth).
+
+
+### Coach assessment and signed turns (2026-10-25)
+
+`server/src/shared/` is imported by both the SPA and server, and ships within the
+existing SAM CodeUri. It owns terminal metadata parsing, exact authored-objective
+identity, bounded evidence/source retention, response-type transitions, and
+context assembly. Lesson markdown parsing and initialization validation are also
+shared. The server reads prompts from the admin prompt store with a bundled
+fallback; the bundled coach contract constrains an older or customized teaching
+prompt. Program knowledge, profile, accessible catalog entries, attachments and
+plugin enrichment are reference data, not protocol instructions.
+
+Only a valid terminal integer PROGRESS plus KB_UPDATE (and optional PROFILE_UPDATE)
+can update assessment. Opening stays at zero. Only substantive work or explicit
+correction changes evidence/progress; questions, uncertainty, feedback, pause and
+distress preserve it. Ten requires all authored objectives plus the exemplar to
+be met with known confirmed sources. Completed assessments remain frozen.
+Observations are limited to ten 300-character strings; sources to sixteen,
+text excerpts to 6,000 characters, and each evidence entry to two source IDs.
+All one-to-four authored objectives remain required, including duplicate text
+with occurrence IDs. Pacing changes the next task, not the rubric.
+
+Images have a content digest and a truthful visibility flag. At most four images
+are supplied per coach request. An omitted image cannot support newly asserted
+mastery; unchanged prior met evidence can survive without resending its pixels.
+Links retain their original URL and bounded excerpt. Explicit source confirmation
+is grounded in a new learner submission and does not alone demonstrate quality.
+Screenshot keys cannot be overwritten through ordinary sync. The narrowly
+validated legacy embedded-image migration remains supported.
+
+Receipts use HMAC-SHA256 with a domain-separated key derived from the stable
+JWT_SECRET, and bind the complete generated turn, owner, lesson, IDs, original
+snapshot/reset generation, messages and assessment. A default development secret
+cannot sign receipts in production. Receipts have no short expiry, so restart or
+an ordinary delay does not strand retained work. Secret rotation invalidates
+outstanding receipts; preserve the old deployment/key until pending work is saved
+or export the retained text before rotation. No alternate-key rotation service is
+implemented here. Invalid supplied receipts never downgrade to legacy recovery.
+Generic single/batch sync writes cannot create or replace assessment/transcripts.
+
+Unsigned retained pre-upgrade replies can save their exact transcript, explicitly
+marked legacy-unverified, while preserving only previously saved assessment.
+Their assistant assertions are excluded from future assessment history. Active
+legacy assessment is reconciled to authored criteria without carrying unverified
+evidence forward; historical completed lessons remain complete. A changed rubric
+invalidates active evidence. If criteria change between generation and save, the
+reply is retained and assessment is flagged for review, without completion or
+profile/course mastery effects. Reset fencing and exact replay still apply.
+
+Profile observations are optional, bounded, explicitly sourced, and absent for
+completed-thread feedback. There is no general-insight fallback. Profile agents
+may return changed:false; empty trait arrays and null preference values clear
+obsolete information. Completion and course-summary agents receive demonstrated
+objective text, excluding raw sources and incidental disclosures. Optional model
+updates run only after the acknowledged assessment confirms new completion.
+
+`coach_assessment` telemetry records only validity, response class, completion and
+fixed issue codes. `scripts/evaluate-coach.js` defaults to 15 authored offline
+fixtures. Explicit live mode requires a call budget, records the selected provider
+and model plus prompt/fixture hashes, and never writes synthetic lesson progress.
+It evaluates the bundled prompt in isolation; server assembly is covered by route
+regressions. Neither offline fixtures nor passing protocol checks establish live
+coaching quality. See `docs/reviews/coach-remediation-2026-10-25.md` for the finding
+map, checks and remaining qualification boundaries.
+
+### Live-qualified coach metadata recovery
+
+Live evaluation of the configured Workers AI model found useful replies missing
+assessment tags. `coach-assessment.js` preserves the streamed wording and recovers
+known opening/completed state without inference; an active malformed reply gets
+at most one metadata-only model call. Criterion/source checks precede every model
+summary, reference confirmation or completion mutation. Failed recovery preserves
+the prior assessment. Save/replay never re-runs recovery inference, and repair
+has its own content-free telemetry role.
+
+Model context separates authored `assessmentRequirements` from generated
+`evidenceGuidance`; guidance cannot create new mandatory criteria. See
+`docs/reviews/coach-live-evaluation-2026-10-25.md` for live results, exact prompt
+identities, the latency/call tradeoff, earlier failures and preservation evidence.

@@ -8,20 +8,20 @@
  */
 
 import {
-  getLearnerProfileSummary, getPreferences,
-  getLessonKB, getCourseProgress, getAuthUser, _populateCache,
+  getLessonKB, getAuthUser, _populateCache,
   saveScreenshot, getScreenshot,
   getLessonMessages, replaceLessonMessages,
 } from '../../js/storage.js';
-import * as orchestrator from '../../js/orchestrator.js';
-import { authenticatedFetch } from '../../js/auth.js';
+import { requestCoachTurn, recoverCoachTurn } from '../../js/coachTransport.js';
 import { compressImageDataUrl } from './imageCompression.js';
 import { readLessonState, persistLessonTurn, assertTurnOwner } from '../../js/turnPersistence.js';
 import { generatedTurns } from './generatedTurns.js';
 import { lessonDrafts } from './lessonDrafts.js';
 import { ensureProfileExists, updateProfileOnCompletionInBackground, updateProfileFromObservation } from './profileQueue.js';
 import { updateCourseProgressOnCompletionInBackground } from './courseProgressQueue.js';
-import { LESSON_PHASES, MSG_TYPES, MAX_EXCHANGES } from './constants.js';
+import { LESSON_PHASES } from './constants.js';
+import { parseCoachResponse, visibleCoachText, applyCoachResponseToKB, buildContext } from '../../../server/src/shared/coachContract.js';
+export { parseCoachResponse, applyCoachResponseToKB, buildContext };
 
 function ts() { return Date.now(); }
 
@@ -66,78 +66,8 @@ export function assertImageWithinBedrockLimit(imageDataUrl) {
   }
 }
 
-// -- Tag parsing --------------------------------------------------------------
-
-// Detects where the coach tag section begins (tags always come at the end)
-const TAG_SECTION_REGEX = /\n?\[(?:PROGRESS|KB_UPDATE|PROFILE_UPDATE)[:\s]/;
-
-/**
- * Extract a JSON object from text starting after startPos, using bracket
- * counting so that }] inside string values doesn't confuse the parser.
- */
-function extractBracketedJSON(text, startPos) {
-  let i = startPos;
-  while (i < text.length && /\s/.test(text[i])) i++; // skip whitespace
-  if (text[i] !== '{') return null;
-
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  const start = i;
-
-  while (i < text.length) {
-    const ch = text[i];
-    if (escape) { escape = false; }
-    else if (ch === '\\' && inString) { escape = true; }
-    else if (ch === '"') { inString = !inString; }
-    else if (!inString) {
-      if (ch === '{') depth++;
-      else if (ch === '}') { depth--; if (depth === 0) return text.slice(start, i + 1); }
-    }
-    i++;
-  }
-  return null;
-}
-
-/** Strip the tag section from raw coach output, returning only the visible text. */
-function stripTags(text) {
-  const tagStart = text.search(TAG_SECTION_REGEX);
-  return (tagStart !== -1 ? text.slice(0, tagStart) : text).trim();
-}
-
-export function parseCoachResponse(raw) {
-  let progress = null;
-  let kbUpdate = null;
-  let profileUpdate = null;
-
-  // Extract progress
-  const progressMatch = raw.match(/\[PROGRESS:\s*(\d+)\]/);
-  if (progressMatch) progress = parseInt(progressMatch[1], 10);
-
-  // Extract KB update — bracket-aware so }] inside string values don't mislead
-  const kbIdx = raw.indexOf('[KB_UPDATE:');
-  if (kbIdx !== -1) {
-    const jsonStr = extractBracketedJSON(raw, kbIdx + '[KB_UPDATE:'.length);
-    if (jsonStr) { try { kbUpdate = JSON.parse(jsonStr); } catch { /* ignore */ } }
-  }
-
-  // Extract profile update
-  const profIdx = raw.indexOf('[PROFILE_UPDATE:');
-  if (profIdx !== -1) {
-    const jsonStr = extractBracketedJSON(raw, profIdx + '[PROFILE_UPDATE:'.length);
-    if (jsonStr) { try { profileUpdate = JSON.parse(jsonStr); } catch { /* ignore */ } }
-  }
-
-  return { text: stripTags(raw), progress, kbUpdate, profileUpdate };
-}
-
-/**
- * Wrap a stream callback to strip tags from partial accumulated text.
- * Tags always appear at the end of the response — truncate there.
- */
 export function cleanStream(onStream) {
-  if (!onStream) return () => {};
-  return (partial) => onStream(stripTags(partial));
+  return onStream ? partial => onStream(visibleCoachText(partial, { partial: true })) : () => {};
 }
 
 // -- Lesson lifecycle ---------------------------------------------------------
@@ -166,13 +96,15 @@ async function generateTurn(lessonId, kind, generate) {
 async function saveGeneratedTurn(entry) {
   const persistence = await persistLessonTurn(entry);
   const { turn } = entry;
+  if (persistence.status === 'saved' && persistence.state?.lessonKB.data?.assessmentReviewRequired) persistence.message = 'Your reply is saved. The lesson requirements changed, so the coach will reassess your work.';
   if (persistence.status === 'saved') generatedTurns.clear(turn.userId, turn.lessonId, turn.turnId);
   const conversation = await hydrateMessageImages(persistence.state?.messages.data || [...turn.base.messages.data, ...turn.messages]);
   return {
     messages: conversation.filter(message => turn.messages.some(generated => generated.id === message.id)),
     conversation,
     lessonKB: persistence.state?.lessonKB.data || turn.lessonKB,
-    phase: turn.phase, achieved: turn.achieved,
+    phase: (persistence.state?.lessonKB.data || turn.lessonKB)?.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING,
+    achieved: turn.achieved && (persistence.state?.lessonKB.data || turn.lessonKB)?.status === 'completed',
     savedMessages: persistence.state?.messages.data,
     persistence,
   };
@@ -226,73 +158,14 @@ export async function startLesson(lessonId, lesson, onStream, onProgress) {
         phase: base.lessonKB.data?.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING };
     }
     await ensureProfileExists();
-    const profileSummary = await getLearnerProfileSummary();
-
-    // Lesson Owner generates the KB
     if (onProgress) onProgress('initializing');
-    const lessonKB = await orchestrator.initializeLessonKB(lesson, profileSummary, telemetry);
-    lessonKB.lessonId = lessonId;
-    lessonKB.name = lesson.name;
-    lessonKB.progress = 0;
-    lessonKB.startedAt = ts();
-
-    // Emit lessonStarted hook and collect enrichments from plugins
-    let enrichments = [];
-    try {
-      if (onProgress) onProgress('enriching', { enrichments: [] });
-      const res = await authenticatedFetch('/v1/sync/lesson-started', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lessonId,
-          lesson: {
-            name: lesson.name,
-            markdown: lesson.markdown,
-            exemplar: lesson.exemplar,
-            learningObjectives: lesson.learningObjectives,
-            coachDirective: lesson.coachDirective,
-          },
-          lessonKB,
-          telemetry: { generation: base.generation, turnId },
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        enrichments = data.enrichments || [];
-      }
-    } catch (err) {
-      // Fail open — enrichment errors must never block lesson start
-      console.warn('[startLesson] Failed to collect enrichments:', err);
-    }
-
-    // Include enrichments in the staged turn before the coach reads its context.
-    if (enrichments.length > 0) {
-      lessonKB.enrichments = enrichments;
-    }
-
-    // Coach opens the conversation
+    const recovered = await recoverCoachTurn(lessonId, userId);
+    await assertTurnOwner(userId);
     if (onProgress) onProgress('starting');
-    const prefs = await getPreferences();
-    const courseProgress = await loadCourseProgressSummary(lesson);
-    const context = buildContext(lesson, lessonKB, profileSummary, prefs.name, courseProgress);
-    const coachMsg = await orchestrator.converseStream(
-      'coach',
-      [{ role: 'user', content: context }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: 'Start the lesson.' }],
-      cleanStream(onStream),
-      1024, telemetry
-    );
-
-    const { text, progress } = parseCoachResponse(coachMsg);
-
-    if (progress != null) {
-      lessonKB.progress = progress;
-    }
-
-    const messages = [
-      { id: `${turnId}:0`, role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE, phase: LESSON_PHASES.LEARNING, timestamp: ts() },
-    ];
-
-    const entry = generatedTurns.stage({ userId, lessonId, turnId, base, messages, lessonKB, phase: LESSON_PHASES.LEARNING });
+    const turn = recovered && JSON.stringify(recovered.base) === JSON.stringify(base) ? recovered
+      : await requestCoachTurn(lessonId, { kind: 'start', turnId, base, telemetry }, onStream, userId);
+    await assertTurnOwner(userId);
+    const entry = generatedTurns.stage(turn);
     return saveGeneratedTurn(entry);
   });
 }
@@ -311,8 +184,7 @@ export function normalizeImageDataUrls(input) {
 /**
  * Build the Anthropic content blocks for a learner turn: the text, then any
  * attached links, then images. A link's fetched page text is injected inline
- * so the coach can read it on this turn — image parity, so it is NOT re-sent
- * on later turns (the persisted message keeps only `{ url, title }`). Exported
+ * for legacy callers. Server coaching retains bounded source excerpts. Exported
  * for unit testing.
  * @param {object[]} links - [{ url, title, text }]
  */
@@ -340,14 +212,11 @@ export function buildUserParts(text, imageDataUrls = [], links = []) {
  * Send a message in the lesson conversation.
  * @param {string|string[]|null} imageDataUrl - data URL(s) for attached images
  * @param {object[]} links - attached links [{ url, title, text }]; the page
- *   text is sent to the coach this turn but only `{ url, title }` is persisted.
+ *   bounded excerpts persist in the server-owned evidence record.
  */
 export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, onStream) {
   return generateTurn(lessonId, 'send', async ({ userId, base, turnId, telemetry }) => {
-    let lessonKB = base.lessonKB.data;
-    if (!lessonKB) throw new Error('Reload the lesson before sending your answer.');
-    const profileSummary = await getLearnerProfileSummary();
-
+    if (!base.lessonKB.data) throw new Error('Reload the lesson before sending your answer.');
     const imageDataUrls = normalizeImageDataUrls(imageDataUrl);
     const linkList = Array.isArray(links) ? links.filter((l) => l && l.url) : [];
 
@@ -365,66 +234,20 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, o
       imageKeys.push(key);
     }
 
-    // Build conversation tail — filter out messages with empty content (e.g. image-only)
-    // Target: 11 exchanges (22 msgs), but over-target avg is 15.9 exchanges (~32 msgs).
-    // Set to 40 to cover outliers up to 22 exchanges without being unlimited.
-    const allMsgs = base.messages.data;
-    const tail = allMsgs.slice(-40)
-      .map(m => ({ role: m.role, content: m.content }))
-      .filter(m => m.content && (typeof m.content === 'string' ? m.content.trim() : m.content.length));
-
-    // Build user message content (text, link page-text, then images)
-    const userParts = buildUserParts(text, imageDataUrls, linkList);
-
-    // Always include context as first message so coach has lesson + profile info
-    const prefs = await getPreferences();
-    const courseProgress = await loadCourseProgressSummary(lesson);
-    const contextMsg = buildContext(lesson, lessonKB, profileSummary, prefs.name, courseProgress);
-    const messages = [{ role: 'user', content: contextMsg }, { role: 'assistant', content: 'Ready.' }, ...tail];
-    // Collapse to a plain string only when the turn is a single text block.
-    messages.push({ role: 'user', content: userParts.length === 1 && userParts[0].type === 'text' ? userParts[0].text : userParts });
-
-    const coachMsg = await orchestrator.converseStream(
-      'coach',
-      messages,
-      cleanStream(onStream),
-      1024, telemetry
-    );
-
-    const parsed = parseCoachResponse(coachMsg);
-
-    const applied = applyCoachResponseToKB(lessonKB, parsed, { now: ts });
-    lessonKB = applied.lessonKB;
-    const { achieved, phase } = applied;
-
-    // Save messages. The persisted user message references images by KEY only
-    // — the base64 lives in separate `screenshot:*` records. `imageDataUrls`
-    // is attached for the caller's in-session render but is NOT persisted.
-    // Persist only `{ url, title }` for links — never the fetched page text
-    // (image parity; the text was injected into this turn's AI call only).
-    const metaLinks = linkList.map(({ url, title }) => ({ url, title }));
-    const metadata = (imageKeys.length > 0 || metaLinks.length > 0)
-      ? { ...(imageKeys.length > 0 ? { imageKeys } : {}), ...(metaLinks.length > 0 ? { links: metaLinks } : {}) }
-      : null;
-    const persistedUserMsg = {
-      id: `${turnId}:0`,
-      role: 'user',
-      content: text || (imageDataUrls.length > 0 ? '[image]' : (metaLinks.length > 0 ? '[link]' : '')),
-      msgType: MSG_TYPES.USER, phase,
-      metadata, timestamp: ts(),
-    };
-    const assistantMsg = { id: `${turnId}:1`, role: 'assistant', content: parsed.text, msgType: MSG_TYPES.GUIDE, phase, timestamp: ts() };
-    const entry = generatedTurns.stage({ userId, lessonId, turnId, base, messages: [persistedUserMsg, assistantMsg], lessonKB, phase, achieved });
+    await assertTurnOwner(userId);
+    const turn = await requestCoachTurn(lessonId, { kind: 'send', turnId, base, telemetry,
+      submission: { text: text || '', links: linkList, imageKeys } }, onStream, userId);
+    await assertTurnOwner(userId);
+    const entry = generatedTurns.stage(turn);
     const result = await saveGeneratedTurn(entry);
     // Optional model enrichment only follows an acknowledged initial commit.
     // Recovery saves the authoritative completion but never runs any model.
     if (result.persistence.status === 'saved') {
       await assertTurnOwner(userId).then(() => {
-        if (parsed.profileUpdate?.observation) updateProfileFromObservation(lessonKB, parsed.profileUpdate.observation, telemetry);
-        else if (parsed.kbUpdate?.insights?.length) updateProfileFromObservation(lessonKB, parsed.kbUpdate.insights.join('. '), telemetry);
-        if (achieved) {
-          updateProfileOnCompletionInBackground(lessonKB, lesson, telemetry);
-          if (lesson.course?.id) updateCourseProgressOnCompletionInBackground(lessonKB, lesson, telemetry);
+        if (turn.profileObservation && !result.lessonKB.assessmentReviewRequired) updateProfileFromObservation(result.lessonKB, turn.profileObservation, telemetry);
+        if (result.achieved) {
+          updateProfileOnCompletionInBackground(result.lessonKB, lesson, telemetry);
+          if (lesson.course?.id) updateCourseProgressOnCompletionInBackground(result.lessonKB, lesson, telemetry);
         }
       }).catch(() => {});
     }
@@ -522,6 +345,14 @@ export async function migrateLegacyImages(lessonId, messages) {
  */
 export async function resumeLesson(lessonId) {
   const user = await getAuthUser();
+  if (!isImpersonating() && user?.userId && !generatedTurns.read(user.userId, lessonId)) {
+    const recovered = await recoverCoachTurn(lessonId, user.userId).catch(() => null);
+    await assertTurnOwner(user.userId);
+    if (recovered) {
+      const state = await readLessonState(user.userId, lessonId);
+      if (!recovered.messages.every(message => state.messages.data.some(saved => saved.id === message.id))) generatedTurns.stage(recovered);
+    }
+  }
   const retained = !isImpersonating() && generatedTurns.read(user?.userId, lessonId);
   if (retained) {
     const { turn, persistedLocally } = retained;
@@ -544,179 +375,4 @@ export async function resumeLesson(lessonId) {
   const progress = lessonKB?.progress ?? 0;
   const phase = lessonKB?.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING;
   return { messages, lessonKB, progress, phase };
-}
-
-// -- Helpers ------------------------------------------------------------------
-
-/** Progress is a 0–10 signal; a lesson completes at MAX_PROGRESS. */
-const MAX_PROGRESS = 10;
-
-/**
- * Coerce a coach-reported progress score into the 0–10 range.
- * Returns null for anything non-numeric so callers can treat it as "no score".
- */
-function clampProgress(progress) {
-  // Guard null/undefined/'' explicitly — Number() coerces all three to 0, which
-  // would silently reset a lesson's progress when the coach reports no score.
-  if (progress == null || progress === '') return null;
-  const n = Number(progress);
-  if (!Number.isFinite(n)) return null;
-  return Math.min(MAX_PROGRESS, Math.max(0, Math.round(n)));
-}
-
-/**
- * Apply a parsed coach response to a lesson KB. Pure — returns a new KB
- * without mutating the input. Centralizes the "feedback mode" invariant:
- * once a lesson is completed, progress and the exchange counter both freeze
- * and `achieved` can't re-fire, so one-shot side effects (completion cue,
- * completion profile update) stay one-shot across the feedback conversation
- * that follows.
- *
- * This function is the single owner of completion semantics — it must not
- * delegate any part of that to the model's willingness to follow the prompt.
- */
-export function applyCoachResponseToKB(prevKB, parsed, { now = Date.now } = {}) {
-  const wasCompleted = prevKB?.status === 'completed';
-  const next = { ...prevKB };
-
-  if (parsed.kbUpdate) {
-    if (parsed.kbUpdate.insights?.length) {
-      next.insights = [...(next.insights || []), ...parsed.kbUpdate.insights];
-      // Prune old insights (keep last 10)
-      if (next.insights.length > 10) {
-        const older = next.insights.slice(0, next.insights.length - 10);
-        next.insights = [`[Earlier: ${older.join('; ')}]`, ...next.insights.slice(-10)];
-      }
-    }
-    if (parsed.kbUpdate.learnerPosition) {
-      next.learnerPosition = parsed.kbUpdate.learnerPosition;
-    }
-  }
-  // Progress is frozen once the lesson is complete. The coach prompt says not to
-  // assess or award progress in a completed thread, but that's prose in a long
-  // prompt — compliance varies by model (open-weight candidates evaluated for
-  // per-agent routing emit [PROGRESS: 10] on post-completion turns where Haiku
-  // correctly emits no tag). Completion semantics must not depend on a model
-  // following an instruction, so the freeze lives here.
-  //
-  // A null clamp means the score was absent or unparseable — leave the stored
-  // value alone rather than overwriting it with nothing.
-  const reportedProgress = clampProgress(parsed.progress);
-  if (reportedProgress != null && !wasCompleted) {
-    next.progress = reportedProgress;
-  }
-  if (!wasCompleted) {
-    next.activitiesCompleted = (next.activitiesCompleted || 0) + 1;
-  }
-
-  // `achieved` means "just achieved on this turn" — one-shot. Without this
-  // guard it would re-fire on every post-completion message, triggering
-  // the completion cue + completion-profile updates repeatedly in the feedback
-  // thread.
-  // Compare the clamped value so a malformed out-of-range score can't complete
-  // a lesson that the stored progress doesn't reflect.
-  const achieved = reportedProgress >= MAX_PROGRESS && !wasCompleted;
-  if (achieved) {
-    next.status = 'completed';
-    next.completedAt = now();
-  }
-  const phase = next.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING;
-  return { lessonKB: next, achieved, phase };
-}
-
-/**
- * Fetch the distilled cross-lesson progress note for a lesson's course, if any.
- * Returns undefined when the lesson has no course or no note exists yet (so
- * buildContext omits it). Within a session this value only changes via OTHER
- * lessons' completions, so fetching when the lesson opens is sufficient.
- */
-async function loadCourseProgressSummary(lesson) {
-  if (!lesson?.course?.id) return undefined;
-  try {
-    const record = await getCourseProgress(lesson.course.id);
-    return record?.summary || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export function buildContext(lesson, lessonKB, profileSummary, learnerName, courseProgress) {
-  const completed = lessonKB?.activitiesCompleted || 0;
-  const lessonStatus = lessonKB?.status === 'completed' ? 'completed' : 'active';
-  const context = {
-    learnerName: learnerName || '',
-    lessonName: lesson.name,
-    lessonDescription: lesson.description,
-    exemplar: lesson.exemplar,
-    lessonStatus,
-    objectives: lessonKB?.objectives || [],
-    insights: lessonKB?.insights || [],
-    learnerProfile: profileSummary || 'No profile yet',
-    learnerPosition: lessonKB?.learnerPosition || 'New learner',
-    progress: lessonKB?.progress ?? 0,
-    activitiesCompleted: completed,
-  };
-  // Optional author-supplied coach directive: high-priority runtime guidance
-  // the lesson author baked into the lesson markdown (`## Coach Directive`),
-  // e.g. "reference the learner's portfolio project" or "offer this code".
-  // Surfaced in both active and completed states — it can carry feedback-mode
-  // guidance too. The coach follows it closely but still owns the exemplar and
-  // progress (it never overrides completion semantics).
-  if (lesson.coachDirective) {
-    context.coachDirective = lesson.coachDirective;
-  }
-  // Optional course taxonomy: when a lesson belongs to a wider course, the
-  // server inlines `lesson.course = { id, name }`. Surface the name so the
-  // coach can frame this lesson within the course's arc. When a cross-lesson
-  // progress note exists for this learner, attach it as `progress` so the coach
-  // can connect threads — informational only; it never touches completion.
-  if (lesson.course && lesson.course.name) {
-    context.course = { name: lesson.course.name };
-    if (courseProgress) context.course.progress = courseProgress;
-  }
-  // Optional enrichment context: plugins can enrich lessons at start time by
-  // providing additional reference material (e.g., WordPress docs, React API
-  // updates, internal knowledge bases). Stored on `lessonKB.enrichments` after
-  // the lessonStarted hook runs. Each enrichment has `{ pluginId, label, context,
-  // reasoning, sources }`. The coach can draw on this background context when
-  // relevant but it MUST NOT override completion semantics — the coach still owns
-  // progress and the exemplar.
-  if (lessonKB?.enrichments && Array.isArray(lessonKB.enrichments) && lessonKB.enrichments.length > 0) {
-    context.enrichmentContext = lessonKB.enrichments.map(e => ({
-      source: e.label || e.pluginId,
-      context: e.context || '',
-      reasoning: e.reasoning || '',
-    }));
-  }
-  if (lessonStatus === 'completed') {
-    // Completed threads are feedback-only. Skip pacing nudges — they'd
-    // conflict with the feedback directive — and tell the coach plainly not
-    // to treat this thread as a new lesson.
-    context.postCompletionDirective = 'This lesson is already complete. Stay in feedback mode only. Do not coach, assess, or award credit for another lesson in this conversation. If the learner wants to continue with a new lesson, tell them to start the next lesson separately so their work is tracked there.';
-    return JSON.stringify(context);
-  }
-  // Pacing directives are nudges, not orders. The target (MAX_EXCHANGES) is a
-  // design goal for ~20-minute lessons — never a deadline. The coach always
-  // decides when the learner has demonstrated the exemplar. These messages
-  // help the coach sharpen its focus as exchanges accumulate, but NEVER tell
-  // it to force-close a lesson on the learner.
-  const over = completed - MAX_EXCHANGES;
-  if (over >= 9) {
-    // 20+ exchanges: the lesson has run well past the target. Likely a sign
-    // the lesson design or the learner's starting point mismatched — worth
-    // a reflective note, but still the coach's call to close.
-    context.pacingDirective = 'This lesson has run well past its target length. If the learner has demonstrated the exemplar (or something close to it), this is a good moment to award progress 10 and close warmly. If they are still genuinely working toward it, keep moving them forward — prefer smaller, more concrete steps. Note in [KB_UPDATE] if the lesson design seems to be the issue.';
-  } else if (over >= 4) {
-    // 15+ exchanges: converge hard. Prefer closing when the exemplar is met,
-    // but do not force the issue if the learner is still making progress.
-    context.pacingDirective = 'The lesson has run longer than target. Compress: focus on the single biggest remaining gap. If the learner has demonstrated the exemplar, award progress 10 and close warmly. If they are close, one sharp final step can get them there. Keep moving them forward — never cut them off mid-thought.';
-  } else if (over >= 0) {
-    // 11+ exchanges: target reached. Start to converge.
-    context.pacingDirective = 'Target exchange count reached. Begin converging toward the exemplar — avoid introducing new objectives. If the learner has demonstrated the exemplar, award progress 10. Otherwise give one focused nudge that narrows the gap.';
-  } else if (completed >= MAX_EXCHANGES - 3) {
-    // 8-10 exchanges: pre-target — start converging.
-    const remaining = MAX_EXCHANGES - completed;
-    context.pacingDirective = `Approaching target (${remaining} exchange${remaining === 1 ? '' : 's'} until the ~20-minute design goal). Converge toward the exemplar — one focused task that narrows the gap. You may still introduce new concepts if the learner genuinely needs them to advance.`;
-  }
-  return JSON.stringify(context);
 }
