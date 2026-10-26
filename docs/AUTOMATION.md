@@ -4,7 +4,12 @@
 Do not retry or troubleshoot their billing. The workflow descriptions below
 are historical/portable deployment context. For Cloud Run, Cloud Build is the
 CI: the `test` step in `deploy/cloudrun/cloudbuild.yaml` runs lint and the
-full test suite (including PostgreSQL) before any image is built or deployed.
+client/server unit tests (including PostgreSQL), builds the client, installs
+Chromium and its system dependencies, then runs the admin responsive browser
+regressions (`npm --prefix client run test:browser:admin`) before any image is
+built or deployed. After merging a pipeline change, run
+`deploy/cloudrun/configure.sh` to refresh the `plato-main` trigger's inline
+build configuration.
 Current save monitoring reads Cloud
 Logging using ADC from a local or external scheduler; `log-watch` is read-only
 by default and creates an issue only with `--create-issue`. See
