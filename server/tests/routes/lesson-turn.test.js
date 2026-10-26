@@ -7,6 +7,7 @@ process.env.SQLITE_PATH = ':memory:';
 const { Hono } = await import('hono');
 const { default: db } = await import('../../src/lib/db.js');
 const { default: sync } = await import('../../src/routes/sync.js');
+const { signCoachTurn } = await import('../../src/lib/coach-receipt.js');
 const { signAccessToken } = await import('../../src/lib/jwt.js');
 const { logger } = await import('../../src/lib/logger.js');
 const { inferenceContext } = await import('../../src/lib/inference-telemetry.js');
@@ -19,6 +20,7 @@ const turn = () => ({
   lessonKB: { lessonId: 'lesson-1', startedAt: 100, progress: 1, status: 'learning' },
 });
 async function request(method, body, suffix = '') {
+  if (method === 'POST') { body = { ...body, lessonId: 'lesson-1' }; body.receipt = signCoachTurn(body); }
   return app.request(`/v1/sync/lesson-turn/lesson-1${suffix}`, {
     method, headers: { ...currentClientHeaders, Authorization: `Bearer ${await signAccessToken(userId, 'user')}`, 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),

@@ -135,6 +135,8 @@ test('a throwing telemetry sink never changes the provider reply or error', asyn
 test('lesson-start enrichment inherits request context without changing plugin call signatures', async () => {
   mock.timers.enable({ apis: ['setTimeout'] });
   mock.method(db, 'getUserById', async () => ({ userId: 'learner', role: 'user' }));
+  const originalGet = db.getSyncData;
+  mock.method(db, 'getSyncData', async (user, key, ...rest) => key.startsWith('lesson:') ? { data: { status: 'public', markdown: '# Lesson\n## Exemplar\nA result\n## Learning Objectives\n- Can explain' } } : originalGet.call(db, user, key, ...rest));
   mock.method(globalThis, 'fetch', async () => Response.json({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }));
   const unsubscribe = on('lessonStarted', async () => {
     await ai.invoke('ignored', body);

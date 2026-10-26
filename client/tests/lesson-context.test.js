@@ -19,7 +19,7 @@ globalThis.localStorage = {
 };
 globalThis.fetch = async () => ({ ok: false, status: 404 });
 
-const { buildContext, applyCoachResponseToKB } = await import('../src/lib/lessonEngine.js');
+const { buildContext, applyCoachResponseToKB, parseCoachResponse } = await import('../src/lib/lessonEngine.js');
 const { LESSON_PHASES } = await import('../src/lib/constants.js');
 
 function sampleLesson() {
@@ -225,17 +225,17 @@ describe('applyCoachResponseToKB', () => {
     learnerPosition: 'Exemplar achieved',
   });
 
-  it('transitions to completed and reports achieved on the completion turn', () => {
+  it('preserves assessment when a legacy score lacks supporting evidence', () => {
     const result = applyCoachResponseToKB(
       activeKB(),
       { progress: 10, kbUpdate: null, profileUpdate: null },
       { now: () => 1_700_000_000_000 }
     );
 
-    assert.equal(result.achieved, true);
-    assert.equal(result.phase, LESSON_PHASES.COMPLETED);
-    assert.equal(result.lessonKB.status, 'completed');
-    assert.equal(result.lessonKB.completedAt, 1_700_000_000_000);
+    assert.equal(result.achieved, false);
+    assert.equal(result.phase, LESSON_PHASES.LEARNING);
+    assert.equal(result.lessonKB.status, 'active');
+    assert.equal(result.lessonKB.completedAt, undefined);
     assert.equal(result.lessonKB.activitiesCompleted, 9);
   });
 
@@ -297,8 +297,8 @@ describe('applyCoachResponseToKB', () => {
     const result = applyCoachResponseToKB(
       completedKB(),
       {
-        progress: 10,
-        kbUpdate: { insights: ['found the pacing slow'], learnerPosition: 'Gave feedback' },
+        valid: true, progress: 10,
+        kbUpdate: { responseType: 'feedback', insights: ['found the pacing slow'], learnerPosition: 'Gave feedback' },
         profileUpdate: null,
       },
       { now: () => 1_700_000_000_000 }
@@ -308,21 +308,21 @@ describe('applyCoachResponseToKB', () => {
     assert.equal(result.lessonKB.learnerPosition, 'Gave feedback');
   });
 
-  it('clamps an out-of-range progress score', () => {
+  it('rejects out-of-range progress rather than awarding completion', () => {
     const over = applyCoachResponseToKB(
       activeKB(),
-      { progress: 47, kbUpdate: null, profileUpdate: null },
+      parseCoachResponse('Feedback.\n[PROGRESS: 47]'),
       { now: () => 1_700_000_000_000 }
     );
-    assert.equal(over.lessonKB.progress, 10);
-    assert.equal(over.achieved, true);
+    assert.equal(over.lessonKB.progress, 7);
+    assert.equal(over.achieved, false);
 
     const under = applyCoachResponseToKB(
       activeKB(),
       { progress: -5, kbUpdate: null, profileUpdate: null },
       { now: () => 1_700_000_000_000 }
     );
-    assert.equal(under.lessonKB.progress, 0);
+    assert.equal(under.lessonKB.progress, 7);
     assert.equal(under.achieved, false);
   });
 

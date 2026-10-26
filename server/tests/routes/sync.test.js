@@ -1,6 +1,7 @@
 import { currentClientHeaders } from '../helpers/clientCompatibility.js';
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { signCoachTurn } from '../../src/lib/coach-receipt.js';
 import { Hono } from 'hono';
 import sync from '../../src/routes/sync.js';
 import db from '../../src/lib/db.js';
@@ -79,7 +80,7 @@ describe('GET /v1/sync', () => {
     app.route('/', sync);
     const res = await authedReq(app, 'GET', '/v1/sync');
     assert.equal(res.status, 200);
-    assert.deepEqual(seenOptions, { excludePrefixes: ['screenshot:', 'userMeta:', 'lessonGeneration:'] });
+    assert.deepEqual(seenOptions, { excludePrefixes: ['screenshot:', 'userMeta:', 'lessonGeneration:', 'coachResult:', 'coachAttempt:'] });
     const data = await res.json();
     assert.deepEqual(data, [{ dataKey: 'profile', data: { name: 'T' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' }]);
   });
@@ -121,6 +122,7 @@ describe('PUT /v1/sync/:dataKey', () => {
   });
 
   it('accepts screenshot:<key> records (pasted images persist one-per-record)', async () => {
+    db.getSyncData = async () => null;
     db.putSyncData = async () => ({ version: 1, updatedAt: '2024-01-01T00:00:00Z' });
     const app = new Hono();
     app.route('/', sync);
@@ -231,6 +233,7 @@ describe('PUT /v1/sync/batch', () => {
   });
 
   it('rejects an oversize screenshot per-item without writing it', async () => {
+    db.getSyncData = async () => null;
     const written = [];
     db.putSyncData = async (_uid, dataKey) => { written.push(dataKey); return { version: 1, updatedAt: '2024-01-01T00:00:00Z' }; };
     db.updateUser = async () => {};
@@ -431,7 +434,19 @@ describe('?asUserId= (admin View as User)', () => {
   });
 });
 
-describe('PUT /v1/sync activity counter hooks (#136)', () => {
+describe('signed lesson-turn activity counter hooks (#136)', () => {
+  async function commitFixture(app, method, path, body) {
+    if (!/\/(lessonKB|messages):/.test(path)) return authedReq(app, method, path, body);
+    const lessonId = path.split(':').at(-1);
+    let prior;
+    try { prior = (await db.getSyncData('usr_test', `lessonKB:${lessonId}`))?.data; } catch { prior = null; }
+    const base = { generation: null, messages: { data: [], version: 0 }, lessonKB: { data: { lessonId, startedAt: 1, ...prior }, version: 1 } };
+    db.getLessonState = async () => structuredClone(base);
+    db.commitLessonTurn = async (_user, _lesson, _base, desired) => ({ generation: null, messages: { data: desired.messages, version: 1 }, lessonKB: { data: desired.lessonKB, version: 2 } });
+    const turn = { userId: 'usr_test', lessonId, turnId: 'counter-turn', base, messages: [{ id: 'counter-turn:0', role: 'assistant', content: 'Feedback' }], lessonKB: { lessonId, startedAt: 1, ...(path.includes('lessonKB:') ? body.data : { status: 'active' }) } };
+    turn.receipt = signCoachTurn(turn);
+    return authedReq(app, 'POST', `/v1/sync/lesson-turn/${lessonId}`, turn);
+  }
   let incCalls;
   let setCalls;
   beforeEach(() => {
@@ -450,7 +465,7 @@ describe('PUT /v1/sync activity counter hooks (#136)', () => {
     };
     const app = new Hono();
     app.route('/', sync);
-    const res = await authedReq(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed' }, version: 1 });
+    const res = await commitFixture(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed' }, version: 1 });
     assert.equal(res.status, 200);
     assert.equal(incCalls.length, 1);
     assert.deepEqual(incCalls[0], { userId: 'usr_test', field: 'lessonsCompleted', delta: 1 });
@@ -464,13 +479,13 @@ describe('PUT /v1/sync activity counter hooks (#136)', () => {
     };
     const app = new Hono();
     app.route('/', sync);
-    const res = await authedReq(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed' }, version: 1 });
+    const res = await commitFixture(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed' }, version: 1 });
     assert.equal(res.status, 200);
     assert.equal(incCalls.length, 0, 'private lesson completion is not counted');
 
     // Custom lesson: no _system:lesson record at all.
     db.getSyncData = async (uid) => (uid === '_system' ? null : { data: { status: 'in_progress' }, version: 1 });
-    const res2 = await authedReq(app, 'PUT', '/v1/sync/lessonKB:custom-abc', { data: { status: 'completed' }, version: 1 });
+    const res2 = await commitFixture(app, 'PUT', '/v1/sync/lessonKB:custom-abc', { data: { status: 'completed' }, version: 1 });
     assert.equal(res2.status, 200);
     assert.equal(incCalls.length, 0, 'custom lesson completion is not counted');
   });
@@ -479,7 +494,7 @@ describe('PUT /v1/sync activity counter hooks (#136)', () => {
     db.getSyncData = async () => ({ data: { status: 'completed' }, version: 2 });
     const app = new Hono();
     app.route('/', sync);
-    const res = await authedReq(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed', extraFeedback: true }, version: 2 });
+    const res = await commitFixture(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed', extraFeedback: true }, version: 2 });
     assert.equal(res.status, 200);
     assert.equal(incCalls.length, 0, 'no counter bump when status was already completed');
   });
@@ -488,7 +503,7 @@ describe('PUT /v1/sync activity counter hooks (#136)', () => {
     db.getSyncData = async () => null;
     const app = new Hono();
     app.route('/', sync);
-    const res = await authedReq(app, 'PUT', '/v1/sync/messages:l1', { data: [{ role: 'user', content: 'hi' }], version: 0 });
+    const res = await commitFixture(app, 'PUT', '/v1/sync/messages:l1', { data: [{ role: 'user', content: 'hi' }], version: 0 });
     assert.equal(res.status, 200);
     assert.equal(setCalls.length, 0, 'lastActiveAt belongs on the auth route, not the message hot path');
   });
@@ -497,7 +512,7 @@ describe('PUT /v1/sync activity counter hooks (#136)', () => {
     db.getSyncData = async () => null;
     const app = new Hono();
     app.route('/', sync);
-    const res = await authedReq(app, 'PUT', '/v1/sync/preferences', { data: { theme: 'dark' }, version: 0 });
+    const res = await commitFixture(app, 'PUT', '/v1/sync/preferences', { data: { theme: 'dark' }, version: 0 });
     assert.equal(res.status, 200);
     assert.equal(incCalls.length, 0);
     assert.equal(setCalls.length, 0);
@@ -511,25 +526,26 @@ describe('PUT /v1/sync activity counter hooks (#136)', () => {
     db.incrementUserCounter = async () => { throw new Error('db hiccup'); };
     const app = new Hono();
     app.route('/', sync);
-    const res = await authedReq(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed' }, version: 1 });
+    const res = await commitFixture(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed' }, version: 1 });
     assert.equal(res.status, 200, 'sync write succeeds even if counter update throws');
   });
 
-  it('pre-read failure does not break the lesson-state write', async () => {
+  it('unavailable canonical criteria retain the turn instead of accepting an unverifiable assessment', async () => {
     // Simulates DynamoDB throttling on the getSyncData call that detects the
     // status transition. The primary write must still succeed; the counter
     // just won't bump (lazy backfill heals it later).
     db.getSyncData = async () => { throw new Error('throttled'); };
     const app = new Hono();
     app.route('/', sync);
-    const res = await authedReq(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed' }, version: 0 });
-    assert.equal(res.status, 200, 'lesson write must not fail because the pre-read failed');
+    const res = await commitFixture(app, 'PUT', '/v1/sync/lessonKB:l1', { data: { status: 'completed' }, version: 0 });
+    assert.equal(res.status, 500, 'canonical criteria must be readable before committing new assessment');
   });
 });
 
 describe('POST /v1/sync/lesson-started', () => {
   beforeEach(() => {
     db.getUserById = async () => ({ userId: 'usr_test', role: 'user' });
+    db.getSyncData = async (_uid, key) => key.startsWith('lesson:') ? { data: { status: 'public', markdown: '# Test\n## Exemplar\nLearn WordPress\n## Learning Objectives\n- Understand hooks' } } : null;
   });
 
   it('returns empty enrichments when no plugins are enabled', async () => {

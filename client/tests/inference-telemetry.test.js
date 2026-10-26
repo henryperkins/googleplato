@@ -6,7 +6,7 @@ globalThis.localStorage = { getItem: key => values.get(key) || null, setItem: (k
 globalThis.sessionStorage = { getItem: () => null };
 const { initializeLessonKB, extractLessonMarkdown } = await import('../js/orchestrator.js');
 const { createInferenceOperation } = await import('../js/inferenceTelemetry.js');
-const validKB = { exemplar: 'Explain', objectives: [{ objective: 'Explain', evidence: 'Explanation' }], learnerPosition: 'Starting', insights: [], activitiesCompleted: 0, status: 'learning' };
+const validKB = { exemplar: 'Explain', objectives: [{ objective: 'Explain', evidence: 'Explanation' }], learnerPosition: 'Starting', insights: [], activitiesCompleted: 0, status: 'active' };
 let requests, responses;
 beforeEach(() => {
   values.clear(); requests = []; responses = [];
@@ -23,7 +23,7 @@ afterEach(() => mock.restoreAll());
 
 test('output-validation retries share an operation but each has its own retry index', async () => {
   responses = [Response.json({ content: [{ type: 'text', text: '{}' }] }), Response.json({ content: [{ type: 'text', text: JSON.stringify(validKB) }] })];
-  await initializeLessonKB({ lessonId: 'lesson-1' }, '', { userId: 'learner', lessonId: 'lesson-1', generation: 'reset-1', turnId: 'turn-1' });
+  await initializeLessonKB({ lessonId: 'lesson-1', exemplar: 'Explain', learningObjectives: ['Explain'] }, '', { userId: 'learner', lessonId: 'lesson-1', generation: 'reset-1', turnId: 'turn-1' });
   assert.equal(requests.length, 2);
   assert.equal(requests[0].telemetry.operationId, requests[1].telemetry.operationId);
   assert.deepEqual(requests.map(r => r.telemetry.retryIndex), [0, 1]);

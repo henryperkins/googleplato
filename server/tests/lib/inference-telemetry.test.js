@@ -2,6 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInferenceTelemetry, inferenceContext, normalizeUsage } from '../../src/lib/inference-telemetry.js';
 
+test('metadata repair retains its operation role and the original lesson attempt identity', () => {
+  const context = inferenceContext('synthetic', { agentRole: 'coach-assessment-repair', lessonId: 'lesson', generation: null, turnId: 'turn' });
+  assert.equal(context.agent_role, 'coach-assessment-repair');
+  const original = inferenceContext('synthetic', { agentRole: 'coach', lessonId: 'lesson', generation: null, turnId: 'turn' });
+  assert.equal(context.attempt_ref, original.attempt_ref);
+  assert.equal(context.turn_ref, original.turn_ref);
+});
+
 test('keeps reasoning inside total output and missing counts unknown', () => {
   assert.deepEqual(normalizeUsage('workers-ai', {
     prompt_tokens: 100, completion_tokens: 60,

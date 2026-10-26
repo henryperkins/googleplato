@@ -20,6 +20,7 @@ describe('POST /v1/sync/lesson-started', () => {
 
   beforeEach(async () => {
     resetHooks();
+    db.getSyncData = async (_uid, key) => key.startsWith('lesson:') ? { data: { status: 'public', markdown: '# Test Lesson\n## Exemplar\nUnderstand testing\n## Learning Objectives\n- Write tests\n- Run tests' } } : null;
     // Mock db methods for authentication
     db.getUserById = async (id) => {
       if (id === userId) {

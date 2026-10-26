@@ -1,5 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { signCoachTurn } from '../../src/lib/coach-receipt.js';
 import { Hono } from 'hono';
 import sync from '../../src/routes/sync.js';
 import db from '../../src/lib/db.js';
@@ -18,7 +19,7 @@ async function request(path, body, headers = currentClientHeaders) {
   return app.request(path, { method: 'PUT', headers: { ...headers, Authorization: `Bearer ${await signAccessToken('usr_private', 'user')}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 }
 test('logs conditional write rejection without learner content or raw keys', async () => {
-  assert.equal((await request('/v1/sync/messages:private-lesson', { data: ['secret reply'], version: 1 })).status, 409);
+  assert.equal((await request('/v1/sync/drafts:private-lesson', { data: ['secret reply'], version: 1 })).status, 409);
   const events = logger.recent().filter(e => e.code === 'sync_conflict');
   assert.equal(events.length, 1);
   assert.equal(events[0].meta.operation, 'sync_write');
@@ -45,7 +46,7 @@ test('generated-turn conflicts and oversized requests emit save alarms, while re
   db.getLessonState = async () => structuredClone(base);
   const turn = { userId: 'usr_private', turnId: 'turn-1', base,
     messages: [{ id: 'turn-1:0', role: 'assistant', content: 'secret' }], lessonKB: { lessonId: 'lesson-1', startedAt: 1 } };
-  const send = body => app.request('/v1/sync/lesson-turn/lesson-1', { method: 'POST', headers: postHeaders, body: JSON.stringify(body) });
+  const send = body => { body = { ...body, lessonId: 'lesson-1' }; body.receipt = signCoachTurn(body); return app.request('/v1/sync/lesson-turn/lesson-1', { method: 'POST', headers: postHeaders, body: JSON.stringify(body) }); };
   const postHeaders = { ...currentClientHeaders, 'Content-Type': 'application/json', Authorization: `Bearer ${await signAccessToken('usr_private', 'user')}` };
   assert.equal((await send({ ...turn, messages: [{ ...turn.messages[0], content: 'x'.repeat(390 * 1024) }] })).status, 413);
   db.getLessonState = async () => ({ ...base, generation: 'reset' });

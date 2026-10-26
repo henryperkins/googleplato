@@ -61,8 +61,7 @@ export function updateCourseProgressOnCompletionInBackground(lessonKB, lesson, c
     const lessonsInCourse = await getLessonsInCourse(courseId);
     const completedLesson = {
       name: lesson.name,
-      learnerPosition: lessonKB?.learnerPosition || '',
-      insights: lessonKB?.insights || [],
+      ...orchestrator.completionEvidenceForProfile(lessonKB),
     };
     const result = await orchestrator.updateCourseProgress(
       lesson.course.name,

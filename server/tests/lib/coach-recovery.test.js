@@ -1,0 +1,25 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+process.env.DB_BACKEND = 'sqlite';
+process.env.SQLITE_PATH = ':memory:';
+const { default: db } = await import('../../src/lib/db.js');
+const { signCoachTurn } = await import('../../src/lib/coach-receipt.js');
+const { storeCoachResult, readCoachResult } = await import('../../src/lib/coach-recovery.js');
+test('large generated output uses bounded records and recovers its exact signed base without inference', async () => {
+  const turn = { userId: 'cache-test', lessonId: 'l', turnId: 't', base: { messages: { data: randomBytes(280000).toString('base64') } }, lessonKB: { sources: randomBytes(280000).toString('base64') } };
+  turn.receipt = signCoachTurn(turn);
+  await storeCoachResult(turn);
+  const records = await db.getAllSyncData(turn.userId);
+  assert.ok(records.length > 2);
+  for (const record of records) assert.ok(Buffer.byteLength(JSON.stringify(record)) < 380 * 1024);
+  assert.deepEqual(await readCoachResult(turn.userId, 'l'), turn);
+  const descriptor = (await db.getSyncData(turn.userId, 'coachResult:l')).data;
+  await db.putSyncData(turn.userId, descriptor.chunks[0], 'tampered');
+  assert.equal(await readCoachResult(turn.userId, 'l'), null);
+  const next = { userId: turn.userId, lessonId: 'l', turnId: 'next' };
+  next.receipt = signCoachTurn(next);
+  await storeCoachResult(next);
+  assert.deepEqual(await readCoachResult(turn.userId, 'l'), next);
+  assert.equal((await db.getAllSyncData(turn.userId)).length, 2);
+});
