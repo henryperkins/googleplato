@@ -6,7 +6,9 @@ import { generateUserId, generateRefreshToken, generateResetToken, hashToken } f
 import { hashPassword, comparePassword } from '../lib/password.js';
 import { signAccessToken } from '../lib/jwt.js';
 import { sendResetEmail, emailDeliveryEnabled } from '../lib/email.js';
-import { seedDefaultContent } from '../lib/seed.js';
+import { DEFAULT_THEME, seedDefaultContent } from '../lib/seed.js';
+import { classroomNameError } from '../lib/branding.js';
+import { logger } from '../lib/logger.js';
 import { emit as emitHook } from '../lib/plugins/hooks.js';
 import { getFieldDefinitions, mergeFieldValues } from '../lib/user-fields.js';
 import { FIREBASE_PROJECT_ID, ADMIN_EMAIL } from '../config.js';
@@ -73,6 +75,8 @@ auth.post('/v1/auth/setup', async (c) => {
   if (password.length < 8) {
     return c.json({ error: 'Password must be at least 8 characters' }, 400);
   }
+  const nameError = classroomName === undefined ? null : classroomNameError(classroomName);
+  if (nameError) return c.json({ error: nameError }, 400);
 
   const username = rawUsername ? rawUsername.toLowerCase() : generateUsername();
   if (rawUsername) {
@@ -108,7 +112,7 @@ auth.post('/v1/auth/setup', async (c) => {
     try {
       const current = await db.getSyncData('_system', 'settings');
       const settings = { ...(current?.data || {}), classroomName: classroomName.trim(), logoAlt: classroomName.trim() };
-      if (!settings.theme) settings.theme = { primary: '#8b1a1a', accent: '#dc2626' };
+      if (!settings.theme) settings.theme = { ...DEFAULT_THEME };
       await db.putSyncData('_system', 'settings', settings, current?.version || 0);
     } catch (e) {
       console.error('Classroom name save failed (non-fatal):', e.message);
@@ -395,16 +399,21 @@ auth.post('/v1/auth/forgot-password', async (c) => {
     return c.json({ ok: true, emailDelivery: 'off' });
   }
 
-  const user = await db.getUserByEmail(email);
-  // Always return ok to avoid leaking whether an email exists
-  if (!user) {
-    return c.json({ ok: true });
+  let stage = 'lookup';
+  try {
+    const user = await db.getUserByEmail(email);
+    if (user) {
+      stage = 'token';
+      const token = generateResetToken();
+      await db.storeResetToken(hashToken(token), user.userId);
+      stage = 'email';
+      await sendResetEmail(user.email, token);
+    }
+  } catch {
+    // Provider/database failures must not turn a known address into a distinct
+    // public response. Exception text can contain addresses and reset links.
+    logger.warn('password_reset_request_failed', { stage });
   }
-
-  const token = generateResetToken();
-  await db.storeResetToken(hashToken(token), user.userId);
-  await sendResetEmail(user.email, token);
-
   return c.json({ ok: true });
 });
 
@@ -474,6 +483,8 @@ auth.post('/v1/auth/firebase', async (c) => {
   // Case 1: Initial classroom setup (0 users exist)
   const count = await db.countUsers();
   if (count === 0) {
+    const nameError = classroomName === undefined ? null : classroomNameError(classroomName);
+    if (nameError) return c.json({ error: nameError }, 400);
     const username = rawUsername ? rawUsername.toLowerCase() : generateUsername();
     if (rawUsername) {
       const usernameErr = validateUsername(rawUsername);
@@ -506,7 +517,7 @@ auth.post('/v1/auth/firebase', async (c) => {
           classroomName: classroomName.trim(),
           logoAlt: classroomName.trim(),
         };
-        if (!settings.theme) settings.theme = { primary: '#8b1a1a', accent: '#dc2626' };
+        if (!settings.theme) settings.theme = { ...DEFAULT_THEME };
         await db.putSyncData('_system', 'settings', settings, current?.version || 0);
       } catch (e) {
         console.error('Classroom name save failed (non-fatal):', e.message);

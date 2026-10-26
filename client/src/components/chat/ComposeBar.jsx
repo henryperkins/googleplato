@@ -120,13 +120,15 @@ function ComposeBar({
     const imageDataUrls = images.length > 0 ? images.map(i => i.dataUrl) : null;
     const linkPayload = links.length > 0 ? links.map(l => ({ url: l.url, title: l.title, text: l.text })) : null;
     const payload = { text: val || null, imageDataUrls, links: linkPayload };
+    // A controlled owner can synchronously retain the exact draft before it is
+    // cleared, or refuse the submission without losing text or attachments.
+    if (onSend(payload, { text, images, links }) === false) return;
     setBusyNotice('');
     setText('');
     setImages([]);
     setLinks([]);
     setImageError('');
     if (inputRef.current) { inputRef.current.style.height = 'auto'; inputRef.current.style.overflowY = 'hidden'; }
-    onSend(payload);
     // Sending from the Send button would otherwise leave focus on a control
     // that is about to disable itself, which drops focus to <body>.
     inputRef.current?.focus();

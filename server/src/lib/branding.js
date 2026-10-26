@@ -1,14 +1,18 @@
 import { createHash } from 'node:crypto';
-import { DOMParser } from 'linkedom';
+import { boundedSvg } from './svgSafety.js';
 import db from './db.js';
 
 // The encoded value is bounded, not just the decoded image: DynamoDB stores
 // base64 as text. Keep these limits aligned with client/src/lib/logoUpload.js.
 export const MAX_LOGO_DATA_URL_CHARS = 128 * 1024;
 export const MAX_CLASSROOM_NAME = 100;
+// New uploads also bound the decoded area, which every visitor pays for.
+const MAX_LOGO_PIXELS = 1024 * 1024;
+// Earlier versions stored larger images. Keep their originals; the shared SVG
+// rendering policy decides whether they can be displayed safely.
+const LEGACY_LOGO_DATA_URL_CHARS = 8 * 1024 * 1024;
 const LOGO_OWNER = '_branding';
 const HASH = /^[a-f0-9]{64}$/;
-const SVG_ELEMENTS = new Set('svg g path rect circle ellipse line polyline polygon text tspan defs linearGradient radialGradient stop clipPath mask pattern use title desc'.split(' '));
 
 export function normalizeThemeColor(value) {
   if (typeof value !== 'string' || !/^#(?:[\da-f]{3}|[\da-f]{6})$/i.test(value.trim())) return null;
@@ -36,126 +40,149 @@ export function publicTheme(theme) {
 
 export function classroomName(settings) {
   const name = typeof settings.classroomName === 'string' ? settings.classroomName : settings.logoAlt;
-  // Control characters must not reach HTML/mail headers from legacy records.
+  if (typeof name !== 'string') return '';
+  // Control characters must not reach HTML/mail headers from legacy records,
+  // and a lone surrogate makes the SES SDK throw. Cut by code point.
   // eslint-disable-next-line no-control-regex
-  return typeof name === 'string' ? name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, MAX_CLASSROOM_NAME) : '';
+  return [...name.replace(/[\u0000-\u001f\u007f]/g, '').trim().toWellFormed()].slice(0, MAX_CLASSROOM_NAME).join('').trim();
 }
 
-function staticSvg(bytes) {
-  const source = bytes.toString('utf8');
-  // No entities, stylesheet PIs, executable elements or external references.
-  // The endpoint also applies CSP sandboxing, including on direct navigation.
-  if (/<!DOCTYPE|<!ENTITY|<\?xml-stylesheet/i.test(source)) return false;
-  const document = new DOMParser().parseFromString(source, 'image/svg+xml');
-  const root = document.documentElement;
-  if (root?.localName !== 'svg' || root.getAttribute('xmlns') !== 'http://www.w3.org/2000/svg') return false;
-  for (const element of [root, ...root.querySelectorAll('*')]) {
-    if (!SVG_ELEMENTS.has(element.localName)) return false;
-    for (const attribute of element.attributes) {
-      const name = attribute.name.toLowerCase();
-      const value = attribute.value;
-      if (name.startsWith('on') || name === 'xml:base') return false;
-      if ((name === 'href' || name.endsWith(':href')) && !/^#[\w.-]+$/.test(value)) return false;
-      if (/[\\@]/.test(value) || /url\s*\(/i.test(value.replace(/url\(\s*['"]?#[\w.-]+['"]?\s*\)/gi, ''))) return false;
-    }
-  }
-  return true;
+/** Why a submitted classroom name can't be saved, or null. Every writer (setup, Customizer) uses this. */
+export function classroomNameError(value) {
+  // eslint-disable-next-line no-control-regex
+  if (typeof value === 'string' && value.trim().length <= MAX_CLASSROOM_NAME && !/[\u0000-\u001f\u007f]/.test(value) && value.isWellFormed()) return null;
+  return `Classroom name must be text of at most ${MAX_CLASSROOM_NAME} characters, without control characters.`;
 }
 
-const boundedDimensions = (width, height) => width > 0 && height > 0 && width <= 4096 && height <= 4096;
+function pngSize(bytes) {
+  if (bytes.length < 45 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    || bytes.toString('ascii', 12, 16) !== 'IHDR' || bytes.toString('ascii', bytes.length - 8, bytes.length - 4) !== 'IEND') return null;
+  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+}
 
-function jpegDimensions(bytes) {
+function jpegSize(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255
+    || bytes[bytes.length - 2] !== 255 || bytes[bytes.length - 1] !== 217) return null;
   let offset = 2;
   while (offset + 4 < bytes.length) {
-    if (bytes[offset++] !== 255) return false;
+    if (bytes[offset++] !== 255) return null;
     while (bytes[offset] === 255) offset++;
     const marker = bytes[offset++];
-    if (marker === 218 || marker === 217 || offset + 2 > bytes.length) return false;
+    if (marker === 218 || marker === 217 || offset + 2 > bytes.length) return null;
     const length = bytes.readUInt16BE(offset);
-    if (length < 2 || offset + length > bytes.length) return false;
+    if (length < 2 || offset + length > bytes.length) return null;
     if ([192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207].includes(marker)) {
-      return length >= 8 && boundedDimensions(bytes.readUInt16BE(offset + 5), bytes.readUInt16BE(offset + 3));
+      return length >= 8 ? { width: bytes.readUInt16BE(offset + 5), height: bytes.readUInt16BE(offset + 3) } : null;
     }
     offset += length;
   }
-  return false;
+  return null;
 }
 
-function webpDimensions(bytes) {
+function webpSize(bytes) {
+  if (bytes.length < 20 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WEBP'
+    || bytes.readUInt32LE(4) !== bytes.length - 8) return null;
   const type = bytes.toString('ascii', 12, 16);
-  if (type === 'VP8X' && bytes.length >= 30) return boundedDimensions(bytes.readUIntLE(24, 3) + 1, bytes.readUIntLE(27, 3) + 1);
+  if (type === 'VP8X' && bytes.length >= 30) return { width: bytes.readUIntLE(24, 3) + 1, height: bytes.readUIntLE(27, 3) + 1 };
   if (type === 'VP8 ' && bytes.length >= 30 && bytes.subarray(23, 26).equals(Buffer.from([157, 1, 42]))) {
-    return boundedDimensions(bytes.readUInt16LE(26) & 0x3fff, bytes.readUInt16LE(28) & 0x3fff);
+    return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
   }
   if (type === 'VP8L' && bytes.length >= 25 && bytes[20] === 47) {
     const dimensions = bytes.readUInt32LE(21);
-    return boundedDimensions((dimensions & 0x3fff) + 1, ((dimensions >>> 14) & 0x3fff) + 1);
+    return { width: (dimensions & 0x3fff) + 1, height: ((dimensions >>> 14) & 0x3fff) + 1 };
   }
-  return false;
+  return null;
 }
 
-/** Only bounded, base64-encoded images; never an arbitrary browser-fetchable URL. */
-export function parseLogo(value) {
-  if (typeof value !== 'string' || value.length > MAX_LOGO_DATA_URL_CHARS) return null;
+const RASTER_SIZE = { 'image/png': pngSize, 'image/jpeg': jpegSize, 'image/webp': webpSize };
+
+/**
+ * Only bounded, base64-encoded images; never an arbitrary browser-fetchable URL.
+ * New uploads use the strict rules. `legacy` reads what is already stored: the
+ * larger size and compatible editor markup of earlier versions. Both paths
+ * enforce the same SVG rendering budget; blocked originals remain stored.
+ */
+export function parseLogo(value, { legacy = false } = {}) {
+  if (typeof value !== 'string' || value.length > (legacy ? LEGACY_LOGO_DATA_URL_CHARS : MAX_LOGO_DATA_URL_CHARS)) return null;
   const match = value.match(/^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([A-Za-z0-9+/]+={0,2})$/);
   if (!match) return null;
   const [, mime, encoded] = match;
   const bytes = Buffer.from(encoded, 'base64');
   if (!bytes.length || bytes.toString('base64') !== encoded) return null;
-  let valid = false;
-  if (mime === 'image/png' && bytes.length >= 45) {
-    valid = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-      && bytes.toString('ascii', 12, 16) === 'IHDR'
-      && boundedDimensions(bytes.readUInt32BE(16), bytes.readUInt32BE(20))
-      && bytes.toString('ascii', bytes.length - 8, bytes.length - 4) === 'IEND';
-  } else if (mime === 'image/jpeg') {
-    valid = bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
-      && bytes[bytes.length - 2] === 255 && bytes[bytes.length - 1] === 217 && jpegDimensions(bytes);
-  } else if (mime === 'image/webp') {
-    valid = bytes.length >= 20 && bytes.toString('ascii', 0, 4) === 'RIFF'
-      && bytes.toString('ascii', 8, 12) === 'WEBP' && bytes.readUInt32LE(4) === bytes.length - 8 && webpDimensions(bytes);
-  } else if (mime === 'image/svg+xml') {
-    try { valid = staticSvg(bytes); } catch { return null; }
+  let valid;
+  if (mime === 'image/svg+xml') {
+    try { valid = boundedSvg(bytes, { legacy }); } catch { return null; }
+  } else {
+    const size = RASTER_SIZE[mime](bytes);
+    valid = size && size.width > 0 && size.height > 0 && size.width <= 4096 && size.height <= 4096
+      && (legacy || size.width * size.height <= MAX_LOGO_PIXELS);
   }
   if (!valid) return null;
   return { dataUrl: value, mime, bytes, hash: createHash('sha256').update(mime).update(bytes).digest('hex') };
 }
 
-export function publicBranding(settings) {
-  const hash = HASH.test(settings.logoHash || '') ? settings.logoHash : parseLogo(settings.logoBase64)?.hash;
-  return { theme: publicTheme(settings.theme), classroomName: classroomName(settings), logoUrl: hash ? `/v1/branding/logo/${hash}` : null };
+// An inline legacy logo is read on every public branding request, and stays
+// the same between saves. Parse each stored value once.
+let legacyRead = { value: undefined, logo: null };
+
+/** The logo an earlier version kept inline in settings, if it can still be shown. */
+export function legacyLogo(settings) {
+  const value = settings?.logoBase64;
+  if (typeof value !== 'string') return null;
+  if (legacyRead.value !== value) legacyRead = { value, logo: parseLogo(value, { legacy: true }) };
+  return legacyRead.logo;
+}
+
+/** The hash of the logo pages should show, from its asset pointer or a legacy inline value. */
+export function currentLogoHash(settings) {
+  return HASH.test(settings.logoHash || '') ? settings.logoHash : legacyLogo(settings)?.hash || null;
+}
+
+export async function publicBranding(settings) {
+  const hash = currentLogoHash(settings);
+  const logo = hash ? await readLogo(hash, settings) : null;
+  return { theme: publicTheme(settings.theme), classroomName: classroomName(settings), logoUrl: logo ? `/v1/branding/logo/${hash}` : null };
+}
+
+/** Read original data for authenticated recovery, without approving it for rendering. */
+export async function readLogoOriginal(settings) {
+  if (HASH.test(settings.logoHash || '')) {
+    const item = await db.getSyncData(LOGO_OWNER, `logo:${settings.logoHash}`, { consistentRead: true });
+    if (typeof item?.data?.dataUrl === 'string') return { dataUrl: item.data.dataUrl, legacy: item.data.legacy === true };
+  }
+  return typeof settings.logoBase64 === 'string' ? { dataUrl: settings.logoBase64, legacy: true } : null;
 }
 
 export async function readLogo(hash, legacySettings) {
   if (!HASH.test(hash || '')) return null;
   // A newly acknowledged settings pointer must be readable immediately on DynamoDB.
   const item = await db.getSyncData(LOGO_OWNER, `logo:${hash}`, { consistentRead: true });
-  const logo = parseLogo(item?.data?.dataUrl) || parseLogo(legacySettings?.logoBase64);
-  return logo?.hash === hash ? logo : null;
-}
-
-export async function storeLogo(logo) {
-  const key = `logo:${logo.hash}`;
-  if (await db.getSyncData(LOGO_OWNER, key)) return;
-  try {
-    await db.putSyncData(LOGO_OWNER, key, { dataUrl: logo.dataUrl }, 0);
-  } catch (error) {
-    // Two identical uploads share one immutable asset. Other failures must
-    // leave the settings pointer unchanged and reach the caller.
-    if (error.name !== 'ConditionalCheckFailedException') throw error;
-  }
+  // Apply today's rendering budget to stored assets too. Original bytes stay
+  // available to authenticated recovery even when display validation fails.
+  // `legacy` marks a logo from an earlier version, inline or migrated.
+  const stored = legacyLogo({ logoBase64: item?.data?.dataUrl });
+  const logo = stored ? { ...stored, legacy: item.data.legacy === true } : { ...legacyLogo(legacySettings), legacy: true };
+  return logo.hash === hash ? logo : null;
 }
 
 /** Same WCAG foreground selection as client branding, including the black fallback. */
 export function brandForeground(hex) {
   const color = normalizeThemeColor(hex) || '#470d99';
-  const luminance = value => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16) / 255)
-    .map(c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-    .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
   const bg = luminance(color);
   const dark = luminance('#1a1a1a');
   const whiteRatio = 1.05 / (bg + 0.05);
   const darkRatio = (Math.max(bg, dark) + 0.05) / (Math.min(bg, dark) + 0.05);
   if (whiteRatio >= 4.5 && whiteRatio >= darkRatio) return '#ffffff';
   return darkRatio >= 4.5 ? '#1a1a1a' : '#000000';
+}
+
+/** WCAG contrast of a brand color against white, for edges that would otherwise vanish. */
+export function contrastOnWhite(hex) {
+  return 1.05 / (luminance(normalizeThemeColor(hex) || '#470d99') + 0.05);
+}
+
+function luminance(hex) {
+  return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
 }

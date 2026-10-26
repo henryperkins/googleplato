@@ -34,7 +34,8 @@ describe('Focus survives async work', () => {
     assert.match(compose, /busy = false/);
     assert.match(compose, /<textarea[\s\S]*?disabled=\{disabled\}/);
     assert.match(compose, /disabled=\{disabled \|\| busy \|\| !hasContent \|\| attaching\}/);
-    assert.match(compose, /onSend\(payload\);\s*\n(\s*\/\/.*\n)*\s*inputRef\.current\?\.focus\(\);/);
+    // Post-send focus and editable drafting are exercised in the learner
+    // browser regression, including a retained response and a newer draft.
 
     const chat = read('pages/LessonChat.jsx');
     assert.match(chat, /disabled=\{impersonating\}\s*\n\s*busy=\{busy\}/);

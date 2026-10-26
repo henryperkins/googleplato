@@ -4,13 +4,14 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { chromium, webkit } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
+import Database from 'better-sqlite3';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 let browser;
@@ -18,7 +19,9 @@ let server;
 let directory;
 let base;
 let storageState;
-const browserName = process.env.PLATO_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
+const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
+const browserType = { chromium, firefox, webkit }[browserName];
+assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
 
 async function openPage(viewport, theme = 'light', colorScheme = 'light') {
   const context = await browser.newContext({ viewport, storageState, colorScheme });
@@ -76,7 +79,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
     }
     const initialBranding = await (await fetch(`${base}/v1/branding`)).json();
     assert.deepEqual(initialBranding.theme, { primary: '#8b1a1a' }, 'new classrooms match the primary accent');
-    browser = await (browserName === 'webkit' ? webkit : chromium).launch();
+    browser = await browserType.launch();
     const context = await browser.newContext();
     try {
       const page = await context.newPage();
@@ -154,8 +157,11 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.getByRole('alertdialog').waitFor();
       await page.getByRole('button', { name: 'Stay here', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer`);
-      const dialog = page.waitForEvent('dialog').then(async event => { assert.equal(event.type(), 'beforeunload'); await event.dismiss(); });
-      await Promise.allSettled([page.reload({ timeout: 3000 }), dialog]);
+      const dialog = page.waitForEvent('dialog', { timeout: 5000 }).then(async event => { assert.equal(event.type(), 'beforeunload'); await event.dismiss(); });
+      // Firefox's automation reload bypasses beforeunload. Request a normal
+      // document reload and require the dialog instead of swallowing its timeout.
+      await page.evaluate(() => { setTimeout(() => location.reload(), 0); });
+      await dialog;
       assert.equal(await page.getByLabel('Classroom Name', { exact: true }).inputValue(), 'Keep this draft');
       await page.evaluate(() => history.back());
       await page.getByRole('alertdialog').waitFor();
@@ -175,11 +181,11 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       const background = () => header.evaluate(element => getComputedStyle(element).backgroundColor);
       const initial = await background();
       const field = page.getByLabel('Primary color hex code', { exact: true });
-      const notes = await page.getByLabel('Color notes', { exact: true }).innerText();
+      const notes = await page.locator('#theme-color-notes').innerText();
       for (const value of ['#', '#2', '#2a', '#2a4', '#2a4b', '#2a4b8']) {
         await field.fill(value);
         assert.equal(await background(), initial, value);
-        assert.equal(await page.getByLabel('Color notes', { exact: true }).innerText(), notes);
+        assert.equal(await page.locator('#theme-color-notes').innerText(), notes);
       }
       await field.fill('#2a4b8c');
       assert.notEqual(await background(), initial);
@@ -654,7 +660,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
         }, mime);
         assert.equal((await writeLogo(data)).status, 200, mime);
       }
-      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100"><path fill="#fff" d="M0 0h400v100H0z"/></svg>';
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#fff" d="M0 0h100v100H0z"/></svg>';
       assert.equal((await writeLogo(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)).status, 200);
       await page.goto(`${base}/lessons`);
       const logo = page.getByRole('link', { name: 'Vector Academy — Lessons', exact: true }).locator('img');
@@ -670,7 +676,254 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
         const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
         return [...ctx.getImageData(5, 16, 1, 1).data];
       });
-      assert.deepEqual(pixel, [255, 255, 255, 255], 'favicon includes the SVG wordmark, rather than just the background or initial');
+      assert.deepEqual(pixel, [255, 255, 255, 255], 'favicon includes the SVG logo, rather than just the background or initial');
+    } finally { await context.close(); }
+  });
+
+  it('saves on the first press after a shorthand hex, although committing it reflows the notes', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    try {
+      await navigate(page, 'customizer');
+      await page.getByLabel('Primary color hex code', { exact: true }).fill('#fff');
+      const box = await page.getByRole('button', { name: 'Save', exact: true }).boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await delay(80);
+      await page.mouse.up();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor({ timeout: 5000 });
+      assert.equal((await (await page.request.get(`${base}/v1/branding`)).json()).theme.primary, '#ffffff');
+      assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#ffffff');
+    } finally { await context.close(); }
+  });
+
+  it('describes the color fields with the notes, keeps preview samples out of the tab order, and unmatches from the shown color', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    try {
+      await navigate(page, 'customizer');
+      const primary = page.getByLabel('Primary color hex code', { exact: true });
+      await primary.fill('#f5c518');
+      await page.locator('#theme-color-notes li').first().waitFor();
+      if (browserName === 'chromium') {
+        const { nodes } = await (await context.newCDPSession(page)).send('Accessibility.getFullAXTree');
+        const field = nodes.find(node => node.name?.value === 'Primary color hex code');
+        assert.match(field?.description?.value || '', /Warning: In light mode.*header in this color barely stands out from white/);
+      }
+      for (const sample of await page.locator('figure button').all()) {
+        assert.equal(await sample.evaluate(element => { element.focus(); return document.activeElement === element; }), false);
+      }
+      await primary.fill('#2a4b8c');
+      await page.getByLabel('Match primary', { exact: true }).uncheck();
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#2a4b8c');
+      await page.getByLabel('Accent color hex code', { exact: true }).fill('2A4B8C');
+      await page.getByLabel('Accent color hex code', { exact: true }).blur();
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#2a4b8c');
+      await page.getByLabel('Match primary', { exact: true }).check();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      await page.getByLabel('Match primary', { exact: true }).uncheck();
+      await page.getByLabel('Accent color hex code', { exact: true }).fill('#123456');
+      await page.getByLabel('Match primary', { exact: true }).check();
+      assert.equal(await page.getByRole('button', { name: 'Save', exact: true }).isDisabled(), true, 'a matched accent is not an edit');
+    } finally { await context.close(); }
+  });
+
+  it('keeps a logo from an earlier version and optimizes its square padding away', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    try {
+      await navigate(page, 'customizer');
+      const padded = await page.evaluate(() => {
+        const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512;
+        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#123456'; ctx.fillRect(16, 196, 480, 120);
+        return canvas.toDataURL('image/png');
+      });
+      const sqlite = new Database(join(directory, 'test.sqlite'));
+      try {
+        sqlite.prepare("UPDATE sync_data SET data = json_set(json_remove(data, '$.logoHash'), '$.logoBase64', ?, '$.classroomName', 'Legacy Academy') WHERE userId = '_system' AND dataKey = 'settings'").run(padded);
+      } finally { sqlite.close(); }
+      const before = await (await page.request.get(`${base}/v1/branding`)).json();
+      assert.match(before.logoUrl, /^\/v1\/branding\/logo\/[a-f0-9]{64}$/, 'learners still see it');
+      await navigate(page, 'customizer');
+      await page.getByText('An earlier version of plato padded this logo', { exact: false }).waitFor();
+      await page.getByRole('button', { name: 'Optimize logo', exact: true }).focus();
+      await page.keyboard.press('Enter');
+      await page.getByRole('status').filter({ hasText: 'Logo optimized.' }).waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Save', 'focus moves to Save when the notice leaves');
+      assert.deepEqual(await page.locator('figure img').first().evaluate(img => [img.naturalWidth, img.naturalHeight]), [480, 120]);
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Optimize logo', exact: true }).count(), 0);
+      const after = await (await page.request.get(`${base}/v1/branding`)).json();
+      assert.notEqual(after.logoUrl, before.logoUrl);
+      assert.equal((await page.request.get(`${base}${before.logoUrl}`)).status(), 404, 'the replaced logo is removed');
+      const png = Buffer.from(await (await page.request.get(`${base}${after.logoUrl}`)).body());
+      assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [480, 120]);
+    } finally { await context.close(); }
+  });
+
+  it('shows the classroom name when the logo cannot load, and keeps focus on retry', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    try {
+      await navigate(page, 'customizer');
+      await page.getByLabel('Classroom Name', { exact: true }).fill('Fallback Academy');
+      await page.getByLabel('Logo image (optional)', { exact: true }).setInputFiles({ name: 'mark.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>') });
+      await page.getByRole('status').filter({ hasText: 'Logo ready.' }).waitFor();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      await page.route('**/v1/branding/logo/**', route => route.fulfill({ status: 503, body: '' }));
+      await page.goto(`${base}/lessons`);
+      const home = page.getByRole('link', { name: 'Fallback Academy — Lessons', exact: true });
+      await home.getByText('Fallback Academy', { exact: true }).waitFor();
+      assert.equal(await home.locator('img').count(), 0);
+      let failures = 2;
+      await page.route('**/v1/admin/theme', route => {
+        if (route.request().method() !== 'GET' || failures-- <= 0) return route.continue();
+        return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Styles offline"}' });
+      });
+      await navigate(page, 'customizer');
+      const retry = page.getByRole('button', { name: 'Retry styles', exact: true });
+      await retry.focus();
+      await page.keyboard.press('Enter');
+      await retry.waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Retry styles', 'a failed retry keeps focus on Retry');
+      await page.keyboard.press('Enter');
+      await page.getByLabel('Classroom Name', { exact: true }).waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement.tagName), 'H1');
+    } finally { await context.close(); }
+  });
+
+  it('follows device changes on a public page that has no theme control', async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'light' });
+    try {
+      const page = await context.newPage();
+      await page.goto(`${base}/forgot-password`);
+      await page.locator('main').waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Dark mode', exact: true }).count(), 0);
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await page.waitForFunction(() => document.documentElement.classList.contains('dark'), null, { timeout: 3000 });
+    } finally { await context.close(); }
+  });
+
+  it('opens the file chooser on the first press after a shorthand hex, and reads SVGs the system left untyped', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    try {
+      await navigate(page, 'customizer');
+      await page.getByLabel('Primary color hex code', { exact: true }).fill('#fff');
+      const box = await page.getByLabel('Logo image (optional)', { exact: true }).boundingBox();
+      const chooser = page.waitForEvent('filechooser', { timeout: 3000 });
+      await page.mouse.move(box.x + 40, box.y + box.height / 2);
+      await page.mouse.down();
+      await delay(80);
+      await page.mouse.up();
+      await (await chooser).setFiles({ name: 'mark.svg', mimeType: '', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100000" height="25000" viewBox="0 0 400 100"><rect width="400" height="100" fill="#123456"/></svg>') });
+      await page.getByRole('status').filter({ hasText: 'Logo ready.' }).waitFor();
+      const drawn = await page.locator('figure img').first().evaluate(async img => {
+        await img.decode();
+        const canvas = document.createElement('canvas'); canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+        return [img.naturalWidth, img.naturalHeight, [...ctx.getImageData(256, 64, 1, 1).data]];
+      });
+      assert.deepEqual(drawn, [512, 128, [18, 52, 86, 255]], 'a huge intrinsic size is drawn once, not blank');
+    } finally { await context.close(); }
+  });
+
+  it('keeps an unsafe stored SVG out of previews and lets the admin download or remove the original', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><g id="loop"><use href="#loop"/></g></svg>';
+    const original = `data:image/svg+xml;base64,${Buffer.from(source).toString('base64')}`;
+    const sqlite = new Database(join(directory, 'test.sqlite'));
+    try {
+      sqlite.prepare("UPDATE sync_data SET data = json_set(json_remove(data, '$.logoHash'), '$.logoBase64', ?) WHERE userId = '_system' AND dataKey = 'settings'").run(original);
+    } finally { sqlite.close(); }
+    try {
+      await navigate(page, 'customizer');
+      await page.getByText("This saved logo can't be displayed safely.", { exact: false }).waitFor();
+      assert.equal(await page.locator('figure img').count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Optimize logo', exact: true }).count(), 0);
+      const downloadButton = page.getByRole('button', { name: 'Download original logo', exact: true });
+      const assets = join(root, `output/playwright/customizer-readiness-2026-10-25/${browserName}`);
+      await mkdir(assets, { recursive: true });
+      await page.screenshot({ path: join(assets, 'blocked-logo-desktop.png'), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await downloadButton.scrollIntoViewIfNeeded();
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.screenshot({ path: join(assets, 'blocked-logo-phone.png'), fullPage: true });
+      await downloadButton.focus();
+      const downloaded = page.waitForEvent('download');
+      await page.keyboard.press('Enter');
+      const download = await downloaded;
+      assert.equal(download.suggestedFilename(), 'classroom-logo.svg');
+      assert.equal(await readFile(await download.path(), 'utf8'), source);
+      await page.getByLabel('Classroom Name', { exact: true }).fill('Original preserved');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      await page.reload();
+      await downloadButton.waitFor();
+      assert.equal(await page.locator('figure img').count(), 0);
+      assert.equal((await (await page.request.get(`${base}/v1/branding`)).json()).logoUrl, null);
+      await page.getByRole('button', { name: 'Remove logo image', exact: true }).click();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      assert.equal(await downloadButton.count(), 0);
+    } finally { await context.close(); }
+  });
+
+  it('preserves another administrator\'s independent color edits from a stale form', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const otherSave = theme => fetch(`${base}/v1/admin/theme`, { method: 'PUT',
+      headers: { Authorization: `Bearer ${auth.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme }),
+    });
+    try {
+      assert.equal((await otherSave({ primary: '#123456', accent: '#654321' })).status, 200);
+      await navigate(page, 'customizer');
+      assert.equal((await otherSave({ primary: '#123456', accent: '#abcdef' })).status, 200);
+      // Equality with the stale accent must not select Match primary implicitly.
+      await page.getByLabel('Primary color hex code', { exact: true }).fill('#654321');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#abcdef');
+      assert.equal((await otherSave({ primary: '#998877', accent: '#abcdef' })).status, 200);
+      // An explicitly typed accent stays literal even when it equals stale primary.
+      await page.getByLabel('Accent color hex code', { exact: true }).fill('#654321');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#998877');
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#654321');
+      assert.equal(await page.getByLabel('Match primary', { exact: true }).isChecked(), false);
+      await page.getByLabel('Match primary', { exact: true }).check();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      const branding = await (await page.request.get(`${base}/v1/branding`)).json();
+      assert.deepEqual(branding.theme, { primary: '#998877' });
+    } finally { await context.close(); }
+  });
+
+  it('does not offer to optimize an SVG that an earlier version stored, and shows other admins\' changes after saving', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    try {
+      await navigate(page, 'customizer');
+      const vector = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100"><style>.a{fill:#123456}</style><rect class="a" width="400" height="100"/></svg>').toString('base64')}`;
+      const sqlite = new Database(join(directory, 'test.sqlite'));
+      try {
+        sqlite.prepare("UPDATE sync_data SET data = json_set(json_remove(data, '$.logoHash'), '$.logoBase64', ?) WHERE userId = '_system' AND dataKey = 'settings'").run(vector);
+      } finally { sqlite.close(); }
+      await navigate(page, 'customizer');
+      await page.locator('figure img').first().waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Optimize logo', exact: true }).count(), 0);
+      const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+      const other = await fetch(`${base}/v1/admin/theme`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${auth.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classroomName: 'Named elsewhere' }),
+      });
+      assert.equal(other.status, 200);
+      await page.getByLabel('Primary color hex code', { exact: true }).fill('#2a4b8c');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      assert.equal(await page.getByLabel('Classroom Name', { exact: true }).inputValue(), 'Named elsewhere');
+      const branding = await (await page.request.get(`${base}/v1/branding`)).json();
+      assert.deepEqual([branding.classroomName, branding.theme.primary], ['Named elsewhere', '#2a4b8c']);
+      assert.ok(branding.logoUrl, 'the stored SVG is still shown');
     } finally { await context.close(); }
   });
 });

@@ -7,6 +7,7 @@ function browserStorage() {
 }
 globalThis.localStorage = browserStorage();
 globalThis.sessionStorage = browserStorage();
+const { createInferenceOperation } = await import('../js/inferenceTelemetry.js');
 const storage = await import('../js/storage.js');
 const engine = await import('../src/lib/lessonEngine.js');
 const { queueProfileUpdate } = await import('../src/lib/profileQueue.js');
@@ -41,6 +42,24 @@ beforeEach(async () => {
     if (path === '/v1/knowledge-base') return json({ content: '' });
     if (path === '/v1/lessons') return json([]);
     if (path === '/v1/sync/lesson-started') return json({ enrichments: [] });
+    // Transport fixture returns an already assessed, signed server turn. Pure
+    // assessment and signature enforcement have their own server regressions.
+    if (path === '/v1/ai/coach/lesson-1') {
+      if (options.method !== 'POST') return json({}, 404);
+      const body = JSON.parse(options.body);
+      const start = body.kind === 'start';
+      aiCalls += start ? 2 : 1;
+      inferenceRequests.push(await createInferenceOperation('coach', body.telemetry).next());
+      const progress = start ? 0 : Number(coachText.match(/PROGRESS: (\d+)/)?.[1] || 2);
+      const phase = progress === 10 ? 'completed' : 'learning';
+      const messages = [];
+      if (!start) messages.push({ id: `${body.turnId}:0`, role: 'user', content: body.submission.text || '[image]', metadata: { imageKeys: body.submission.imageKeys } });
+      messages.push({ id: `${body.turnId}:${messages.length}`, role: 'assistant', content: coachText.split('\n[')[0] });
+      return json({ userId, lessonId: 'lesson-1', turnId: body.turnId, base: body.base, messages,
+        lessonKB: { ...(body.base.lessonKB.data || { lessonId: 'lesson-1', startedAt: 100 }), progress, status: phase, activitiesCompleted: start ? 0 : (body.base.lessonKB.data.activitiesCompleted || 0) + 1 },
+        phase, achieved: progress === 10, receipt: 'synthetic-test-receipt',
+        profileObservation: coachText.includes('PROFILE_UPDATE') ? { observation: 'Understands', source: 'demonstrated_pattern', kind: 'strength', sourceIds: [`${body.turnId}:0`] } : null });
+    }
     if (path === '/v1/ai/messages') {
       aiCalls += 1;
       const body = JSON.parse(options.body);
@@ -60,7 +79,7 @@ beforeEach(async () => {
       if (!turn.messages.every(message => state.messages.data.some(saved => saved.id === message.id))) {
         assert.deepEqual(turn.base, state, 'the retry must preserve its original base');
         records.set('messages:lesson-1', { data: [...state.messages.data, ...turn.messages], version: state.messages.version + 1 });
-        records.set('lessonKB:lesson-1', { data: turn.lessonKB, version: state.lessonKB.version + 1 });
+        records.set('lessonKB:lesson-1', { data: mode === 'criteria-change' ? { ...turn.lessonKB, progress: 0, status: 'active', assessmentReviewRequired: true } : turn.lessonKB, version: state.lessonKB.version + 1 });
       }
       if (mode === 'lost-ack') { mode = 'ok'; throw new TypeError('Connection closed after commit'); }
       return json(snapshot());
@@ -171,7 +190,7 @@ test('upgrade preparation cannot reload during generation before the reply is st
   const arrived = new Promise(resolve => { started = resolve; });
   const pause = new Promise(resolve => { release = resolve; });
   globalThis.fetch = async (url, options) => {
-    if (url.endsWith('/v1/ai/messages')) { started(); await pause; }
+    if (url.endsWith('/v1/ai/coach/lesson-1')) { started(); await pause; }
     return realFetch(url, options);
   };
   const generating = engine.sendMessage('lesson-1', lesson, 'My answer', null, null, () => {});
@@ -332,6 +351,18 @@ test('telemetry outages never prevent saving or persistence-only recovery', asyn
   assert.equal(saveEvents.length, 0);
   telemetryFails = false; await saveObserver.flush(userId);
   assert.deepEqual(saveEvents.map(e => e.code), ['client_save_unconfirmed', 'client_save_recovered']);
+});
+
+test('criteria changes acknowledged by save cannot publish invalidated completion or profile facts', async () => {
+  mode = 'criteria-change';
+  coachText = 'Done.\n[PROGRESS: 10]\n[PROFILE_UPDATE: {"observation":"A stale inference"}]';
+  const result = await engine.sendMessage('lesson-1', { ...lesson, course: { id: 'course-1', name: 'Course' } }, 'Answer', null, null, () => {});
+  await queueProfileUpdate(() => {});
+  await queueCourseProgressUpdate(() => {});
+  assert.equal(result.achieved, false);
+  assert.equal(result.lessonKB.assessmentReviewRequired, true);
+  assert.equal(aiCalls, 1, 'invalidated mastery never triggers profile or course inference');
+  assert.deepEqual(records.get('profile').data.masteredLessons, []);
 });
 
 test('an upgrade rejection preserves a generated turn and does not turn Retry saving into generation', async () => {

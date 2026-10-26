@@ -51,11 +51,16 @@ describe('mergeProfile', () => {
     assert.deepEqual(merged.masteredLessons, ['l1']);
   });
 
-  it('takes returned strengths/weaknesses when non-empty, else keeps existing', () => {
+  it('accepts explicit clearing of obsolete traits and preserves omitted fields', () => {
     const existing = { strengths: ['old'], weaknesses: ['oldw'] };
     assert.deepEqual(mergeProfile(existing, { strengths: ['new'] }).strengths, ['new']);
-    assert.deepEqual(mergeProfile(existing, { strengths: [] }).strengths, ['old']);
+    assert.deepEqual(mergeProfile(existing, { strengths: [] }).strengths, []);
     assert.deepEqual(mergeProfile(existing, {}).weaknesses, ['oldw']);
+  });
+
+  it('removes a preference explicitly corrected to null', () => {
+    assert.deepEqual(mergeProfile({ preferences: { platform: 'Mac', style: 'brief' } },
+      { preferences: { platform: null } }).preferences, { style: 'brief' });
   });
 
   it('merges preferences and only overwrites name/goal when truthy', () => {

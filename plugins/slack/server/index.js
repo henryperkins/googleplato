@@ -39,7 +39,17 @@ async function getSlackToken() {
 async function getClassroomName() {
   const item = await db.getSyncData('_system', 'settings');
   const s = item?.data || {};
-  return s.classroomName || s.logoAlt || 'plato';
+  const name = typeof s.classroomName === 'string' ? s.classroomName : s.logoAlt;
+  return (typeof name === 'string' && name.trim()) || 'plato';
+}
+
+// Slack reads &, < and > in message text as control characters (links, mentions).
+const escapeSlack = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** The invite DM. Names are escaped; the fallback avoids "You've been invited you...". */
+export function inviteMessage(inviterName, classroom, signupUrl) {
+  const opener = inviterName ? `${escapeSlack(inviterName)} has invited you` : `You've been invited`;
+  return `${opener} to join *${escapeSlack(classroom)}*.\n\n<${signupUrl}|Create your account>\n\nThis invite expires in 7 days.`;
 }
 
 // POST /v1/plugins/slack/admin/test — validate a bot token
@@ -137,13 +147,7 @@ routes.post('/admin/invites', async (c) => {
       });
 
       const signupUrl = `${APP_URL}/signup?token=${inviteToken}`;
-      // Compose so the fallback doesn't double-up "you" (was: "You've been invited you...").
-      const opener = adminUser.name
-        ? `${adminUser.name} has invited you`
-        : `You've been invited`;
-      const message = `${opener} to join *${classroom}*.\n\n<${signupUrl}|Create your account>\n\nThis invite expires in 7 days.`;
-
-      await sendSlackDM(token, u.slackUserId, message);
+      await sendSlackDM(token, u.slackUserId, inviteMessage(adminUser.name, classroom, signupUrl));
       results.push({ email, slackUserId: u.slackUserId, status: 'sent' });
     } catch (err) {
       results.push({ email, slackUserId: u.slackUserId, status: 'error', reason: err.message });

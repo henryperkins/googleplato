@@ -582,6 +582,27 @@ const db = {
     return { version: newVersion, updatedAt: now };
   },
 
+  async putBrandingSettings(data, expectedVersion, { logo = null, previousLogoHash = null } = {}) {
+    return sqlite.transaction(() => {
+      const current = sqlite.prepare('SELECT version FROM sync_data WHERE userId = ? AND dataKey = ?').get('_system', 'settings');
+      if (expectedVersion === 0 ? !!current : !current || current.version !== expectedVersion) {
+        throw conditionalCheckFailed('Settings changed');
+      }
+      const updatedAt = new Date().toISOString();
+      const version = expectedVersion + 1;
+      const write = sqlite.prepare(`INSERT INTO sync_data (userId, dataKey, data, version, updatedAt)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT(userId, dataKey) DO UPDATE
+        SET data = excluded.data, version = excluded.version, updatedAt = excluded.updatedAt`);
+      if (logo) write.run('_branding', `logo:${logo.hash}`,
+        JSON.stringify({ dataUrl: logo.dataUrl, ...(logo.legacy ? { legacy: true } : {}) }), 1, updatedAt);
+      write.run('_system', 'settings', JSON.stringify(data), version, updatedAt);
+      if (previousLogoHash && previousLogoHash !== data.logoHash) {
+        sqlite.prepare('DELETE FROM sync_data WHERE userId = ? AND dataKey = ?').run('_branding', `logo:${previousLogoHash}`);
+      }
+      return { version, updatedAt };
+    }).immediate();
+  },
+
   async getLessonState(userId, lessonId) {
     return sqlite.transaction(() => {
       const generation = sqlite.prepare('SELECT data FROM sync_data WHERE userId = ? AND dataKey = ?')

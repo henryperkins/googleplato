@@ -480,3 +480,52 @@ describe('POST /v1/auth/firebase', () => {
     assert.equal(createdUsers[0].email, 'newlearner@example.com');
   });
 });
+
+describe('first-admin setup classroom name', () => {
+  let createdUsers;
+  let records;
+
+  beforeEach(() => {
+    createdUsers = [];
+    records = new Map();
+    db.countUsers = async () => 0;
+    db.getUserByEmail = async () => null;
+    db.getUserByUsername = async () => null;
+    db.createUser = async (u) => { createdUsers.push(u); };
+    db.storeRefreshToken = async () => {};
+    db.getSyncData = async (userId, key) => records.get(`${userId}:${key}`) || null;
+    db.putSyncData = async (userId, key, data, version) => {
+      records.set(`${userId}:${key}`, { data, version: (version || 0) + 1 });
+      return { version: (version || 0) + 1 };
+    };
+    setFirebaseTokenVerifier(async () => ({ email: 'owner@example.com', email_verified: true, name: 'Owner' }));
+  });
+
+  const setups = [
+    ['/v1/auth/setup', name => ({ email: 'owner@example.com', name: 'Owner', password: 'password123', classroomName: name })],
+    ['/v1/auth/firebase', name => ({ idToken: 'valid_token', classroomName: name })],
+  ];
+
+  for (const [path, body] of setups) {
+    it(`${path} rejects a name the Customizer would reject, before creating the admin`, async () => {
+      const app = new Hono();
+      app.route('/', auth);
+      for (const name of [42, { text: 'x' }, null, 'x'.repeat(101), 'Line\nbreak']) {
+        const res = await req(app, 'POST', path, body(name));
+        assert.equal(res.status, 400, `accepted ${JSON.stringify(name)}`);
+        assert.match((await res.json()).error, /Classroom name/);
+      }
+      assert.equal(createdUsers.length, 0);
+    });
+
+    it(`${path} stores a trimmed name with the primary-matching default theme`, async () => {
+      const app = new Hono();
+      app.route('/', auth);
+      const res = await req(app, 'POST', path, body(`  ${'é'.repeat(100)}  `));
+      assert.equal(res.status, 201);
+      const settings = records.get('_system:settings').data;
+      assert.equal(settings.classroomName, 'é'.repeat(100));
+      assert.deepEqual(settings.theme, { primary: '#8b1a1a' });
+    });
+  }
+});

@@ -3,10 +3,10 @@
  */
 
 import {
-  getLearnerProfile, saveLearnerProfile, saveLearnerProfileSummary,
+  getAuthUser, getLearnerProfile, saveLearnerProfile, saveLearnerProfileSummary,
 } from '../../js/storage.js';
 import * as orchestrator from '../../js/orchestrator.js';
-import { syncInBackground } from './syncDebounce.js';
+import { assertTurnOwner } from '../../js/turnPersistence.js';
 
 let _profileUpdateQueue = Promise.resolve();
 
@@ -37,32 +37,35 @@ export function mergeProfile(existing, returned) {
     merged[key] = [...new Set(combined)];
   }
   for (const key of ['strengths', 'weaknesses']) {
-    merged[key] = (returned[key]?.length > 0) ? returned[key] : (existing[key] || []);
+    merged[key] = Array.isArray(returned[key]) ? returned[key] : (existing[key] || []);
   }
   merged.preferences = { ...(existing.preferences || {}), ...(returned.preferences || {}) };
+  for (const key of Object.keys(merged.preferences)) if (merged.preferences[key] === null) delete merged.preferences[key];
   merged.createdAt = existing.createdAt || returned.createdAt;
   merged.updatedAt = returned.updatedAt || Date.now();
   return merged;
 }
 
-async function saveProfileResult(existing, result) {
+async function saveProfileResult(existing, result, options) {
+  if (result?.changed === false) return;
   if (!result?.profile) {
-    console.error('[plato] Profile update agent returned no profile:', result);
+    console.error('[plato] Profile update agent returned an invalid result.');
     return;
   }
   const merged = mergeProfile(existing, result.profile);
-  await saveLearnerProfile(merged);
-  if (result.summary) await saveLearnerProfileSummary(result.summary);
-  syncInBackground('profile', 'profileSummary');
+  await saveLearnerProfile(merged, options);
+  if (result.summary) await saveLearnerProfileSummary(result.summary, options);
 }
 
-export async function ensureProfileExists(name = '') {
-  let profile = await getLearnerProfile();
+export async function ensureProfileExists(name = '', options) {
+  if (options?.expectedUserId) await assertTurnOwner(options.expectedUserId);
+  let profile = await getLearnerProfile(options);
+  if (options?.expectedUserId) await assertTurnOwner(options.expectedUserId);
   if (!profile) {
     profile = defaultProfile();
     profile.name = name;
-    await saveLearnerProfile(profile);
-    await saveLearnerProfileSummary('New learner — profile will be built as they learn.');
+    await saveLearnerProfile(profile, options);
+    await saveLearnerProfileSummary('New learner — profile will be built as they learn.', options);
   }
   return profile;
 }
@@ -70,12 +73,16 @@ export async function ensureProfileExists(name = '') {
 /**
  * Incremental profile update after assessment (code, no LLM call).
  */
-export function updateProfileInBackground(lessonId, assessmentResult) {
-  queueProfileUpdate(async () => {
-    const profile = await ensureProfileExists();
+export function updateProfileInBackground(lessonId, assessmentResult, context) {
+  const owner = context?.userId ? Promise.resolve(context.userId) : getAuthUser().then(user => user?.userId);
+  return queueProfileUpdate(async () => {
+    const userId = await owner;
+    if (!userId) return;
+    await assertTurnOwner(userId);
+    const options = { expectedUserId: userId };
+    const profile = await ensureProfileExists('', options);
     const updated = orchestrator.incrementalProfileUpdate(profile, lessonId, assessmentResult);
-    await saveLearnerProfile(updated);
-    syncInBackground('profile');
+    await saveLearnerProfile(updated, options);
   });
 }
 
@@ -83,18 +90,26 @@ export function updateProfileInBackground(lessonId, assessmentResult) {
  * Deep profile update on lesson completion (LLM call).
  */
 export function updateProfileOnCompletionInBackground(lessonKB, lesson, context) {
-  queueProfileUpdate(async () => {
-    const profile = await ensureProfileExists();
+  const owner = context?.userId ? Promise.resolve(context.userId) : getAuthUser().then(user => user?.userId);
+  return queueProfileUpdate(async () => {
+    const userId = await owner;
+    if (!userId) return;
+    await assertTurnOwner(userId);
+    const options = { expectedUserId: userId };
+    const profile = await ensureProfileExists('', options);
     const result = await orchestrator.updateProfileOnCompletion(
-      profile, lessonKB, lesson.name, lesson.lessonId, lessonKB.activitiesCompleted, context
+      profile, lessonKB, lesson.name, lesson.lessonId, lessonKB.activitiesCompleted, { ...context, userId }
     );
+    await assertTurnOwner(userId);
     // masteredLessons is system-managed (no longer echoed by the agent —
     // see orchestrator.profileForAgent). Record the completion in code so
     // mergeProfile unions it into the stored profile.
+    if (result?.changed === false) result.profile = {};
     if (result?.profile) {
-      result.profile.masteredLessons = [...new Set([...(result.profile.masteredLessons || []), lesson.lessonId])];
+      result.changed = true;
+      result.profile.masteredLessons = [lesson.lessonId];
     }
-    await saveProfileResult(profile, result);
+    await saveProfileResult(profile, result, options);
   });
 }
 
@@ -102,12 +117,18 @@ export function updateProfileOnCompletionInBackground(lessonKB, lesson, context)
  * Profile update from a coach observation (LLM call).
  */
 export function updateProfileFromObservation(lessonKB, observation, context) {
-  queueProfileUpdate(async () => {
-    const profile = await ensureProfileExists();
+  const owner = context?.userId ? Promise.resolve(context.userId) : getAuthUser().then(user => user?.userId);
+  return queueProfileUpdate(async () => {
+    const userId = await owner;
+    if (!userId) return;
+    await assertTurnOwner(userId);
+    const options = { expectedUserId: userId };
+    const profile = await ensureProfileExists('', options);
     const result = await orchestrator.updateProfileFromFeedback(profile, observation, {
       lessonName: lessonKB.name || 'Lesson', activityType: 'coaching', activityGoal: 'Coach observation',
-    }, context);
-    await saveProfileResult(profile, result);
+    }, { ...context, userId });
+    await assertTurnOwner(userId);
+    await saveProfileResult(profile, result, options);
   });
 }
 

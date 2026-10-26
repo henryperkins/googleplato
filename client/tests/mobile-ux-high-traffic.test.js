@@ -49,8 +49,9 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
       assert.match(src, /safe-area-inset-bottom/, `${rel} missing bottom safe-area inset`);
       assert.match(src, /safe-area-inset-left/, `${rel} missing left safe-area inset`);
       assert.match(src, /safe-area-inset-right/, `${rel} missing right safe-area inset`);
-      assert.match(src, /<img[^>]+width=/, `${rel} logo missing explicit width attribute`);
-      assert.match(src, /<img[^>]+height=/, `${rel} logo missing explicit height attribute`);
+      // ClassroomLogo renders an <img> with these attributes, or the name if the image fails.
+      assert.match(src, /<(?:img|ClassroomLogo)[^>]+width=/, `${rel} logo missing explicit width attribute`);
+      assert.match(src, /<(?:img|ClassroomLogo)[^>]+height=/, `${rel} logo missing explicit height attribute`);
       assert.match(src, /fetchPriority="high"/, `${rel} logo missing fetchPriority="high"`);
     }
   });
@@ -62,9 +63,8 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
       { file: 'pages/Setup.jsx', key: 'plato_setup_draft' },
       { file: 'pages/Waitlist.jsx', key: 'plato_waitlist_draft' },
       { file: 'pages/ForgotPassword.jsx', key: 'plato_forgot_password_draft' },
-      // Lesson drafts have executable recovery/account-isolation tests in lesson-drafts.test.js.
-      { file: 'pages/Settings.jsx', key: 'plato_settings_fields_draft' },
-      { file: 'pages/Settings.jsx', key: 'plato_profile_feedback_draft' },
+      // Lesson and Settings drafts have executable recovery/account-isolation
+      // coverage in lesson-drafts.test.js and settings-drafts.test.js.
       { file: 'components/ProfileCompletionGate.jsx', key: 'plato_profile_gate_draft' },
     ];
 
@@ -232,12 +232,8 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(chatSrc, /<div className="flex flex-wrap items-baseline gap-x-3 gap-y-0\.5">\s*<h1 ref=\{headingRef\}/);
     assert.match(chatSrc, /<h1 ref=\{headingRef\}[^>]*className="[^"]*break-words line-clamp-3/);
 
-    const listSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/LessonsList.jsx'), 'utf8');
-    // Filter selects shrink below their longest option instead of widening the page.
-    assert.match(listSrc, /id="course-filter"[\s\S]*?className="flex h-9 min-w-0 max-w-full sm:max-w-xs/);
-    // Course names wrap inside the card's meta line.
-    assert.match(listSrc, /key: 'course', text: lesson\.course\.name, wrap: true/);
-    assert.match(listSrc, /part\.wrap \? 'break-words' : 'whitespace-nowrap'/);
+    // Lesson-list wrapping and bounded native selects are checked by rendered
+    // geometry at 320px/200% in tests/browser/learner-recovery.test.js.
   });
 
   it('sizes touch targets without clipping tabs or stretching sentences', () => {

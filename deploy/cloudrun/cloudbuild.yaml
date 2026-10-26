@@ -6,8 +6,8 @@
 # us-east1, which holds an inline copy of this file: after editing it, run
 # deploy/cloudrun/configure.sh to refresh the trigger's copy.
 #
-# Lint and tests (including the PostgreSQL suite) gate the build: :latest is
-# pushed only after the new revision serves traffic.
+# Lint, unit tests (including PostgreSQL), and admin browser regressions gate
+# the build: :latest is pushed only after the new revision serves traffic.
 #
 # To deploy a pushed commit by hand:
 #
@@ -74,7 +74,14 @@ steps:
     env: [POSTGRES_TEST_URL=postgres://postgres:plato-test@plato-test-pg:5432/postgres]
     args:
       - -c
-      - 'npm ci --no-audit --no-fund && npm run lint && npm test'
+      - |
+        set -eu
+        npm ci --no-audit --no-fund
+        npm run lint
+        npm test
+        npm run build:client
+        npm exec --workspace=client -- playwright install --with-deps chromium
+        npm --prefix client run test:browser:admin
 
   - id: build
     name: gcr.io/cloud-builders/docker

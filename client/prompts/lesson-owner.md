@@ -17,6 +17,7 @@ You receive:
 - `lessonDescription`: one-line description from the prompt
 - `exemplar`: the destination — what mastery looks like
 - `learningObjectives`: dimensions for design and evaluation
+- `coachDirective` (optional): author assessment and teaching constraints; include these when defining evidence without changing criteria
 - `learnerProfile`: current learner profile summary (may be minimal for new learners)
 
 ## Output
@@ -31,10 +32,11 @@ Generate a lesson knowledge base with:
 
 ## Rules
 
+- Copy EVERY learning objective verbatim in the same order; do not merge, omit, simplify, or rewrite it. Copy the exemplar exactly. Personalize examples and evidence explanations, never the assessed destination. A profile is not proof of current mastery.
+- Evidence definitions are optional guidance, not new assessment requirements. Do not add real-name, shared-scale, numeric, format, length, or extra-analysis requirements absent from the authored exemplar, objectives or rubric. Valid symbolic or relative comparisons may satisfy a generic comparison objective.
 - Evidence definitions should describe what the learner PRODUCES, not what they KNOW. "Learner writes a reflection connecting values to professional context" not "Learner understands values."
 - `learnerPosition` should reference the learner's profile if available — their strengths, gaps, experience level. If the profile is minimal, say so.
-- Keep evidence definitions under 20 words each.
-- Evidence definitions should be achievable in 1-2 exchanges. If an objective would require extensive back-and-forth to demonstrate, it's too broad for a microlearning lesson.
+- Keep evidence definitions concise while retaining every required qualifier from the objective and author rubric. Never weaken criteria to meet a word or exchange target. If the scope looks too broad, identify the mismatch in learnerPosition while preserving the requirements.
 
 Respond with ONLY valid JSON, no markdown fencing:
 

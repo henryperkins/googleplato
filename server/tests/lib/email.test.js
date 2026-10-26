@@ -8,6 +8,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { logger } from '../../src/lib/logger.js';
 import db from '../../src/lib/db.js';
+import { Readable } from 'node:stream';
 import { SESClient } from '@aws-sdk/client-ses';
 import { brandForeground } from '../../src/lib/branding.js';
 import { contrastRatio, contrastText } from '../../../client/src/lib/branding.js';
@@ -144,5 +145,54 @@ describe('branded email output', () => {
     await email.sendResetEmail('recipient@example.test', 'reset');
     assert.equal(sent[0].Message.Subject.Data, 'Reset your plato password');
     assert.ok(!sent[0].Message.Body.Html.Data.includes('background-image'));
+  });
+
+  it('keeps plain sender names as they were, quotes other ASCII, and sends only the configured address', () => {
+    assert.equal(email.formatSender('plato', 'noreply@plato.example'), 'plato <noreply@plato.example>');
+    assert.equal(email.formatSender('AI Leaders Academy', 'noreply@plato.example'), 'AI Leaders Academy <noreply@plato.example>');
+    assert.equal(email.formatSender('St. Mary\'s, "Online" \\ Co', 'noreply@plato.example'), '"St. Mary\'s, \\"Online\\" \\\\ Co" <noreply@plato.example>');
+    assert.equal(email.formatSender('=?UTF-8?B?SGk=?=', 'noreply@plato.example'), '"=?UTF-8?B?SGk=?=" <noreply@plato.example>');
+    assert.equal(email.formatSender('plato', 'plato <noreply@plato.example>'), 'plato <noreply@plato.example>');
+    assert.match(email.formatSender('École', ' noreply@plato.example '), /^=\?UTF-8\?B\?[^?]+\?= <noreply@plato\.example>$/);
+  });
+
+  it('keeps the footer readable and gives near-white brands visible edges', async () => {
+    for (const primary of ['#ffffff', '#f5f5f5', '#470d99']) {
+      settings.theme.primary = primary;
+      await email.sendInviteEmail('recipient@example.test', 'invite', 'Admin');
+      const html = sent.at(-1).Message.Body.Html.Data;
+      assert.ok(contrastRatio('#666666', '#ffffff') >= 4.5);
+      assert.match(html, /color: #666; font-size: 11px/);
+      const light = primary !== '#470d99';
+      assert.equal(html.includes('border: 1px solid #757575;'), light, primary);
+      assert.equal(html.includes('border: 1px solid #e0e0e0; border-bottom: none;'), light, primary);
+    }
+  });
+
+  it('serializes through the real SES client, even for names that are not well-formed Unicode', async () => {
+    const wire = [];
+    const realClient = new SESClient({
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
+      requestHandler: {
+        handle: async request => {
+          wire.push(new URLSearchParams(request.body));
+          const body = '<SendEmailResponse xmlns="http://ses.amazonaws.com/doc/2010-12-01/"><SendEmailResult><MessageId>m</MessageId></SendEmailResult><ResponseMetadata><RequestId>r</RequestId></ResponseMetadata></SendEmailResponse>';
+          return { response: { statusCode: 200, headers: { 'content-type': 'text/xml' }, body: Readable.from([Buffer.from(body)]) } };
+        },
+      },
+    });
+    SESClient.prototype.send = command => originalSend.call(realClient, command);
+    settings = { classroomName: 'Acme \ud83e Academy', theme: { primary: '#f5c518' } };
+    await email.sendInviteEmail('recipient@example.test', 'invite', 'Ada \udc00');
+    await email.sendResetEmail('recipient@example.test', 'reset');
+    assert.equal(wire.length, 2);
+    for (const form of wire) {
+      assert.match(form.get('Source'), /^[\x20-\x7e]+$/);
+      assert.equal(form.get('Message.Subject.Charset'), 'UTF-8');
+      assert.equal(form.get('Message.Body.Html.Charset'), 'UTF-8');
+      assert.ok(form.get('Message.Body.Html.Data').includes('Acme \ufffd Academy'));
+    }
+    assert.ok(wire[0].get('Message.Body.Html.Data').includes('Ada \ufffd has invited you'));
   });
 });

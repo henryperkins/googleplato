@@ -239,15 +239,15 @@ export default function LessonsList() {
         <h1 ref={headingRef} tabIndex={-1} className="text-xl font-semibold">Lessons</h1>
         {/* A select is as wide as its longest option, so a long course name
             would push the page sideways; these shrink to the space available. */}
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
           {hasCourseFilter && (
-            <div className="flex min-w-0 max-w-full items-center gap-2">
+            <div className="flex min-w-0 max-w-full flex-col gap-1.5 sm:max-w-xs">
               <label htmlFor="course-filter" className="shrink-0 text-sm text-muted-foreground">Course</label>
               <select
                 id="course-filter"
                 value={courseFilter}
                 onChange={(e) => setCourseFilter(e.target.value)}
-                className="flex h-9 min-w-0 max-w-full sm:max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-auto min-h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value={FILTER_ALL}>All courses</option>
                 {courseOptions.named.map((c) => (
@@ -259,13 +259,13 @@ export default function LessonsList() {
               </select>
             </div>
           )}
-          <div className="flex min-w-0 max-w-full items-center gap-2">
+          <div className="flex min-w-0 max-w-full flex-col gap-1.5">
             <label htmlFor="status-filter" className="shrink-0 text-sm text-muted-foreground">Status</label>
             <select
               id="status-filter"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="flex h-9 min-w-0 max-w-full rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="h-auto min-h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value={STATUS_ALL}>All statuses</option>
               <option value={STATUS_NOT_STARTED}>Not started</option>
@@ -432,11 +432,11 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
         // wrapping an h3 inside the button (invalid HTML per WCAG 2.4.6).
         aria-label={`Open lesson ${lesson.name}. ${statusText}.`}
         aria-describedby={parts.length > 0 ? metaId : undefined}
-        className="flex-1 text-left px-4 pt-4 pb-2 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+        className="min-w-0 flex-1 text-left px-4 pt-4 pb-2 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
       >
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <span className="text-base font-semibold leading-snug transition-colors group-hover:text-primary-text block">
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <div className="min-w-0 basis-48 flex-1 space-y-1.5">
+            <span className="wrap-anywhere text-base font-semibold leading-snug transition-colors group-hover:text-primary-text block">
               {lesson.name}
             </span>
             {lesson.description && (
@@ -448,18 +448,16 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
           <StatusIndicator progress={progress} statusText={statusText} />
         </div>
       </button>
-      <div className="px-4 pb-3 pt-1 flex items-baseline gap-2 flex-wrap">
+      <div className="px-4 pb-3 pt-1 flex flex-col items-start gap-2">
         {/* Visible separators are middle-dots; screen readers read commas
             instead so the run-on string parses as a list with natural
             pauses. */}
         <p
           id={metaId}
-          className="text-xs text-muted-foreground flex-1 min-w-0 leading-relaxed"
+          className="text-xs text-muted-foreground min-w-0 max-w-full leading-relaxed"
         >
-          {/* Short items are whitespace-nowrap so wrapping happens between
-              items (clean line endings), not inside a phrase. Course names
-              are author-written and can outrun the card, so they wrap inside
-              instead of sliding under "View outline". The leading separator
+          {/* Metadata has the full card width before the outline action.
+              Long words can wrap when text is enlarged. The leading separator
               lives inside the item's span so when the line wraps, the dot
               travels with the item it precedes — no orphan " ·" dangling at
               the end of a line. SR users hear sr-only commas between items
@@ -473,7 +471,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
                   <span className="sr-only">, </span>
                 </>
               )}
-              <span className={part.wrap ? 'break-words' : 'whitespace-nowrap'}>
+              <span className="wrap-anywhere">
                 {idx > 0 && <span aria-hidden="true">· </span>}
                 {part.title ? (
                   <span title={part.title}>{part.text}</span>
@@ -586,6 +584,8 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
             </p>
           )}
           <DialogTitle>{lesson.name}</DialogTitle>
+          {/* Author-written markdown: inline formatting only, since the
+              description is a <p>. The exemplar may hold lists. */}
           {lesson.description && (
             <DialogDescription className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />
           )}

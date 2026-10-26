@@ -5,11 +5,43 @@ import { requireCurrentClient } from '../middleware/clientCompatibility.js';
 import ai from '../lib/ai-provider.js';
 import { classifyAiError, aiErrorStatus } from '../lib/ai-errors.js';
 import { inferenceContext } from '../lib/inference-telemetry.js';
+import { generateCoachTurn, recoverCoachTurn } from '../lib/lesson-coaching.js';
 
 const aiRoute = new Hono();
 
 aiRoute.use('/v1/ai/*', authenticate);
 aiRoute.use('/v1/ai/*', requireCurrentClient);
+
+aiRoute.get('/v1/ai/coach/:lessonId', async (c) => {
+  if (c.req.query('asUserId')) return c.json({ error: 'Coaching is unavailable while viewing another user.' }, 403);
+  c.header('Cache-Control', 'no-store');
+  const turn = await recoverCoachTurn(c.get('userId'), c.req.param('lessonId'), c.req.query('turnId'));
+  return turn ? c.json(turn) : c.json({ error: 'No generated reply is available.' }, 404);
+});
+
+aiRoute.post('/v1/ai/coach/:lessonId', async (c) => {
+  if (c.req.query('asUserId')) return c.json({ error: 'Coaching is unavailable while viewing another user.' }, 403);
+  const body = await c.req.json();
+  const report = error => error.status ? { code: 'coach_request_failed', error: error.message, status: error.status }
+    : { ...classifyAiError(error), status: aiErrorStatus(classifyAiError(error).code) };
+  if (!body.stream) {
+    try { return c.json(await generateCoachTurn(c.get('userId'), c.req.param('lessonId'), body)); }
+    catch (error) { const result = report(error); return c.json({ code: result.code, error: result.error || result.message }, result.status); }
+  }
+  c.header('Content-Type', 'text/event-stream');
+  c.header('Cache-Control', 'no-store');
+  return stream(c, async s => {
+    // Finish and retain the bounded generation even if the browser disappears.
+    // Recovery is a GET; neither reload nor save invokes the provider again.
+    try {
+      const turn = await generateCoachTurn(c.get('userId'), c.req.param('lessonId'), body,
+        text => s.aborted ? undefined : s.write(`data: ${JSON.stringify({ type: 'coach_text', text })}\n\n`).catch(() => {}));
+      if (!s.aborted) await s.write(`data: ${JSON.stringify({ type: 'coach_turn', turn })}\n\n`);
+    } catch (error) {
+      if (!s.aborted) await s.write(`data: ${JSON.stringify({ type: 'error', ...report(error) })}\n\n`);
+    }
+  });
+});
 
 aiRoute.post('/v1/ai/messages', async (c) => {
   const body = await c.req.json();

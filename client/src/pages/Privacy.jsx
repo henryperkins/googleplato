@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import PublicFooter from '../components/PublicFooter.jsx';
+import ClassroomLogo from '../components/ClassroomLogo.jsx';
 import {
   Card, CardHeader, CardTitle, CardContent,
 } from '@/components/ui/card';
@@ -18,11 +19,8 @@ export default function Privacy() {
 
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
-      {logo ? (
-        <img src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-auto max-w-full mb-6 object-contain" />
-      ) : (
-        <p className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</p>
-      )}
+      <ClassroomLogo src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-auto max-w-full mb-6 object-contain"
+        fallback={<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</p>} />
       <Card className="w-full max-w-3xl">
         <CardHeader>
           <CardTitle as="h1" className="text-2xl">Privacy & Data Handling</CardTitle>

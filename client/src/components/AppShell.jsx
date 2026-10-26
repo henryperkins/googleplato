@@ -20,6 +20,7 @@ import {
 import ViewAsUserModal from './modals/ViewAsUserModal.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
 import { useTheme } from '../hooks/useTheme.js';
+import ClassroomLogo from './ClassroomLogo.jsx';
 
 export default function AppShell({ children }) {
   const navigate = useNavigate();
@@ -125,11 +126,8 @@ export default function AppShell({ children }) {
             column, as on the pages, so the classroom name lines up with them. */}
         <nav className="mx-auto max-w-5xl px-4 grid grid-cols-[minmax(0,max-content)_minmax(0,max-content)] items-center justify-between gap-2" aria-label="Main navigation">
           <a href="/lessons" onClick={e => { e.preventDefault(); navigate('/lessons'); }} className="header-control touch-target flex min-w-0 items-center rounded-sm" aria-label={`${classroomName} — Lessons`}>
-            {classroomLogo ? (
-              <img src={classroomLogo} alt="" width="32" height="32" fetchPriority="high" className="h-8 w-auto max-w-full object-contain" />
-            ) : (
-              <span className="truncate text-base font-semibold">{classroomName}</span>
-            )}
+            <ClassroomLogo src={classroomLogo} alt="" width="32" height="32" fetchPriority="high" className="h-8 w-auto max-w-full object-contain"
+              fallback={<span className="truncate text-base font-semibold">{classroomName}</span>} />
           </a>
           <div className="flex min-w-0 items-center gap-1">
             {/* Under 30rem a 414-430 px phone can't fit the button and the

@@ -28,20 +28,57 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   settings. `/v1/branding` returns only this public metadata and a same-origin
   logo URL. Bounded images live separately as `_branding:logo:<sha256>` records,
   outside shared settings and bulk `_system` reads. The public
-  `/v1/branding/logo/:hash` endpoint serves immutable, cacheable image bytes with
-  an ETag, `nosniff`, and a restrictive CSP sandbox. Content-addressed assets are
-  retained so cached pages can still resolve previous logo URLs; removal clears
-  the current reference. Safe legacy inline logos remain readable and migrate
-  on the next theme save. No schema migration is required on any database adapter.
+  `/v1/branding/logo/:hash` endpoint serves image bytes with an ETag, `nosniff`,
+  a restrictive CSP sandbox, and `no-cache, must-revalidate`. Logo storage,
+  settings publication and deletion of the previous asset commit together in
+  `putBrandingSettings`, with an exact settings-version check. A conflict or
+  storage failure rolls back every change; restoring a previous logo cannot
+  race with delayed cleanup. This uses an immediate SQLite transaction, the
+  PostgreSQL `_system` advisory transaction lock, or one DynamoDB transaction.
+  Removed assets return 404 even for conditional requests. Copies already
+  downloaded or cached under earlier immutable responses cannot be revoked.
+  A logo that fails to load shows the classroom name instead.
+  No schema migration is required on any database adapter.
+- Compatible logos saved by earlier versions stay visible. Stored logos (inline
+  legacy values and existing assets) accept data URLs up to 8 MiB and bounded
+  static SVG editor metadata/styles. New and stored SVGs share a rendering
+  budget: sandboxed image rendering alone does not prevent expensive expansion.
+  Unsupported originals remain stored, are omitted from public metadata, and
+  return 404 at the image endpoint. Styles shows a recovery notice and an
+  attachment download, with replacement/removal controls; blocked bytes never
+  enter its previews or Optimize action. The
+  next theme save moves a readable inline logo into its own asset, marked
+  `legacy`. An inline value that can't be shown, such as a URL, is never deleted
+  by an unrelated save; replacing or removing the logo clears it. Sending back
+  the current logo unchanged, within the request size limit, is not treated as
+  an upload, unless its asset is missing, when it is stored again. The
+  Customizer flags raster logos saved by earlier versions, which padded them
+  into 512 × 512 squares, and **Optimize logo** trims that padding and prepares
+  the logo again. Earlier versions stored SVG files unchanged, so they get no flag.
 - The theme write accepts only primary/accent hex colors, an optional trimmed
-  classroom name of at most 100 characters without control characters, and a
-  PNG/JPEG/WebP/static-SVG base64 image or `null`. Encoded logos are capped at
-  128 KiB and raster dimensions at 4096 pixels per edge; a request-body limit
-  also bounds parsing. SVG accepts only static
-  geometry/text/gradient elements with local references. The Customizer accepts
-  source files up to 5 MiB and rasterizes them to transparent PNG, preserving
-  proportions within 1024 × 128 pixels and shrinking further to meet the cap.
-  Re-upload an old oversized or unsupported SVG logo through the Customizer.
+  classroom name of at most 100 characters of well-formed text without control
+  characters, and a PNG/JPEG/WebP/static-SVG base64 image or `null`. First-run
+  setup (`/v1/auth/setup` and Google setup) checks the name the same way, and
+  the raw `PUT /v1/admin/settings` merge refuses branding fields. Encoded logos
+  are capped at 128 KiB, raster dimensions at 4096 pixels per edge and 1024 × 1024
+  pixels in area; a request-body limit also bounds parsing. SVG accepts only
+  static geometry/text/gradient elements with local references, unique ids, and
+  a shared 10,000-unit expansion budget (one per element plus one per 64
+  characters of rendering data). References include `<use>` and other hrefs
+  under any prefix, local URLs in attributes and supported CSS, and inherited
+  fill/stroke resources, including use instances, and explicitly inherited
+  masks/clipping paths. Gradients do not instantiate
+  geometry. Input structure is limited to 10,000 elements and depth 128; rendering
+  data is limited to 128 KiB, excluding inert descriptions/metadata text. Cycles,
+  external references (including `image-set`, `image`, and `src`), entities,
+  animation, filters, context paints, dynamic CSS, `!important` overrides,
+  conditional selectors and unsupported declarations are not displayed. Legacy SVGs may
+  retain ordinary editor DOCTYPEs, namespaces and static stylesheets; these
+  features stay unavailable to new API uploads. The Customizer
+  accepts source files up to 5 MiB and rasterizes them to transparent PNG,
+  preserving proportions within 1024 × 128 pixels (vector sources grow to fill
+  it), shrinking in halving steps, and further to meet the cap. The classroom
+  name is read by code point, so a stored name is never cut inside a character.
 
 ## Save observability
 
@@ -89,7 +126,13 @@ local rules testing, cutover order, and publication status.
   Google cleanup and account-switch protection without loading a data mirror.
 - **Password reset is plato's.** `/forgot-password` uses the server's
   `POST /v1/auth/forgot-password` endpoint. Firebase resets are not used for
-  plato password accounts. Reset links are single-use, and completing a reset
+  plato password accounts. With delivery enabled, the public endpoint returns
+  HTTP 200 `{ok:true}` for known and unknown addresses even if account lookup,
+  token storage or email delivery fails. Failures log
+  `password_reset_request_failed` with a fixed stage only, without addresses,
+  tokens, links or provider exception text. This response is not confirmation
+  of delivery and does not promise equal response timing. Reset links are
+  single-use, and completing a reset
   revokes every existing refresh session for the account on all three
   database backends, so learners on other devices are signed out. Changing
   the password in Settings (`PATCH /v1/me`) revokes them the same way, then
@@ -149,10 +192,23 @@ snapshot, and reset stages the seeded defaults for an explicit Save. A data-rout
 navigation blocker protects links and browser history, and `beforeunload` protects
 reloads/closing the page. The existing route tree remains in `App`. Knowledge
 editor mode is derived from `/plato/customizer/knowledge/edit`, never local state.
-An omitted accent means “Match primary”; new classrooms use that mode, while
-existing explicit accents remain unchanged. Both previews use real button styles,
-classroom identity, and isolated light/dark tokens. Partial hex input keeps the
-last complete color until blur or Save accepts a shorthand value.
+An omitted accent, or one equal to the primary, means “Match primary”; new
+classrooms use that mode, while a different saved accent stays independent.
+Unmatching starts the accent from the color it was showing, and an accent equal
+to the primary is saved as Match primary. Save sends only the fields that would
+publish something different, so an unchanged logo is never resent and a stale
+form can't overwrite another admin's name or logo, then reloads the saved styles
+so the form shows the server's state. Colors use `themePatch`: omitted primary
+or accent leaves the latest value untouched, while `accent:null` explicitly
+selects Match primary. The older `theme` request remains a full replacement;
+using both forms in one request is rejected. Same-field edits still use the
+last accepted value, while independent edits are preserved. Edits that publish nothing (trailing
+spaces, a matched accent) don't count as unsaved. Both
+previews use real button styles, classroom identity, and isolated light/dark
+tokens; their sample controls are inert. Partial hex input keeps the last
+complete color until blur or Save accepts a shorthand value, with or without the
+`#`. Pressing an action button keeps focus in a hex field, so committing a
+shorthand value can't reflow the button away before the click lands.
 
 Knowledge Base conversation drafts mark turns after the last publication as
 `unpublished`. Before publishing the reviewed Markdown, the editor waits for
@@ -170,9 +226,13 @@ recognizes CRLF boundaries without changing the preserved section body, so
 example headings do not become descriptions or hide later objectives.
 
 Invitation and reset emails use the validated primary with the same WCAG
-foreground selection as the classroom. All inserted names are HTML escaped;
-the SES display name uses bounded UTF-8 MIME words, and subject/body declare UTF-8.
-The current `classroomName` takes precedence over the legacy `logoAlt` field.
+foreground selection as the classroom; a primary under 3:1 against white gets a
+visible header and button edge, and the footer is #666 (5.7:1). All inserted
+names are HTML escaped and made well-formed, since a lone surrogate makes the
+SES SDK's encoding throw. The SES display name stays plain for simple names,
+is quoted for other ASCII, and otherwise uses bounded UTF-8 MIME words; only the
+address of a `Name <address>` sender setting is used. Subject and body declare
+UTF-8. The current `classroomName` takes precedence over the legacy `logoAlt` field.
 
 The light/dark choice works the same way. The header's **Dark mode** toggle
 (`ThemeToggle`) puts `.dark` on `<html>` and saves `plato_theme` in
@@ -184,7 +244,9 @@ in `client/index.html` reapplies the choice before the bundle loads, so a dark
 page never flashes light. That script and
 `client/src/lib/theme.js` must share the key; `client/tests/theme.test.js` runs
 the script to hold them together. With no saved choice, the first paint and the
-theme store follow `prefers-color-scheme`, including later device changes. An
+theme store follow `prefers-color-scheme`, including later device changes;
+`main.jsx` keeps one subscription for the page's life, so pages without a theme
+control follow them too. An
 explicit light/dark choice takes precedence, even if storage is unavailable for
 the current page session. Clearing the saved choice resumes device following.
 
@@ -229,12 +291,13 @@ it, and its purpose:
 - **learner-profile-update** — Reads: learner profile (minus the bookkeeping arrays), activity context. Incremental profile updates during lessons; same soft-fields-only contract as `learner-profile-owner`.
 - **course-progress-update** — Reads: prior course summary, just-completed lesson KB, course lesson list. Maintains the per-learner `courseProgress:<courseId>` note injected into the coach as `course.progress`.
 
-Context appended at runtime (`client/js/orchestrator.js`):
+Context assembled at runtime (server `lesson-coaching.js` for the coach;
+`client/js/orchestrator.js` for authoring agents):
 
 - **Program Knowledge Base** appended to agent system prompts for agents in `KB_AGENTS`.
-- **Lesson Catalog**: public lessons for `PUBLIC_CATALOG_AGENTS` (coach); all
-  lessons with `[PRIVATE]` tags for `ADMIN_CATALOG_AGENTS` (lesson-creator,
-  knowledge-base-editor).
+- **Lesson Catalog**: lessons the learner can access for coaching; finalized
+  public/private lessons with `[PRIVATE]` tags for authoring agents. Drafts are
+  excluded.
 - Knowledge base is created/edited by admins via the KB Editor agent in the
   Customizer (not directly editable).
 
@@ -511,9 +574,10 @@ A learner's chat history for a lesson lives in one `messages:<lessonId>`
 sync-data record; progress lives separately in `lessonKB:<lessonId>`.
 Generated learner turns commit both records together through
 `POST /v1/sync/lesson-turn/:lessonId` (a PostgreSQL/SQLite transaction or DynamoDB
-`TransactWrite`). The engine first reads a consistent snapshot through the GET
-of that endpoint, generates once, applies coach tags once, and assigns stable
-turn/message IDs. The commit compares the original versions, values, and
+`TransactWrite`). The engine first reads a consistent snapshot through the GET of that endpoint.
+`POST /v1/ai/coach/:lessonId` loads the authorized lesson, profile and saved
+history on the server, generates once, applies the shared assessment contract,
+and returns stable turn/message IDs with a signed receipt. The commit compares the original versions, values, and
 reset generation; it never merges a stale turn over another session's work.
 An exact replay acknowledges the existing messages without appending again
 or reapplying completion effects. Sync deletes of either lesson record rotate
@@ -530,9 +594,15 @@ same IDs. Conflicts preserve the copy and require an explicit discard to load
 the current saved conversation. The browser cache receives a generated turn only
 after the authoritative API acknowledges it.
 
-Recovery is limited to the current browser tab/session. If browser storage is
-unavailable or full, the UI warns that only the in-memory copy is available and
-asks the learner to keep the tab open. Save attempts time out after 15 seconds;
+The local journal remains scoped to the current tab/session. The server also
+retains the latest generated result for each learner/lesson, recovered through
+`GET /v1/ai/coach/:lessonId?turnId=...` without inference. Compressed fragments
+are each at most 300,000 ASCII bytes so the combined base, conversation and KB
+cannot exceed a DynamoDB item limit. A manifest is published after its fragments,
+and strongly consistent reads check its digest and signed receipt. A small
+`coachAttempt:<lessonId>` marker lets clear-all resets fence in-flight openings
+before any conversation or assessment has committed. When local storage is unavailable
+or full, the existing UI still conservatively asks the learner to keep the tab open. Save attempts time out after 15 seconds;
 image hydration is bounded to five seconds so a stalled image read cannot hide
 retained text and retry controls indefinitely. Missing images keep their keys.
 Optional profile/course model enrichment runs only after an acknowledged initial
@@ -587,12 +657,46 @@ After reload, the original turn IDs, base snapshot, reply, and progress restore;
 a replacement nor runs optional profile/course models. A lost acknowledgement
 still reconciles through the existing idempotent commit contract.
 
+Explicitly discarding a generated reply replaces its local record with a small,
+verified dismissal for that account, lesson, and turn ID. Server recovery ignores
+that exact turn after navigation or reload, while a newer turn remains eligible.
+If browser storage cannot retain the dismissal, the reply stays available and
+the action reports the failure instead of claiming it was discarded.
+
 Already-open legacy bundles cannot acquire this UI retroactively. Their existing
 account-scoped generated-turn journal remains readable after manual reload, but
 legacy `plato_compose_draft:<lessonId>` text has no owner identity and is left
 untouched rather than assigned to whichever account signs in next. Copy that
 unsent text before upgrading a legacy tab. Recovery remains limited to the same
 tab/session, not browser closure or another device.
+
+Submitted learner input has a separate journal in `lessonSubmissions.js`, keyed
+by encoded account and lesson IDs. `ComposeBar` lets its owner synchronously
+retain the exact text, image names/data and fetched link context **before**
+clearing the editor. A failed or silently ignored browser-storage write refuses
+Send and leaves the input intact. The journal never replaces a newer editable
+draft. A failed response offers **Retry response**, **Move to draft** (only when
+the current draft is empty), and a confirmed **Discard response**. Moving it
+verifies the complete draft copy before removing its submission record.
+
+Generation uses the submission's stable turn ID and stays owned by its original
+account/lesson after the React view unmounts. Reopening joins the active request;
+reload checks the authoritative saved IDs before offering recovery. No recovery
+automatically invokes a model. A retry of an already committed submission returns
+the saved conversation. Once generation succeeds, the existing generated-turn
+journal owns **Retry saving**, without repeating inference. Input is removed only
+after a save or a verified, readable generated-reply copy. If the larger reply
+cannot fit in browser storage, its input remains available for reload recovery
+and the existing keep-this-tab-open warning still applies. Upgrade reload also
+verifies every retained submission. Owner-bound image/model/profile requests
+reject an account change before sending, and late profile acknowledgements do
+not populate the next account's cache or credentials.
+
+Background profile and course enrichment capture the account when queued. They
+recheck it before reading context and after inference, and bind each save to
+that account. Owner-bound reads also reject late cache population. These writes
+are already awaited and are not repeated by an unowned debounce. An account
+switch stops the optional enrichment instead of applying it to the new account.
 
 Generic single and batch PUTs require an explicit nonnegative safe integer
 `version` below `Number.MAX_SAFE_INTEGER`: `0` creates only an absent key;
@@ -1435,6 +1539,22 @@ Users list, none of which have plugin slots, and #363 depends on it.
   entries and invites carrying a profile (same cascade as deleting
   a user group). Values for ids with no current definition are never returned.
 
+Settings field and profile-feedback drafts use `settingsDrafts.js` with an
+encoded account key and an owner-validated payload. Only fields returned in the
+current enabled definitions are restored or submitted; unchanged server values
+are not automatically saved as drafts. Settings remounts on account changes,
+ignores obsolete field-load responses, and binds saves to the original account.
+Cancellation retains feedback for that account. A completed save clears only the
+same unchanged draft, preserving newer writing entered in another visit. The
+old global `plato_settings_fields_draft` and `plato_profile_feedback_draft` keys
+have no trustworthy owner and are discarded rather than assigned to a user.
+Passwords are never part of these drafts. Feedback remains retained if its
+generated profile or summary cannot be confirmed saved.
+
+A valid `changed: false` profile-feedback result is acknowledged as already up
+to date, clears the submitted feedback draft, and performs no profile writes.
+Malformed results still retain feedback and report a failure.
+
 **API.**
 
 | Endpoint | Who | Purpose |
@@ -1503,3 +1623,83 @@ strip with an "Exit" button surfaces underneath while impersonation is active.
   `{ targetUserId }` writes the start entry and returns the target profile for
   the banner; POST `/v1/admin/impersonation/end` is best-effort (no-op if the
   admin closes the tab — the start entry is the source of truth).
+
+
+### Coach assessment and signed turns (2026-10-25)
+
+`server/src/shared/` is imported by both the SPA and server, and ships within the
+existing SAM CodeUri. It owns terminal metadata parsing, exact authored-objective
+identity, bounded evidence/source retention, response-type transitions, and
+context assembly. Lesson markdown parsing and initialization validation are also
+shared. The server reads prompts from the admin prompt store with a bundled
+fallback; the bundled coach contract constrains an older or customized teaching
+prompt. Program knowledge, profile, accessible catalog entries, attachments and
+plugin enrichment are reference data, not protocol instructions.
+
+Only a valid terminal integer PROGRESS plus KB_UPDATE (and optional PROFILE_UPDATE)
+can update assessment. Opening stays at zero. Only substantive work or explicit
+correction changes evidence/progress; questions, uncertainty, feedback, pause and
+distress preserve it. Ten requires all authored objectives plus the exemplar to
+be met with known confirmed sources. Completed assessments remain frozen.
+Observations are limited to ten 300-character strings; sources to sixteen,
+text excerpts to 6,000 characters, and each evidence entry to two source IDs.
+All one-to-four authored objectives remain required, including duplicate text
+with occurrence IDs. Pacing changes the next task, not the rubric.
+
+Images have a content digest and a truthful visibility flag. At most four images
+are supplied per coach request. An omitted image cannot support newly asserted
+mastery; unchanged prior met evidence can survive without resending its pixels.
+Links retain their original URL and bounded excerpt. Explicit source confirmation
+is grounded in a new learner submission and does not alone demonstrate quality.
+Screenshot keys cannot be overwritten through ordinary sync. The narrowly
+validated legacy embedded-image migration remains supported.
+
+Receipts use HMAC-SHA256 with a domain-separated key derived from the stable
+JWT_SECRET, and bind the complete generated turn, owner, lesson, IDs, original
+snapshot/reset generation, messages and assessment. A default development secret
+cannot sign receipts in production. Receipts have no short expiry, so restart or
+an ordinary delay does not strand retained work. Secret rotation invalidates
+outstanding receipts; preserve the old deployment/key until pending work is saved
+or export the retained text before rotation. No alternate-key rotation service is
+implemented here. Invalid supplied receipts never downgrade to legacy recovery.
+Generic single/batch sync writes cannot create or replace assessment/transcripts.
+
+Unsigned retained pre-upgrade replies can save their exact transcript, explicitly
+marked legacy-unverified, while preserving only previously saved assessment.
+Their assistant assertions are excluded from future assessment history. Active
+legacy assessment is reconciled to authored criteria without carrying unverified
+evidence forward; historical completed lessons remain complete. A changed rubric
+invalidates active evidence. If criteria change between generation and save, the
+reply is retained and assessment is flagged for review, without completion or
+profile/course mastery effects. Reset fencing and exact replay still apply.
+
+Profile observations are optional, bounded, explicitly sourced, and absent for
+completed-thread feedback. There is no general-insight fallback. Profile agents
+may return changed:false; empty trait arrays and null preference values clear
+obsolete information. Completion and course-summary agents receive demonstrated
+objective text, excluding raw sources and incidental disclosures. Optional model
+updates run only after the acknowledged assessment confirms new completion.
+
+`coach_assessment` telemetry records only validity, response class, completion and
+fixed issue codes. `scripts/evaluate-coach.js` defaults to 15 authored offline
+fixtures. Explicit live mode requires a call budget, records the selected provider
+and model plus prompt/fixture hashes, and never writes synthetic lesson progress.
+It evaluates the bundled prompt in isolation; server assembly is covered by route
+regressions. Neither offline fixtures nor passing protocol checks establish live
+coaching quality. See `docs/reviews/coach-remediation-2026-10-25.md` for the finding
+map, checks and remaining qualification boundaries.
+
+### Live-qualified coach metadata recovery
+
+Live evaluation of the configured Workers AI model found useful replies missing
+assessment tags. `coach-assessment.js` preserves the streamed wording and recovers
+known opening/completed state without inference; an active malformed reply gets
+at most one metadata-only model call. Criterion/source checks precede every model
+summary, reference confirmation or completion mutation. Failed recovery preserves
+the prior assessment. Save/replay never re-runs recovery inference, and repair
+has its own content-free telemetry role.
+
+Model context separates authored `assessmentRequirements` from generated
+`evidenceGuidance`; guidance cannot create new mandatory criteria. See
+`docs/reviews/coach-live-evaluation-2026-10-25.md` for live results, exact prompt
+identities, the latency/call tradeoff, earlier failures and preservation evidence.

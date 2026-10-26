@@ -9,10 +9,10 @@
  * lesson in the course (see lessonEngine.buildContext).
  */
 
-import { getCourseProgress, saveCourseProgress } from '../../js/storage.js';
+import { getAuthUser, getCourseProgress, saveCourseProgress } from '../../js/storage.js';
 import { getLessonsInCourse } from '../../js/lessonOwner.js';
 import * as orchestrator from '../../js/orchestrator.js';
-import { syncInBackground } from './syncDebounce.js';
+import { assertTurnOwner } from '../../js/turnPersistence.js';
 
 let _courseProgressQueue = Promise.resolve();
 
@@ -56,13 +56,19 @@ export function updateCourseProgressOnCompletionInBackground(lessonKB, lesson, c
   // the persisted completedLessonIds array (defense-in-depth — the caller in
   // lessonEngine already gates on lesson.course?.id).
   if (!courseId || !lesson?.lessonId) return Promise.resolve();
+  const owner = context?.userId ? Promise.resolve(context.userId) : getAuthUser().then(user => user?.userId);
   return queueCourseProgressUpdate(async () => {
-    const prior = await getCourseProgress(courseId);
+    const userId = await owner;
+    if (!userId) return;
+    await assertTurnOwner(userId);
+    const options = { expectedUserId: userId };
+    const prior = await getCourseProgress(courseId, options);
+    await assertTurnOwner(userId);
     const lessonsInCourse = await getLessonsInCourse(courseId);
+    await assertTurnOwner(userId);
     const completedLesson = {
       name: lesson.name,
-      learnerPosition: lessonKB?.learnerPosition || '',
-      insights: lessonKB?.insights || [],
+      ...orchestrator.completionEvidenceForProfile(lessonKB),
     };
     const result = await orchestrator.updateCourseProgress(
       lesson.course.name,
@@ -70,8 +76,9 @@ export function updateCourseProgressOnCompletionInBackground(lessonKB, lesson, c
       prior?.summary || '',
       completedLesson,
       prior?.completedLessonIds || [],
-      context,
+      { ...context, userId },
     );
+    await assertTurnOwner(userId);
     if (!result?.summary) {
       console.error('[plato] Course progress agent returned no summary:', result);
       return;
@@ -86,7 +93,6 @@ export function updateCourseProgressOnCompletionInBackground(lessonKB, lesson, c
       summary: result.summary,
       completedLessonIds,
       updatedAt: Date.now(),
-    });
-    syncInBackground(`courseProgress:${courseId}`);
+    }, options);
   });
 }

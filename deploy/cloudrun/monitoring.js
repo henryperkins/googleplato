@@ -94,6 +94,10 @@ function policies(options, { uptimeCheck }) {
     conditions: [logMatch('cloudflare_oauth_reconnect_required logged', `${serviceLogs(options)} AND jsonPayload.event="cloudflare_oauth_reconnect_required"`)],
     content: `The classroom's Cloudflare connection was disabled after a failed or uncertain token renewal. Every Workers AI request fails until an administrator selects **Reconnect Cloudflare** in Admin → AI Settings. The log entry's \`trigger\`, \`http_status\` and \`cause_code\` say how the renewal failed. See [When AI requests fail](${DOCS}/CLOUDFLARE_OAUTH.md#when-ai-requests-fail).`,
   }, {
+    slug: 'password-reset-failure', name: 'Password reset requests failing', severity: 'ERROR', rateLimit: '3600s',
+    conditions: [logMatch('password_reset_request_failed logged', `${serviceLogs(options)} AND jsonPayload.event="password_reset_request_failed"`)],
+    content: `A password-reset request failed while looking up the account, storing the token, or sending the reset email (\`password_reset_request_failed\`). The public response stays \`200 {"ok":true}\` so the endpoint does not disclose registered addresses. Check \`jsonPayload.stage\` (\`lookup\`, \`token\` or \`email\`) in Cloud Logging, plus Cloud SQL and Amazon SES status. At most one email per hour.`,
+  }, {
     slug: 'ai-errors', name: 'AI requests failing', severity: 'WARNING',
     conditions: [promql('3 or more failed AI requests in 15 minutes',
       `sum(increase(logging_googleapis_com:user_plato_ai_provider_error${run}[15m])) >= 3`, { newMetric: true })],
@@ -164,6 +168,7 @@ export function monitoringConfig({ channel, uptimeCheck, ...overrides }) {
     logFilters: [
       ['save-failure', saveFailureFilter(options)],
       ['cloudflare-reconnect', `${serviceLogs(options)} AND jsonPayload.event="cloudflare_oauth_reconnect_required"`],
+      ['password-reset-failure', `${serviceLogs(options)} AND jsonPayload.event="password_reset_request_failed"`],
       ['ai-errors', `${serviceLogs(options)} AND jsonPayload.event="ai_provider_error"`],
       ['db-connect-retry', `${serviceLogs(options)} AND jsonPayload.event="postgres_connect_retry"`],
       ['deploy-drift', deployDriftFilter(options)],

@@ -66,3 +66,11 @@ Evidence is in `output/playwright/customizer-2026-10-25/`: `chromium/` and `webk
 contain desktop light/dark and phone screenshots, and `validation/` contains the
 final test, lint and build logs. The browser suite can be rerun with
 `npm run build:client && npm --prefix client run test:browser:customizer`.
+
+## Superseded the same day
+
+[classroom-customizer-followups-2026-10-25.md](classroom-customizer-followups-2026-10-25.md)
+changes some statements above. Logos saved by earlier versions, including
+oversized ones and SVGs from design tools, stay visible and are never deleted by
+an unrelated save. Replacing or removing a logo deletes the previous asset.
+Plain sender names are sent without MIME encoding, and other ASCII names are quoted.

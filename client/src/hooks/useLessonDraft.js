@@ -18,5 +18,11 @@ export function useLessonDraft(userId, lessonId) {
   const setText = useCallback(value => update('text', value), [update]);
   const setImages = useCallback(value => update('images', value), [update]);
   const setLinks = useCallback(value => update('links', value), [update]);
-  return { draft, setText, setImages, setLinks };
+  const restore = useCallback(value => {
+    // Verify the full copy before removing a separate submission record.
+    if (!lessonDrafts.write(userId, lessonId, value)) return false;
+    setState({ scope, draft: value });
+    return true;
+  }, [scope, userId, lessonId]);
+  return { draft, setText, setImages, setLinks, restore };
 }
