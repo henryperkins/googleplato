@@ -102,6 +102,7 @@ async function callApi({ model, systemPrompt, messages, maxTokens = 1024, agentR
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages, telemetry }),
+      expectedUserId: context?.userId,
     });
     return parseResponse(resp);
   };
@@ -148,6 +149,7 @@ export async function converseStream(promptName, messages, onChunk, maxTokens = 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: LLM, max_tokens: maxTokens, system: systemPrompt, messages: withoutEmptyMessages(messages), stream: true, telemetry }),
+    expectedUserId: context?.userId,
   });
   const contentType = resp.headers.get('content-type') || '';
   if (resp.ok && contentType.includes('text/event-stream')) {

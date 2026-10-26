@@ -10,8 +10,10 @@ export function createGeneratedTurnStore({ storage = () => sessionStorage } = {}
       const entry = { turn: structuredClone(turn), persistedLocally: false };
       memory.set(key, entry);
       try {
-        storage().setItem(key, JSON.stringify(entry.turn));
-        entry.persistedLocally = true;
+        const target = storage();
+        const serialized = JSON.stringify(entry.turn);
+        target.setItem(key, serialized);
+        entry.persistedLocally = target.getItem(key) === serialized;
       } catch { /* The UI warns when recovery is available only in memory. */ }
       return entry;
     },

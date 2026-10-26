@@ -26,6 +26,14 @@ test('full or unavailable browser storage retains the reply in memory and report
   assert.equal(store.read('learner-a', 'lesson-1').turn.messages[0].content, 'Keep this reply.');
 });
 
+test('silently discarded writes never claim a generated reply survives reload', () => {
+  const storage = { setItem() {}, getItem: () => null };
+  const store = createGeneratedTurnStore({ storage: () => storage });
+  assert.equal(store.stage(turn).persistedLocally, false);
+  assert.deepEqual(store.read(turn.userId, turn.lessonId).turn, turn);
+  assert.equal(createGeneratedTurnStore({ storage: () => storage }).read(turn.userId, turn.lessonId), null);
+});
+
 test('an acknowledgement for an older turn cannot remove a newer recovery copy', () => {
   const storage = disk();
   const store = createGeneratedTurnStore({ storage: () => storage });

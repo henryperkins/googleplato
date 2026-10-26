@@ -14,6 +14,8 @@ import * as orchestrator from '../../js/orchestrator.js';
 import { syncInBackground } from '../lib/syncDebounce.js';
 import { ensureProfileExists, mergeProfile } from '../lib/profileQueue.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
+import { assertTurnOwner } from '../../js/turnPersistence.js';
+import { settingsDrafts, enabledSettingsValues } from '../lib/settingsDrafts.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,10 +27,13 @@ import {
   DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 
-const SETTINGS_FIELDS_DRAFT_KEY = 'plato_settings_fields_draft';
-const PROFILE_FEEDBACK_DRAFT_KEY = 'plato_profile_feedback_draft';
-
 export default function Settings() {
+  const { user, impersonatedUser } = useAuth();
+  if (impersonatedUser) return <p className="p-4">Account settings are unavailable while viewing as another user.</p>;
+  return <AccountSettings key={user?.userId || 'signed-out'} />;
+}
+
+function AccountSettings() {
   const { state, dispatch } = useApp();
   const { user, refreshUser } = useAuth();
   const [name, setName] = useState(user?.name || state.preferences?.name || '');
@@ -46,14 +51,7 @@ export default function Settings() {
   const [usernameSubmitting, setUsernameSubmitting] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [userFields, setUserFields] = useState([]);
-  const [fieldValues, setFieldValues] = useState(() => {
-    try {
-      const raw = sessionStorage.getItem(SETTINGS_FIELDS_DRAFT_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [fieldValues, setFieldValues] = useState({});
   const [fieldErrors, setFieldErrors] = useState({});
   const [fieldsFeedback, setFieldsFeedback] = useState(null);
   const [fieldsSaving, setFieldsSaving] = useState(false);
@@ -62,28 +60,22 @@ export default function Settings() {
   const confirmPasswordRef = useRef(null);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      setProfileSummary(await getLearnerProfileSummary());
+      const summary = await getLearnerProfileSummary();
+      if (!cancelled) setProfileSummary(summary);
     })();
-    getMyFields()
+    getMyFields(user?.userId)
       .then((data) => {
-        setUserFields(data.userFields || []);
-        let draft = {};
-        try {
-          const raw = sessionStorage.getItem(SETTINGS_FIELDS_DRAFT_KEY);
-          if (raw) draft = JSON.parse(raw);
-        } catch { /* ignore */ }
-        setFieldValues({ ...(data.values || {}), ...draft });
+        if (cancelled) return;
+        const fields = (data.userFields || []).filter(field => field.enabled !== false && field.disabled !== true);
+        setUserFields(fields);
+        const draft = settingsDrafts.read(user?.userId, 'fields');
+        setFieldValues(enabledSettingsValues({ ...(data.values || {}), ...draft }, fields));
       })
       .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!userFields.length) return;
-    try {
-      sessionStorage.setItem(SETTINGS_FIELDS_DRAFT_KEY, JSON.stringify(fieldValues));
-    } catch { /* ignore */ }
-  }, [userFields.length, fieldValues]);
+    return () => { cancelled = true; };
+  }, [user?.userId]);
 
   const handleSaveFields = async (e) => {
     e.preventDefault();
@@ -104,9 +96,10 @@ export default function Settings() {
     setFieldErrors({});
     setFieldsSaving(true);
     try {
-      const data = await updateProfile({ customFields: pickValues(fieldValues, userFields.map((f) => f.id)) });
-      try { sessionStorage.removeItem(SETTINGS_FIELDS_DRAFT_KEY); } catch { /* ignore */ }
-      setFieldValues(data.customFields || {});
+      const data = await updateProfile({ customFields: pickValues(fieldValues, userFields.map((f) => f.id)) }, user?.userId);
+      await assertTurnOwner(user?.userId);
+      settingsDrafts.clear(user?.userId, 'fields', fieldValues);
+      setFieldValues(enabledSettingsValues(data.customFields, userFields));
       setFieldsFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
       setFieldsFeedback({ type: 'error', message: err.message || 'Failed to update' });
@@ -127,7 +120,7 @@ export default function Settings() {
     }
     setUsernameSubmitting(true);
     try {
-      await updateProfile({ username: trimmed });
+      await updateProfile({ username: trimmed }, user?.userId);
       await refreshUser();
       setUsernameFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
@@ -149,7 +142,7 @@ export default function Settings() {
       await savePreferences(prefs);
       dispatch({ type: 'SET_PREFERENCES', preferences: prefs });
       syncInBackground('preferences');
-      await updateProfile({ name: trimmed });
+      await updateProfile({ name: trimmed }, user?.userId);
       await refreshUser();
       setNameFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
@@ -180,7 +173,7 @@ export default function Settings() {
     setPasswordErrors({});
     setPasswordSubmitting(true);
     try {
-      await updateProfile({ password: newPassword });
+      await updateProfile({ password: newPassword }, user?.userId);
       setNewPassword('');
       setConfirmPassword('');
       setPasswordFeedback({ type: 'success', message: 'Password changed. Your other devices will need to sign in again.' });
@@ -341,7 +334,9 @@ export default function Settings() {
                   value={fieldValues[f.id]}
                   error={fieldErrors[f.id]}
                   onChange={(v) => {
-                    setFieldValues((prev) => ({ ...prev, [f.id]: v }));
+                    const next = enabledSettingsValues({ ...fieldValues, [f.id]: v }, userFields);
+                    settingsDrafts.write(user?.userId, 'fields', next);
+                    setFieldValues(next);
                     setFieldsFeedback(null);
                     if (fieldErrors[f.id]) setFieldErrors((prev) => ({ ...prev, [f.id]: '' }));
                   }}
@@ -392,6 +387,7 @@ export default function Settings() {
       </Card>
 
       <ProfileFeedbackDialog
+        userId={user?.userId}
         open={feedbackOpen}
         onOpenChange={setFeedbackOpen}
         onDone={async () => {
@@ -411,36 +407,32 @@ function SettingsFeedback({ id, feedback }) {
   );
 }
 
-function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
-  const [text, setText] = useState(() => {
-    try { return sessionStorage.getItem(PROFILE_FEEDBACK_DRAFT_KEY) || ''; } catch { return ''; }
-  });
+function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
+  const [text, setText] = useState(() => settingsDrafts.read(userId, 'feedback'));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    try {
-      if (text) sessionStorage.setItem(PROFILE_FEEDBACK_DRAFT_KEY, text);
-      else sessionStorage.removeItem(PROFILE_FEEDBACK_DRAFT_KEY);
-    } catch { /* ignore */ }
-  }, [text]);
 
   const handleSubmit = async () => {
     if (submitting || !text.trim()) return;
     setSubmitting(true);
     setError('');
     try {
-      const profile = await ensureProfileExists();
+      await assertTurnOwner(userId);
+      const options = { expectedUserId: userId };
+      const profile = await ensureProfileExists('', options);
+      await assertTurnOwner(userId);
       const result = await orchestrator.updateProfileFromFeedback(profile, text.trim(), {
         lessonName: 'Settings', activityType: 'feedback', activityGoal: 'User-provided profile feedback',
-      });
+      }, { userId });
+      await assertTurnOwner(userId);
       if (result?.profile) {
         const merged = mergeProfile(profile, result.profile);
-        await saveLearnerProfile(merged);
-        if (result.summary) await saveLearnerProfileSummary(result.summary);
-        syncInBackground('profile', 'profileSummary');
+        await saveLearnerProfile(merged, options);
+        if (result.summary) await saveLearnerProfileSummary(result.summary, options);
       }
-      try { sessionStorage.removeItem(PROFILE_FEEDBACK_DRAFT_KEY); } catch { /* ignore */ }
+      else throw new Error('The profile update was empty. Your feedback is retained; try again.');
+      await assertTurnOwner(userId);
+      settingsDrafts.clear(userId, 'feedback', text);
       onOpenChange(false);
       setText('');
       if (onDone) onDone();
@@ -469,7 +461,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone }) {
             value={text}
             readOnly={submitting}
             aria-describedby="profile-feedback-error"
-            onChange={(e) => { setText(e.target.value); setError(''); }}
+            onChange={(e) => { settingsDrafts.write(userId, 'feedback', e.target.value); setText(e.target.value); setError(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); } }}
           />
           <p id="profile-feedback-error" className={error ? 'text-sm text-destructive' : 'sr-only'} role="alert">

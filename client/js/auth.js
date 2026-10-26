@@ -268,9 +268,12 @@ async function refreshAccessToken(tokens, generation, signal) {
  * Automatically refreshes the access token on 401.
  */
 export async function authenticatedFetch(path, options = {}) {
+  const { expectedUserId, ...requestOptions } = options;
+  options = requestOptions;
   const generation = sessionGeneration;
   const tokens = await getAuthTokens();
   if (!tokens?.accessToken) throw new Error('Not logged in');
+  if (expectedUserId && tokens.user?.userId !== expectedUserId) throw new Error('The signed-in account changed. Return to the original account.');
 
   // GET-only impersonation: if an admin is "viewing as" a learner, attach
   // ?asUserId=<id> to reads. Writes never carry it — both as a client guard
@@ -362,9 +365,11 @@ export async function forgotPassword(email) {
  * Returns the updated user object. A password change revokes every session,
  * so the server returns a new token pair that keeps this device signed in.
  */
-export async function updateProfile(updates) {
+export async function updateProfile(updates, expectedUserId) {
   const generation = sessionGeneration;
+  const owner = expectedUserId || (await getAuthTokens())?.user?.userId;
   const res = await authenticatedFetch('/v1/me', {
+    expectedUserId: owner,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -374,13 +379,20 @@ export async function updateProfile(updates) {
     throw new Error(body.error || 'Update failed');
   }
   const { session, ...user } = await res.json();
+  const current = await getAuthTokens();
+  if (generation !== sessionGeneration || current?.user?.userId !== owner || user.userId !== owner) {
+    throw new Error('The signed-in account changed. Return to the original account.');
+  }
   if (session) {
     // Same compare-and-replace as refresh: a response that crosses logout or
     // an account switch must never restore or merge credentials.
-    const current = await getAuthTokens();
     if (generation === sessionGeneration && current?.user?.userId === user.userId) {
       await saveAuthTokens(session, current);
     }
+  }
+  const latest = await getAuthTokens();
+  if (generation !== sessionGeneration || latest?.user?.userId !== owner) {
+    throw new Error('The signed-in account changed. Return to the original account.');
   }
   await saveAuthUser(user);
   return user;
@@ -391,8 +403,8 @@ export async function updateProfile(updates) {
  * and the ids of required fields still missing. Always fetched fresh — the
  * cached auth user can't know an admin just added a required field.
  */
-export async function getMyFields() {
-  const res = await authenticatedFetch('/v1/me/fields');
+export async function getMyFields(expectedUserId) {
+  const res = await authenticatedFetch('/v1/me/fields', { expectedUserId });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || 'Failed to load profile fields');

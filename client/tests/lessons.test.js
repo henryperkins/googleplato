@@ -3,58 +3,13 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The client (lessonOwner.js) and the server parse lessons with this one
+// implementation, so test it rather than a copy that could drift.
+import { parseLessonPrompt } from '../../server/src/shared/lessonMarkdown.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
 const lessonsDir = resolve(root, 'data', 'lessons');
-
-/**
- * Parse a lesson prompt markdown file (same logic as lessonOwner.js).
- */
-function parseLessonPrompt(lessonId, markdown) {
-  const lines = markdown.split('\n');
-  let name = '';
-  let description = '';
-  let exemplar = '';
-  let coachDirective = '';
-  const objectives = [];
-  let currentSection = null;
-  const sectionBuffer = [];
-
-  const flushSection = () => {
-    if (currentSection === 'exemplar') exemplar = sectionBuffer.join('\n').trim();
-    if (currentSection === 'coach_directive') coachDirective = sectionBuffer.join('\n').trim();
-  };
-
-  for (const line of lines) {
-    if (line.startsWith('# ') && !name) {
-      name = line.slice(2).trim();
-      continue;
-    }
-    if (line.startsWith('## ')) {
-      flushSection();
-      sectionBuffer.length = 0;
-      currentSection = line.slice(3).trim().toLowerCase().replace(/\s+/g, '_');
-      continue;
-    }
-    if (currentSection === null && line.trim() && name && !description) {
-      description = line.trim();
-      continue;
-    }
-    if (currentSection === 'exemplar' || currentSection === 'coach_directive') {
-      sectionBuffer.push(line);
-    }
-    if (currentSection === 'learning_objectives') {
-      const match = line.match(/^-\s+(.+)/);
-      if (match) objectives.push(match[1].trim());
-    }
-  }
-  flushSection();
-
-  const parsed = { lessonId, name, description, exemplar, learningObjectives: objectives };
-  if (coachDirective) parsed.coachDirective = coachDirective;
-  return parsed;
-}
 
 // Load all lesson prompt files. The directory is optional — lesson seeding was
 // removed in #288, so a clean checkout has no data/lessons at all. Reading it at

@@ -248,11 +248,35 @@ test('a password-change response that crosses logout cannot restore credentials'
     ? { ok: true, status: 200, json: () => { parsing.resolve(); return body.promise; } }
     : json({ ok: true });
   const pending = auth.updateProfile({ password: 'new-password' });
+  const rejected = assert.rejects(pending, /account changed/);
   await parsing.promise;
   await auth.logout();
   body.resolve({ userId: 'a', session: { accessToken: 'access-a2', refreshToken: 'refresh-a2' } });
-  await pending;
+  await rejected;
   assert.equal(await storage.getAuthTokens(), null);
+});
+
+test('an owner-bound Settings request cannot submit old draft values under another account', async () => {
+  localStorage.setItem('plato_auth', JSON.stringify(session('b')));
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return json({ userId: 'b' }); };
+  await assert.rejects(auth.updateProfile({ customFields: { goal: 'A private draft' } }, 'a'), /account changed/);
+  await assert.rejects(auth.getMyFields('a'), /account changed/);
+  assert.equal(calls, 0);
+  assert.deepEqual(await storage.getAuthTokens(), session('b'));
+});
+
+test('a delayed Settings response body cannot replace the next account profile', async () => {
+  const body = deferred();
+  const parsing = deferred();
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: () => { parsing.resolve(); return body.promise; } });
+  const pending = auth.updateProfile({ customFields: { goal: 'A draft' } }, 'a');
+  const rejected = assert.rejects(pending, /account changed/);
+  await parsing.promise;
+  localStorage.setItem('plato_auth', JSON.stringify(session('b')));
+  body.resolve({ userId: 'a', customFields: { goal: 'A draft' } });
+  await rejected;
+  assert.deepEqual(await storage.getAuthTokens(), session('b'));
 });
 
 test('legacy Firebase detection cannot block logout or erase the next account', async () => {

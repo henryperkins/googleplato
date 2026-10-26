@@ -58,13 +58,13 @@ async function saveProfileResult(existing, result) {
   syncInBackground('profile', 'profileSummary');
 }
 
-export async function ensureProfileExists(name = '') {
+export async function ensureProfileExists(name = '', options) {
   let profile = await getLearnerProfile();
   if (!profile) {
     profile = defaultProfile();
     profile.name = name;
-    await saveLearnerProfile(profile);
-    await saveLearnerProfileSummary('New learner — profile will be built as they learn.');
+    await saveLearnerProfile(profile, options);
+    await saveLearnerProfileSummary('New learner — profile will be built as they learn.', options);
   }
   return profile;
 }

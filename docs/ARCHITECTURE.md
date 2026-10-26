@@ -664,6 +664,28 @@ untouched rather than assigned to whichever account signs in next. Copy that
 unsent text before upgrading a legacy tab. Recovery remains limited to the same
 tab/session, not browser closure or another device.
 
+Submitted learner input has a separate journal in `lessonSubmissions.js`, keyed
+by encoded account and lesson IDs. `ComposeBar` lets its owner synchronously
+retain the exact text, image names/data and fetched link context **before**
+clearing the editor. A failed or silently ignored browser-storage write refuses
+Send and leaves the input intact. The journal never replaces a newer editable
+draft. A failed response offers **Retry response**, **Move to draft** (only when
+the current draft is empty), and a confirmed **Discard response**. Moving it
+verifies the complete draft copy before removing its submission record.
+
+Generation uses the submission's stable turn ID and stays owned by its original
+account/lesson after the React view unmounts. Reopening joins the active request;
+reload checks the authoritative saved IDs before offering recovery. No recovery
+automatically invokes a model. A retry of an already committed submission returns
+the saved conversation. Once generation succeeds, the existing generated-turn
+journal owns **Retry saving**, without repeating inference. Input is removed only
+after a save or a verified, readable generated-reply copy. If the larger reply
+cannot fit in browser storage, its input remains available for reload recovery
+and the existing keep-this-tab-open warning still applies. Upgrade reload also
+verifies every retained submission. Owner-bound image/model/profile requests
+reject an account change before sending, and late profile acknowledgements do
+not populate the next account's cache or credentials.
+
 Generic single and batch PUTs require an explicit nonnegative safe integer
 `version` below `Number.MAX_SAFE_INTEGER`: `0` creates only an absent key;
 positive values update only an existing exact version. Invalid input returns
@@ -1504,6 +1526,18 @@ Users list, none of which have plugin slots, and #363 depends on it.
   Deleting a field erases its values from every user, and from wait-list
   entries and invites carrying a profile (same cascade as deleting
   a user group). Values for ids with no current definition are never returned.
+
+Settings field and profile-feedback drafts use `settingsDrafts.js` with an
+encoded account key and an owner-validated payload. Only fields returned in the
+current enabled definitions are restored or submitted; unchanged server values
+are not automatically saved as drafts. Settings remounts on account changes,
+ignores obsolete field-load responses, and binds saves to the original account.
+Cancellation retains feedback for that account. A completed save clears only the
+same unchanged draft, preserving newer writing entered in another visit. The
+old global `plato_settings_fields_draft` and `plato_profile_feedback_draft` keys
+have no trustworthy owner and are discarded rather than assigned to a user.
+Passwords are never part of these drafts. Feedback remains retained if its
+generated profile or summary cannot be confirmed saved.
 
 **API.**
 

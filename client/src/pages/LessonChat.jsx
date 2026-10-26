@@ -14,6 +14,7 @@ import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
 import { renderMd, renderInlineMd } from '../lib/helpers.js';
 import { pageTitle } from '../lib/routeTitles.js';
+import { lessonSubmissions, hasLessonDraft } from '../lib/lessonSubmissions.js';
 import {
   deleteLessonProgress,
   getUserLessonMarkdown, deleteUserLesson,
@@ -83,6 +84,7 @@ function LessonConversation() {
   const [upgradeError, setUpgradeError] = useState('');
   const reloadingRef = useRef(false);
   const savingRef = useRef(false);
+  const sendingRef = useRef(false);
   const pendingSave = !!persistence && persistence.status !== 'saved';
   // A failed lesson start has no conversation to fall back on, so it offers
   // its own retry instead of sending the learner to reload the page.
@@ -108,8 +110,10 @@ function LessonConversation() {
   const objectivesTitleRef = useRef(null);
   const keyboardOffset = useVisualViewportKeyboardOffset();
   const [stickyTopRef, stickyBottomRef] = useStickyScrollPadding();
-  const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
+  const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks, restore: restoreDraft } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
   const { text: composeText, images: composeImages, links: composeLinks } = draft;
+  const readSubmission = useCallback(() => impersonating ? null : lessonSubmissions.read(user?.userId, lessonGroupId), [impersonating, user?.userId, lessonGroupId]);
+  const submission = useSyncExternalStore(lessonSubmissions.subscribe, readSubmission, () => null);
 
   const reloadForUpgrade = async () => {
     if (loading || resuming || savingRef.current || impersonating) return;
@@ -281,10 +285,13 @@ function LessonConversation() {
     setStartAttempt((n) => n + 1);
   };
 
-  const handleSend = useCallback(async ({ text, imageDataUrls, links }) => {
+  const runSubmission = useCallback(async (entry) => {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    const { text, images, links } = entry.draft;
+    const imageDataUrls = images.map(image => image.dataUrl);
     const hasImages = Array.isArray(imageDataUrls) && imageDataUrls.length > 0;
     const hasLinks = Array.isArray(links) && links.length > 0;
-    if (!text && !hasImages && !hasLinks) return;
     setError('');
     setLoading('qa');
     setStreamingText('');
@@ -304,8 +311,8 @@ function LessonConversation() {
     setMessages(prev => [...prev, optimisticMessage]);
 
     try {
-      const result = await engine.sendMessage(
-        lessonGroupId, lesson, text, imageDataUrls, links,
+      const result = await engine.sendLessonSubmission(
+        entry, lesson,
         (partial) => { if (activeView.current === viewKey) setStreamingText(partial); }
       );
       if (activeView.current !== viewKey) return;
@@ -319,14 +326,44 @@ function LessonConversation() {
     } catch (e) {
       if (activeView.current !== viewKey) return;
       setError(aiErrorMessage(e, 'coach-reply'));
-      setComposeText(text || '');
-      setComposeImages((imageDataUrls || []).map((dataUrl, index) => ({ dataUrl, name: `Attached image ${index + 1}` })));
-      setComposeLinks(links || []);
       setMessages(prev => prev.filter(message => message !== optimisticMessage));
       setStreamingText(null);
       setLoading('');
+    } finally { sendingRef.current = false; }
+  }, [lesson, viewKey]);
+
+  const handleSend = (_payload, submittedDraft) => {
+    if (sendingRef.current || loading || pendingSave || resuming || upgradeRequired || impersonating) return false;
+    try {
+      // This synchronous write precedes ComposeBar clearing any input.
+      const entry = lessonSubmissions.stage(user?.userId, lessonGroupId, submittedDraft);
+      void runSubmission(entry);
+      return true;
+    } catch (error) {
+      setError(error.message);
+      return false;
     }
-  }, [lessonGroupId, lesson, viewKey, setComposeText, setComposeImages, setComposeLinks]);
+  };
+
+  const restoreSubmission = () => {
+    if (!submission || hasLessonDraft(draft)) return;
+    if (!restoreDraft(submission.draft) || !lessonSubmissions.clear(submission)) {
+      setError('The response could not be moved safely. It is still retained here; keep this tab open.');
+      return;
+    }
+    setError('');
+    headingRef.current?.focus();
+  };
+
+  const discardSubmission = () => setConfirmModal({
+    title: 'Discard the earlier response?',
+    message: 'This removes the retained response and its attachments. Your current draft will be kept.',
+    confirmLabel: 'Discard response',
+    onConfirm: () => {
+      if (!lessonSubmissions.clear(submission)) setError('The retained response could not be removed. Keep this tab open and try again.');
+      else setError('');
+    },
+  });
 
   const retrySave = async () => {
     if (savingRef.current) return;
@@ -435,7 +472,7 @@ function LessonConversation() {
       </div>
     );
   }
-  const busy = !!loading || pendingSave || resuming || upgradeRequired;
+  const busy = !!loading || pendingSave || resuming || upgradeRequired || !!submission;
   const composePlaceholder = phase === LESSON_PHASES.COMPLETED
     ? 'Share feedback about this lesson...'
     : 'Chat with your coach...';
@@ -562,6 +599,24 @@ function LessonConversation() {
             <AssistantMessage content={displayText} streaming />
           )}
           {loading === 'qa' && !displayText && <ThinkingSpinner />}
+          {submission && submission.status !== 'sending' && !resuming && !pendingSave && (
+            <section aria-label="Unsent response" className="space-y-3 px-1 py-3">
+              <p className="text-sm" role="status">Your earlier response is retained. Retry it, move it back to an empty draft to edit, or discard it.</p>
+              {submission.draft.text && <p className="whitespace-pre-wrap wrap-anywhere text-sm">{submission.draft.text}</p>}
+              {submission.draft.images.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {submission.draft.images.map((image, index) => <img key={index} src={image.dataUrl} alt={image.name || `Retained image ${index + 1}`} className="h-24 max-w-full rounded-md object-contain" />)}
+                </div>
+              )}
+              {submission.draft.links.map((link, index) => <p key={index} className="wrap-anywhere text-sm">{link.title || link.url}</p>)}
+              {hasLessonDraft(draft) && <p className="text-sm text-muted-foreground">Your newer draft is kept separately below.</p>}
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => runSubmission(submission)} disabled={!!loading || pendingSave || upgradeRequired}>Retry response</Button>
+                <Button variant="outline" size="sm" onClick={restoreSubmission} disabled={!!loading || hasLessonDraft(draft)}>Move to draft</Button>
+                <Button variant="ghost" size="sm" onClick={discardSubmission} disabled={!!loading}>Discard response</Button>
+              </div>
+            </section>
+          )}
           {/* Notices share the coach's left edge (its copy is inset px-1). */}
           {persistence?.message && (
             <div className="space-y-2 px-1 py-2">

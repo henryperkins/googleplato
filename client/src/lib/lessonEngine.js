@@ -17,6 +17,7 @@ import { compressImageDataUrl } from './imageCompression.js';
 import { readLessonState, persistLessonTurn, assertTurnOwner } from '../../js/turnPersistence.js';
 import { generatedTurns } from './generatedTurns.js';
 import { lessonDrafts } from './lessonDrafts.js';
+import { lessonSubmissions, submissionWasSaved } from './lessonSubmissions.js';
 import { ensureProfileExists, updateProfileOnCompletionInBackground, updateProfileFromObservation } from './profileQueue.js';
 import { updateCourseProgressOnCompletionInBackground } from './courseProgressQueue.js';
 import { LESSON_PHASES } from './constants.js';
@@ -73,20 +74,23 @@ export function cleanStream(onStream) {
 // -- Lesson lifecycle ---------------------------------------------------------
 
 const generations = new Map();
-async function generateTurn(lessonId, kind, generate) {
+const submissionRequests = new Map();
+const generationKey = (userId, lessonId) => JSON.stringify([userId, lessonId]);
+async function generateTurn(lessonId, kind, generate, submission) {
   assertNotImpersonating(kind === 'start' ? 'start a lesson' : 'send a message');
   const user = await getAuthUser();
   if (!user?.userId) throw new Error('Sign in to continue this lesson.');
   const userId = user.userId;
+  if (submission && submission.userId !== userId) throw new Error('Return to the original account to send this response.');
   if (generatedTurns.read(userId, lessonId)) throw new Error('Save the retained reply before sending another message.');
-  const key = `${userId}:${lessonId}`;
+  const key = generationKey(userId, lessonId);
   if (generations.has(key)) {
     if (kind === 'start' && generations.get(key).kind === kind) return generations.get(key).promise;
     throw new Error('Wait for the current reply before sending another message.');
   }
   const promise = (async () => {
     const base = await readLessonState(userId, lessonId);
-    const turnId = crypto.randomUUID();
+    const turnId = submission?.id || crypto.randomUUID();
     return generate({ userId, base, turnId, telemetry: { userId, lessonId, generation: base.generation, turnId } });
   })();
   generations.set(key, { kind, promise });
@@ -115,7 +119,10 @@ export async function retryLessonSave(lessonId) {
   const user = await getAuthUser();
   const entry = generatedTurns.read(user?.userId, lessonId);
   if (!entry) throw new Error('There is no retained reply to save. Reload the conversation.');
-  return saveGeneratedTurn(entry);
+  const result = await saveGeneratedTurn(entry);
+  const submission = lessonSubmissions.read(user.userId, lessonId);
+  if (submission?.id === entry.turn.turnId) finishSubmission(submission);
+  return result;
 }
 
 // No reads from the API, inference, tag processing, or automatic save occurs
@@ -129,8 +136,52 @@ export async function prepareLessonUpgrade(userId, lessonId, draft) {
   const replySafe = generatedTurns.preserveAllForReload();
   lessonDrafts.write(userId, lessonId, draft);
   const draftSafe = lessonDrafts.preserveAllForReload();
+  const submissionSafe = lessonSubmissions.preserveAllForReload();
   await assertTurnOwner(userId);
-  return replySafe && draftSafe;
+  return replySafe && draftSafe && submissionSafe;
+}
+
+function finishSubmission(entry) {
+  // Do not delete the durable input when a larger generated reply fits only in
+  // memory. Reload can still reconcile a committed ID or recover the input.
+  if (generatedTurns.read(entry.userId, entry.lessonId)?.turn.turnId === entry.id
+    && !generatedTurns.preserveForReload(entry.userId, entry.lessonId)) {
+    lessonSubmissions.setStatus(entry, 'generated');
+    return;
+  }
+  if (!lessonSubmissions.clear(entry)) lessonSubmissions.setStatus(entry, 'interrupted');
+}
+
+// The promise belongs to the account/lesson, not the mounted React view.
+// Reopening a lesson joins it; reload recovery never automatically calls AI.
+export function sendLessonSubmission(entry, lesson, onStream) {
+  const key = generationKey(entry.userId, entry.lessonId);
+  if (submissionRequests.has(key)) return submissionRequests.get(key);
+  lessonSubmissions.setStatus(entry, 'sending');
+  const request = (async () => {
+    try {
+      await assertTurnOwner(entry.userId);
+      const retained = generatedTurns.read(entry.userId, entry.lessonId);
+      if (retained?.turn.turnId === entry.id) {
+        const result = await saveGeneratedTurn(retained);
+        finishSubmission(entry);
+        return result;
+      }
+      const { text, images, links } = entry.draft;
+      const result = await sendMessage(entry.lessonId, lesson, text.trim() || null,
+        images.map(image => image.dataUrl), links, onStream, entry);
+      finishSubmission(entry);
+      return result;
+    } catch (error) {
+      // Once output is staged, the generated-turn journal owns retrying its
+      // persistence. Never offer to regenerate that coach response.
+      if (generatedTurns.read(entry.userId, entry.lessonId)?.turn.turnId === entry.id) finishSubmission(entry);
+      else lessonSubmissions.setStatus(entry, 'failed');
+      throw error;
+    }
+  })().finally(() => submissionRequests.delete(key));
+  submissionRequests.set(key, request);
+  return request;
 }
 
 export async function discardLessonReply(lessonId) {
@@ -214,8 +265,13 @@ export function buildUserParts(text, imageDataUrls = [], links = []) {
  * @param {object[]} links - attached links [{ url, title, text }]; the page
  *   bounded excerpts persist in the server-owned evidence record.
  */
-export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, onStream) {
+export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, onStream, submission) {
   return generateTurn(lessonId, 'send', async ({ userId, base, turnId, telemetry }) => {
+    if (submission && submissionWasSaved(submission, base)) {
+      return { conversation: await hydrateMessageImages(base.messages.data), lessonKB: base.lessonKB.data,
+        phase: base.lessonKB.data?.status === 'completed' ? LESSON_PHASES.COMPLETED : LESSON_PHASES.LEARNING,
+        persistence: { status: 'saved', message: 'Your reply is saved.' } };
+    }
     if (!base.lessonKB.data) throw new Error('Reload the lesson before sending your answer.');
     const imageDataUrls = normalizeImageDataUrls(imageDataUrl);
     const linkList = Array.isArray(links) ? links.filter((l) => l && l.url) : [];
@@ -230,7 +286,7 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, o
       assertImageWithinBedrockLimit(url);
       const key = `lesson-${lessonId}-${ts()}-${i}`;
       await assertTurnOwner(userId);
-      if (!await saveScreenshot(key, url)) throw new Error('Your image could not be saved. Keep your submission and try again.');
+      if (!await saveScreenshot(key, url, { expectedUserId: userId })) throw new Error('Your image could not be saved. Keep your submission and try again.');
       imageKeys.push(key);
     }
 
@@ -252,7 +308,7 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, o
       }).catch(() => {});
     }
     return result;
-  });
+  }, submission);
 }
 
 /**
@@ -345,12 +401,25 @@ export async function migrateLegacyImages(lessonId, messages) {
  */
 export async function resumeLesson(lessonId) {
   const user = await getAuthUser();
-  if (!isImpersonating() && user?.userId && !generatedTurns.read(user.userId, lessonId)) {
-    const recovered = await recoverCoachTurn(lessonId, user.userId).catch(() => null);
+  if (!isImpersonating() && user?.userId) {
+    const active = submissionRequests.get(generationKey(user.userId, lessonId));
+    if (active) await active.catch(() => {});
     await assertTurnOwner(user.userId);
-    if (recovered) {
+    const submission = lessonSubmissions.read(user.userId, lessonId);
+    if (!generatedTurns.read(user.userId, lessonId)) {
+      const recovered = await recoverCoachTurn(lessonId, user.userId, submission?.id).catch(() => null);
+      await assertTurnOwner(user.userId);
+      if (recovered) {
+        const state = await readLessonState(user.userId, lessonId);
+        if (!recovered.messages.every(message => state.messages.data.some(saved => saved.id === message.id))) generatedTurns.stage(recovered);
+      }
+    }
+    if (submission) {
       const state = await readLessonState(user.userId, lessonId);
-      if (!recovered.messages.every(message => state.messages.data.some(saved => saved.id === message.id))) generatedTurns.stage(recovered);
+      if (submissionWasSaved(submission, state)
+        || generatedTurns.read(user.userId, lessonId)?.turn.turnId === submission.id) finishSubmission(submission);
+      else lessonSubmissions.setStatus(submission, 'interrupted');
+      for (const name of ['messages', 'lessonKB']) _populateCache(`${name}:${lessonId}`, state[name].data, state[name].version);
     }
   }
   const retained = !isImpersonating() && generatedTurns.read(user?.userId, lessonId);

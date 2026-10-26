@@ -45,27 +45,33 @@ async function fetchSyncData(syncKey) {
  * `false` otherwise — callers that need durability (e.g. the legacy-image
  * migration) check this rather than assuming the cache write stuck.
  */
-export async function putSyncData(syncKey, data, { createOnly = false } = {}) {
+export async function putSyncData(syncKey, data, { createOnly = false, expectedUserId } = {}) {
+  if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return false;
   // Snapshot both owners before yielding. Awaiting telemetry's owner lookup
   // here could let an account switch bind this payload to the next account.
   const owner = getAuthUser();
   const observe = outcome => {
     void owner.then(user => saveObserver.record({ userId: user?.userId, operation: 'sync_write', key: syncKey, ...outcome })).catch(() => {});
   };
-  _cache.set(syncKey, data);
+  // Owner-bound work may finish after navigation or sign-out. Keep its result
+  // out of the shared cache until both the save and current owner are confirmed.
+  if (!expectedUserId) _cache.set(syncKey, data);
   const version = createOnly ? 0 : _versions.get(syncKey) || 0;
   try {
     const res = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, {
+      expectedUserId,
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data, version }),
     });
     if (res.ok) {
       const result = await res.json();
+      if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return false;
       if (!Number.isSafeInteger(result?.version) || result.version <= version) {
         throw Object.assign(new Error('Save acknowledgement is invalid'), { code: 'invalid_ack' });
       }
       _versions.set(syncKey, result.version);
+      if (expectedUserId) _cache.set(syncKey, data);
       observe({ ok: true, status: res.status });
       return true;
     }
@@ -132,8 +138,9 @@ export async function getLearnerProfile() {
   return fetchSyncData('profile');
 }
 
-export async function saveLearnerProfile(profile) {
-  await putSyncData('profile', profile);
+export async function saveLearnerProfile(profile, options) {
+  const saved = await putSyncData('profile', profile, options);
+  if (options?.expectedUserId && !saved) throw new Error('Your profile update could not be confirmed saved. Your feedback is retained.');
 }
 
 export async function getLearnerProfileSummary() {
@@ -141,8 +148,9 @@ export async function getLearnerProfileSummary() {
   return data || '';
 }
 
-export async function saveLearnerProfileSummary(summary) {
-  await putSyncData('profileSummary', summary);
+export async function saveLearnerProfileSummary(summary, options) {
+  const saved = await putSyncData('profileSummary', summary, options);
+  if (options?.expectedUserId && !saved) throw new Error('Your profile summary could not be confirmed saved. Your feedback is retained.');
 }
 
 // -- Lesson KB ----------------------------------------------------------------
@@ -459,18 +467,19 @@ export async function deleteLessonProgress(lessonId) {
 // failed silently and the learner's conversation vanished on the next sync
 // (issues #191, #193). One image per record keeps every record small.
 
-export async function saveScreenshot(key, dataUrl) {
+export async function saveScreenshot(key, dataUrl, { expectedUserId } = {}) {
   const syncKey = `screenshot:${key}`;
-  if (await putSyncData(syncKey, dataUrl, { createOnly: true })) return true;
+  if (await putSyncData(syncKey, dataUrl, { createOnly: true, expectedUserId })) return true;
   _cache.delete(syncKey);
   _versions.delete(syncKey);
   // Screenshot identities are immutable. A partial migration or lost ACK can
   // leave an identical image on the server. Verify that exact content with a
   // fresh read, never the optimistic cache, and never overwrite a collision.
   try {
-    const response = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`);
+    const response = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, { expectedUserId });
     if (!response.ok) return false;
     const item = await response.json();
+    if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return false;
     if (item.data != null) _populateCache(syncKey, item.data, item.version);
     return item.data === dataUrl;
   } catch { return false; }
