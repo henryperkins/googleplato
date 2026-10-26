@@ -163,6 +163,61 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
+  it('shows readable waitlist timestamps in the viewer locale and timezone', async () => {
+    const entries = [
+      { inviteToken: 'waitlist-early', name: 'Avery North', email: 'avery@example.test', createdAt: '2026-10-26T01:35:07.000Z' },
+      { inviteToken: 'waitlist-later', name: 'Blair West', email: 'blair@example.test', createdAt: '2026-10-26T15:05:42.000Z' },
+    ];
+    for (const { locale, timezoneId, expected } of [
+      { locale: 'en-US', timezoneId: 'America/New_York', expected: ['10/25/2026, 9:35:07 PM', '10/26/2026, 11:05:42 AM'] },
+      { locale: 'en-GB', timezoneId: 'Europe/London', expected: ['26/10/2026, 01:35:07', '26/10/2026, 15:05:42'] },
+    ]) {
+      const context = await browser.newContext({ viewport: { width: 320, height: 740 }, storageState, locale, timezoneId });
+      try {
+        await context.route('**/v1/admin/waitlist', route => route.fulfill({
+          json: { entries, open: true, hasApiKey: false },
+        }));
+        const page = await context.newPage();
+        await navigate(page, 'users');
+        await page.getByRole('button', { name: /^Wait List\s+2$/ }).click();
+        const region = page.getByRole('region', { name: 'Users and invites', exact: true });
+        for (const width of [320, 1280]) {
+          await page.setViewportSize({ width, height: 740 });
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= width + 1, 'The page stays within the viewport');
+          if (width === 320) {
+            await region.focus();
+            await region.press('ArrowRight');
+            await page.waitForFunction(() => document.querySelector('[aria-label="Users and invites"]').scrollLeft > 0);
+          }
+          for (const [index, entry] of entries.entries()) {
+            const row = page.getByRole('row').filter({ has: page.getByRole('button', { name: `Edit wait list entry for ${entry.name}`, exact: true }) });
+            const date = row.getByRole('cell').nth(4);
+            assert.equal((await date.innerText()).replace(/\s+/g, ' '), expected[index], `${locale}: local date and full time for ${entry.name}`);
+            const geometry = await date.evaluate(cell => {
+              cell.scrollIntoView({ block: 'nearest', inline: 'end' });
+              const container = cell.closest('[role="region"]').getBoundingClientRect();
+              const identity = cell.parentElement.querySelector('[scope="row"]').getBoundingClientRect();
+              const range = document.createRange();
+              range.selectNodeContents(cell);
+              return {
+                left: Math.max(container.left, identity.right),
+                right: container.right,
+                lines: Array.from(range.getClientRects(), rect => ({ left: rect.left, right: rect.right })),
+              };
+            });
+            assert.ok(geometry.lines.length > 0, 'The timestamp has rendered text');
+            for (const line of geometry.lines) {
+              assert.ok(line.left >= geometry.left - 1 && line.right <= geometry.right + 1,
+                `${locale} at ${width}px: timestamp must be readable beside the sticky user column`);
+            }
+          }
+        }
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
   it('keeps AI Settings and Plugins inside short desktop windows at both breakpoints', async () => {
     for (const theme of ['light', 'dark']) {
       const { context, page } = await openPage({ width: 1024, height: 545 }, theme);
