@@ -10,6 +10,11 @@ regressions (`npm --prefix client run test:browser:admin`) before any image is
 built or deployed. After merging a pipeline change, run
 `deploy/cloudrun/configure.sh` to refresh the `plato-main` trigger's inline
 build configuration.
+The independent [deployment monitor](DEPLOYMENT_WATCH.md) runs every five
+minutes through Cloud Scheduler and Cloud Run. It compares remote main, Cloud
+Build activity, and public serving identity, alerts on missed deployments or
+incomplete checks, and separately detects a silent monitor. It never deploys;
+the same guide documents recovery through the full Cloud Build pipeline.
 Current save monitoring reads Cloud
 Logging using ADC from a local or external scheduler; `log-watch` is read-only
 by default and creates an issue only with `--create-issue`. See

@@ -594,6 +594,16 @@ same IDs. Conflicts preserve the copy and require an explicit discard to load
 the current saved conversation. The browser cache receives a generated turn only
 after the authoritative API acknowledges it.
 
+Save confirmations are transient UI state, separate from transcript messages
+and coach request context. After the submitted input passes recovery-journal
+readback, “Your reply is saved in this tab.” pulses once and fades over 1.6
+seconds before the coach's text is revealed. Generation and server saving run
+during this brief acknowledgment; a normal server save does not repeat it.
+After retrying a failed save, “Your reply is saved.” appears only on server
+acknowledgment and fades on the same timer. Starting another response clears
+the previous confirmation immediately. Reduced motion uses only the fade.
+Save failures, retry controls and changed-requirements notices stay visible.
+
 The local journal remains scoped to the current tab/session. The server also
 retains the latest generated result for each learner/lesson, recovered through
 `GET /v1/ai/coach/:lessonId?turnId=...` without inference. Compressed fragments

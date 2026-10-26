@@ -64,6 +64,9 @@ async function api(page, path) {
 async function submission(page, owner = 'a', id = 'feedback') {
   return page.evaluate(({ owner, id }) => JSON.parse(sessionStorage.getItem(`plato_lesson_submission:${owner}:${id}`)), { owner, id });
 }
+async function waitForSavedSubmission(page, owner = 'a', id = 'feedback') {
+  await page.waitForFunction(({ owner, id }) => JSON.parse(sessionStorage.getItem(`plato_lesson_submission:${owner}:${id}`)) === null, { owner, id });
+}
 async function failCoach(page, hold = false) {
   const reached = deferred(), released = deferred();
   let calls = 0;
@@ -163,6 +166,107 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
+  for (const reducedMotion of ['no-preference', 'reduce']) {
+    it(`saved reply confirmation fades before the coach with ${reducedMotion} motion`, t => withPage(t, async page => {
+      await page.emulateMedia({ reducedMotion });
+      if (reducedMotion === 'no-preference') await page.setViewportSize({ width: 1280, height: 900 });
+      await lesson(page, 'practice-12');
+      const assistantCount = await page.locator('[data-chat-message="assistant"]').count();
+      const saved = page.waitForResponse(response => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/v1/sync/lesson-turn/practice-12');
+      await composer(page).fill('The report needs a clearer next step.');
+      await send(page);
+      const notice = page.getByText('Your reply is saved in this tab.', { exact: true });
+      await notice.waitFor({ timeout: 1000 });
+      assert.equal(await notice.getAttribute('role'), 'status');
+      assert.equal(await page.locator('[data-chat-message]').filter({ hasText: 'Your reply is saved' }).count(), 0);
+      assert.equal((await saved).status(), 200, 'generation and saving continue during the confirmation');
+      assert.equal(await notice.isVisible(), true);
+      assert.equal(await page.locator('[data-chat-message="assistant"]').count(), assistantCount, 'even a fast reply waits for the confirmation to fade');
+      const animation = await notice.evaluate(element => {
+        const effect = element.getAnimations()[0]?.effect;
+        return effect ? { duration: effect.getTiming().duration, frames: effect.getKeyframes() } : null;
+      });
+      assert.ok(animation && animation.duration <= 2000, 'the acknowledgment has a short animation');
+      assert.equal(animation.frames.at(-1).opacity, '0', 'the animation fades out');
+      assert.equal(animation.frames.some(frame => frame.transform && frame.transform !== 'none'), reducedMotion === 'no-preference', 'reduced motion removes the scale pulse');
+      await page.screenshot({ path: join(evidence, `${engine}-saved-reply-${reducedMotion}.png`), fullPage: true });
+      await notice.waitFor({ state: 'hidden', timeout: 2500 });
+      await page.waitForFunction(count => document.querySelectorAll('[data-chat-message="assistant"]').length === count + 1, assistantCount);
+      const state = await api(page, '/v1/sync/lesson-turn/practice-12');
+      assert.doesNotMatch(JSON.stringify(state), /Your reply is saved/);
+      assert.equal(await page.getByText('Your reply is saved.', { exact: true }).count(), 0, 'a normal save does not repeat the acknowledgment');
+      await page.screenshot({ path: join(evidence, `${engine}-saved-reply-${reducedMotion}-dismissed.png`), fullPage: true });
+    }));
+  }
+
+  it('clears the previous save confirmation before the next coach request', t => withPage(t, async page => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await lesson(page, 'practice-13');
+    const failSave = route => route.request().method() === 'POST'
+      ? route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }) : route.continue();
+    await page.route('**/v1/sync/lesson-turn/practice-13', failSave);
+    await composer(page).fill('Please include a concrete deadline.');
+    await send(page);
+    await page.getByRole('button', { name: 'Retry saving', exact: true }).waitFor();
+    await page.unroute('**/v1/sync/lesson-turn/practice-13', failSave);
+    await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+    const notice = page.getByText('Your reply is saved.', { exact: true });
+    await notice.waitFor();
+    const reached = deferred(), released = deferred();
+    let coachRequest;
+    await page.route('**/v1/ai/coach/*', async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      coachRequest = route.request().postDataJSON();
+      reached.resolve();
+      await released.promise;
+      await route.continue().catch(() => {});
+    });
+    try {
+      await composer(page).fill('Could you send the revision by Friday?');
+      await send(page);
+      await reached.promise;
+      assert.equal(await notice.count(), 0, 'the previous save must not appear to confirm the new reply');
+      assert.equal(coachRequest.submission.text, 'Could you send the revision by Friday?');
+      assert.doesNotMatch(JSON.stringify(coachRequest), /Your reply is saved/);
+      const localNotice = page.getByText('Your reply is saved in this tab.', { exact: true });
+      await localNotice.waitFor();
+      await localNotice.waitFor({ state: 'hidden', timeout: 2500 });
+      await page.getByText('Thinking...', { exact: true }).waitFor();
+    } finally { released.resolve(); }
+    await waitForSavedSubmission(page, 'a', 'practice-13');
+    assert.equal(await notice.count(), 0);
+  }));
+
+  it('keeps save failures and reassessment notices visible', t => withPage(t, async page => {
+    for (const reviewRequired of [false, true]) {
+      const id = reviewRequired ? 'practice-11' : 'practice-10';
+      await lesson(page, id);
+      await page.route(`**/v1/sync/lesson-turn/${id}`, async route => {
+        if (route.request().method() !== 'POST') return route.continue();
+        if (!reviewRequired) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+        const response = await route.fetch();
+        const state = await response.json();
+        state.lessonKB.data.assessmentReviewRequired = true;
+        await route.fulfill({ response, json: state });
+      });
+      await composer(page).fill('The deadline makes the request actionable.');
+      await send(page);
+      const notice = page.getByText(reviewRequired ? /The lesson requirements changed/ : /Your reply has not been confirmed saved/);
+      await notice.waitFor();
+      await delay(2000);
+      assert.equal(await notice.isVisible(), true);
+      if (!reviewRequired) {
+        assert.equal(await page.getByRole('button', { name: 'Retry saving', exact: true }).isEnabled(), true);
+        await page.unroute(`**/v1/sync/lesson-turn/${id}`);
+        await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+        const saved = page.getByText('Your reply is saved.', { exact: true });
+        await saved.waitFor();
+        await saved.waitFor({ state: 'hidden', timeout: 2500 });
+      }
+    }
+  }));
+
   it('retains a failed response and newer draft through navigation and reload', t => withPage(t, async page => {
     await lesson(page);
     const failure = await failCoach(page, true);
@@ -183,7 +287,7 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     await page.screenshot({ path: join(evidence, `${engine}-retained-and-newer-draft.png`), fullPage: true });
     await failure.stop();
     await page.getByRole('button', { name: 'Retry response', exact: true }).click();
-    await page.getByText('Your reply is saved.', { exact: true }).waitFor();
+    await waitForSavedSubmission(page);
     const state = await api(page, '/v1/sync/lesson-turn/feedback');
     assert.equal(state.messages.data.filter(m => m.id === `${first.id}:0`).length, 1);
     assert.equal(await composer(page).inputValue(), 'Newer writing that must remain');
@@ -222,7 +326,7 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal((await submission(page)).draft.text, 'Earlier response awaiting the coach');
     await failure.stop();
     await page.getByRole('button', { name: 'Retry response', exact: true }).click();
-    await page.getByText('Your reply is saved.', { exact: true }).waitFor();
+    await waitForSavedSubmission(page);
     assert.equal(await composer(page).inputValue(), 'Newer response with separate attachments');
     assert.equal(await page.getByRole('button', { name: 'Remove response.png', exact: true }).count(), 1);
     assert.equal(await page.getByRole('button', { name: /Remove link/ }).count(), 1);
@@ -303,6 +407,7 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     let calls = 0; page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/v1/ai/coach/')) calls++; });
     await composer(page).fill('Only copy must remain'); await addAttachments(page, true, true); await send(page);
     await page.getByText(/could not be kept for recovery/).waitFor();
+    assert.equal(await page.getByText('Your reply is saved in this tab.', { exact: true }).count(), 0);
     assert.equal(await composer(page).inputValue(), 'Only copy must remain');
     assert.equal(await page.getByRole('button', { name: 'Remove response.png', exact: true }).count(), 1);
     assert.equal(await page.getByRole('button', { name: /Remove link/ }).count(), 1);

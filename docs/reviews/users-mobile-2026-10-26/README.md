@@ -9,9 +9,9 @@ Save and invitation controls retain keyboard focus while pending and reject repe
 ## Validation
 
 - `npm run build:client` passed (existing main-chunk size warning).
-- `npm test` passed: 678 client tests and 817 server tests; 3 server tests skipped by their existing environment gates.
+- `npm test` passed: 678 client tests and 863 server tests; 3 server tests skipped by their existing environment gates.
 - `npm run lint` passed with 20 existing client warnings and no errors.
-- `npm --prefix client run test:browser:admin` passed all 22 tests. The final wait-list removal-error change also passed its targeted browser regression.
+- `npm --prefix client run test:browser:admin` passed all 22 tests. The merged branch was rebuilt and all 22 checks were rerun after reconciling the shared stylesheet with main.
 - Browser checks cover 320, 390, 640, 768, 1280, and 1440 px layouts; light/dark themes; 844×390 landscape; 150% and 200% root text; keyboard editing and focus return; realistic touch swipes; reduced motion; pagination/filter recovery; pending duplicate submissions; invitation failure and retry; and focus recovery when inviting removes a wait-list row.
 
 Screenshots use the local production build and synthetic users with intercepted API responses. No real email or Slack invitations were sent. Touch and layout validation used Chromium emulation; physical iOS/Android devices and Safari were not available. This is implementation evidence, not a complete accessibility conformance audit.
