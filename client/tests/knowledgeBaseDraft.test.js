@@ -207,6 +207,15 @@ describe('pending knowledge base writes', () => {
     assert.equal(await barrier.track(Promise.resolve('next draft')), 'next draft');
     await barrier.wait();
   });
+
+  it('rejects when a tracked draft does not settle before the deadline', async () => {
+    const barrier = knowledgeBaseDraft.createKnowledgeBaseWriteBarrier();
+    const stalled = deferred();
+    barrier.track(stalled.promise);
+    await assert.rejects(barrier.wait(20), { message: 'A draft is still saving. Try again.' });
+    stalled.resolve();
+    await barrier.wait(20);
+  });
 });
 
 describe('editor wiring', () => {

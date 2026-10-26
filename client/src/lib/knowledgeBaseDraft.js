@@ -80,8 +80,17 @@ export function createKnowledgeBaseWriteBarrier() {
       request.then(() => pending.delete(request), () => pending.delete(request));
       return request;
     },
-    async wait() {
-      while (pending.size) await Promise.allSettled([...pending]);
+    async wait(timeoutMs = 30_000) {
+      if (!pending.size) return;
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('A draft is still saving. Try again.')), timeoutMs);
+      });
+      try {
+        while (pending.size) await Promise.race([Promise.allSettled([...pending]), timeout]);
+      } finally {
+        clearTimeout(timer);
+      }
     },
   };
 }

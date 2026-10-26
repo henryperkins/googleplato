@@ -57,4 +57,4 @@
 - Work in place with a verified recovery snapshot because the required remediation is already uncommitted alongside unrelated work; an isolated checkout would omit that source state.
 - Implement these already-authorized fixes directly; no additional design approval or release action is required.
 
-Final result: all three fixes complete; 653 client and 771 server tests passed (2 PostgreSQL-dependent skips), 17 Customizer browser tests passed in each engine, lint/build/diff checks passed, independent review findings resolved.
+Final result: all three fixes complete; the earlier combined dirty-tree run passed 653 client and 771 server tests (2 PostgreSQL-dependent skips), fresh PR qualification passed 582 client and 761 server tests with zero skips, and 17 Customizer browser tests passed in each engine in the isolated-source run; lint/build/diff checks passed, independent review findings resolved.

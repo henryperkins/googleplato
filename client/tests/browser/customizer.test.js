@@ -494,7 +494,10 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
       await page.getByPlaceholder('Tell me about your program...', { exact: true }).fill('Move cohorts to Mondays.');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
-      await held;
+      await Promise.race([
+        held,
+        delay(6000, null, { ref: false }).then(() => { throw new Error('Timed out waiting for the intercepted draft request'); }),
+      ]);
       await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
       await page.getByRole('note').filter({ hasText: 'Review this preview' }).waitFor();
       await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
@@ -551,7 +554,10 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
         await page.goto(`${base}/plato/customizer/knowledge/edit`);
         await page.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
         await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
-        await held;
+        await Promise.race([
+          held,
+          delay(6000, null, { ref: false }).then(() => { throw new Error('Timed out waiting for the intercepted refresh request'); }),
+        ]);
         assert.equal(new URL(page.url()).pathname, '/plato/customizer/knowledge', 'acknowledged content must not wait for the refresh to navigate');
         await page.locator('.coach-copy').getByRole('heading', { name: 'Acknowledged knowledge', exact: true }).waitFor();
         await page.getByRole('tab', { name: 'Styles', exact: true }).click();
