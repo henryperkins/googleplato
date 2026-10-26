@@ -166,6 +166,31 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
+  it('shows lesson choices immediately on load, filtering, and pagination with either motion preference', t => withPage(t, async page => {
+    async function assertImmediateCards() {
+      const cards = await page.locator('ul[aria-label] > li').evaluateAll(items => items.map(item => {
+        const style = getComputedStyle(item);
+        return { animation: style.animationName, delay: style.animationDelay, opacity: style.opacity, transform: style.transform };
+      }));
+      assert.ok(cards.length > 0, 'the current lesson list is populated');
+      for (const card of cards) {
+        assert.deepEqual(card, { animation: 'none', delay: '0s', opacity: '1', transform: 'none' });
+      }
+    }
+    for (const reducedMotion of ['no-preference', 'reduce']) {
+      await page.emulateMedia({ reducedMotion });
+      await page.goto(`${base}/lessons`);
+      await page.getByRole('button', { name: /Open lesson Give constructive feedback/ }).waitFor();
+      await assertImmediateCards();
+      await page.getByRole('button', { name: 'Next page', exact: true }).click();
+      await page.getByText('Page 2 of 2', { exact: true }).waitFor();
+      await assertImmediateCards();
+      await page.getByLabel('Status', { exact: true }).selectOption('completed');
+      await page.getByRole('button', { name: /Open lesson Completed communication practice/ }).waitFor();
+      await assertImmediateCards();
+    }
+  }));
+
   it('counts only public lessons across status filters and pages while keeping private lessons available', t => withPage(t, async page => {
     let completedIsPrivate = false;
     await page.route('**/v1/lessons', async route => {

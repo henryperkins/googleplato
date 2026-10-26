@@ -18,6 +18,8 @@ colors:
   border: "oklch(0.905 0 0)"
   input: "oklch(0.62 0 0)"
   ring: "oklch(0.336 0.182 285)"
+  sidebar: "oklch(0.336 0.182 285)"
+  sidebar-foreground: "oklch(0.985 0 0)"
   primary-text: "oklch(0.336 0.182 285)"
   link: "oklch(0.336 0.182 285)"
   header: "oklch(0.336 0.182 285)"
@@ -47,6 +49,8 @@ colors:
   dark-border: "oklch(1 0 0 / 10%)"
   dark-input: "oklch(1 0 0 / 45%)"
   dark-ring: "oklch(0.72 0.14 285)"
+  dark-sidebar: "oklch(0.255 0.065 285)"
+  dark-sidebar-foreground: "oklch(0.985 0 0)"
   dark-primary-text: "oklch(0.78 0.12 285)"
   dark-link: "oklch(0.78 0.12 285)"
   dark-header: "oklch(0.4 0.15 285)"
@@ -62,16 +66,16 @@ colors:
   dark-danger-border: "oklch(0.505 0.213 27.518)"
   admin-bar: "#470d99"
   classroom-primary-default: "#8b1a1a"
-  workspace: "oklch(97% 0.001 106.424)"
-  dark-workspace: "oklch(16.5% 0.012 285)"
-  completed-background: "oklch(95% 0.052 163.051)"
-  completed-foreground: "oklch(50.8% 0.118 165.612)"
-  in-progress-background: "oklch(96.2% 0.059 95.617)"
-  in-progress-foreground: "oklch(55.5% 0.163 48.998)"
-  dark-completed-background: "oklch(32% 0.06 163)"
-  dark-completed-foreground: "oklch(84% 0.13 163)"
-  dark-in-progress-background: "oklch(33% 0.07 75)"
-  dark-in-progress-foreground: "oklch(85% 0.14 80)"
+  workspace: "oklch(0.97 0.001 106.424)"
+  dark-workspace: "oklch(0.165 0.012 285)"
+  completed-background: "oklch(0.95 0.052 163.051)"
+  completed-foreground: "oklch(0.508 0.118 165.612)"
+  in-progress-background: "oklch(0.962 0.059 95.617)"
+  in-progress-foreground: "oklch(0.555 0.163 48.998)"
+  dark-completed-background: "oklch(0.32 0.06 163)"
+  dark-completed-foreground: "oklch(0.84 0.13 163)"
+  dark-in-progress-background: "oklch(0.33 0.07 75)"
+  dark-in-progress-foreground: "oklch(0.85 0.14 80)"
 typography:
   headline:
     fontFamily: "'Geist Variable', ui-sans-serif, system-ui, sans-serif"
@@ -243,7 +247,7 @@ The existing interface is **direct, structured, and compact**, with **structured
 
 The system is **lightly layered, with restrained structural shadows**. Geist supplies the interface and learner-message typography. Coach replies use a system serif, creating a visible distinction between the two voices. Cards, form controls, navigation items, and message bubbles share a gentle corner language with different radii for different roles.
 
-This is a record of the implemented system. Values come from [index.css](client/src/index.css), the [UI primitives](client/src/components/ui/), [branding utilities](client/src/lib/branding.js), and the installed Tailwind theme. Local Chromium inspection covered administration, the lesson list, and a resumed conversation at desktop (1440 px) and mobile (390 px) widths, using temporary sample records in an isolated database. Dark token overrides were sampled separately. These checks establish styles and layout observations, without certifying accessibility or live service behavior. The structure follows the [DESIGN.md format](https://raw.githubusercontent.com/google-labs-code/design.md/main/docs/spec.md).
+This record was refreshed against the implementation on 2026-10-26. Values come from [index.css](client/src/index.css), the [UI primitives](client/src/components/ui/), [branding utilities](client/src/lib/branding.js), and the installed Tailwind theme. Local Chromium inspection used a fresh client build, synthetic records, and a temporary SQLite database to sample administration, the lesson list, and a resumed conversation at desktop (1440 px) and mobile (390 px) widths in light and dark themes. This establishes sampled styles and layout, without certifying accessibility, physical devices, or live service behavior. The structure follows the [DESIGN.md format](https://raw.githubusercontent.com/google-labs-code/design.md/main/docs/spec.md).
 
 **Key Characteristics:**
 
@@ -267,7 +271,11 @@ The palette combines a deep purple administration accent, high-contrast neutrals
 | Classroom primary | `classroom-primary-default` | Seeded classroom header and action color, replaced by the admin's saved setting. |
 | Classroom accent | `classroom-primary-default` | New classrooms **Match primary**: links and focus rings derive from the primary until the admin saves a different accent. |
 
-The semantic primary and the literal admin-bar/logo purple are different source values. Preserve their surface-specific definitions; the comment in `index.css` does not make them numerically identical. The `accent` CSS token is a neutral interaction wash. The classroom's configured accent supplies accessible link and focus colors; it does not replace `--accent`. Saved primary surfaces retain their original color. Foregrounds are selected by contrast ratio, with a black fallback when neither white nor near-black reaches 4.5:1. Separate `primary-text` and `link` roles adjust failing text colors for light and dark surfaces by moving OKLCH lightness while keeping hue and chroma, so a pale brand reads as a deeper shade of itself rather than a grayed one. The Customizer previews light and dark side by side with the same derivation as the classroom, and notes when the primary barely stands out from white or what dark mode changes.
+The semantic primary and the literal admin-bar/logo purple are different source values. Preserve their surface-specific definitions; the comment in `index.css` does not make them numerically identical. The `accent` CSS token is a neutral interaction wash. The classroom's configured accent supplies accessible link and focus colors; it does not replace `--accent`. The light classroom header retains the saved primary; action fills and dark surfaces are derived by the contrast rules below. Foregrounds are selected by contrast ratio, with a black fallback when neither white nor near-black reaches 4.5:1. Separate `primary-text` and `link` roles adjust failing text colors for light and dark surfaces by moving OKLCH lightness while keeping hue and chroma, so a pale brand reads as a deeper shade of itself rather than a grayed one. The Customizer previews light and dark side by side with the same derivation as the classroom, and notes when the primary barely stands out from white or what dark mode changes.
+
+Administration uses `sidebar` and `sidebar-foreground` for its navigation band. Its dark sidebar is deliberately deeper than the dark primary action fill. Preserve that separation when documenting or previewing navigation.
+
+Explicit light and dark panels carry their own color scheme as well as their semantic tokens. A light preview inside a dark page keeps light control styling. Shadow-root component previews use the inherited color scheme with `light-dark()` for theme-dependent fills and borders, so they follow the same boundary in Chromium and WebKit.
 
 ### Neutral
 
@@ -340,7 +348,7 @@ The spacing unit is a quarter rem (4 px at the inspected root size). The app use
 | Surface | Container and responsive behavior |
 | --- | --- |
 | Learner shell and lesson list | Centered, up to 64 rem (1024 px), with 16 px page padding. The header bands pad inside the same column, so the classroom name lines up with the page heading. |
-| Lesson grid | One column initially, two from 40 rem (640 px), three from 64 rem (1024 px); 12 px gaps. |
+| Lesson grid | One column initially, two from 40 rem (640 px), three from 64 rem (1024 px); 12 px gaps. Each visible course group has its own named list and progress header. |
 | Chat and composer | Centered, up to 48 rem (768 px); messages occupy at most 85% of the conversation width. |
 | User settings | Centered, up to 32 rem (512 px). |
 | Auth card | Up to 28 rem (448 px), within a full-height branded page. |
@@ -351,6 +359,8 @@ The spacing unit is a quarter rem (4 px at the inspected root size). The app use
 | Authoring workspaces | Vertical stack initially; conversational editor and preview form a 3/5–2/5 split from the large breakpoint. |
 
 Filters stack on narrow screens and align horizontally from the small breakpoint; a filter select shrinks below its longest option instead of widening the page, and long course names wrap inside lesson cards. Dashboard grids vary by information density: summary cards use one then two columns; compact pacing statistics use two then three. Dialog actions stack in reverse order on small screens and align right in a row from the small breakpoint.
+
+Course headings use muted, semibold 14 px uppercase text with wider tracking. The completion count sits beside the title from the small breakpoint and below it on narrow screens; a 6 px rounded track follows. Counts use all public, non-custom lessons available to the learner in that course, independently of the current filter and page. They describe course progress, not the number of cards currently shown. Lesson cards give metadata the full width on its own row before the right-aligned outline action, allowing long course names to wrap.
 
 The chat uses one accessible sticky header and document scrolling. The header shares the conversation's 48 rem column. The lesson title (16 px / 600) leads; **View outline** follows it on the same line and wraps beneath a long title, which itself wraps (up to three lines) instead of truncating. The outline action's 44 px touch area comes from an overlay, so it doesn't grow the row: the header is about 67 px tall on a phone. The lesson page fills the space between the shell's bars instead of assuming their height, so a short conversation's composer rests at the bottom without the page scrolling on open. Focused elements scroll clear of the sticky header and composer, whose measured heights set the page's scroll padding. On short viewports (under 34 em tall: landscape phones, 200% zoom, or enlarged default text) the header and composer scroll with the page rather than pinning. The composer retains inline and elevated variants; the inactive copy is inert and the elevated copy carries a stronger shadow. Admin action and filter rows wrap at narrow widths. Preserve scroll and focus behavior when altering this layout; [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) records the relevant constraints.
 
@@ -369,13 +379,17 @@ Depth is lightly layered and structural. Cards usually rest on a fine outline wi
 
 The exact shadow values are in `.impeccable/design.json`. The dialog backdrop uses black at 35% opacity (`backdrop:bg-black/35`) with a supported 4 px blur (`backdrop:backdrop-blur-xs`). These treatments distinguish blocking overlays from ordinary content.
 
-Interaction transitions generally use 150 ms with the installed standard easing. Dialog and menu transitions use 100 ms. Progress changes use `cubic-bezier(0.16, 1, 0.3, 1)`. Progress fills scale from the left over 280 ms while their semantic color settles over 150 ms; they do not animate layout width. Lesson cards appear immediately, without delayed entry choreography. Streamed replies type out at roughly one character every 30 ms and speed up to absorb any backlog, so a typical reply that has already arrived finishes revealing in under two seconds instead of trailing the stream.
+Interaction transitions generally use 150 ms with the installed standard easing. Dialog and menu transitions use 100 ms. Lesson and outline progress fills scale from the left over 280 ms with `cubic-bezier(0.16, 1, 0.3, 1)` while their semantic color settles over 150 ms. The course-summary bar is a separate implementation: it updates percentage width with the standard transition. Streamed replies type out at roughly one character every 30 ms and speed up to absorb any backlog, so a typical reply that has already arrived finishes revealing in under two seconds instead of trailing the stream.
+
+Lesson cards appear immediately on load, after filtering, and after pagination, without entry movement or stagger delays. This applies with both normal and reduced-motion preferences, keeping lesson choices ready to use.
 
 The focal motion acknowledges demonstrated mastery: the check beside **Exemplar Achieved!** draws once over 520 ms after the completion reply finishes. Its label, success color, and full progress bar are immediately readable. Resuming a completed lesson shows the finished check without replaying it. The effect cancels on navigation, backgrounding, or a change to reduced motion; completion and persistence remain owned by the lesson engine.
 
-With `prefers-reduced-motion: reduce`, the completed check is static, progress changes position immediately, and shared dialogs/menus retain their fades without zoom or translation. Button presses and switches avoid movement, and loading indicators keep their status text without rotating. Streamed replies display received chunks without the artificial typing delay. Color, focus, and opacity feedback remain available.
+With `prefers-reduced-motion: reduce`, the completed check is static, lesson and outline progress change position immediately, and shared dialogs/menus retain their fades without zoom or translation. Button presses and switches avoid movement, and loading indicators keep their status text without rotating. Streamed replies display received chunks without the artificial typing delay. Color, focus, and opacity feedback remain available.
 
 Users uses motion only for an opened sheet (220 ms), the Details chevron (180 ms), and action feedback (150 ms fade with a 320 ms success check). The list appears immediately. Reduced motion removes sheet travel, chevron rotation transitions, and the check drawing; feedback retains a brief fade. Pending saves and invitations retain focus, expose their status in text, and reject repeat activation. Invitation failures appear beside Send and keep the queue available for retry.
+
+A confirmed learner reply gets a brief 1600 ms save notice, aligned with the coach text. The notice has a small scale acknowledgement and fades away; reduced motion retains only the fade. The coach's opening save stays silent. Unconfirmed saves, conflicts, and failed submissions keep their explanatory text and recovery actions visible, rather than using the transient success treatment.
 
 Routine route changes are immediate. The unused transition-marker hook has been removed; navigation does not add route choreography.
 
@@ -412,7 +426,7 @@ Structured and familiar, with compact sizing and a clear variant API. The common
 
 These are compact desktop dimensions. Below 640 px or when a coarse pointer is available, shared buttons and explicitly marked touch controls have a minimum 44 × 44 px hit area. Links inside a sentence, and the lesson header's **View outline**, get the same hit area from an invisible overlay (`.touch-target-inline`) so their lines keep normal spacing, and horizontal tab lists grow to fit 44 px tabs instead of scrolling. Heights increase with the size name; `lg` is reserved for the single next step after a completed lesson. Default and large text are 14 px / 500; small and extra-small text are 12 px, on the caption scale. Icons are usually 16 px, with smaller icons on smaller controls.
 
-Shared button focus uses a ring-colored border and a 3 px ring at 50% opacity. Other keyboard-focusable controls have a solid 3 px outline consuming the complete ring color; a colored header's own controls use its contrasting foreground for focus, while a menu opened from the header keeps the page ring, since it sits on the popover surface. Account labels match the rendered name. Disabled controls reduce opacity and pointer interaction. A button that starts async work stays focusable while it waits (`focusableWhenDisabled`, exposed as `aria-disabled` with the same reduced opacity), so focus never falls to the document. Invalid controls use destructive border and ring colors. Pressed buttons move down 1 px unless they expose a popup. Primary buttons soften their fill slightly on hover (`hover:bg-primary/90`).
+Keyboard focus uses a solid 3 px outline in the complete ring color, offset 2 px from the control. Shared buttons and text inputs also add a 3 px ring at 50% opacity and generally color their border with the ring token; outline buttons retain their input-colored border in dark mode. Destructive buttons and invalid controls use their error border and ring variants. The global outline applies even when a component has an `outline-none` utility, so component previews must reproduce the full rendered treatment. A colored header's own controls use its contrasting foreground for focus, while a menu opened from the header keeps the page ring, since it sits on the popover surface. Account labels match the rendered name. Disabled controls reduce opacity and pointer interaction. A button that starts async work stays focusable while it waits (`focusableWhenDisabled`, exposed as `aria-disabled` with the same reduced opacity), so focus never falls to the document. Pressed buttons move down 1 px unless they expose a popup. Primary buttons soften their fill slightly on hover (`hover:bg-primary/90`).
 
 ### Inputs and textareas
 
@@ -436,7 +450,7 @@ Lesson status is a separate visual language: a completed check on an emerald was
 
 Default cards use the card surface, 11.2 px corners, a fine foreground ring, 16 px vertical padding, and 16 px internal gaps. Header and content sections add horizontal padding. Footer sections use a top border and a muted half-opacity background.
 
-Lesson cards override the outer padding and gap. A title-first open action occupies the upper region; a separate metadata strip and “View outline” action sit below it. Descriptions are clamped to two lines. The outline action is a sibling of the open action. Hover adds medium elevation and colors the title with the accessible `primary-text` role. Inactive plugin cards retain full text opacity and communicate their state with a label and switch.
+Lesson cards override the outer padding and gap. A title-first open action occupies the upper region; metadata uses a full-width row below it, followed by the right-aligned “View outline” action. Descriptions are clamped to two lines. The title and status indicator can wrap when space is tight. The outline action is a sibling of the open action. Hover on a fine pointer adds medium elevation; the title uses the accessible `primary-text` role on hover. The visible status icon is paired with status wording in the open action's accessible name. Inactive plugin cards retain full text opacity and communicate their state with a label and switch.
 
 ### Navigation
 
@@ -454,7 +468,7 @@ Preserve the silent chat log, separate announcements, keyboard message navigatio
 
 ### Dialogs, menus, and empty states
 
-Dialogs and menus use popover surfaces, rounded containment, and compact spacing. Dialogs are centered; menus attach to their trigger. Dialog footers use a muted layer to group actions. Focus and dismissal behavior come from the existing Base UI / Radix primitives and their wrappers.
+Dialogs and menus use popover surfaces, rounded containment, and compact spacing. Standard dialogs are centered; sheet variants dock to the bottom. Menus attach to their trigger. Dialog footers use a muted layer to group actions. The shared dialog wrapper uses native `<dialog>` and `showModal()`; dropdowns use the native Popover API with application-managed positioning and keyboard navigation. Preserve the wrappers' focus restoration, scroll locking, and dismissal behavior; Base UI supplies other controls, but does not own these overlay implementations.
 
 Lesson-list loading and empty states use a dashed, rounded boundary, centered text, and roomy vertical padding. Distinguish an empty classroom, an empty filter result, and loading through their existing wording and status announcements. Load failures use the semantic danger surface and a **Try again** action, keeping previously loaded lessons visible. Pagination can wrap onto additional rows when text grows.
 

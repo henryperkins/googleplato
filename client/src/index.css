@@ -226,12 +226,13 @@
   }
   html {
     @apply font-sans bg-background text-foreground;
-    /* Native controls, scrollbars, and select popups follow the theme the
-       learner chose (ThemeToggle puts .dark on <html>), not the operating
-       system's, so they never render dark on a light page or light on a dark one. */
+  }
+  /* Native controls and shadow-root previews follow the selected theme,
+     including explicitly scoped light and dark Customizer panels. */
+  html, .light {
     color-scheme: light;
   }
-  html.dark {
+  html.dark, .dark {
     color-scheme: dark;
   }
   /* Prevent display utility classes (e.g. .flex) from overriding the UA

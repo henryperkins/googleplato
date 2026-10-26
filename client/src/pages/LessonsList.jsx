@@ -343,7 +343,7 @@ export default function LessonsList() {
                   role="list"
                   aria-label={group.courseName ? `${group.courseName} lessons` : 'Lessons'}
                 >
-                  {group.lessons.map((lesson, i) => (
+                  {group.lessons.map((lesson) => (
                     <LessonCardItem
                       key={lesson.lessonId}
                       lesson={lesson}
@@ -351,7 +351,6 @@ export default function LessonsList() {
                       timeStats={timeStats}
                       navigate={navigate}
                       setDetailLesson={setDetailLesson}
-                      animationDelay={i * 30}
                     />
                   ))}
                 </ul>
@@ -436,12 +435,9 @@ function CourseProgressHeader({ courseName, completed, total }) {
 
 // Wrapper for individual lesson cards in the grid. Extracted to avoid
 // duplicating the card rendering logic when grouping by course.
-function LessonCardItem({ lesson, lessonData, timeStats, navigate, setDetailLesson, animationDelay }) {
+function LessonCardItem({ lesson, lessonData, timeStats, navigate, setDetailLesson }) {
   return (
-    <li
-      className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both list-none"
-      style={{ animationDelay: `${animationDelay}ms` }}
-    >
+    <li className="list-none">
       <LessonCard
         lesson={lesson}
         progress={lessonData[lesson.lessonId]}
