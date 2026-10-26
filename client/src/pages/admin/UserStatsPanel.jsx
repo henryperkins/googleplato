@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { adminApi } from './adminApi.js';
 import { Card, CardContent } from '@/components/ui/card';
-import CompletionRing from './CompletionRing.jsx';
 
 function StatTile({ label, value, sub }) {
   return (
@@ -78,14 +77,11 @@ export default function UserStatsPanel({ userId }) {
         <h2 className="text-lg font-semibold">Activity</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-          <div className="flex justify-center">
-            <CompletionRing
-              completed={lessonsCompleted}
-              available={lessonsAvailable}
-              size={96}
-              label="Lessons completed"
-            />
-          </div>
+          <StatTile
+            label="Lessons completed"
+            value={typeof lessonsCompleted === 'number' && typeof lessonsAvailable === 'number' ? `${lessonsCompleted} of ${lessonsAvailable}` : '—'}
+            sub="Out of all published lessons"
+          />
           <StatTile label="Last active" value={formatRelativeTime(lastActiveAt)} />
           {/* Estimated from exchanges × MINS_PER_EXCHANGE, like the dashboard's "Est. active time". */}
           <StatTile

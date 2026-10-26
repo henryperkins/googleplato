@@ -95,6 +95,35 @@ async function controlAiSettings(context, overrides = {}) {
   };
 }
 
+async function controlUsers(context, count = 4) {
+  const users = Array.from({ length: count }, (_, i) => ({
+    userId: `mobile-user-${i}`, name: i === 0 ? 'Avery North' : `Learner ${String(i).padStart(2, '0')}`,
+    email: i === 1 ? `${'long-address.'.repeat(5)}@example.test` : `learner${i}@example.test`,
+    username: `learner${i}`, role: 'user', userGroup: 'Autumn cohort',
+    createdAt: '2026-10-01T12:00:00Z', lessonsCompleted: i, lessonsAvailable: 30,
+    lastActiveAt: null, customFields: { team: 'Design' },
+  }));
+  const invites = [{ inviteToken: 'mobile-invite', email: 'invited@example.test', status: 'pending', createdAt: '2026-10-02T12:00:00Z' }];
+  const entries = [{ inviteToken: 'mobile-wait', name: 'Zoe West', email: 'zoe@example.test', createdAt: '2026-10-03T14:35:00Z' }];
+  await context.route('**/v1/admin/**', route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.method() !== 'GET') return route.fulfill({ status: 503, json: { error: 'Simulated request failure. Try again.' } });
+    let data = {};
+    if (path === '/v1/admin/users') data = users;
+    else if (path.endsWith('/stats')) data = { lessonsCompleted: 0, lessonsAvailable: 30, lessonDurations: [] };
+    else if (path === '/v1/admin/invites') data = invites;
+    else if (path === '/v1/admin/invites/link') data = null;
+    else if (path === '/v1/admin/waitlist') data = { entries, open: true, hasApiKey: false };
+    else if (path === '/v1/admin/plugins') data = [];
+    else if (path === '/v1/admin/settings') data = {
+      userGroups: ['Autumn cohort'], userFields: [{ id: 'team', label: 'Team', type: 'dropdown', options: ['Design', 'Operations'] }],
+    };
+    return route.fulfill({ json: data });
+  });
+  return { users, entries, invites };
+}
+
 describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(root, 'client/dist/index.html')), 'Run npm run build:client before browser tests');
@@ -163,6 +192,214 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
+  it('keeps mobile people, details, actions and pagination usable without sideways scrolling', async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, storageState, hasTouch: true, isMobile: true });
+    try {
+      await controlUsers(context, 25);
+      const page = await context.newPage();
+      await navigate(page, 'users');
+      for (const width of [320, 390, 640]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.getByRole('list', { name: 'Users and invites', exact: true }).waitFor();
+        const box = await page.getByRole('button', { name: 'Invite Users', exact: true }).boundingBox();
+        const nav = await page.getByRole('navigation', { name: 'Admin navigation' }).boundingBox();
+        assert.ok(box.y > 422 && box.y + box.height <= nav.y + 1, 'Invite stays within thumb reach above navigation');
+        assert.ok(box.height >= 44, 'Primary action has a touch-sized target');
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= width + 1);
+        assert.ok(await page.evaluate(() => document.documentElement.scrollHeight) <= 845, 'The directory scrolls inside the shell, without a blank document tail');
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      const row = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Edit Avery North', exact: true }) });
+      await row.locator('summary').tap();
+      await row.getByText('Autumn cohort', { exact: true }).waitFor();
+      await row.getByText('Never', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Next page', exact: true }).click();
+      await page.getByText('Page 2 of 2', { exact: true }).waitFor();
+      await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');
+      await page.getByRole('button', { name: 'Invite zoe@example.test', exact: true }).waitFor();
+      assert.equal(await page.getByRole('navigation', { name: 'Pagination', exact: true }).count(), 0, 'A filter resets pagination to its first page');
+      await page.getByRole('button', { name: 'Edit wait list entry for Zoe West', exact: true }).click();
+      await page.getByRole('heading', { name: 'Edit Wait List Entry', exact: true }).waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Edit Wait List Entry');
+      await page.getByRole('button', { name: 'Remove from wait list', exact: true }).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Remove', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: 'Simulated request failure. Try again.' }).waitFor();
+      await page.getByLabel('Email', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('heading', { name: 'Users', exact: true }).waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Edit wait list entry for Zoe West');
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.getByRole('region', { name: 'Users and invites', exact: true }).waitFor();
+      assert.equal(await page.getByRole('list', { name: 'Users and invites', exact: true }).count(), 0, 'Only one directory presentation is mounted');
+      await page.getByRole('button', { name: 'Date added', exact: false }).click();
+      assert.equal(await page.getByRole('columnheader', { name: 'Date added', exact: false }).getAttribute('aria-sort'), 'ascending');
+    } finally { await context.close(); }
+  });
+
+  it('recovers from an empty custom-field filter and preserves sorting through the mobile sheet', async () => {
+    const { context, page } = await openPage({ width: 390, height: 844 });
+    try {
+      await controlUsers(context);
+      await navigate(page, 'users');
+      await page.getByRole('button', { name: 'Filter & sort', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Filter & sort', exact: true });
+      await dialog.getByRole('combobox', { name: 'Custom field', exact: true }).selectOption('team');
+      await dialog.getByRole('combobox', { name: 'Team value', exact: true }).selectOption('Operations');
+      await dialog.getByRole('button', { name: 'Show 0 people', exact: true }).click();
+      await page.getByText('No users match these filters.', { exact: true }).waitFor();
+      assert.equal(await page.getByText('No users yet.', { exact: false }).count(), 0);
+      await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'users-search');
+      assert.equal(await page.getByRole('list', { name: 'Users and invites' }).getByRole('listitem').count(), 6);
+      await page.getByRole('button', { name: 'Filter & sort', exact: true }).click();
+      await dialog.getByLabel('Order', { exact: true }).selectOption('desc');
+      await dialog.getByRole('button', { name: 'Show 6 people', exact: true }).click();
+      const first = page.getByRole('list', { name: 'Users and invites' }).getByRole('listitem').first();
+      await first.getByRole('button', { name: 'Edit wait list entry for Zoe West', exact: true }).waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Filter & sort');
+    } finally { await context.close(); }
+  });
+
+  it('keeps account saving focusable, rejects duplicate activation and restores the edited row', async () => {
+    for (const width of [390, 1280]) {
+      const { context, page } = await openPage({ width, height: 900 });
+      let release;
+      const response = new Promise(resolve => { release = resolve; });
+      try {
+        const fixture = await controlUsers(context);
+        let requests = 0;
+        await context.route('**/v1/admin/users/mobile-user-0', async route => {
+          requests++;
+          const changes = route.request().postDataJSON();
+          await response;
+          Object.assign(fixture.users[0], changes);
+          await route.fulfill({ json: fixture.users[0] });
+        });
+        await navigate(page, 'users');
+        await page.getByRole('button', { name: 'Edit Avery North', exact: true }).press('Enter');
+        await page.getByRole('heading', { name: 'Edit User', exact: true }).waitFor();
+        assert.equal(await page.evaluate(() => document.activeElement.tagName), 'H1');
+        await page.getByLabel('Name', { exact: true }).fill('Avery Updated');
+        await page.getByRole('button', { name: 'Save', exact: true }).press('Enter');
+        const pending = page.getByRole('button', { name: 'Saving…', exact: true });
+        await pending.waitFor();
+        assert.equal(await pending.getAttribute('aria-disabled'), 'true');
+        assert.equal(await pending.evaluate(el => el === document.activeElement), true);
+        assert.equal(await page.getByLabel('Name', { exact: true }).getAttribute('readonly'), '');
+        await pending.press('Enter');
+        assert.equal(requests, 1, 'Only one write is sent while saving');
+        release();
+        await page.getByRole('button', { name: 'Edit Avery Updated', exact: true }).waitFor();
+        await page.getByRole('status').filter({ hasText: 'User updated.' }).waitFor();
+        assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Edit Avery Updated');
+      } finally { release(); await context.close(); }
+    }
+  });
+
+  it('shows failed invitations inside the sheet and preserves focus and the queue for retry', async () => {
+    const { context, page } = await openPage({ width: 390, height: 844 });
+    let release;
+    const response = new Promise(resolve => { release = resolve; });
+    try {
+      await controlUsers(context);
+      let requests = 0;
+      await context.route('**/v1/admin/invites/bulk', async route => {
+        requests++;
+        await response;
+        await route.fulfill(requests === 1
+          ? { status: 503, json: { error: 'Invitations are unavailable. Try again.' } }
+          : { json: { sent: 1, skipped: 0, failed: 0, links: [] } });
+      });
+      await navigate(page, 'users');
+      await page.getByRole('button', { name: 'Invite Users', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Invite Users', exact: true });
+      await dialog.getByLabel('Email(s)', { exact: true }).fill('new@example.test');
+      await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Send 1 invite', exact: true }).press('Enter');
+      const pending = dialog.getByRole('button', { name: 'Sending…', exact: true });
+      await pending.waitFor();
+      assert.equal(await pending.evaluate(el => el === document.activeElement), true);
+      await pending.press('Enter');
+      assert.equal(requests, 1);
+      release();
+      await dialog.getByRole('alert').filter({ hasText: 'Invitations are unavailable. Try again.' }).waitFor();
+      const retry = dialog.getByRole('button', { name: 'Send 1 invite', exact: true });
+      assert.equal(await retry.evaluate(el => el === document.activeElement), true);
+      await dialog.getByRole('button', { name: 'Remove new@example.test', exact: true }).waitFor();
+      await retry.press('Enter');
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(requests, 2);
+      assert.equal(await page.getByRole('button', { name: 'Invite Users', exact: true }).evaluate(el => el === document.activeElement), true);
+    } finally { release(); await context.close(); }
+  });
+
+  it('supports touch sheet dismissal and reduces movement when requested', async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, storageState, hasTouch: true, isMobile: true });
+    try {
+      await controlUsers(context);
+      const page = await context.newPage();
+      await navigate(page, 'users');
+      await page.getByRole('button', { name: 'Filter & sort', exact: true }).tap();
+      const sheet = page.getByRole('dialog', { name: 'Filter & sort', exact: true });
+      assert.equal(await sheet.evaluate(el => getComputedStyle(el).animationName), 'users-sheet-arrive');
+      await page.waitForTimeout(250);
+      const handle = await sheet.locator('[data-slot="sheet-handle"]').boundingBox();
+      const cdp = await context.newCDPSession(page);
+      const point = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 };
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+      // A real swipe has intermediate frames; teleporting the touch point can
+      // leave Chromium's synthetic gesture recognizer suppressing the next tap.
+      for (let step = 1; step <= 7; step++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...point, y: point.y + step * 20 }] });
+        await page.waitForTimeout(30);
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await sheet.waitFor({ state: 'hidden' });
+      // Allow Chromium's post-swipe click suppression to settle before a new gesture.
+      await page.waitForTimeout(400);
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.getByRole('button', { name: 'Filter & sort', exact: true }).tap();
+      assert.equal(await sheet.evaluate(el => getComputedStyle(el).animationName), 'users-feedback-arrive');
+      await page.keyboard.press('Escape');
+      await sheet.waitFor({ state: 'hidden' });
+      const row = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Edit Avery North', exact: true }) });
+      await row.locator('summary').tap();
+      assert.equal(await row.locator('.users-detail-chevron').evaluate(el => getComputedStyle(el).transitionDuration), '0s');
+      await page.setViewportSize({ width: 844, height: 390 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 844, 'Landscape remains usable');
+    } finally { await context.close(); }
+  });
+
+  it('keeps focus in the directory when inviting removes the active wait-list row', async () => {
+    for (const width of [390, 1280]) {
+      const { context, page } = await openPage({ width, height: 844 });
+      let release;
+      const response = new Promise(resolve => { release = resolve; });
+      try {
+        const fixture = await controlUsers(context);
+        let requests = 0;
+        await context.route('**/v1/admin/waitlist/mobile-wait/invite', async route => {
+          requests++;
+          await response;
+          fixture.entries.length = 0;
+          fixture.invites.push({ inviteToken: 'mobile-wait', email: 'zoe@example.test', status: 'pending', createdAt: '2026-10-26T12:00:00Z' });
+          await route.fulfill({ json: { sent: true } });
+        });
+        await navigate(page, 'users');
+        if (width < 768) await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');
+        else await page.getByRole('button', { name: 'Wait List 1', exact: true }).click();
+        const invite = page.getByRole('button', { name: 'Invite zoe@example.test', exact: true });
+        await invite.press('Enter');
+        await page.waitForFunction(() => document.activeElement?.getAttribute('aria-disabled') === 'true');
+        await invite.press('Enter');
+        assert.equal(requests, 1);
+        release();
+        await page.getByText('No users match these filters.', { exact: true }).waitFor();
+        assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Users');
+      } finally { release(); await context.close(); }
+    }
+  });
+
   it('shows readable waitlist timestamps in the viewer locale and timezone', async () => {
     const entries = [
       { inviteToken: 'waitlist-early', name: 'Avery North', email: 'avery@example.test', createdAt: '2026-10-26T01:35:07.000Z' },
@@ -179,16 +416,21 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
         }));
         const page = await context.newPage();
         await navigate(page, 'users');
-        await page.getByRole('button', { name: /^Wait List\s+2$/ }).click();
-        const region = page.getByRole('region', { name: 'Users and invites', exact: true });
+        await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');
         for (const width of [320, 1280]) {
           await page.setViewportSize({ width, height: 740 });
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= width + 1, 'The page stays within the viewport');
           if (width === 320) {
-            await region.focus();
-            await region.press('ArrowRight');
-            await page.waitForFunction(() => document.querySelector('[aria-label="Users and invites"]').scrollLeft > 0);
+            for (const [index, entry] of entries.entries()) {
+              const row = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: `Edit wait list entry for ${entry.name}`, exact: true }) });
+              const date = row.locator('time');
+              assert.equal(await date.innerText(), expected[index]);
+              const box = await date.boundingBox();
+              assert.ok(box.x >= 0 && box.x + box.width <= width, 'Full waitlist time is readable without sideways scrolling');
+            }
+            continue;
           }
+          await page.getByRole('region', { name: 'Users and invites', exact: true }).waitFor();
           for (const [index, entry] of entries.entries()) {
             const row = page.getByRole('row').filter({ has: page.getByRole('button', { name: `Edit wait list entry for ${entry.name}`, exact: true }) });
             const date = row.getByRole('cell').nth(4);
@@ -297,7 +539,7 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
         await page.waitForFunction(() => document.activeElement?.id === 'main-content' && document.title === 'Users — plato');
         await page.getByRole('button', { name: 'Invite Users', exact: true }).waitFor({ state: 'visible' });
         await page.keyboard.press('Tab');
-        assert.equal(await page.evaluate(() => document.activeElement?.textContent.trim()), 'Invite Users');
+        assert.equal(await page.evaluate(() => document.activeElement?.textContent.trim()), width < 768 ? 'Manage' : 'Invite Users');
       } finally {
         await context.close();
       }
