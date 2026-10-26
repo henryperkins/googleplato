@@ -173,3 +173,50 @@ fixtures. Publication logs are retained locally under
 
 This is a feature-branch publication. It does not merge into `main` or change
 deployment controls. The original checkout and index are preserved.
+
+## PR qualification — PostgreSQL and deployment controls
+
+The application source at `e2d7e8de9935fe278a52a1a7eff958d1e128977d` was
+checked again in the clean feature worktree on 2026-10-26, after a fresh
+`npm ci --no-audit --no-fund`. `npm test` ran against a disposable local
+PostgreSQL 17 database with `POSTGRES_TEST_URL` configured:
+
+| Check | Fresh result |
+| --- | --- |
+| Full client unit suite | 582 passed, 0 failed, 0 skipped |
+| Full server unit suite, including PostgreSQL | 761 passed, 0 failed, 0 skipped |
+| PostgreSQL persistence and concurrent writers | Passed, including its 11 nested checks |
+| Production `start.js` save-observability HTTP check | Passed |
+
+The two previously skipped checks were **PostgreSQL persistence and concurrent
+writers** and **the production `start.js` save-observability HTTP check**.
+Both now pass. Enabling the persistence suite discovers 11 nested checks,
+which explains the change from 748 passes and two skips to 761 passes.
+This qualifies the PostgreSQL adapter and production entrypoint against a
+disposable database; it does not exercise the live Cloud SQL instance.
+
+The 17 Chromium and 17 WebKit browser passes above remain the isolated
+application-source evidence. The following screenshots were copied unchanged
+from that publication run into tracked review assets:
+
+- [Styles, desktop light mode](assets/customizer-experience-20261026/styles-desktop-light.png)
+- [Styles, desktop dark mode](assets/customizer-experience-20261026/styles-desktop-dark.png)
+- [Styles, phone viewport dark mode](assets/customizer-experience-20261026/styles-phone-dark.png)
+- [Reviewed Knowledge Base preview](assets/customizer-experience-20261026/knowledge-reviewed-preview.png)
+- [Knowledge Base unsaved-change dialog](assets/customizer-experience-20261026/knowledge-unsaved-dialog.png)
+- [Saved Knowledge Base viewer](assets/customizer-experience-20261026/knowledge-saved.png)
+
+Live control inspection found GitHub's **Trigger Deploy** workflow
+`disabled_manually`, while the independent Cloud Build **plato-main** trigger
+is enabled. Its filter accepts `refs/heads/main` pushes, and its inline build
+runs lint and the PostgreSQL-enabled unit suite before building and deploying
+`plato-shaped` in `idk-4e9b9/us-east1`. The GitHub push webhook is active with a
+successful last delivery. Cloud Build `1579cab7-d6a3-479a-9ad5-bcd614a21adb`
+successfully deployed current `main`, `f4254b6`, to ready Cloud Run revision
+`plato-shaped-00036-h5z`, serving 100% of traffic at inspection time.
+Merging this PR therefore also releases it with the current controls.
+
+An approving GitHub PR review and passing checks remain merge prerequisites.
+The earlier agent review does not satisfy that approval. Production behavior
+must be verified after the reviewed release; the local fixture screenshots
+do not claim live acceptance.
