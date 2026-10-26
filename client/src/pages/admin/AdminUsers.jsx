@@ -1058,7 +1058,7 @@ export default function AdminUsers() {
                   <TableCell><Badge variant="outline">Wait List</Badge></TableCell>
                   <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
                   <TableCell className="text-muted-foreground">&mdash;</TableCell>
-                  <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
+                  <TableCell className="whitespace-normal">{new Date(item.createdAt).toLocaleString()}</TableCell>
                   {filterField && (
                     <TableCell>
                       <div className="max-w-48 truncate">
