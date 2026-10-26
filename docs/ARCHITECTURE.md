@@ -301,6 +301,32 @@ Context assembled at runtime (server `lesson-coaching.js` for the coach;
 - Knowledge base is created/edited by admins via the KB Editor agent in the
   Customizer (not directly editable).
 
+### Learner language (#240)
+
+Every agent writes in the learner's browser language (`navigator.languages[0]`
+/ `navigator.language`). `client/js/language.js` maps the code to a language
+name and `withLanguage()` appends a `## Language` section to each of the 9
+agents' system prompts in `orchestrator.js`. Rules:
+
+- **English or an unmapped language adds nothing**, so English learners'
+  prompts are byte-for-byte what they were. Unknown codes fall back to
+  English rather than guessing.
+- **The directive names every literal plato parses out of agent output** as
+  "keep in English": the bracketed tags (`[PROGRESS: N]`, `[KB_UPDATE:]`,
+  `[PROFILE_UPDATE:]`, `[READINESS: N]`, `[DRAFT]`), JSON keys and fixed values
+  (`"status": "active"`), lesson markdown headings (`## Learning Objectives`,
+  `## Exemplar`, `## Coach Directive`), and the `- Can ` objective prefix that
+  `validateLessonMarkdown` requires. A translated tag or heading would break
+  parsing silently, so if you add a new parsed literal to a prompt, add it to
+  the directive too.
+- Admin-side agents (lesson creator/extractor, KB editor/extractor) follow
+  the *admin's* browser, so lessons and the KB are authored in that language.
+- Verified against Qwen3-VL on Bedrock (Spanish, 3 runs × 7 agents, outputs
+  run through plato's own parsers): all tags, JSON, headings, and `- Can `
+  objectives parsed; prose came back in Spanish. Internal KB fields the coach
+  reads but learners never see (`evidence`, `learnerPosition`) sometimes stay
+  English because their input (the lesson) is English — harmless.
+
 ## AI provider & model choice
 
 plato runs **one model for all nine agents** — no per-agent routing. Admins
@@ -1167,6 +1193,14 @@ filter is set to a course that no longer exists, it snaps back to "All courses"
 automatically. Filter and page changes are announced via an always-mounted
 `role="status" aria-live="polite"` region — no visible "N lessons" subhead.
 
+Lessons are grouped by course, and each course on the page gets a header with
+an "N of M lessons" progress bar (#395). The counts come from
+`courseCompletion()` (`client/src/lib/courseCompletion.js`) over **all** of
+the learner's lessons — never the filtered or paginated view, so a status
+filter like "Not started" can't turn "5 of 8" into "0 of 3". The learner's own
+`custom-*` lessons don't count toward a course. Purely informational; it reads
+`lessonKB.status` and never affects completion.
+
 `loadLessons()` merges system lessons (`/v1/lessons`) with user lessons from
 sync-data. To preview a lesson as a learner sees it (the live coach experience),
 admins share the lesson with themselves and view it in the classroom — the
@@ -1596,7 +1630,13 @@ learners re-pick after an admin edits the list. Deliberate choices:
 
 **Admin → Users.** Search matches custom field values too. A field filter
 (field + Has a value / Empty / a specific dropdown option) narrows the list
-and adds a column with that field's values.
+and adds a column with that field's values. **Download CSV** (#382) exports
+the list as shown (current filter, search, and sort) with one column per
+custom field (`client/src/lib/csv.js`). Cells that start with `= + - @` or a
+tab/CR get a leading `'` so spreadsheets treat them as text: names and
+answers arrive from the public wait-list form, so a formula there would be
+attacker-controlled (CSV injection). Dates are ISO; the file has a UTF-8 BOM
+and CRLF line endings so Excel opens it cleanly.
 
 ## Admin "View as User"
 
