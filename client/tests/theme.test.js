@@ -255,9 +255,12 @@ describe('theme controls', () => {
     assert.match(menu, /if \(closeOnSelect\) ctx\?\.closeMenu\(false\);/);
   });
 
-  it('offer the choice on the sign-in page too, ringed in the page text color', () => {
-    const login = read('src/pages/Login.jsx');
-    const footer = login.slice(login.lastIndexOf('</Card>'));
+  it('offer the choice on every public page too, ringed in the page text color', () => {
+    const footer = read('src/components/PublicFooter.jsx');
     assert.match(footer, /<div className="[^"]*" style=\{\{ '--ring': 'currentColor' \}\}>[\s\S]*<ThemeToggle \/>/);
+    for (const page of ['Login', 'Signup', 'Waitlist', 'ForgotPassword', 'ResetPassword', 'Privacy', 'Setup']) {
+      const src = read(`src/pages/${page}.jsx`);
+      assert.match(src.slice(src.lastIndexOf('</Card>')), /<PublicFooter\b[\s\S]*?\/>\s*<\/main>/, `${page} footer`);
+    }
   });
 });

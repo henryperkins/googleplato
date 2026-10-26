@@ -154,6 +154,21 @@ existing explicit accents remain unchanged. Both previews use real button styles
 classroom identity, and isolated light/dark tokens. Partial hex input keeps the
 last complete color until blur or Save accepts a shorthand value.
 
+Knowledge Base conversation drafts mark turns after the last publication as
+`unpublished`. Before publishing the reviewed Markdown, the editor waits for
+all draft requests tracked by the current browser application to settle,
+including requests from an earlier editor mount. A rejected draft still allows
+the explicit save to publish the complete current conversation. This barrier
+orders local requests; it does not coordinate independent tabs or administrators.
+Once publication is acknowledged, the Customizer shows that content and
+navigates immediately. A background GET refreshes attribution/timestamps,
+retains the acknowledged content on failure, and never initiates navigation.
+
+The shared lesson Markdown parser recognizes section headings only outside
+backtick or tilde fences. It accepts the renderer's container indentation and
+recognizes CRLF boundaries without changing the preserved section body, so
+example headings do not become descriptions or hide later objectives.
+
 Invitation and reset emails use the validated primary with the same WCAG
 foreground selection as the classroom. All inserted names are HTML escaped;
 the SES display name uses bounded UTF-8 MIME words, and subject/body declare UTF-8.
@@ -1105,7 +1120,11 @@ published as lesson content until the save button is used.
 `buildConversationText` (`client/src/lib/lessonCreationEngine.js`) is the shared
 builder for the extractor input. The same pane (copy parametrized via props) backs both the lesson editor
 (`extractLessonMarkdown`) and the **knowledge base editor**
-(`AdminCustomizer` + `AdminKBSetup`, `extractKBMarkdown`).
+(`AdminCustomizer` + `AdminKBSetup`, `extractKBMarkdown`). The knowledge base
+editor likewise saves a current preview verbatim and extracts only when the
+preview is missing or stale. Its conversation auto-saves as a draft; turns
+after the last save carry `unpublished: true` until the knowledge base is saved
+(`client/src/lib/knowledgeBaseDraft.js`).
 
 ### Coach directive
 

@@ -128,14 +128,23 @@ export function readableColor(hex, background, minimum = 4.6) {
   return oklchToHex(passing, c, h);
 }
 
-// Dark-theme references (index.css `.dark`). Dark fills must stand out from
-// the card, oklch(0.205 0 0); a dark header's lightness stays in the night
-// band, so it neither glares nor sinks into the page (oklch(0.165 …)).
-const DARK_CARD = '#171717';
+// Surface references (index.css). Fills (buttons, chat bubbles, badges) must
+// stand out, 3:1, from every surface they sit on: by day the darkest is the
+// workspace, oklch(0.97 0.001 106.424); at night the lightest is the popover
+// that dialogs use, oklch(0.245 …) in the brand's tint. A dark header's
+// lightness stays in the night band, so it neither glares nor sinks into the
+// page (oklch(0.165 …)).
+const LIGHT_WORKSPACE = '#f5f5f4';
+const DARK_POPOVER_LIGHTNESS = 0.245;
 const DARK_PAGE = '#0e0e0e';
 const NIGHT_BAND = [0.33, 0.48];
 // Below this chroma a color reads as gray, and its hue is noise.
 const ACHROMATIC = 0.03;
+
+/** The chroma of the brand's hue in the night surfaces (index.css `--tint-chroma`). */
+function tintChroma(c) {
+  return c < ACHROMATIC ? 0 : Math.round(Math.min(0.012, c * 0.08) * 1000) / 1000;
+}
 
 /** The header color in dark mode: the brand, deepened or lifted into the night band. */
 export function darkHeaderColor(hex) {
@@ -152,40 +161,71 @@ export function darkHeaderColor(hex) {
 
 /**
  * The button and bubble fill in dark mode: the brand when it already stands
- * out from a dark card (3:1), else lifted until it does. A near-black brand
- * turns light gray instead, the way a monochrome mark inverts at night.
+ * out from the night surfaces (3:1 against the popover, the lightest of them),
+ * else lifted until it does. A near-black brand turns light gray instead, the
+ * way a monochrome mark inverts at night.
  */
 export function darkFillColor(hex) {
   const normalized = normalizeHex(hex);
   if (!normalized) return null;
-  if (contrastRatio(normalized, DARK_CARD) >= 3) return normalized;
   const { l, c, h } = hexToOklchParts(normalized);
+  const surface = oklchToHex(DARK_POPOVER_LIGHTNESS, tintChroma(c), h);
+  if (contrastRatio(normalized, surface) >= 3) return normalized;
   if (c < ACHROMATIC) return oklchToHex(0.93, 0, 0);
   let failing = l, passing = 1;
   for (let i = 0; i < 24; i++) {
     const mid = (failing + passing) / 2;
-    if (contrastRatio(oklchToHex(mid, c, h), DARK_CARD) >= 3) passing = mid; else failing = mid;
+    if (contrastRatio(oklchToHex(mid, c, h), surface) >= 3) passing = mid; else failing = mid;
   }
   return oklchToHex(passing, c, h);
 }
 
 /**
- * Notes for the Customizer: a warning when the primary color won't stand out in
- * light mode (there it is used as chosen), and what dark mode changes to keep
- * the header and buttons visible.
+ * The button and bubble fill in light mode: the brand when it already stands
+ * out from the light surfaces (3:1 against the workspace, the darkest of
+ * them), else deepened until it does. A pale gray brand turns near-black
+ * instead, the way a monochrome mark reads on paper. The header keeps the
+ * brand as chosen.
+ */
+export function lightFillColor(hex) {
+  const normalized = normalizeHex(hex);
+  if (!normalized) return null;
+  if (contrastRatio(normalized, LIGHT_WORKSPACE) >= 3) return normalized;
+  const { l, c, h } = hexToOklchParts(normalized);
+  if (c < ACHROMATIC) return oklchToHex(0.205, 0, 0);
+  let failing = l, passing = 0;
+  for (let i = 0; i < 24; i++) {
+    const mid = (failing + passing) / 2;
+    if (contrastRatio(oklchToHex(mid, c, h), LIGHT_WORKSPACE) >= 3) passing = mid; else failing = mid;
+  }
+  return oklchToHex(passing, c, h);
+}
+
+/**
+ * Notes for the Customizer: a warning when the header won't stand out in light
+ * mode (there it uses the color as chosen), and what each mode changes to keep
+ * the buttons and the night header visible.
  */
 export function themeColorNotes(theme) {
   const primary = normalizeHex(theme?.primary);
   if (!primary) return [];
   const notes = [];
   const onWhite = contrastRatio(primary, '#ffffff');
+  const { l, c } = hexToOklchParts(primary);
   if (onWhite < 3) {
     notes.push({
       level: 'warning',
-      text: `In light mode, the header and buttons in this color barely stand out from white (${onWhite.toFixed(1)}:1). A deeper shade will read clearly.`,
+      text: `In light mode, the header in this color barely stands out from white (${onWhite.toFixed(1)}:1). A deeper shade will read clearly.`,
     });
   }
-  const { l, c } = hexToOklchParts(primary);
+  if (lightFillColor(primary) !== primary) {
+    notes.push({
+      level: 'info',
+      text: c < ACHROMATIC
+        ? 'In light mode, buttons turn near-black, since pale gray buttons would disappear on light cards.'
+        : 'In light mode, buttons use a deeper shade so they stand out from light cards.',
+    });
+  }
   if (darkHeaderColor(primary) !== primary) {
     notes.push({
       level: 'info',
@@ -212,23 +252,27 @@ export function buildThemeVars(theme) {
   const primary = normalizeHex(theme.primary);
   const accent = normalizeHex(theme.accent) || primary;
   if (primary) {
+    // The header shows the brand as chosen; fills take a shade that stands
+    // out from the page and cards. Fills stay hex, the exact color their
+    // contrast was checked on: a rounded oklch() can land just under 3:1.
+    const fill = lightFillColor(primary);
     vars['--classroom-header-bg'] = primary;
     vars['--classroom-header-text'] = contrastText(primary);
-    vars['--primary'] = hexToOklch(primary);
-    vars['--primary-foreground'] = hexToOklch(contrastText(primary));
+    vars['--primary'] = fill;
+    vars['--primary-foreground'] = contrastText(fill);
     vars['--classroom-primary-text-light'] = hexToOklch(readableColor(primary, '#f5f5f5'));
     vars['--classroom-primary-text-dark'] = hexToOklch(readableColor(primary, '#303030'));
     // The night classroom (index.css `.dark .classroom-theme`): its own header
     // and fills, and the trace of the brand's hue its surfaces carry.
     const header = darkHeaderColor(primary);
-    const fill = darkFillColor(primary);
+    const nightFill = darkFillColor(primary);
     const { c, h } = hexToOklchParts(primary);
     vars['--classroom-header-bg-dark'] = header;
     vars['--classroom-header-text-dark'] = contrastText(header);
-    vars['--classroom-primary-dark'] = hexToOklch(fill);
-    vars['--classroom-primary-foreground-dark'] = hexToOklch(contrastText(fill));
+    vars['--classroom-primary-dark'] = nightFill;
+    vars['--classroom-primary-foreground-dark'] = contrastText(nightFill);
     vars['--classroom-tint-hue'] = h.toFixed(1);
-    vars['--classroom-tint-chroma'] = (c < ACHROMATIC ? 0 : Math.min(0.012, c * 0.08)).toFixed(3);
+    vars['--classroom-tint-chroma'] = tintChroma(c).toFixed(3);
   }
   if (accent) {
     vars['--classroom-link-light'] = hexToOklch(readableColor(accent, '#f5f5f5'));
@@ -331,17 +375,30 @@ export function generateFavicon(logoBase64, primaryColor, classroomName = '') {
   });
 }
 
-/** Set (or restore) the favicon link element. Returns a cleanup function. */
+/**
+ * Point every icon link at the favicon: index.html declares 32px and 16px
+ * icons, and a browser showing the 16px one would keep the default.
+ * Returns a cleanup function that restores each link.
+ */
 export function setFavicon(dataUrl) {
-  const link = document.querySelector("link[rel='icon']") || document.createElement('link');
-  const originalHref = link.href;
-  const originalType = link.type;
-  link.rel = 'icon';
-  link.type = 'image/png';
-  link.href = dataUrl;
-  document.head.appendChild(link);
+  const existing = [...document.querySelectorAll("link[rel='icon']")];
+  if (existing.length === 0) {
+    const link = document.createElement('link');
+    link.rel = 'icon';
+    link.type = 'image/png';
+    link.href = dataUrl;
+    document.head.appendChild(link);
+    return () => link.remove();
+  }
+  const originals = existing.map(link => ({ link, href: link.href, type: link.type }));
+  for (const link of existing) {
+    link.type = 'image/png';
+    link.href = dataUrl;
+  }
   return () => {
-    link.href = originalHref;
-    if (originalType) link.type = originalType;
+    for (const { link, href, type } of originals) {
+      link.href = href;
+      link.type = type;
+    }
   };
 }

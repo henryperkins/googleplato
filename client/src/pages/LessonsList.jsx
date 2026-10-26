@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext.jsx';
 import { getLessonKB } from '../../js/storage.js';
 import { authenticatedFetch } from '../../js/auth.js';
+import { renderMd, renderInlineMd, stripInlineMd } from '../lib/helpers.js';
 import Check from 'lucide-react/dist/esm/icons/check';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -440,7 +441,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
             </span>
             {lesson.description && (
               <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
-                {lesson.description}
+                {stripInlineMd(lesson.description)}
               </p>
             )}
           </div>
@@ -586,7 +587,7 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
           )}
           <DialogTitle>{lesson.name}</DialogTitle>
           {lesson.description && (
-            <DialogDescription>{lesson.description}</DialogDescription>
+            <DialogDescription className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />
           )}
         </DialogHeader>
 
@@ -611,7 +612,7 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
                 className="h-2 rounded-full bg-muted overflow-hidden"
               >
                 <div
-                  className="progress-fill h-full rounded-full bg-primary"
+                  className="progress-fill h-full rounded-full bg-primary-text"
                   style={{ transform: `scaleX(${pct / 100})` }}
                 />
               </div>
@@ -629,14 +630,14 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
 
           <div>
             <h3 className="text-sm font-medium mb-1">Exemplar</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">{lesson.exemplar}</p>
+            <div className="coach-copy text-sm text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(lesson.exemplar) }} />
           </div>
 
           <div>
             <h3 className="text-sm font-medium mb-1">Learning objectives</h3>
             <ul className="list-disc pl-5 text-sm text-muted-foreground leading-relaxed space-y-1">
               {lesson.learningObjectives.map((obj, i) => (
-                <li key={i}>{obj}</li>
+                <li key={i} className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(obj) }} />
               ))}
             </ul>
           </div>

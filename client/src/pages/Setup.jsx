@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
+import PublicFooter from '../components/PublicFooter.jsx';
 import { saveAuthTokens, saveAuthUser, saveAuthProvider } from '../../js/storage.js';
 import { loginWithGoogle, preloadFirebase } from '../../js/auth.js';
 import { googleSignInError, missingFieldsMessage, requestError } from '../lib/authErrors.js';
@@ -131,7 +132,7 @@ export default function Setup() {
   }
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]" style={{ backgroundColor: '#470d99' }}>
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
       <img src="/assets/logo-white.svg" alt="plato" width="160" height="40" fetchPriority="high" className="h-10 w-auto mb-6" />
       <Card className="w-full max-w-md">
         <CardHeader>
@@ -303,9 +304,8 @@ export default function Setup() {
           </form>
         </CardContent>
       </Card>
-      <p className="mt-4 text-xs text-white" style={{ '--ring': 'currentColor' }}>
-        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>
-      </p>
+      {/* Every route shows this page until setup finishes, so there is no privacy page yet. */}
+      <PublicFooter link={null} />
     </main>
   );
 }

@@ -563,6 +563,8 @@ html {
   text-decoration-thickness: 2px;
 }
 
+/* Code takes a tint of the text color, so it shows as a box on any surface:
+   coach replies sit on the workspace, which matches --muted by day. */
 .coach-copy pre {
   margin-block: 0.75rem;
   max-width: 100%;
@@ -570,7 +572,34 @@ html {
   overscroll-behavior-x: contain;
   border-radius: var(--radius-md);
   padding: 0.75rem 1rem;
-  background-color: var(--muted);
+  background-color: color-mix(in oklab, currentColor 6%, transparent);
+}
+
+/* Fenced blocks scroll on their own, so they take focus like a table's scroller. */
+.coach-copy pre:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.coach-copy code {
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+  background-color: color-mix(in oklab, currentColor 10%, transparent);
+  font-size: 0.875em;
+}
+
+.coach-copy pre code {
+  border-radius: 0;
+  padding: 0;
+  background: none;
+}
+
+/* --input holds 3:1 against white and the workspace, so the quote bar shows. */
+.coach-copy blockquote {
+  margin-block: 0.75rem;
+  border-inline-start: 3px solid var(--input);
+  padding-inline-start: 0.75rem;
+  color: var(--muted-foreground);
 }
 
 :root {

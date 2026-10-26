@@ -7,7 +7,7 @@ import { googleSignInError, passwordSignInError } from '../lib/authErrors.js';
 import { returnPath } from '../lib/returnPath.js';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
-import ThemeToggle from '../components/ThemeToggle.jsx';
+import PublicFooter from '../components/PublicFooter.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -237,15 +237,7 @@ export default function Login() {
           </CardFooter>
         )}
       </Card>
-      {/* The learner can choose the theme before signing in, here as in the classroom header. */}
-      <div className="mt-4 flex items-center gap-1 text-xs" style={{ '--ring': 'currentColor' }}>
-        <p>
-          <a href="/privacy" onClick={e => { e.preventDefault(); navigate('/privacy'); }} className="underline hover:no-underline">Privacy</a>
-          {' · '}
-          Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
-        </p>
-        <ThemeToggle />
-      </div>
+      <PublicFooter />
     </main>
   );
 }

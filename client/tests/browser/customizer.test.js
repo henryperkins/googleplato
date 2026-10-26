@@ -193,11 +193,49 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
       const branding = await (await page.request.get(`${base}/v1/branding`)).json();
       assert.deepEqual(branding.theme, { primary: '#f5c518' });
+      // Unmatching starts from the primary on screen, not the accent from before the edit.
+      await field.fill('#0f766e');
       await page.getByLabel('Match primary', { exact: true }).uncheck();
-      await page.getByLabel('Accent color hex code', { exact: true }).fill('#00aa44');
+      const accent = page.getByLabel('Accent color hex code', { exact: true });
+      assert.equal(await accent.inputValue(), '#0f766e');
+      assert.equal(await page.getByLabel('Accent color', { exact: true }).inputValue(), '#0f766e');
+      await accent.fill('#00aa44');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
-      assert.equal((await (await page.request.get(`${base}/v1/branding`)).json()).theme.accent, '#00aa44');
+      assert.deepEqual((await (await page.request.get(`${base}/v1/branding`)).json()).theme, { primary: '#0f766e', accent: '#00aa44' });
+    } finally { await context.close(); }
+  });
+
+  it('shows saved branding when the admin goes Back to the classroom, without a reload', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    try {
+      await page.goto(`${base}/lessons`);
+      await page.getByRole('link', { name: 'plato — Lessons', exact: true }).waitFor();
+      await page.getByRole('link', { name: 'Admin Dashboard', exact: true }).click();
+      await page.getByRole('link', { name: 'Customizer', exact: true }).click();
+      await page.getByLabel('Classroom Name', { exact: true }).fill('Bauhaus Design Studio');
+      await page.getByLabel('Primary color hex code', { exact: true }).fill('#1d4ed8');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      await page.goBack();
+      await page.goBack();
+      await page.waitForURL(`${base}/lessons`);
+      await page.getByRole('link', { name: 'Bauhaus Design Studio — Lessons', exact: true }).waitFor();
+      await page.waitForFunction(() => document.title.includes('Bauhaus Design Studio'));
+      assert.equal(await page.getByRole('banner').evaluate(header => getComputedStyle(header).backgroundColor), 'rgb(29, 78, 216)');
+      const icons = () => page.locator("link[rel='icon']").evaluateAll(links => links.map(link => link.href.startsWith('data:image/png') ? 'data:image/png' : new URL(link.href).pathname));
+      const iconsAreGenerated = generated => page.waitForFunction(value => [...document.querySelectorAll("link[rel='icon']")].every(link => link.href.startsWith('data:') === value), generated);
+      // Both favicon sizes follow the classroom, and the admin console keeps plato's.
+      await iconsAreGenerated(true);
+      assert.deepEqual(await icons(), ['data:image/png', 'data:image/png']);
+      await page.getByRole('link', { name: 'Admin Dashboard', exact: true }).click();
+      await page.locator('#main-content h1').waitFor();
+      await iconsAreGenerated(false);
+      // The build fingerprints the icons (icon-32-<hash>.png).
+      const restored = await icons();
+      assert.equal(restored.length, 2);
+      assert.match(restored[0], /^\/assets\/icon-32\b[^/]*\.png$/);
+      assert.match(restored[1], /^\/assets\/icon-16\b[^/]*\.png$/);
     } finally { await context.close(); }
   });
 
@@ -262,7 +300,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.getByRole('button', { name: 'Remove logo image', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Save', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
-      const assets = join(root, `output/playwright/customizer-2026-10-25/${browserName}`);
+      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-2026-10-25'), browserName);
       await mkdir(assets, { recursive: true });
       await page.screenshot({ path: join(assets, 'styles-desktop-light.png'), fullPage: true });
       const palette = () => page.locator('figure button').evaluateAll(buttons => buttons.map(button => {
@@ -326,6 +364,258 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.waitForURL(`${base}/plato/customizer/knowledge`);
       assert.equal(await page.getByRole('button', { name: 'Back to knowledge base', exact: true }).count(), 0);
       await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).waitFor();
+    } finally { await context.close(); }
+  });
+
+  it('saves the reviewed knowledge preview verbatim without another extraction', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    page.setDefaultTimeout(6000);
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    const reviewed = '# Studio knowledge\n\n**Alt text** is required on 日本語 slides 🌱.\n\n> Review every image.\n\n```js\nconst policy = "alt text";\n```';
+    const inference = [];
+    try {
+      const seed = await context.request.put(`${base}/v1/admin/knowledge-base`, {
+        headers,
+        data: { content: '# Saved knowledge\n\nThe existing program policy.', conversation: [{ role: 'assistant', content: 'What should change?' }], readiness: null },
+      });
+      assert.equal(seed.status(), 200);
+      await page.route('**/v1/ai/messages', route => {
+        const body = route.request().postDataJSON();
+        inference.push(body);
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ content: [{ type: 'text', text: body.stream ? 'The policy is ready. [READINESS: 8]' : reviewed }] }) });
+      });
+      await page.goto(`${base}/plato/customizer/knowledge/edit`);
+      const preview = page.getByRole('complementary', { name: 'Knowledge base markdown preview', exact: true });
+      await preview.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
+      assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'), '8', 'saved content without readiness remains savable');
+      assert.equal(await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).isEnabled(), true);
+      assert.equal(await preview.getByText(/Review this preview/).count(), 0);
+      await page.getByPlaceholder('Tell me about your program...', { exact: true }).fill('Require alt text on every slide.');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await preview.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      await preview.getByRole('note').filter({ hasText: 'Review this preview' }).waitFor();
+      assert.equal(await preview.locator('pre code').textContent(), 'const policy = "alt text";');
+      assert.equal(await preview.locator('blockquote').textContent(), 'Review every image.');
+      assert.equal(inference.filter(body => !body.stream).length, 1);
+      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-validation-2026-10-26'), browserName);
+      await mkdir(assets, { recursive: true });
+      await page.screenshot({ path: join(assets, 'knowledge-reviewed-preview.png'), fullPage: true });
+      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.getByRole('alertdialog').waitFor();
+      await page.screenshot({ path: join(assets, 'knowledge-unsaved-dialog.png'), fullPage: true });
+      await page.getByRole('button', { name: 'Stay here', exact: true }).click();
+      assert.equal(await page.evaluate(() => {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      }), true);
+      await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
+      await page.waitForURL(`${base}/plato/customizer/knowledge`);
+      const saved = await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json();
+      assert.equal(saved.content, reviewed, 'persist exactly the reviewed Unicode and Markdown');
+      assert.equal(saved.conversation.some(message => message.unpublished), false);
+      assert.equal(inference.length, 2, 'one conversation reply and one preview extraction; Save does not call AI');
+      await page.locator('.coach-copy pre code').waitFor();
+      await page.screenshot({ path: join(assets, 'knowledge-saved.png'), fullPage: true });
+      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.waitForURL(`${base}/plato/customizer`);
+      assert.equal(await page.getByRole('alertdialog').count(), 0, 'a successful save clears the navigation guard');
+    } finally { await context.close(); }
+  });
+
+  it('keeps unpublished knowledge drafts guarded after leaving and reopening the editor', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    page.setDefaultTimeout(6000);
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    try {
+      const seed = await context.request.put(`${base}/v1/admin/knowledge-base`, {
+        headers,
+        data: {
+          content: '# Saved policy\n\nCohorts meet on Fridays.', readiness: 8,
+          conversation: [{ role: 'assistant', content: 'Saved guide' }, { role: 'user', content: 'Move cohorts to Mondays.', unpublished: true }],
+        },
+      });
+      assert.equal(seed.status(), 200);
+      await page.route('**/v1/ai/**', route => route.abort());
+      await page.goto(`${base}/plato/customizer/knowledge/edit`);
+      const stale = page.getByText('The conversation has changed. Refresh the preview to include your changes.', { exact: true });
+      await stale.waitFor();
+      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.getByRole('alertdialog').waitFor();
+      await page.getByRole('button', { name: 'Leave without saving', exact: true }).click();
+      await page.waitForURL(`${base}/plato/customizer`);
+      await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+      await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).click();
+      await stale.waitFor();
+      assert.equal(await page.getByText('Move cohorts to Mondays.', { exact: true }).count(), 1);
+      await page.getByRole('button', { name: 'Back to knowledge base', exact: true }).click();
+      await page.getByRole('alertdialog').waitFor();
+      await page.getByRole('button', { name: 'Stay here', exact: true }).click();
+      assert.equal(new URL(page.url()).pathname, '/plato/customizer/knowledge/edit');
+      const saved = await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json();
+      assert.equal(saved.content, '# Saved policy\n\nCohorts meet on Fridays.');
+      assert.equal(saved.conversation[1].unpublished, true);
+    } finally { await context.close(); }
+  });
+
+  it('waits for pending knowledge drafts before publishing', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    page.setDefaultTimeout(6000);
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    const reviewed = '# Published program policy\n\nCohorts meet on Mondays. The reviewed text must survive every pending draft write.';
+    let releaseDraft;
+    const gate = new Promise(resolve => { releaseDraft = resolve; });
+    let announceHeld;
+    const held = new Promise(resolve => { announceHeld = resolve; });
+    let draftHeld = false;
+    let publications = 0;
+    try {
+      const seed = await context.request.put(`${base}/v1/admin/knowledge-base`, {
+        headers, data: { content: '# Program policy\n\nCohorts meet on Fridays.', conversation: [{ role: 'assistant', content: 'What should change?' }], readiness: 8 },
+      });
+      assert.equal(seed.status(), 200);
+      await page.route('**/v1/ai/messages', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ content: [{ type: 'text', text: route.request().postDataJSON().stream ? 'The policy is ready. [READINESS: 8]' : reviewed }] }) }));
+      await page.route('**/v1/admin/knowledge-base/conversation', async route => {
+        if (!draftHeld && route.request().postDataJSON().conversation.length === 3) {
+          draftHeld = true;
+          announceHeld();
+          await gate;
+        }
+        await route.continue().catch(() => {});
+      });
+      await page.route('**/v1/admin/knowledge-base', route => {
+        if (route.request().method() === 'PUT') publications++;
+        return route.continue();
+      });
+      await page.goto(`${base}/plato/customizer/knowledge/edit`);
+      await page.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
+      await page.getByPlaceholder('Tell me about your program...', { exact: true }).fill('Move cohorts to Mondays.');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await Promise.race([
+        held,
+        delay(6000, null, { ref: false }).then(() => { throw new Error('Timed out waiting for the intercepted draft request'); }),
+      ]);
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      await page.getByRole('note').filter({ hasText: 'Review this preview' }).waitFor();
+      await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(publications, 0, 'publication must wait for the held draft, which could otherwise restore unpublished flags');
+      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.getByRole('alertdialog').waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Leave without saving', exact: true }).isDisabled(), true);
+      await page.getByRole('button', { name: 'Stay here', exact: true }).click();
+      releaseDraft();
+      await page.waitForURL(`${base}/plato/customizer/knowledge`);
+      const saved = await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json();
+      assert.equal(saved.content, reviewed);
+      assert.equal(saved.conversation.length, 3);
+      assert.equal(saved.conversation.some(message => message.unpublished), false);
+      assert.equal(publications, 1);
+      await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).click();
+      await page.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
+      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.waitForURL(`${base}/plato/customizer`);
+      assert.equal(await page.getByRole('alertdialog').count(), 0);
+    } finally { releaseDraft(); await context.close(); }
+  });
+
+  for (const failRefresh of [false, true]) {
+    it(`shows acknowledged knowledge while its refresh ${failRefresh ? 'fails' : 'is pending'} without redirecting later`, async () => {
+      const { context, page } = await openPage({ width: 1440, height: 1000 });
+      page.setDefaultTimeout(6000);
+      const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+      const headers = { Authorization: `Bearer ${auth.accessToken}` };
+      const content = '# Acknowledged knowledge\n\nThis policy was saved before its metadata refresh.';
+      let releaseRefresh;
+      const gate = new Promise(resolve => { releaseRefresh = resolve; });
+      let announceHeld;
+      const held = new Promise(resolve => { announceHeld = resolve; });
+      let published = false;
+      let refreshHeld = false;
+      try {
+        const seed = await context.request.put(`${base}/v1/admin/knowledge-base`, {
+          headers, data: { content, conversation: [{ role: 'assistant', content: 'Saved guide' }], readiness: 8 },
+        });
+        assert.equal(seed.status(), 200);
+        await page.route('**/v1/ai/**', route => route.abort());
+        await page.route('**/v1/admin/knowledge-base', async route => {
+          if (route.request().method() === 'PUT') published = true;
+          if (route.request().method() === 'GET' && published && !refreshHeld) {
+            refreshHeld = true;
+            announceHeld();
+            await gate;
+            if (failRefresh) return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"Metadata refresh unavailable"}' }).catch(() => {});
+          }
+          await route.continue().catch(() => {});
+        });
+        await page.goto(`${base}/plato/customizer/knowledge/edit`);
+        await page.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
+        await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
+        await Promise.race([
+          held,
+          delay(6000, null, { ref: false }).then(() => { throw new Error('Timed out waiting for the intercepted refresh request'); }),
+        ]);
+        assert.equal(new URL(page.url()).pathname, '/plato/customizer/knowledge', 'acknowledged content must not wait for the refresh to navigate');
+        await page.locator('.coach-copy').getByRole('heading', { name: 'Acknowledged knowledge', exact: true }).waitFor();
+        await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+        await page.waitForURL(`${base}/plato/customizer`);
+        const refreshed = page.waitForResponse(response => response.request().method() === 'GET' && response.url().endsWith('/v1/admin/knowledge-base'));
+        releaseRefresh();
+        await refreshed;
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(new URL(page.url()).pathname, '/plato/customizer', 'a completed refresh must never reclaim navigation');
+        await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+        await page.locator('.coach-copy').getByRole('heading', { name: 'Acknowledged knowledge', exact: true }).waitFor();
+      } finally { releaseRefresh(); await context.close(); }
+    });
+  }
+
+  it('keeps rendered brand fills visible against light and tinted dark surfaces', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    page.setDefaultTimeout(6000);
+    let primary;
+    try {
+      await page.route('**/v1/branding', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ classroomName: 'Contrast Studio', theme: { primary } }) }));
+      for (primary of ['#f8fafc', '#bae6fd', '#eab308', '#1d4ed8']) {
+        await page.goto(`${base}/lessons`);
+        await page.getByRole('link', { name: 'Contrast Studio — Lessons', exact: true }).waitFor();
+        for (const mode of ['light', 'dark']) {
+          const ratios = await page.evaluate(theme => {
+            document.documentElement.classList.toggle('dark', theme === 'dark');
+            const probe = document.createElement('span');
+            document.querySelector('div.classroom-theme').append(probe);
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const luminance = token => {
+              probe.style.backgroundColor = `var(${token})`;
+              ctx.fillStyle = getComputedStyle(probe).backgroundColor;
+              ctx.fillRect(0, 0, 1, 1);
+              const rgb = [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map(value => {
+                const channel = value / 255;
+                return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+              });
+              return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+            };
+            const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+            const fill = luminance('--primary');
+            const results = {
+              card: ratio(fill, luminance('--card')),
+              dialog: ratio(fill, luminance('--popover')),
+              progress: ratio(luminance('--primary-text'), luminance('--muted')),
+              text: ratio(fill, luminance('--primary-foreground')),
+            };
+            probe.remove();
+            return results;
+          }, mode);
+          for (const [surface, ratio] of Object.entries(ratios)) {
+            assert.ok(ratio >= (surface === 'text' ? 4.5 : 3), `${primary} ${mode} ${surface}: ${ratio.toFixed(3)}:1`);
+          }
+        }
+      }
     } finally { await context.close(); }
   });
 

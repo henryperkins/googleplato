@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useBlocker } from 'react-router-dom';
 import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from '@/components/ui/alert-dialog';
 import { converseStream, extractKBMarkdown } from '../../../js/orchestrator.js';
 import { parseResponse, cleanStream, buildConversationText } from '../../lib/lessonCreationEngine.js';
+import { conversationForStorage, knowledgeBaseDraftWrites, knowledgeBaseEditorState, knowledgeBaseMarkdownForSave, savableKnowledgeBase, savedMessageCount } from '../../lib/knowledgeBaseDraft.js';
 import { useStreamedText } from '../../hooks/useStreamedText.js';
 import { useTitleNotification } from '../../hooks/useTitleNotification.js';
 import { MSG_TYPES } from '../../lib/constants.js';
@@ -16,10 +19,13 @@ import ThinkingSpinner from '../../components/chat/ThinkingSpinner.jsx';
 import MarkdownPreviewPane from './MarkdownPreviewPane.jsx';
 
 const DISMISS_CLASS = 'inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-lg leading-none hover:opacity-70';
+const SAVE_STATES = ['creating', 'saving', 'saved'];
 
 /**
  * Shared conversational knowledge-base editor. Used by the first-run setup
  * page and the Customizer → Knowledge tab so the two surfaces cannot drift.
+ * The editor saves the knowledge base itself, then calls `onSave` so the page
+ * can move on. Until then, leaving with unsaved changes asks for confirmation.
  */
 export default function KnowledgeBaseEditor({
   initialContent = '',
@@ -46,26 +52,52 @@ export default function KnowledgeBaseEditor({
   const [previewMarkdown, setPreviewMarkdown] = useState(initialContent || '');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  // The saved knowledge base and how many messages it includes. Later turns
+  // are only a draft until the knowledge base is saved.
+  const [savedMarkdown, setSavedMarkdown] = useState(initialContent || '');
+  const [savedThrough, setSavedThrough] = useState(() => savedMessageCount(initialConversation));
   const [previewSyncedAt, setPreviewSyncedAt] = useState(
-    initialContent ? (initialConversation?.length || 0) : 0
+    () => (initialContent ? savedMessageCount(initialConversation) : 0)
   );
+
+  const editor = knowledgeBaseEditorState({
+    messageCount: chatMessages.length, savedMarkdown, savedThrough, previewMarkdown, previewSyncedAt,
+    saving: busy === 'creating' || busy === 'saving', working: busy === 'qa' || previewLoading,
+  });
+  const leaveGuardRef = useRef(editor.leaveGuard);
+  useEffect(() => { leaveGuardRef.current = editor.leaveGuard; }, [editor.leaveGuard]);
+  const blocker = useBlocker(useCallback(({ currentLocation, nextLocation }) => !!leaveGuardRef.current
+    && `${currentLocation.pathname}${currentLocation.search}` !== `${nextLocation.pathname}${nextLocation.search}`, []));
+  useEffect(() => {
+    if (!editor.leaveGuard) return;
+    const beforeUnload = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [editor.leaveGuard]);
 
   const readinessRef = useRef(readiness);
   useEffect(() => { readinessRef.current = readiness; }, [readiness]);
+  const savedThroughRef = useRef(savedThrough);
+  useEffect(() => { savedThroughRef.current = savedThrough; }, [savedThrough]);
   useEffect(() => {
     if (chatMessages.length === 0) return;
-    const conversation = chatMessages.map(m => ({ role: m.role, content: m.content, msgType: m.msgType }));
-    adminApi('PUT', '/v1/admin/knowledge-base/conversation', { conversation, readiness: readinessRef.current })
+    const conversation = conversationForStorage(chatMessages, savedThroughRef.current);
+    knowledgeBaseDraftWrites.track(adminApi('PUT', '/v1/admin/knowledge-base/conversation', { conversation, readiness: readinessRef.current }))
       .then(() => setDraftWarning(''))
       .catch(() => setDraftWarning('Draft could not be saved. Your latest message is still on this page.'));
   }, [chatMessages]);
 
   useEffect(() => {
     if (displayText === null && pendingRef.current) {
-      const { msgs, r } = pendingRef.current;
+      const { msgs, r, opening } = pendingRef.current;
       pendingRef.current = null;
       if (msgs) {
         setChatMessages(prev => [...prev, ...msgs]);
+        if (opening) {
+          // The greeting changes nothing, so it leaves the knowledge base saved.
+          setSavedThrough(count => count + msgs.length);
+          setPreviewSyncedAt(count => count + msgs.length);
+        }
         if (msgs.some(m => m.role === 'assistant')) {
           setSrAnnouncement('');
           requestAnimationFrame(() => setSrAnnouncement('New message received'));
@@ -89,6 +121,9 @@ export default function KnowledgeBaseEditor({
 
     if (isEditing) {
       setChatMessages([{ role: 'user', content: openingMessage, msgType: MSG_TYPES.USER, timestamp: Date.now() }]);
+      // The opening request repeats the saved knowledge base, so it changes nothing.
+      setSavedThrough(1);
+      setPreviewSyncedAt(1);
     }
 
     (async () => {
@@ -102,7 +137,7 @@ export default function KnowledgeBaseEditor({
         if (cancelled) return;
         const { text, readiness: r } = parseResponse(raw);
         const msg = { role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE, timestamp: Date.now() };
-        pendingRef.current = { msgs: [msg], r: r ?? (isEditing ? 8 : 1) };
+        pendingRef.current = { msgs: [msg], r: r ?? (isEditing ? 8 : 1), opening: true };
         setStreamingText(null);
       } catch (e) {
         if (!cancelled) { setError(aiErrorMessage(e, 'kb-editor')); setBusy(''); setStreamingText(null); }
@@ -143,29 +178,44 @@ export default function KnowledgeBaseEditor({
     }
   }, []);
 
+  const isBusy = !!busy;
+  const saveBlocked = readiness < 3;
+
   async function handleSaveKB() {
+    if (isBusy || previewLoading || saveBlocked) return;
     setError('');
-    setBusy('creating');
+    setBusy(editor.previewCurrent ? 'saving' : 'creating');
     try {
-      const md = await extractKBMarkdown(buildConversationText(chatMessages), initialContent || undefined);
-      if (!md || md.length < 50) {
+      const { markdown, extracted } = await knowledgeBaseMarkdownForSave({
+        previewMarkdown,
+        previewCurrent: editor.previewCurrent,
+        extract: () => extractKBMarkdown(buildConversationText(chatMessages), initialContent || undefined),
+      });
+      if (!savableKnowledgeBase(markdown, savedMarkdown)) {
         setError('Could not generate a knowledge base from the conversation. Keep adding information.');
         setBusy('');
         return;
       }
-      setPreviewMarkdown(md);
-      setPreviewSyncedAt(chatMessages.length);
-      const conversation = chatMessages.map(m => ({ role: m.role, content: m.content, msgType: m.msgType }));
-      await onSave(md, conversation, readiness);
+      if (extracted) {
+        setPreviewMarkdown(markdown);
+        setPreviewSyncedAt(chatMessages.length);
+        setBusy('saving');
+      }
+      const conversation = conversationForStorage(chatMessages);
+      await knowledgeBaseDraftWrites.wait();
+      await adminApi('PUT', '/v1/admin/knowledge-base', { content: markdown, conversation, readiness });
+      // Saved, so the page's navigation after onSave must not be blocked.
+      leaveGuardRef.current = null;
+      setSavedMarkdown(markdown);
+      setSavedThrough(chatMessages.length);
+      // Stays busy: the page leaves the editor after onSave.
+      setBusy('saved');
+      await onSave(markdown, conversation, readiness);
     } catch (e) {
       setError(aiErrorMessage(e, 'kb-builder'));
       setBusy('');
     }
   }
-
-  const isBusy = !!busy;
-  const saveBlocked = readiness < 3;
-  const previewStale = !!previewMarkdown && chatMessages.length > previewSyncedAt;
 
   async function handleRefreshPreview() {
     if (chatMessages.length === 0) {
@@ -228,12 +278,12 @@ export default function KnowledgeBaseEditor({
           </div>
           <Button
             onClick={handleSaveKB}
-            disabled={isBusy || saveBlocked}
+            disabled={isBusy || previewLoading || saveBlocked}
             size="sm"
             className="shrink-0"
             aria-describedby={saveBlocked ? 'kb-save-hint' : undefined}
           >
-            {busy === 'creating' ? 'Saving...' : saveLabel}
+            {SAVE_STATES.includes(busy) ? 'Saving...' : saveLabel}
           </Button>
           {saveBlocked && (
             <p id="kb-save-hint" className="basis-full text-xs text-muted-foreground">
@@ -270,8 +320,10 @@ export default function KnowledgeBaseEditor({
             markdown={previewMarkdown}
             loading={previewLoading}
             error={previewError}
-            stale={previewStale}
+            stale={editor.previewStale}
             saveLabel={saveLabel}
+            saved={editor.saved}
+            saveHint={editor.saved ? 'This is the saved knowledge base. Describe any changes in the conversation, then refresh the preview.' : undefined}
             refreshDisabled={previewLoading || isBusy}
             onRefresh={handleRefreshPreview}
             title="Knowledge base preview"
@@ -281,6 +333,23 @@ export default function KnowledgeBaseEditor({
           />
         </div>
       </div>
+      <AlertDialog open={blocker.state === 'blocked'} onOpenChange={open => { if (!open) blocker.reset?.(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {editor.leaveGuard === 'saving' ? 'Your knowledge base is still saving. Stay here until the save finishes.'
+                : editor.leaveGuard === 'working' ? 'The preview is still being generated. Leaving discards it.'
+                  : isEditing ? 'Your knowledge base changes have not been saved. Leaving keeps the last saved version.'
+                    : 'Your knowledge base has not been saved yet, so leaving does not create it.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => blocker.reset?.()}>Stay here</Button>
+            <Button disabled={editor.leaveGuard === 'saving'} onClick={() => blocker.proceed?.()}>Leave without saving</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

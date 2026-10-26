@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
+import PublicFooter from '../components/PublicFooter.jsx';
 import PasswordField from '../components/PasswordField.jsx';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -16,7 +17,6 @@ export default function ResetPassword() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('reset') || '';
   const passwordRef = useRef(null);
@@ -162,11 +162,7 @@ export default function ResetPassword() {
           )}
         </CardContent>
       </Card>
-      <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>
-        <a href="/privacy" onClick={e => { e.preventDefault(); navigate('/privacy'); }} className="underline hover:no-underline">Privacy</a>
-        {' · '}
-        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
-      </p>
+      <PublicFooter />
     </main>
   );
 }

@@ -14,7 +14,7 @@ globalThis.fetch = async (url) => {
   return respond();
 };
 
-const { loadPublicBranding, cachedPublicBranding, invalidatePublicBranding } = await import('../src/lib/publicBranding.js');
+const { loadPublicBranding, cachedPublicBranding, invalidatePublicBranding, subscribePublicBranding } = await import('../src/lib/publicBranding.js');
 
 describe('loadPublicBranding', () => {
   beforeEach(() => {
@@ -40,6 +40,18 @@ describe('loadPublicBranding', () => {
     respond = () => { throw new TypeError('Failed to fetch'); };
     assert.deepEqual(await loadPublicBranding(), {});
     assert.equal(calls, 2);
+  });
+
+  it('hands saved branding to mounted pages without another request', () => {
+    // A classroom shell still mounted (or remounted on Back) shows the save at once.
+    const seen = [];
+    const stop = subscribePublicBranding(data => seen.push(data));
+    const saved = { classroomName: 'Bauhaus Design Studio', theme: { primary: '#1d4ed8' } };
+    invalidatePublicBranding(saved);
+    stop();
+    invalidatePublicBranding();
+    assert.deepEqual(seen, [saved]);
+    assert.equal(calls, 0);
   });
 
   it('refetches after an admin saves new branding', async () => {

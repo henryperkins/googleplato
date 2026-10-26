@@ -1,8 +1,8 @@
 /**
- * Tests for markdown link rendering in helpers.renderMd, focused on the
- * XSS guard (isSafeUrl): coach/markdown output is untrusted, so only safe
- * protocols may become clickable anchors. A `javascript:` URL must render
- * as literal text, never an <a href>.
+ * Tests for the markdown helpers (renderMd, renderInlineMd, stripInlineMd),
+ * with a focus on the XSS guards: coach/markdown output is untrusted, so only
+ * safe protocols may become clickable anchors (a `javascript:` URL must render
+ * as literal text, never an <a href>), and code must never reach an attribute.
  *
  * helpers.esc() uses document.createElement, so we stub a minimal `document`
  * that mirrors the browser's textContent→innerHTML escaping (escapes & < >,
@@ -24,7 +24,7 @@ globalThis.document = {
   }),
 };
 
-const { isSafeUrl, renderMd } = await import('../src/lib/helpers.js');
+const { isSafeUrl, renderMd, renderInlineMd, stripInlineMd } = await import('../src/lib/helpers.js');
 
 describe('isSafeUrl', () => {
   it('allows http(s) and mailto', () => {
@@ -178,5 +178,201 @@ describe('renderMd markdown links', () => {
     assert.equal(html.match(/<a /g).length, 2);
     assert.match(html, /<a href="https:\/\/a\.com"[^>]*>docs<\/a>/);
     assert.match(html, /<a href="https:\/\/b\.com"[^>]*>https:\/\/b\.com<\/a>/);
+  });
+});
+
+// Fenced blocks scroll on their own, so they carry the table scroller's
+// keyboard stop and name.
+const PRE = '<pre tabindex="0" role="region" aria-label="Code">';
+
+describe('renderMd code', () => {
+  it('renders a fenced block as pre and code, keeping its newlines', () => {
+    assert.equal(
+      renderMd('```js\nconst a = 1;\nconst b = 2;\n```'),
+      `${PRE}<code class="language-js">const a = 1;\nconst b = 2;</code></pre>`,
+    );
+  });
+
+  it('leaves every other rule out of a fenced block', () => {
+    const html = renderMd('```\n# Not a heading\n- not a list\n1. not a list\n> not a quote\n**not bold** *nor this* [x](https://a.com) https://b.com\n| a | b |\n|---|---|\n```');
+    assert.equal(html, `${PRE}<code># Not a heading\n- not a list\n1. not a list\n&gt; not a quote\n**not bold** *nor this* [x](https://a.com) https://b.com\n| a | b |\n|---|---|</code></pre>`);
+  });
+
+  it('drops line breaks around a code block so only its margins separate it', () => {
+    assert.equal(renderMd('Intro\n\n```\nx\n```\n\nOutro'), `Intro${PRE}<code>x</code></pre>Outro`);
+    assert.equal(renderMd('Intro\n```\nx\n```\nOutro'), `Intro${PRE}<code>x</code></pre>Outro`);
+    assert.equal(renderMd('## Plan\n```sh\nls\n```\n## Next'), `<h2>Plan</h2>${PRE}<code class="language-sh">ls</code></pre><h2>Next</h2>`);
+  });
+
+  it('closes a fence only with a line of at least as many backticks', () => {
+    assert.equal(renderMd('````md\n```js\ninner\n```\n````'), `${PRE}<code class="language-md">\`\`\`js\ninner\n\`\`\`</code></pre>`);
+  });
+
+  it('treats an unclosed fence as code to the end, as a streaming reply shows it', () => {
+    assert.equal(renderMd('Here:\n```js\nconst x = 1;\n**still code**\n'), `Here:${PRE}<code class="language-js">const x = 1;\n**still code**</code></pre>`);
+  });
+
+  it('keeps code indented under a numbered step, and the step numbers after it', () => {
+    assert.equal(
+      renderMd('1. Install:\n   ```bash\n   npm install\n     --save-dev\n   ```\n2. Run'),
+      `<ol><li>Install:</li></ol>${PRE}<code class="language-bash">npm install\n  --save-dev</code></pre><ol start="2"><li>Run</li></ol>`,
+    );
+  });
+
+  it('renders inline code and leaves its contents alone', () => {
+    assert.equal(renderMd('Run `npm *test*` then `**x**` or `[x](https://a.com)`'), 'Run <code>npm *test*</code> then <code>**x**</code> or <code>[x](https://a.com)</code>');
+    assert.equal(renderMd('*a `*` b*'), '<em>a <code>*</code> b</em>');
+  });
+
+  it('matches inline code runs of the same length, as CommonMark does', () => {
+    assert.equal(renderMd('`` `x` ``'), '<code>`x`</code>');
+    assert.equal(renderMd('`a``b`'), '<code>a``b</code>');
+    assert.equal(renderMd('Text ```triple``` here'), 'Text <code>triple</code> here');
+    assert.equal(renderMd('a `` b and `open'), 'a `` b and `open');
+    assert.equal(renderMd('`foo\nbar`'), '`foo<br>bar`');
+  });
+
+  it('keeps inline code inside headings, list items, links, and table cells', () => {
+    assert.equal(renderMd('## The `useState` hook'), '<h2>The <code>useState</code> hook</h2>');
+    assert.equal(renderMd('- `a`\n- b'), '<ul><li><code>a</code></li><li>b</li></ul>');
+    assert.match(renderMd('[`useState`](https://react.dev)'), /^<a href="https:\/\/react\.dev"[^>]*><code>useState<\/code><\/a>$/);
+    // A pipe inside code does not split the cell.
+    assert.match(renderMd('| A | B |\n|---|---|\n| `a|b` | c |'), /<td[^>]*><code>a\|b<\/code><\/td><td[^>]*>c<\/td>/);
+  });
+
+  it('escapes HTML inside code', () => {
+    assert.equal(renderMd('`<img src=x onerror=alert(1)>`'), '<code>&lt;img src=x onerror=alert(1)&gt;</code>');
+    const html = renderMd('```\n</code></pre><script>alert(1)</script>\n```');
+    assert.equal(html, `${PRE}<code>&lt;/code&gt;&lt;/pre&gt;&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>`);
+  });
+
+  it('only turns a plain identifier into a language class', () => {
+    assert.equal(renderMd('```c++\nx\n```'), `${PRE}<code class="language-c++">x</code></pre>`);
+    assert.equal(renderMd('```python title="x.py"\nx\n```'), `${PRE}<code class="language-python">x</code></pre>`);
+    for (const info of ['js" onmouseover="alert(1)', '"><img src=x onerror=alert(1)>', 'js&quot;']) {
+      const html = renderMd(`\`\`\`${info}\nx\n\`\`\``);
+      assert.equal(html, `${PRE}<code>x</code></pre>`, info);
+    }
+  });
+
+  it('never lets code reach an href', () => {
+    // A markdown link whose URL contains code is left as text...
+    const link = renderMd('[x](https://a.com/`" onmouseover="alert(1)//`)');
+    assert.doesNotMatch(link, /href="[^"]*(<code|onmouseover)/);
+    assert.doesNotMatch(link, /"\s*onmouseover=/);
+    assert.match(link, /^\[x\]\(/);
+    // ...even when the code is a fenced block on the following lines.
+    const block = renderMd('[x](https://a.com/\n```\n" onmouseover="alert(1)//\n```\n)');
+    assert.doesNotMatch(block, /href="[^"]*(<pre|onmouseover)/);
+    // A bare URL stops where code begins.
+    assert.equal(
+      renderMd('https://a.com`" onmouseover="x`'),
+      '<a href="https://a.com" target="_blank" rel="noopener">https://a.com</a><code>&quot; onmouseover=&quot;x</code>',
+    );
+  });
+
+  it('ignores placeholder characters in the input', () => {
+    assert.equal(renderMd('\uFDD00\uFDD0 and `a`'), '0 and <code>a</code>');
+  });
+
+  it('renders CRLF and CR-only code exactly like LF', () => {
+    const lf = 'Intro\n```js\nconst a = 1;\nconst b = 2;\n```\nUse `x` here';
+    for (const eol of ['\r\n', '\r']) {
+      const html = renderMd(lf.replace(/\n/g, eol));
+      assert.equal(html, renderMd(lf));
+      assert.doesNotMatch(html, /\r/);
+    }
+    assert.match(renderMd(lf), /<code class="language-js">const a = 1;\nconst b = 2;<\/code>/);
+  });
+});
+
+describe('renderMd blockquotes', () => {
+  it('joins consecutive quoted lines into one quote with inline formatting', () => {
+    assert.equal(renderMd('> First line\n> **Second** line with `code`'), '<blockquote>First line<br><strong>Second</strong> line with <code>code</code></blockquote>');
+  });
+
+  it('keeps a blank quoted line as a paragraph break', () => {
+    assert.equal(renderMd('> One\n>\n> Two'), '<blockquote>One<br><br>Two</blockquote>');
+  });
+
+  it('drops line breaks around a quote so only its margins separate it', () => {
+    assert.equal(renderMd('Before\n> Quote\nAfter'), 'Before<blockquote>Quote</blockquote>After');
+    assert.equal(renderMd('Before\n\n> Quote\n\nAfter'), 'Before<blockquote>Quote</blockquote>After');
+    assert.equal(renderMd('> A\n\n> B'), '<blockquote>A</blockquote><blockquote>B</blockquote>');
+    assert.equal(renderMd('- item\n> quote\n1. step'), '<ul><li>item</li></ul><blockquote>quote</blockquote><ol><li>step</li></ol>');
+  });
+
+  it('applies no block rules inside a quote', () => {
+    assert.equal(renderMd('> # Not a heading\n> - not a list'), '<blockquote># Not a heading<br>- not a list</blockquote>');
+  });
+
+  it('needs a space or the line end after the marker', () => {
+    assert.equal(renderMd('>not a quote and a > b'), '&gt;not a quote and a &gt; b');
+  });
+
+  it('escapes HTML and refuses unsafe links inside a quote', () => {
+    const html = renderMd('> <script>alert(1)</script>\n> [x](javascript:alert(1)) [y](https://e.com" onclick="alert(1))');
+    assert.doesNotMatch(html, /<script|href="javascript:|"\s*onclick=/i);
+    assert.match(html, /^<blockquote>&lt;script&gt;alert\(1\)&lt;\/script&gt;<br>\[x\]\(javascript:alert\(1\)\) <a href="https:\/\/e\.com%22/);
+  });
+
+  it('renders CRLF quotes exactly like LF', () => {
+    assert.equal(renderMd('Intro\r\n> one\r\n> two\r\nOutro'), 'Intro<blockquote>one<br>two</blockquote>Outro');
+  });
+});
+
+describe('renderInlineMd', () => {
+  it('renders bold, italic, inline code, and safe links', () => {
+    assert.equal(
+      renderInlineMd('Use **bold**, *italic*, `code`, and [docs](https://example.com).'),
+      'Use <strong>bold</strong>, <em>italic</em>, <code>code</code>, and <a href="https://example.com" target="_blank" rel="noopener">docs</a>.',
+    );
+  });
+
+  it('links bare URLs, as the author preview does', () => {
+    assert.equal(renderInlineMd('See https://e.com/a now'), 'See <a href="https://e.com/a" target="_blank" rel="noopener">https://e.com/a</a> now');
+  });
+
+  it('turns line breaks into <br> so paragraphs stay apart', () => {
+    assert.equal(renderInlineMd('One\nline\n\nTwo'), 'One<br>line<br><br>Two');
+    assert.equal(renderInlineMd('One\r\n\r\nTwo'), 'One<br><br>Two');
+  });
+
+  it('never emits block elements', () => {
+    const html = renderInlineMd('# Title\n- item\n1. step\n> quote\n| a | b |\n|---|---|\n```js\nx\n```');
+    assert.doesNotMatch(html, /<(h\d|ul|ol|li|blockquote|table|div|pre|p)\b/);
+    assert.equal(html, '# Title<br>- item<br>1. step<br>&gt; quote<br>| a | b |<br>|---|---|<br>```js<br>x<br>```');
+  });
+
+  it('escapes HTML and keeps unsafe links as text', () => {
+    const html = renderInlineMd('<img src=x onerror=alert(1)> [x](javascript:alert(1)) [y](https://e.com" onclick="alert(1)) `"><b>`');
+    assert.doesNotMatch(html, /<img|<b>|href="javascript:|"\s*onclick=/i);
+    assert.match(html, /^&lt;img src=x onerror=alert\(1\)&gt; \[x\]\(javascript:alert\(1\)\) <a href="https:\/\/e\.com%22/);
+    assert.match(html, /<code>&quot;&gt;&lt;b&gt;<\/code>$/);
+  });
+
+  it('keeps markdown inside inline code literal', () => {
+    assert.equal(renderInlineMd('`**x** [y](https://e.com)`'), '<code>**x** [y](https://e.com)</code>');
+  });
+});
+
+describe('stripInlineMd', () => {
+  it('removes inline markers and keeps link labels', () => {
+    assert.equal(
+      stripInlineMd('Learn **perceptual lightness** with `OKLCH`, *calmly*, and [WCAG 2.2 contrast](https://www.w3.org/TR/WCAG22/).'),
+      'Learn perceptual lightness with OKLCH, calmly, and WCAG 2.2 contrast.',
+    );
+  });
+
+  it('joins paragraphs and lines with single spaces', () => {
+    assert.equal(stripInlineMd('First paragraph.\n\nSecond\r\nparagraph.  '), 'First paragraph. Second paragraph.');
+  });
+
+  it('keeps inline code text exactly, markers included', () => {
+    assert.equal(stripInlineMd('Use `a*b*c` and `[x](y)`'), 'Use a*b*c and [x](y)');
+  });
+
+  it('returns plain text for React to escape, leaving lone asterisks alone', () => {
+    assert.equal(stripInlineMd('<b>x</b> & y, 5 * 3'), '<b>x</b> & y, 5 * 3');
   });
 });
