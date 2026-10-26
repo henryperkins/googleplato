@@ -438,9 +438,9 @@ function ComposeBar({
           <Button
             variant="default"
             size="icon-sm"
-            // Hidden until there's something to send; disabled:opacity-0 keeps the
-            // button primitive's half-opacity disabled style from showing it.
-            className={`transition-opacity ${hasContent ? 'opacity-100' : 'opacity-0 disabled:opacity-0 pointer-events-none'}`}
+            // Muted when disabled so the submit affordance stays discoverable at rest
+            // without leaving a muddy half-opacity primary patch on dark cards.
+            className="transition-colors disabled:bg-muted disabled:text-muted-foreground"
             aria-label="Send"
             aria-describedby={status ? statusId : undefined}
             onClick={send}

@@ -1,7 +1,8 @@
 /**
  * The lesson composer and its save notice: keyboard focus rings the whole
- * message box, the send button stays hidden until there's something to send,
- * and the save notice confirms only a reply the learner actually wrote.
+ * message box, the send button rests in a muted disabled state until there's
+ * something to send, and the save notice confirms only a reply the learner
+ * actually wrote.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -42,9 +43,14 @@ describe('message box', () => {
     assert.match(css, /\.compose-box:has\(\.compose-input:focus-visible\) \{\s*outline: 3px solid var\(--ring\);/);
   });
 
-  it('keeps the send button hidden until there is something to send', () => {
-    // The button primitive dims disabled buttons to half opacity, which would
-    // show an empty composer's send button as a faint patch.
-    assert.match(read('src/components/chat/ComposeBar.jsx'), /hasContent \? 'opacity-100' : 'opacity-0 disabled:opacity-0 pointer-events-none'/);
+  it('keeps the send button discoverable in a muted disabled state until there is something to send', () => {
+    // Muted disabled tokens keep the submit affordance discoverable at rest
+    // without leaving a muddy half-opacity primary patch on dark cards.
+    assert.match(read('src/components/chat/ComposeBar.jsx'), /className="transition-colors disabled:bg-muted disabled:text-muted-foreground"/);
+  });
+
+  it('gives primary buttons a hover fill transition on both buttons and links', () => {
+    const button = read('src/components/ui/button.jsx');
+    assert.match(button, /default:\s*"bg-primary text-primary-foreground hover:bg-primary\/90"/);
   });
 });
