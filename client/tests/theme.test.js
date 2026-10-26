@@ -164,9 +164,17 @@ describe('first paint', () => {
   });
 
   it('switches native controls and scrollbars with the theme', () => {
-    const css = read('src/index.css');
-    assert.match(css, /html\s*\{[^}]*color-scheme:\s*light;/);
-    assert.match(css, /html\.dark\s*\{\s*color-scheme:\s*dark;/);
+    const css = read('src/index.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const schemes = new Map();
+    // Check each selector independently; page and panel scopes may share a rule.
+    for (const [, selectors, declarations] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const scheme = declarations.match(/\bcolor-scheme:\s*(light|dark)\s*;/);
+      if (!scheme) continue;
+      for (const selector of selectors.split(',')) schemes.set(selector.trim(), scheme[1]);
+    }
+    for (const [selector, scheme] of [['html', 'light'], ['.light', 'light'], ['html.dark', 'dark'], ['.dark', 'dark']]) {
+      assert.equal(schemes.get(selector), scheme, `${selector} native color scheme`);
+    }
   });
 });
 
