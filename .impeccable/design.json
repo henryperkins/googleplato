@@ -904,21 +904,6 @@
           "oklch(0.950 0.148 26.6)"
         ]
       },
-      "classroom-accent-default": {
-        "role": "primary",
-        "displayName": "Classroom Accent Default",
-        "canonical": "#dc2626",
-        "tonalRamp": [
-          "oklch(0.150 0.215 27.3)",
-          "oklch(0.264 0.215 27.3)",
-          "oklch(0.379 0.215 27.3)",
-          "oklch(0.493 0.215 27.3)",
-          "oklch(0.607 0.215 27.3)",
-          "oklch(0.721 0.215 27.3)",
-          "oklch(0.836 0.215 27.3)",
-          "oklch(0.950 0.215 27.3)"
-        ]
-      },
       "workspace": {
         "role": "neutral",
         "displayName": "Learner Workspace",

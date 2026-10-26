@@ -49,8 +49,9 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
       assert.match(src, /safe-area-inset-bottom/, `${rel} missing bottom safe-area inset`);
       assert.match(src, /safe-area-inset-left/, `${rel} missing left safe-area inset`);
       assert.match(src, /safe-area-inset-right/, `${rel} missing right safe-area inset`);
-      assert.match(src, /<img[^>]+width=/, `${rel} logo missing explicit width attribute`);
-      assert.match(src, /<img[^>]+height=/, `${rel} logo missing explicit height attribute`);
+      // ClassroomLogo renders an <img> with these attributes, or the name if the image fails.
+      assert.match(src, /<(?:img|ClassroomLogo)[^>]+width=/, `${rel} logo missing explicit width attribute`);
+      assert.match(src, /<(?:img|ClassroomLogo)[^>]+height=/, `${rel} logo missing explicit height attribute`);
       assert.match(src, /fetchPriority="high"/, `${rel} logo missing fetchPriority="high"`);
     }
   });

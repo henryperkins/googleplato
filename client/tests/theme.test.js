@@ -217,6 +217,14 @@ describe('theme store', () => {
   });
 });
 
+describe('theme boot', () => {
+  it('follows device changes on pages without a theme control', () => {
+    // Waitlist, Signup and the other public pages mount no control, so the app
+    // keeps one subscription for the life of the page.
+    assert.match(read('src/main.jsx'), /^subscribeTheme\(\(\) => \{\}\);$/m);
+  });
+});
+
 describe('theme controls', () => {
   it('sit in the classroom header as a named toggle button whose tooltip shows its name', () => {
     const shell = read('src/components/AppShell.jsx');

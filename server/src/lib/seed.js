@@ -9,6 +9,10 @@ import { fileURLToPath } from 'url';
 import db from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** New classrooms start maroon, with an accent that matches the primary. */
+export const DEFAULT_THEME = Object.freeze({ primary: '#8b1a1a' });
+
 // Lambda build: content copied to server/client-content/; local dev: ../../client relative to server/
 const clientDir = existsSync(join(__dirname, '../../client-content/prompts'))
   ? join(__dirname, '../../client-content')
@@ -93,7 +97,7 @@ async function seedOnce() {
   const existing = await db.getSyncData('_system', 'settings');
   if (!existing?.data?.theme) {
     const settings = existing?.data || {};
-    settings.theme = { primary: '#8b1a1a' };
+    settings.theme = { ...DEFAULT_THEME };
     await db.putSyncData('_system', 'settings', settings, existing?.version || 0);
     seeded++;
   }

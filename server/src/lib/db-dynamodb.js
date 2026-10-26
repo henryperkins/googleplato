@@ -578,6 +578,36 @@ const db = {
     return { version: newVersion, updatedAt: now };
   },
 
+  async putBrandingSettings(data, expectedVersion, { logo = null, previousLogoHash = null } = {}) {
+    const updatedAt = new Date().toISOString();
+    const version = expectedVersion + 1;
+    const TransactItems = [{ Put: {
+      TableName: SYNC_DATA_TABLE,
+      Item: { userId: '_system', dataKey: 'settings', data, version, updatedAt },
+      ...(expectedVersion === 0 ? { ConditionExpression: 'attribute_not_exists(version)' } : {
+        ConditionExpression: 'version = :v', ExpressionAttributeValues: { ':v': expectedVersion },
+      }),
+    } }];
+    if (logo) TransactItems.push({ Put: {
+      TableName: SYNC_DATA_TABLE,
+      Item: { userId: '_branding', dataKey: `logo:${logo.hash}`,
+        data: { dataUrl: logo.dataUrl, ...(logo.legacy ? { legacy: true } : {}) }, version: 1, updatedAt },
+    } });
+    if (previousLogoHash && previousLogoHash !== data.logoHash) TransactItems.push({ Delete: {
+      TableName: SYNC_DATA_TABLE, Key: { userId: '_branding', dataKey: `logo:${previousLogoHash}` },
+    } });
+    try {
+      await doc.send(new TransactWriteCommand({ TransactItems }));
+    } catch (error) {
+      if (error.name === 'TransactionCanceledException'
+        && error.CancellationReasons?.some(reason => ['ConditionalCheckFailed', 'TransactionConflict'].includes(reason.Code))) {
+        throw Object.assign(new Error('Settings changed'), { name: 'ConditionalCheckFailedException' });
+      }
+      throw error;
+    }
+    return { version, updatedAt };
+  },
+
   async getLessonState(userId, lessonId) {
     const names = ['messages', 'lessonKB', 'lessonGeneration'];
     const result = await doc.send(new TransactGetCommand({

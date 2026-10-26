@@ -46,6 +46,7 @@ filters. The save alert's filter is generated from the same definition
 | Save failure signal | Any `log-watch` save signal, except rejections caused by a client upgrade | Critical | At most 1 per hour |
 | Health check failing | `GET /v1/health` on `plato-shaped.ai.studio` fails from 2 of 3 US regions; checked every 5 minutes | Critical | While failing |
 | Cloudflare connection needs reconnecting | `cloudflare_oauth_reconnect_required` is logged | Error | At most 1 per 5 minutes |
+| Password reset requests failing | `password_reset_request_failed` is logged during reset lookup, token storage or SES delivery | Error | At most 1 per hour |
 | Server errors above 5% | 5xx responses above 5% over 10 minutes with at least 20 requests, for 5 minutes | Error | While firing |
 | AI requests failing | 3 or more `ai_provider_error` in 15 minutes | Warning | While firing |
 | Database connection retries at startup | 2 or more `postgres_connect_retry` in an hour | Warning | While firing |

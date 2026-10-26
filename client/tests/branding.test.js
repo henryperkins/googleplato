@@ -381,7 +381,7 @@ describe('root theme application, favicons, and customizer parity', () => {
     const publicHook = readSrc('hooks/usePublicBranding.js');
 
     // Loading still uses the shared fallback; Reset uses the seeded classroom defaults.
-    assert.match(customizer, /normalizeHex\(data.theme\?\.primary\) \|\| DEFAULT_PRIMARY/);
+    assert.match(readSrc('lib/stylesDraft.js'), /normalizeHex\(data.theme\?\.primary\) \|\| DEFAULT_PRIMARY/);
     assert.equal(/#8b1a1a/.test(publicHook), false);
     assert.match(customizer, /bg-workspace text-sm space-y-2/);
     // One preview per theme, each scoped by its own .light/.dark wrapper, with
@@ -390,7 +390,10 @@ describe('root theme application, favicons, and customizer parity', () => {
     assert.match(customizer, /<div className=\{mode\}>\s*<div className="classroom-theme [^"]*" style=\{previewVars\}>/);
     assert.match(customizer, /bg-header text-header-foreground/);
     assert.match(customizer, /themeColorNotes\(\{ primary: safePrimary \}\)/);
-    assert.match(customizer, /aria-label="Color notes"/);
+    // The notes are the inputs' description, so their container stays mounted
+    // and carries no aria-label, which would replace the notes' text.
+    assert.match(customizer, /<div id="theme-color-notes" aria-live="polite">/);
+    assert.equal(/aria-label="Color notes"/.test(customizer), false);
     assert.match(customizer, /draft.classroomName.trim\(\) \|\| 'plato'/);
     assert.equal(/Your Classroom/.test(customizer), false);
 

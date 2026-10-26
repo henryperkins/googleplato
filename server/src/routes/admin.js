@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { MAX_CLASSROOM_NAME, MAX_LOGO_DATA_URL_CHARS, classroomName, normalizeThemeColor, parseLogo, publicBranding, publicTheme, readLogo, storeLogo } from '../lib/branding.js';
+import { MAX_LOGO_DATA_URL_CHARS, classroomName, classroomNameError, currentLogoHash, legacyLogo, normalizeThemeColor, parseLogo, publicBranding, publicTheme, readLogo, readLogoOriginal } from '../lib/branding.js';
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -651,6 +651,11 @@ admin.get('/v1/admin/settings', async (c) => {
 // PUT /v1/admin/settings
 admin.put('/v1/admin/settings', async (c) => {
   const body = await c.req.json();
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'A JSON object is required.' }, 400);
+  // Branding has its own validated route; a raw merge would bypass it.
+  if (['theme', 'classroomName', 'logoAlt', 'logoBase64', 'logoHash'].some(key => Object.hasOwn(body, key))) {
+    return c.json({ error: 'Change the classroom name, colors and logo with PUT /v1/admin/theme.' }, 400);
+  }
   const current = await db.getSyncData('_system', 'settings');
   const merged = { ...(current?.data || {}), ...body };
   await db.putSyncData('_system', 'settings', merged, current?.version || 0);
@@ -1197,15 +1202,22 @@ admin.put('/v1/admin/knowledge-base/conversation', async (c) => {
 admin.get('/v1/admin/theme', async (c) => {
   const item = await db.getSyncData('_system', 'settings', { consistentRead: true });
   const settings = item?.data || {};
-  const logo = settings.logoHash ? await readLogo(settings.logoHash) : parseLogo(settings.logoBase64);
+  const hash = currentLogoHash(settings);
+  const logo = hash ? await readLogo(hash, settings) : null;
+  const original = await readLogoOriginal(settings);
   return c.json({
     theme: publicTheme(settings.theme) || {},
-    logoBase64: logo?.dataUrl || null,
+    logoBase64: original?.dataUrl || null,
+    logoBlocked: Boolean(original?.dataUrl && !logo),
+    // Saved by an earlier version, which padded images into squares.
+    logoLegacy: Boolean(original?.legacy),
     classroomName: classroomName(settings),
   });
 });
 
 export { normalizeThemeColor };
+
+const LOGO_ERROR = 'Logo must be a PNG, JPEG, WebP, or static SVG image encoded as base64, or null to remove it.';
 
 // PUT /v1/admin/theme
 // Theme colors reach every learner page header and the auth pages, so they
@@ -1214,18 +1226,11 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   let body;
   try { body = await c.req.json(); } catch { return c.json({ error: 'A JSON object is required.' }, 400); }
   if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'A JSON object is required.' }, 400);
-  // eslint-disable-next-line no-control-regex
-  const controlCharacter = /[\u0000-\u001f\u007f]/;
-  if (body.classroomName !== undefined && (typeof body.classroomName !== 'string'
-    || body.classroomName.trim().length > MAX_CLASSROOM_NAME || controlCharacter.test(body.classroomName))) {
-    return c.json({ error: `Classroom name must be text of at most ${MAX_CLASSROOM_NAME} characters, without control characters.` }, 400);
-  }
-  let logo;
-  if (body.logoBase64 !== undefined && body.logoBase64 !== null) {
-    if (typeof body.logoBase64 === 'string' && body.logoBase64.length > MAX_LOGO_DATA_URL_CHARS) return c.json({ error: 'The encoded logo must be at most 128 KiB.' }, 413);
-    logo = parseLogo(body.logoBase64);
-    if (!logo) return c.json({ error: 'Logo must be a PNG, JPEG, WebP, or static SVG image encoded as base64, or null to remove it.' }, 400);
-  }
+  const nameError = body.classroomName === undefined ? null : classroomNameError(body.classroomName);
+  if (nameError) return c.json({ error: nameError }, 400);
+  if (typeof body.logoBase64 === 'string' && body.logoBase64.length > MAX_LOGO_DATA_URL_CHARS) return c.json({ error: 'The encoded logo must be at most 128 KiB.' }, 413);
+  if (body.logoBase64 !== undefined && body.logoBase64 !== null && typeof body.logoBase64 !== 'string') return c.json({ error: LOGO_ERROR }, 400);
+  if (body.theme !== undefined && body.themePatch !== undefined) return c.json({ error: 'Send either theme or themePatch, not both.' }, 400);
   let theme;
   if (body.theme !== undefined) {
     // A theme without a primary would drop the classroom's brand colors.
@@ -1240,30 +1245,68 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
       theme[key] = color;
     }
   }
-  const current = await db.getSyncData('_system', 'settings');
+  let themePatch;
+  if (body.themePatch !== undefined) {
+    if (!body.themePatch || typeof body.themePatch !== 'object' || Array.isArray(body.themePatch)) {
+      return c.json({ error: 'Theme patch must be an object.' }, 400);
+    }
+    themePatch = {};
+    for (const [key, value] of Object.entries(body.themePatch)) {
+      if (!['primary', 'accent'].includes(key)) return c.json({ error: 'Theme patch may change only primary and accent.' }, 400);
+      const color = key === 'accent' && value === null ? null : normalizeThemeColor(value);
+      if (color === null && !(key === 'accent' && value === null)) return c.json({ error: `${key} color must be a hex value like #470d99.` }, 400);
+      themePatch[key] = color;
+    }
+  }
+  const current = await db.getSyncData('_system', 'settings', { consistentRead: true });
   const settings = { ...(current?.data || {}) };
+  const previousHash = currentLogoHash(settings);
+  let logo;
+  if (typeof body.logoBase64 === 'string') {
+    // Returning existing original bytes is not an upload, including a blocked
+    // original. Anything else must pass upload validation; missing assets are
+    // stored again rather than acknowledged as already present.
+    const unchanged = (await readLogoOriginal(settings))?.dataUrl === body.logoBase64;
+    if (!unchanged) {
+      logo = parseLogo(body.logoBase64);
+      if (!logo) return c.json({ error: LOGO_ERROR }, 400);
+    }
+  }
+  // Move a logo an earlier version kept inline into its own asset on the next
+  // save, so settings stay small. An inline value that can't be shown is kept,
+  // never silently deleted; removing or replacing the logo clears it.
+  const legacy = settings.logoHash ? null : legacyLogo(settings);
+  if (!logo && legacy && body.logoBase64 !== null) logo = { ...legacy, legacy: true };
   if (theme !== undefined) settings.theme = theme;
-  // Migrate a legacy inline logo on the next save. Assets live outside
-  // `_system`, so bulk lesson/settings reads cannot pull them in either.
-  if (body.logoBase64 === undefined && !settings.logoHash) logo = parseLogo(settings.logoBase64);
+  if (themePatch !== undefined) {
+    const merged = publicTheme(settings.theme) || {};
+    // Older clients persisted matching accents explicitly. Their meaning is
+    // still Match primary when a later client changes only the primary.
+    if (merged.accent === merged.primary) delete merged.accent;
+    for (const [key, value] of Object.entries(themePatch)) {
+      if (value === null) delete merged[key];
+      else merged[key] = value;
+    }
+    settings.theme = merged;
+  }
   if (logo) {
-    await storeLogo(logo);
     settings.logoHash = logo.hash;
+    delete settings.logoBase64;
   } else if (body.logoBase64 === null) {
     delete settings.logoHash;
+    delete settings.logoBase64;
   }
-  delete settings.logoBase64;
   if (body.classroomName !== undefined) {
     settings.classroomName = body.classroomName.trim();
     settings.logoAlt = settings.classroomName; // backward compat
   }
   try {
-    await db.putSyncData('_system', 'settings', settings, current?.version || 0);
+    await db.putBrandingSettings(settings, current?.version || 0, { logo, previousLogoHash: previousHash });
   } catch (error) {
     if (error.name === 'ConditionalCheckFailedException') return c.json({ error: 'Settings changed in another session. Retry saving.' }, 409);
     throw error;
   }
-  return c.json({ ok: true, branding: publicBranding(settings) });
+  return c.json({ ok: true, branding: await publicBranding(settings) });
 });
 
 
