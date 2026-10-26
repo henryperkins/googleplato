@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { Button } from '@/components/ui/button';
+import PublicFooter from '../components/PublicFooter.jsx';
 import {
   Card, CardHeader, CardTitle, CardContent,
 } from '@/components/ui/card';
@@ -14,6 +14,7 @@ export default function Privacy() {
   if (!branding) return null;
 
   const { logo, classroomName } = branding;
+  const backPath = loggedIn ? '/lessons' : '/login';
 
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
@@ -155,15 +156,11 @@ export default function Privacy() {
           </section>
         </CardContent>
       </Card>
-      <div className="mt-4 flex gap-4 items-center text-xs" style={{ '--ring': 'currentColor' }}>
-        <Button variant="link" className="text-current hover:no-underline h-auto p-0" onClick={() => navigate(loggedIn ? '/lessons' : '/login')}>
+      <PublicFooter link={
+        <a href={backPath} onClick={e => { e.preventDefault(); navigate(backPath); }} className="underline hover:no-underline">
           {loggedIn ? 'Back to Lessons' : 'Back to Sign In'}
-        </Button>
-        <span>·</span>
-        <span>
-          Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
-        </span>
-      </div>
+        </a>
+      } />
     </main>
   );
 }

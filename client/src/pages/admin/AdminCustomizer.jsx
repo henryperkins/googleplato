@@ -9,24 +9,30 @@ import AdminStyles from './AdminStyles.jsx';
 import KnowledgeBaseEditor from './KnowledgeBaseEditor.jsx';
 
 function useResource(path) {
-  const [attempt, setAttempt] = useState(0);
+  const [request, setRequest] = useState({ attempt: 0, fallback: null });
   const [state, setState] = useState({ loading: true, data: null, error: null });
   useEffect(() => {
     let active = true;
     adminApi('GET', path).then(data => {
       if (active) setState({ loading: false, data, error: null });
     }).catch(error => {
-      if (active) setState({ loading: false, data: null, error: error.message || 'Settings could not be loaded.' });
+      if (active) setState({ loading: false, data: request.fallback, error: request.fallback ? null : error.message || 'Settings could not be loaded.' });
     });
     return () => { active = false; };
-  }, [path, attempt]);
+  }, [path, request]);
   return {
     ...state,
     retry: () => {
       setState(previous => ({ ...previous, loading: true, error: null }));
-      setAttempt(value => value + 1);
+      setRequest(previous => ({ attempt: previous.attempt + 1, fallback: null }));
     },
     update: data => setState({ loading: false, data, error: null }),
+    refresh: data => {
+      // Show the acknowledged save immediately. Metadata refreshes can fail or
+      // outlive navigation; the effect's cleanup ignores superseded results.
+      setState({ loading: false, data, error: null });
+      setRequest(previous => ({ attempt: previous.attempt + 1, fallback: data }));
+    },
   };
 }
 
@@ -75,18 +81,23 @@ export default function AdminCustomizer() {
                   <h2 className="text-lg font-semibold">{kb.content ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</h2>
                 </div>
                 <KnowledgeBaseEditor key={kb.content ? 'edit' : 'create'} initialContent={kb.content || ''} initialConversation={kb.conversation || null}
-                  initialReadiness={kb.readiness ?? 0} storageKey="plato_kb_customizer_draft" pageTitle="Classroom Customizer — plato"
+                  initialReadiness={kb.readiness ?? (kb.content ? 8 : 0)} storageKey="plato_kb_customizer_draft" pageTitle="Classroom Customizer — plato"
                   saveLabel={kb.content ? 'Update Knowledge Base' : 'Save Knowledge Base'}
-                  onSave={async (content, conversation, readiness) => {
-                    await adminApi('PUT', '/v1/admin/knowledge-base', { content, conversation, readiness });
-                    const fresh = await adminApi('GET', '/v1/admin/knowledge-base');
-                    knowledge.update(fresh);
+                  onSave={(content, conversation, readiness) => {
+                    // The PUT is acknowledged. Navigation belongs to this save,
+                    // never to a later GET; hide old attribution until refreshed.
+                    knowledge.refresh({ ...kb, content, conversation, readiness, updatedAt: null, updatedByName: null });
                     navigate('/plato/customizer/knowledge', { replace: true });
                   }} />
               </div>
             ) : (
               <KBViewer content={kb.content || ''} updatedAt={kb.updatedAt} updatedByName={kb.updatedByName}
-                onEdit={() => navigate('/plato/customizer/knowledge/edit', { replace: true })} />
+                onEdit={() => {
+                  // Reload first: draft turns from an earlier visit to the editor are
+                  // newer than this page's copy, and the editor would overwrite them.
+                  knowledge.retry();
+                  navigate('/plato/customizer/knowledge/edit', { replace: true });
+                }} />
             )}
           </ResourceState>
         </TabsContent>

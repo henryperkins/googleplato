@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
 import KnowledgeBaseEditor from './KnowledgeBaseEditor.jsx';
 
@@ -11,8 +10,8 @@ export default function AdminKBSetup() {
     document.title = 'Set Up Knowledge Base — plato';
   }, []);
 
-  async function handleSave(content, conversation, readiness) {
-    await adminApi('PUT', '/v1/admin/knowledge-base', { content, conversation, readiness });
+  // The editor saves the knowledge base before calling this.
+  function handleSave() {
     navigate('/plato', { state: { notice: 'Knowledge base saved.' } });
   }
 

@@ -15,6 +15,7 @@ import {
   generateFavicon,
   hexToOklch,
   hexToOklchParts,
+  lightFillColor,
   luminance,
   normalizeHex,
   oklchToHex,
@@ -51,10 +52,12 @@ describe('classroom color contrast', () => {
     }
   });
 
-  it('separates original surfaces from accessible link and focus roles in both themes', () => {
+  it('separates original surfaces from accessible fill, link, and focus roles in both themes', () => {
     const vars = buildThemeVars({ primary: '#ffffff', accent: '#999999' });
     assert.equal(vars['--classroom-header-bg'], '#ffffff');
-    assert.equal(vars['--primary'], hexToOklch('#ffffff'));
+    // A white button would vanish on the white card; the header keeps the brand.
+    assert.equal(vars['--primary'], lightFillColor('#ffffff'));
+    assert.equal(vars['--primary-foreground'], '#ffffff');
     assert.notEqual(vars['--classroom-link-light'], vars['--primary']);
     assert.notEqual(vars['--classroom-link-dark'], vars['--classroom-link-light']);
     assert.equal(vars['--classroom-ring-light'], vars['--classroom-link-light']);
@@ -155,11 +158,62 @@ describe('night classroom colors', () => {
     assert.ok(hueGap(hexToOklchParts(darkFillColor('#8b1a1a')).h, hexToOklchParts('#8b1a1a').h) < 3);
   });
 
+  it('keeps fills, labels, and progress bars visible on every surface in both themes', () => {
+    // The palettes from the 2026-10-26 customizer review, then the sweep.
+    const palettes = ['#8b1a1a', '#1d4ed8', '#f8fafc', '#09090b', '#eab308', '#bae6fd', '#fef08a', ...SWEEP];
+    // The colors the browser renders: hex as is, oklch() as rounded.
+    const hexOf = (value) => {
+      if (value.startsWith('#')) return value;
+      const [, l, c, h] = value.match(/^oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)$/);
+      return oklchToHex(Number(l), Number(c), Number(h));
+    };
+    // index.css: white cards, the muted track, and the warm workspace by day.
+    const lightSurfaces = ['#ffffff', oklchToHex(0.97, 0, 0), oklchToHex(0.97, 0.001, 106.424)];
+    for (const hex of palettes) {
+      const vars = buildThemeVars({ primary: hex });
+      const fill = hexOf(vars['--primary']);
+      const label = hexOf(vars['--primary-foreground']);
+      for (const surface of lightSurfaces) {
+        assert.ok(contrastRatio(fill, surface) >= 3, `${hex} light fill ${fill} vs ${surface}`);
+      }
+      assert.ok(contrastRatio(label, fill) >= 4.5, `${hex} light label`);
+      // Progress fills use the primary-text shade on the muted track.
+      assert.ok(contrastRatio(hexOf(vars['--classroom-primary-text-light']), lightSurfaces[1]) >= 3, `${hex} light progress`);
+
+      // At night the surfaces carry the brand's tint: page, card, popover, muted track.
+      const tint = Number(vars['--classroom-tint-chroma']);
+      const hue = Number(vars['--classroom-tint-hue']);
+      const nightFill = hexOf(vars['--classroom-primary-dark']);
+      for (const lightness of [0.165, 0.205, 0.245]) {
+        const surface = oklchToHex(lightness, tint, hue);
+        assert.ok(contrastRatio(nightFill, surface) >= 3, `${hex} dark fill ${nightFill} vs ${surface}`);
+      }
+      assert.ok(contrastRatio(hexOf(vars['--classroom-primary-foreground-dark']), nightFill) >= 4.5, `${hex} dark label`);
+      assert.ok(contrastRatio(hexOf(vars['--classroom-primary-text-dark']), oklchToHex(0.285, tint, hue)) >= 3, `${hex} dark progress`);
+    }
+    // Both progress bars fill with that shade, not the button fill.
+    for (const rel of ['pages/LessonsList.jsx', 'components/chat/ProgressBar.jsx']) {
+      assert.match(readSrc(rel), /progress-fill h-full rounded-full[^"]*\bbg-primary-text\b/, rel);
+    }
+  });
+
+  it('deepens only light-mode fills that fade into the page, keeping their hue', () => {
+    assert.equal(lightFillColor('#8b1a1a'), '#8b1a1a', 'a fill that already stands out stays as chosen');
+    assert.equal(lightFillColor('#1d4ed8'), '#1d4ed8');
+    assert.equal(lightFillColor('#f8fafc'), oklchToHex(0.205, 0, 0), 'near-white turns near-black');
+    assert.equal(lightFillColor('invalid'), null);
+    for (const pale of ['#eab308', '#bae6fd', '#fef08a', '#87ceeb']) {
+      const fill = lightFillColor(pale);
+      assert.notEqual(fill, pale);
+      assert.ok(hueGap(hexToOklchParts(fill).h, hexToOklchParts(pale).h) < 3, `${pale} -> ${fill} changed hue`);
+    }
+  });
+
   it('gives the dark theme its own header, fills, and surface tint', () => {
     const vars = buildThemeVars({ primary: '#8b1a1a', accent: '#dc2626' });
     assert.equal(vars['--classroom-header-bg-dark'], darkHeaderColor('#8b1a1a'));
     assert.equal(vars['--classroom-header-text-dark'], '#ffffff');
-    assert.equal(vars['--classroom-primary-dark'], hexToOklch(darkFillColor('#8b1a1a')));
+    assert.equal(vars['--classroom-primary-dark'], darkFillColor('#8b1a1a'));
     assert.equal(vars['--classroom-tint-hue'], hexToOklchParts('#8b1a1a').h.toFixed(1));
     assert.equal(vars['--classroom-tint-chroma'], '0.012');
     assert.equal(buildThemeVars({ primary: '#141414' })['--classroom-tint-chroma'], '0.000', 'gray brands leave surfaces neutral');
@@ -183,9 +237,11 @@ describe('night classroom colors', () => {
     assert.deepEqual(themeColorNotes(null), []);
     assert.deepEqual(themeColorNotes({ primary: '#470d99' }).map(n => n.level), ['info']);
     const yellow = themeColorNotes({ primary: '#f5c518' });
-    assert.equal(yellow[0].level, 'warning');
-    assert.match(yellow[0].text, /barely stand out from white \(1\.6:1\)/);
-    assert.match(yellow[1].text, /deeper shade/);
+    assert.deepEqual(yellow.map(n => n.level), ['warning', 'info', 'info']);
+    assert.match(yellow[0].text, /header in this color barely stands out from white \(1\.6:1\)/);
+    assert.match(yellow[1].text, /In light mode, buttons use a deeper shade/);
+    assert.match(yellow[2].text, /In dark mode, the header uses a deeper shade/);
+    assert.match(themeColorNotes({ primary: '#f8fafc' })[1].text, /In light mode, buttons turn near-black/);
     assert.deepEqual(themeColorNotes({ primary: '#8b1a1a' }).map(n => n.text), ['In dark mode, buttons use a lighter shade so they stand out from dark cards.']);
     assert.match(themeColorNotes({ primary: '#141414' }).map(n => n.text).join(' '), /lighter shade so it stands out.*light gray/);
   });
@@ -235,7 +291,7 @@ describe('root theme application, favicons, and customizer parity', () => {
       const cleanup = applyThemeVarsToRoot({ primary: '#8b1a1a', accent: '#dc2626' });
       assert.equal(classes.has('classroom-theme'), true);
       assert.equal(props.get('--classroom-header-bg'), '#8b1a1a');
-      assert.equal(props.get('--primary'), hexToOklch('#8b1a1a'));
+      assert.equal(props.get('--primary'), '#8b1a1a');
       assert.ok(props.get('--ring'));
 
       cleanup();
@@ -250,7 +306,11 @@ describe('root theme application, favicons, and customizer parity', () => {
   it('generates a text-initial favicon when no logo is uploaded and restores the original favicon on cleanup', async () => {
     const drawnTexts = [];
     const fills = [];
-    const linkEl = { rel: 'icon', type: 'image/svg+xml', href: '/assets/favicon.svg' };
+    // index.html declares a 32px and a 16px icon; both follow the classroom.
+    const icons = [
+      { rel: 'icon', type: 'image/png', href: '/assets/icon-32.png' },
+      { rel: 'icon', type: 'image/svg+xml', href: '/assets/icon-16.png' },
+    ];
     const prevDocument = globalThis.document;
     globalThis.document = {
       createElement: (tag) => {
@@ -272,8 +332,8 @@ describe('root theme application, favicons, and customizer parity', () => {
         }
         return {};
       },
-      querySelector: () => linkEl,
-      head: { appendChild() {} },
+      querySelectorAll: (selector) => (selector === "link[rel='icon']" ? icons : []),
+      head: { appendChild() { throw new Error('existing icon links are updated in place'); } },
     };
     try {
       const dataUrl = await generateFavicon(null, '#8b1a1a', 'AI Leaders Academy');
@@ -282,11 +342,34 @@ describe('root theme application, favicons, and customizer parity', () => {
       assert.deepEqual(drawnTexts[0], { text: 'A', color: '#ffffff' });
 
       const restore = setFavicon(dataUrl);
-      assert.equal(linkEl.href, 'data:image/png;base64,FAVICON');
-      assert.equal(linkEl.type, 'image/png');
+      for (const icon of icons) {
+        assert.equal(icon.href, 'data:image/png;base64,FAVICON');
+        assert.equal(icon.type, 'image/png');
+      }
       restore();
-      assert.equal(linkEl.href, '/assets/favicon.svg');
-      assert.equal(linkEl.type, 'image/svg+xml');
+      assert.deepEqual(icons.map(icon => [icon.href, icon.type]), [
+        ['/assets/icon-32.png', 'image/png'],
+        ['/assets/icon-16.png', 'image/svg+xml'],
+      ]);
+    } finally {
+      globalThis.document = prevDocument;
+    }
+  });
+
+  it('adds an icon link when the page has none, and removes it on cleanup', () => {
+    const appended = [];
+    const prevDocument = globalThis.document;
+    globalThis.document = {
+      querySelectorAll: () => [],
+      createElement: () => ({ remove() { appended.splice(appended.indexOf(this), 1); } }),
+      head: { appendChild: (el) => appended.push(el) },
+    };
+    try {
+      const restore = setFavicon('data:image/png;base64,FAVICON');
+      assert.equal(appended.length, 1);
+      assert.deepEqual({ rel: appended[0].rel, type: appended[0].type, href: appended[0].href }, { rel: 'icon', type: 'image/png', href: 'data:image/png;base64,FAVICON' });
+      restore();
+      assert.equal(appended.length, 0);
     } finally {
       globalThis.document = prevDocument;
     }
@@ -318,10 +401,10 @@ describe('root theme application, favicons, and customizer parity', () => {
     assert.match(publicHook, /applyThemeVarsToRoot\(branding\?\.theme\)/);
     // Auth pages paint their backdrop with the header tokens, which follow the
     // theme; an inline light color would stay bright in dark mode.
-    for (const page of ['Login', 'Signup', 'ForgotPassword', 'ResetPassword', 'Waitlist', 'Privacy']) {
+    for (const page of ['Login', 'Signup', 'ForgotPassword', 'ResetPassword', 'Waitlist', 'Privacy', 'Setup']) {
       const src = readSrc(`pages/${page}.jsx`);
       assert.match(src, /<main className="[^"]*\bbg-header text-header-foreground\b/, `${page} backdrop`);
-      assert.equal(/backgroundColor: primary|color: foreground/.test(src), false, `${page} inline brand color`);
+      assert.equal(/backgroundColor: primary|backgroundColor: '#|color: foreground/.test(src), false, `${page} inline brand color`);
     }
     assert.match(publicHook, /generateFavicon\(branding\.logoUrl,\s*primaryColor,\s*branding\.classroomName\)/);
   });

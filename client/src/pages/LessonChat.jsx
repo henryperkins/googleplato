@@ -12,6 +12,7 @@ import { useLessonDraft } from '../hooks/useLessonDraft.js';
 import { isClientUpgradeRequired, onClientUpgrade } from '../../js/clientCompatibility.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
+import { renderMd, renderInlineMd } from '../lib/helpers.js';
 import { pageTitle } from '../lib/routeTitles.js';
 import {
   deleteLessonProgress,
@@ -649,18 +650,18 @@ function LessonConversation() {
         <DialogContent id="lesson-objectives-dialog" variant="sheet">
           <DialogHeader>
             <DialogTitle ref={objectivesTitleRef} tabIndex={-1}>{lesson.name}</DialogTitle>
-            {lesson.description && <DialogDescription>{lesson.description}</DialogDescription>}
+            {lesson.description && <DialogDescription className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />}
           </DialogHeader>
           <div className="space-y-4">
           <div className="space-y-2">
             <h3 className="text-sm font-medium">Exemplar</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">{lesson.exemplar}</p>
+            <div className="coach-copy text-sm text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(lesson.exemplar) }} />
           </div>
           <div className="space-y-2">
             <h3 className="text-sm font-medium">Learning Objectives</h3>
             <ul className="list-disc pl-5 text-sm text-muted-foreground leading-relaxed space-y-1">
               {lesson.learningObjectives.map((obj, i) => (
-                <li key={i}>{obj}</li>
+                <li key={i} className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(obj) }} />
               ))}
             </ul>
           </div>

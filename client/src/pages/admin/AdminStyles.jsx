@@ -176,7 +176,14 @@ export default function AdminStyles({ initialData, onSaved }) {
                     {field === 'accent' && (
                       <label className="flex min-h-11 items-center gap-2 py-2 text-sm cursor-pointer">
                         <input type="checkbox" checked={draft.matchPrimary} disabled={saving}
-                          onChange={event => { change({ matchPrimary: event.target.checked }); setColorErrors(previous => ({ ...previous, accent: '' })); }} />
+                          onChange={event => {
+                            // Unmatching starts the accent from the primary on screen, not an older accent.
+                            const matchPrimary = event.target.checked;
+                            const accent = normalizeColor(draft.primary) || safePrimary;
+                            change(matchPrimary ? { matchPrimary } : { matchPrimary, accent });
+                            if (!matchPrimary) setPreview(previous => ({ ...previous, accent }));
+                            setColorErrors(previous => ({ ...previous, accent: '' }));
+                          }} />
                         Match primary
                       </label>
                     )}

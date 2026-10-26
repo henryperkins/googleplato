@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
+import PublicFooter from '../components/PublicFooter.jsx';
 import { forgotPassword } from '../../js/auth.js';
 import { requestError } from '../lib/authErrors.js';
 import { Button } from '@/components/ui/button';
@@ -151,11 +152,7 @@ export default function ForgotPassword() {
           </Button>
         </CardFooter>
       </Card>
-      <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>
-        <a href="/privacy" onClick={e => { e.preventDefault(); navigate('/privacy'); }} className="underline hover:no-underline">Privacy</a>
-        {' · '}
-        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
-      </p>
+      <PublicFooter />
     </main>
   );
 }

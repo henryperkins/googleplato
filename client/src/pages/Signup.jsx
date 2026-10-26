@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
+import PublicFooter from '../components/PublicFooter.jsx';
 import { preloadFirebase } from '../../js/auth.js';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
@@ -454,11 +455,7 @@ export default function Signup() {
           </Button>
         </CardFooter>
       </Card>
-      <p className="mt-4 text-xs" style={{ '--ring': 'currentColor' }}>
-        <a href="/privacy" onClick={e => { e.preventDefault(); navigate('/privacy'); }} className="underline hover:no-underline">Privacy</a>
-        {' · '}
-        Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">plato</a>.
-      </p>
+      <PublicFooter />
     </main>
   );
 }

@@ -1228,8 +1228,9 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
   }
   let theme;
   if (body.theme !== undefined) {
-    if (!body.theme || typeof body.theme !== 'object' || Array.isArray(body.theme)) {
-      return c.json({ error: 'Theme must include primary and accent colors.' }, 400);
+    // A theme without a primary would drop the classroom's brand colors.
+    if (!body.theme || typeof body.theme !== 'object' || Array.isArray(body.theme) || body.theme.primary === undefined) {
+      return c.json({ error: 'Theme must include a primary color.' }, 400);
     }
     theme = {};
     for (const key of ['primary', 'accent']) {

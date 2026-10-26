@@ -1686,6 +1686,15 @@ describe('PUT /v1/admin/theme — color validation', () => {
     assert.equal(saved.length, 0);
   });
 
+  it('rejects a theme without a primary color instead of erasing the brand', async () => {
+    for (const theme of [{}, { accent: '#dc2626' }, { primary: null }]) {
+      const res = await adminReq(makeApp(), 'PUT', '/v1/admin/theme', { theme, classroomName: 'Test' });
+      assert.equal(res.status, 400, `accepted ${JSON.stringify(theme)}`);
+      assert.match((await res.json()).error, /primary color/);
+    }
+    assert.equal(saved.length, 0);
+  });
+
   it('still saves the classroom name without a theme', async () => {
     const res = await adminReq(makeApp(), 'PUT', '/v1/admin/theme', { classroomName: 'Acme Academy' });
     assert.equal(res.status, 200);
