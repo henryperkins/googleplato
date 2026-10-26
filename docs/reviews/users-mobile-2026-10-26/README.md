@@ -4,7 +4,7 @@ The Users directory now uses a compact list below 768 px. Name, email, status, a
 
 Motion is scoped to sheet arrival (220 ms), the Details chevron (180 ms), feedback fading (150 ms), and the success check (320 ms). Reduced motion removes travel, rotation transitions, and check drawing. Rows and route changes remain immediate.
 
-Save and invitation controls retain keyboard focus while pending and reject repeated activation. Account fields become read-only during saving. Failed email invitations remain beside Send with the queued addresses available for retry. Wait-list editor failures remain visible in that editor. Empty custom-field results explain the active filter and offer Clear filters. Completion is a neutral count of all published lessons, including in the activity panel.
+Save and invitation controls retain keyboard focus while pending and reject repeated activation. Account fields become read-only during saving. Failed email invitations remain beside Send with the queued addresses available for retry. Wait-list editor failures remain visible in that editor. Empty custom-field results explain the active filter and offer Clear filters. Completion is a neutral count of all published lessons, including in the activity panel. The mobile Details entry labels this denominator as **Lesson scope**, while the actual count remains visible above the disclosure.
 
 ## Validation
 

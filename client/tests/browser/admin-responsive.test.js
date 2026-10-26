@@ -213,6 +213,9 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
       await row.locator('summary').tap();
       await row.getByText('Autumn cohort', { exact: true }).waitFor();
       await row.getByText('Never', { exact: true }).waitFor();
+      await row.getByText('0 of 30 lessons completed', { exact: true }).waitFor();
+      await row.locator('dl').getByText('Lesson scope', { exact: true }).waitFor();
+      await row.locator('dl').getByText('All published lessons.', { exact: true }).waitFor();
       await page.getByRole('button', { name: 'Next page', exact: true }).click();
       await page.getByText('Page 2 of 2', { exact: true }).waitFor();
       await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');

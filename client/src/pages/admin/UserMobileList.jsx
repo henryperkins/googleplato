@@ -77,7 +77,7 @@ export default function UserMobileList({
                     {item.username && <Detail label="Username">@{item.username}</Detail>}
                     <Detail label="Group">{item.userGroup || 'No group'}</Detail>
                     {item._type === 'user' && <Detail label="Last active">{item._user.lastActiveAt ? new Date(item._user.lastActiveAt).toLocaleDateString() : 'Never'}</Detail>}
-                    {item._type === 'user' && <Detail label="Completion">Based on all published lessons.</Detail>}
+                    {item._type === 'user' && <Detail label="Lesson scope">All published lessons.</Detail>}
                     {item._type !== 'waitlist' && <Detail label="Date added">{new Date(item.createdAt).toLocaleDateString()}</Detail>}
                     {filterField && <Detail label={filterField.label}>{item.customFields?.[filterField.id] || 'Not provided'}</Detail>}
                     {slackConnected && <Detail label="Slack">{item._user?.slackUserId ? 'Linked' : 'Not linked'}</Detail>}
