@@ -802,16 +802,16 @@
       "dark-header": {
         "role": "primary",
         "displayName": "Dark Classroom Header Band",
-        "canonical": "oklch(0.4 0.15 285)",
+        "canonical": "oklch(0.33 0.1 285)",
         "tonalRamp": [
-          "oklch(0.150 0.050 285)",
-          "oklch(0.264 0.088 285)",
-          "oklch(0.379 0.126 285)",
-          "oklch(0.493 0.150 285)",
-          "oklch(0.607 0.131 285)",
-          "oklch(0.721 0.093 285)",
-          "oklch(0.836 0.055 285)",
-          "oklch(0.950 0.017 285)"
+          "oklch(0.150 0.033 285)",
+          "oklch(0.264 0.059 285)",
+          "oklch(0.379 0.084 285)",
+          "oklch(0.493 0.100 285)",
+          "oklch(0.607 0.087 285)",
+          "oklch(0.721 0.062 285)",
+          "oklch(0.836 0.037 285)",
+          "oklch(0.950 0.011 285)"
         ]
       },
       "dark-header-foreground": {

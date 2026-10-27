@@ -55,3 +55,15 @@ The first pass fixed contrast defects, but the rendered night theme still read a
 Deliberately unchanged: transparent dark fields with the 45% `--input` border, the salmon-leaning `primary-text` progress shade (any 3:1 red on a dark track reads pink; the alternative fails WCAG 1.4.11), and light mode entirely.
 
 Validation for this pass: 707 client unit tests pass, client lint has 0 errors (20 pre-existing warnings), the impeccable detector is clean, and the Chromium suites pass (Customizer 26, admin + learner 42) against a fresh production build. Fresh dark captures of the lesson list, a live chat exchange, and Settings were inspected visually: near-neutral room, rich maroon header, brick learner bubble with white text, crisp field borders.
+
+## Third pass: a deep night header
+
+A review of the second pass across seven brands, at desktop and phone widths, found one element still loud. The classroom header kept each brand at full strength, or lifted it to the top of the night band (lightness 0.48): crimson, electric blue, emerald, and mustard bands above a near-black page. On the sign-in pages the same color fills the whole backdrop. Everything else (cards, menus, dialogs, fields, bubbles, admin) read as calm.
+
+At night the header now takes the brand's hue at the band floor (lightness 0.33) with chroma capped at 0.10, lifted only to keep 1.5:1 from the page. Maroon `#8b1a1a` becomes `#5f1a17`, blue `#1d4ed8` becomes `#1a3168`, green `#10b981` becomes `#00402a`, and yellow `#eab308` becomes `#453200`; near-black stays `#353535`. Across the 216-color sweep every night header lands between lightness 0.33 and 0.336, with white text at 11.7:1 or more. The unbranded header becomes `oklch(0.33 0.1 285)`. The brand still shows at full strength in buttons, bubbles, links, progress, and focus. A capped band one step lighter (0.36) read dustier, so the floor won.
+
+The Customizer's night-header note is gone. Every header now deepens, which the Colors card's "dark-mode shades are derived automatically" already says and the dark preview shows; a note on every brand was noise. Notes remain for the exceptions: light-mode legibility, button shades, and deepened bubbles. Light mode and the admin pages render byte-identical captures.
+
+![Night header and sign-in backdrop, before and after, for four brands](night-header.png)
+
+Validation for this pass: 707 client tests, client lint (the 20 existing warnings), and the Chromium suites (Customizer 26, admin 23, learner 19) on a fresh production build.

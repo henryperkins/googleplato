@@ -137,15 +137,21 @@ describe('night classroom colors', () => {
     assert.equal(readableColor('#f5c518', '#f5f5f5'), '#886b00');
   });
 
-  it('puts every brand header in the night band: white text that reads, never sinking into the page', () => {
+  it('puts every brand header deep in the night band: white text that reads, never sinking into the page', () => {
     for (const hex of SWEEP) {
       const header = darkHeaderColor(hex);
-      const { l } = hexToOklchParts(header);
+      const { l, c } = hexToOklchParts(header);
       assert.ok(l >= 0.325 && l <= 0.485, `${hex} -> ${header} at L ${l.toFixed(3)}`);
+      assert.ok(c <= 0.105, `${hex} -> ${header} glows at chroma ${c.toFixed(3)}`);
       assert.ok(contrastRatio(contrastText(header), header) >= 4.5, `${hex} header text`);
       assert.ok(contrastRatio(header, DARK_PAGE) >= 1.5, `${hex} header vs page`);
     }
-    assert.equal(darkHeaderColor('#8b1a1a'), '#8b1a1a', 'a brand already in the band stays as chosen');
+    // A full-width band at the brand's own strength outshone the page: maroon
+    // stays maroon, but as a deeper, calmer oxblood.
+    const maroon = hexToOklchParts('#8b1a1a');
+    const night = hexToOklchParts(darkHeaderColor('#8b1a1a'));
+    assert.ok(hueGap(night.h, maroon.h) < 3, 'keeps the hue');
+    assert.ok(night.l < maroon.l && night.c < maroon.c, `${darkHeaderColor('#8b1a1a')} is deeper and calmer`);
   });
 
   it('makes every brand fill stand out from a dark card with readable text', () => {
@@ -274,14 +280,15 @@ describe('night classroom colors', () => {
     assert.deepEqual(themeColorNotes(null), []);
     assert.deepEqual(themeColorNotes({ primary: '#470d99' }).map(n => n.level), ['info']);
     const yellow = themeColorNotes({ primary: '#f5c518' });
-    assert.deepEqual(yellow.map(n => n.level), ['warning', 'info', 'info', 'info']);
+    assert.deepEqual(yellow.map(n => n.level), ['warning', 'info', 'info']);
     assert.match(yellow[0].text, /header in this color barely stands out from white \(1\.6:1\)/);
     assert.match(yellow[1].text, /In light mode, buttons use a deeper shade/);
-    assert.match(yellow[2].text, /In dark mode, the header uses a deeper shade/);
-    assert.match(yellow[3].text, /In dark mode, learners' messages use a deeper shade with white text/);
+    assert.match(yellow[2].text, /In dark mode, learners' messages use a deeper shade with white text/);
     assert.match(themeColorNotes({ primary: '#f8fafc' })[1].text, /In light mode, buttons turn near-black/);
     assert.deepEqual(themeColorNotes({ primary: '#8b1a1a' }).map(n => n.text), ['In dark mode, buttons use a lighter shade so they stand out from dark cards.']);
-    assert.match(themeColorNotes({ primary: '#141414' }).map(n => n.text).join(' '), /lighter shade so it stands out.*light gray.*messages turn gray with white text/);
+    assert.match(themeColorNotes({ primary: '#141414' }).map(n => n.text).join(' '), /light gray.*messages turn gray with white text/);
+    // Every night header deepens, so none gets a note: the dark preview shows it.
+    assert.equal(/header/.test(themeColorNotes({ primary: '#1d4ed8' }).map(n => n.text).join(' ')), false);
   });
 });
 

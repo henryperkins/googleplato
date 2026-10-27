@@ -138,6 +138,8 @@ const LIGHT_WORKSPACE = '#f5f5f4';
 const DARK_POPOVER_LIGHTNESS = 0.235;
 const DARK_PAGE = '#0e0e0e';
 const NIGHT_BAND = [0.33, 0.48];
+// The most color a night header carries: enough to name the brand, not to glow.
+const NIGHT_HEADER_CHROMA = 0.1;
 // Below this chroma a color reads as gray, and its hue is noise.
 const ACHROMATIC = 0.03;
 
@@ -152,23 +154,20 @@ function tintChroma(c) {
 }
 
 /**
- * The header color in dark mode: the brand, deepened or lifted into the
- * night band. A brand already in the band stays exactly as chosen; a shade
- * the band forces eases its saturation a little, so a bright yellow becomes
- * deep gold rather than mustard and a candy violet stays rich, not neon.
+ * The header color in dark mode, which also fills the sign-in backdrop: a
+ * deep band of the brand. It takes the brand's hue at the floor of the night
+ * band with its chroma capped, so maroon reads as oxblood, blue as navy, and
+ * yellow as bronze. A full-width band of the brand as chosen, or lifted toward
+ * the top of the band, outshone everything beneath it at night.
  */
 export function darkHeaderColor(hex) {
   const normalized = normalizeHex(hex);
   if (!normalized) return null;
-  const { l, c, h } = hexToOklchParts(normalized);
-  const chroma = c < ACHROMATIC ? 0 : c * 0.9;
-  let band = Math.min(NIGHT_BAND[1], Math.max(NIGHT_BAND[0], l));
-  // Already in the band and separating from the page: keep the brand exact.
-  // (Checking the eased shade here would bless saturated blues whose true
-  // color sits under 1.5:1, since easing raises their luminance.)
-  if (band === l && contrastRatio(normalized, DARK_PAGE) >= 1.5) return normalized;
-  // Saturated blues carry little luminance for their lightness: lift them
-  // until the band still separates from the page.
+  const { c, h } = hexToOklchParts(normalized);
+  const chroma = c < ACHROMATIC ? 0 : Math.min(c, NIGHT_HEADER_CHROMA);
+  // Saturated blues carry little luminance for their lightness: lift the band
+  // until it still separates from the page.
+  let band = NIGHT_BAND[0];
   while (band < NIGHT_BAND[1] && contrastRatio(oklchToHex(band, chroma, h), DARK_PAGE) < 1.5) band += 0.005;
   return oklchToHex(band, chroma, h);
 }
@@ -242,14 +241,15 @@ export function lightFillColor(hex) {
 /**
  * Notes for the Customizer: a warning when the header won't stand out in light
  * mode (there it uses the color as chosen), what each mode changes to keep the
- * buttons and the night header visible, and when night bubbles deepen.
+ * buttons visible, and when night bubbles deepen. Every night header takes a
+ * deep shade, so it gets no note; the dark preview shows it.
  */
 export function themeColorNotes(theme) {
   const primary = normalizeHex(theme?.primary);
   if (!primary) return [];
   const notes = [];
   const onWhite = contrastRatio(primary, '#ffffff');
-  const { l, c } = hexToOklchParts(primary);
+  const { c } = hexToOklchParts(primary);
   if (onWhite < 3) {
     notes.push({
       level: 'warning',
@@ -262,14 +262,6 @@ export function themeColorNotes(theme) {
       text: c < ACHROMATIC
         ? 'In light mode, buttons turn near-black, since pale gray buttons would disappear on light cards.'
         : 'In light mode, buttons use a deeper shade so they stand out from light cards.',
-    });
-  }
-  if (darkHeaderColor(primary) !== primary) {
-    notes.push({
-      level: 'info',
-      text: l > NIGHT_BAND[1]
-        ? `In dark mode, the header uses a deeper shade so it doesn't glare at night.`
-        : 'In dark mode, the header uses a lighter shade so it stands out from the page.',
     });
   }
   if (darkFillColor(primary) !== primary) {
