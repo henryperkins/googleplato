@@ -61,9 +61,11 @@ export default function AppShell({ children }) {
         Skip to main content
       </a>
 
-      {/* Admin bar — plato branding, quick links to dashboard */}
+      {/* Admin bar — plato branding, quick links to dashboard. The admin-bar
+          purple by day; at night the dashboard's own deep sidebar purple, with
+          a hairline so it doesn't merge into a dark classroom header. */}
       {isAdmin && (
-        <div className="py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-xs text-white" style={{ backgroundColor: '#470d99', '--ring': '#ffffff' }}>
+        <div className="bg-[#470d99] dark:bg-sidebar dark:border-b dark:border-sidebar-border py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-xs text-white" style={{ '--ring': '#ffffff' }}>
           {/* A landmark, so screen-reader users can find admin controls from
               the classroom; both links go to the admin dashboard. */}
           <nav aria-label="Admin" className="mx-auto max-w-5xl flex flex-wrap items-center gap-2 px-4">

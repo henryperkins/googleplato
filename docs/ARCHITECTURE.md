@@ -251,13 +251,17 @@ explicit light/dark choice takes precedence, even if storage is unavailable for
 the current page session. Clearing the saved choice resumes device following.
 
 A classroom's dark colors are derived, not configured. `buildThemeVars`
-(`client/src/lib/branding.js`) computes a dark header, fill, text color, and
-surface tint from the saved primary and sets them as `--classroom-*-dark`
-variables beside the light ones; `index.css` applies them under
-`.dark .classroom-theme`. Two rules hold that cascade together. A custom
+(`client/src/lib/branding.js`) computes a dark header, fill, learner bubble,
+text color, and surface tint from the saved primary and sets them as
+`--classroom-*-dark` variables beside the light ones; `index.css` applies them
+under `.dark .classroom-theme`. The bubble is the fill unless the fill would
+carry dark text, since a pale fill glares across a whole message; then it
+deepens until white text reads on it. Two rules hold that cascade together. A custom
 property resolves where it is declared, so the tinted surface tokens are
 declared again on every `.classroom-theme` element; declared once on `.dark`,
-they would keep plato's hue. And the dark `--primary` and `--ring` are
+they would keep plato's hue. `--bubble: var(--primary)` is likewise declared
+on each `.classroom-theme`, or a Customizer preview's bubble would take the
+admin page's fill instead of the preview's. And the dark `--primary` and `--ring` are
 `!important`, because `buildThemeVars` also sets the light ones inline on the
 same element. `.light` re-declares the light tokens for the Customizer's light
 preview inside a dark page, and the classroom's dark rules skip anything inside

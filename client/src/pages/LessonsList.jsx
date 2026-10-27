@@ -425,7 +425,7 @@ function CourseProgressHeader({ courseName, completed, total }) {
         className="h-1.5 rounded-full bg-muted overflow-hidden"
       >
         <div
-          className="h-full rounded-full bg-primary transition-all"
+          className="h-full rounded-full bg-primary-text transition-all"
           style={{ width: `${pct}%` }}
         />
       </div>

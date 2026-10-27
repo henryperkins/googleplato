@@ -131,39 +131,52 @@ export function readableColor(hex, background, minimum = 4.6) {
 // Surface references (index.css). Fills (buttons, chat bubbles, badges) must
 // stand out, 3:1, from every surface they sit on: by day the darkest is the
 // workspace, oklch(0.97 0.001 106.424); at night the lightest is the popover
-// that dialogs use, oklch(0.245 …) in the brand's tint. A dark header's
+// that dialogs use, oklch(0.235 …) in the brand's tint. A dark header's
 // lightness stays in the night band, so it neither glares nor sinks into the
-// page (oklch(0.165 …)).
+// page (oklch(0.15 …)).
 const LIGHT_WORKSPACE = '#f5f5f4';
-const DARK_POPOVER_LIGHTNESS = 0.245;
+const DARK_POPOVER_LIGHTNESS = 0.235;
 const DARK_PAGE = '#0e0e0e';
 const NIGHT_BAND = [0.33, 0.48];
+// The most color a night header carries: enough to name the brand, not to glow.
+const NIGHT_HEADER_CHROMA = 0.1;
 // Below this chroma a color reads as gray, and its hue is noise.
 const ACHROMATIC = 0.03;
 
-/** The chroma of the brand's hue in the night surfaces (index.css `--tint-chroma`). */
+/**
+ * The chroma of the brand's hue in the night surfaces (index.css
+ * `--tint-chroma`). Only a whisper: at full strength every classroom's room
+ * turned the brand's mud (brown for maroon, olive for yellow) instead of a
+ * calm neutral dark with the brand in its header and fills.
+ */
 function tintChroma(c) {
-  return c < ACHROMATIC ? 0 : Math.round(Math.min(0.012, c * 0.08) * 1000) / 1000;
-}
-
-/** The header color in dark mode: the brand, deepened or lifted into the night band. */
-export function darkHeaderColor(hex) {
-  const normalized = normalizeHex(hex);
-  if (!normalized) return null;
-  const { l, c, h } = hexToOklchParts(normalized);
-  const chroma = c < ACHROMATIC ? 0 : c;
-  let band = Math.min(NIGHT_BAND[1], Math.max(NIGHT_BAND[0], l));
-  // Saturated blues carry little luminance for their lightness: lift them
-  // until the band still separates from the page.
-  while (band < NIGHT_BAND[1] && contrastRatio(oklchToHex(band, chroma, h), DARK_PAGE) < 1.5) band += 0.005;
-  return band === l ? normalized : oklchToHex(band, chroma, h);
+  return c < ACHROMATIC ? 0 : Math.round(Math.min(0.007, c * 0.08) * 1000) / 1000;
 }
 
 /**
- * The button and bubble fill in dark mode: the brand when it already stands
- * out from the night surfaces (3:1 against the popover, the lightest of them),
- * else lifted until it does. A near-black brand turns light gray instead, the
- * way a monochrome mark inverts at night.
+ * The header color in dark mode, which also fills the sign-in backdrop: a
+ * deep band of the brand. It takes the brand's hue at the floor of the night
+ * band with its chroma capped, so maroon reads as oxblood, blue as navy, and
+ * yellow as bronze. A full-width band of the brand as chosen, or lifted toward
+ * the top of the band, outshone everything beneath it at night.
+ */
+export function darkHeaderColor(hex) {
+  const normalized = normalizeHex(hex);
+  if (!normalized) return null;
+  const { c, h } = hexToOklchParts(normalized);
+  const chroma = c < ACHROMATIC ? 0 : Math.min(c, NIGHT_HEADER_CHROMA);
+  // Saturated blues carry little luminance for their lightness: lift the band
+  // until it still separates from the page.
+  let band = NIGHT_BAND[0];
+  while (band < NIGHT_BAND[1] && contrastRatio(oklchToHex(band, chroma, h), DARK_PAGE) < 1.5) band += 0.005;
+  return oklchToHex(band, chroma, h);
+}
+
+/**
+ * The button fill in dark mode: the brand when it already stands out from the
+ * night surfaces (3:1 against the popover, the lightest of them), else lifted
+ * until it does. A near-black brand turns light gray instead, the way a
+ * monochrome mark inverts at night.
  */
 export function darkFillColor(hex) {
   const normalized = normalizeHex(hex);
@@ -172,12 +185,36 @@ export function darkFillColor(hex) {
   const surface = oklchToHex(DARK_POPOVER_LIGHTNESS, tintChroma(c), h);
   if (contrastRatio(normalized, surface) >= 3) return normalized;
   if (c < ACHROMATIC) return oklchToHex(0.93, 0, 0);
+  // Ease saturation as lightness climbs: full chroma at night lightness
+  // reads pastel (maroon becomes salmon) or neon, never the brand at ease.
+  const liftedChroma = c * 0.92;
   let failing = l, passing = 1;
   for (let i = 0; i < 24; i++) {
     const mid = (failing + passing) / 2;
-    if (contrastRatio(oklchToHex(mid, c, h), surface) >= 3) passing = mid; else failing = mid;
+    if (contrastRatio(oklchToHex(mid, liftedChroma, h), surface) >= 3) passing = mid; else failing = mid;
   }
-  return oklchToHex(passing, c, h);
+  return oklchToHex(passing, liftedChroma, h);
+}
+
+/**
+ * The learner bubble fill in dark mode. A bubble is a large surface, so a
+ * night fill that would glare there, one that carries dark text (a pale brand
+ * kept as chosen, or the light gray a near-black brand turns), deepens to the
+ * darkest shade of the brand that still stands out from the popover. Every
+ * night bubble then carries white text.
+ */
+export function darkBubbleColor(hex) {
+  const fill = darkFillColor(hex);
+  if (!fill || contrastText(fill) === '#ffffff') return fill;
+  const { c, h } = hexToOklchParts(normalizeHex(hex));
+  const chroma = c < ACHROMATIC ? 0 : c * 0.92;
+  const surface = oklchToHex(DARK_POPOVER_LIGHTNESS, tintChroma(c), h);
+  let failing = 0, passing = hexToOklchParts(fill).l;
+  for (let i = 0; i < 24; i++) {
+    const mid = (failing + passing) / 2;
+    if (contrastRatio(oklchToHex(mid, chroma, h), surface) >= 3) passing = mid; else failing = mid;
+  }
+  return oklchToHex(passing, chroma, h);
 }
 
 /**
@@ -203,15 +240,16 @@ export function lightFillColor(hex) {
 
 /**
  * Notes for the Customizer: a warning when the header won't stand out in light
- * mode (there it uses the color as chosen), and what each mode changes to keep
- * the buttons and the night header visible.
+ * mode (there it uses the color as chosen), what each mode changes to keep the
+ * buttons visible, and when night bubbles deepen. Every night header takes a
+ * deep shade, so it gets no note; the dark preview shows it.
  */
 export function themeColorNotes(theme) {
   const primary = normalizeHex(theme?.primary);
   if (!primary) return [];
   const notes = [];
   const onWhite = contrastRatio(primary, '#ffffff');
-  const { l, c } = hexToOklchParts(primary);
+  const { c } = hexToOklchParts(primary);
   if (onWhite < 3) {
     notes.push({
       level: 'warning',
@@ -226,20 +264,20 @@ export function themeColorNotes(theme) {
         : 'In light mode, buttons use a deeper shade so they stand out from light cards.',
     });
   }
-  if (darkHeaderColor(primary) !== primary) {
-    notes.push({
-      level: 'info',
-      text: l > NIGHT_BAND[1]
-        ? `In dark mode, the header uses a deeper shade so it doesn't glare at night.`
-        : 'In dark mode, the header uses a lighter shade so it stands out from the page.',
-    });
-  }
   if (darkFillColor(primary) !== primary) {
     notes.push({
       level: 'info',
       text: c < ACHROMATIC
         ? 'In dark mode, buttons turn light gray, since near-black buttons would disappear on dark cards.'
         : 'In dark mode, buttons use a lighter shade so they stand out from dark cards.',
+    });
+  }
+  if (darkBubbleColor(primary) !== darkFillColor(primary)) {
+    notes.push({
+      level: 'info',
+      text: c < ACHROMATIC
+        ? `In dark mode, learners' messages turn gray with white text, so they don't glare at night.`
+        : `In dark mode, learners' messages use a deeper shade with white text, so they don't glare at night.`,
     });
   }
   return notes;
@@ -262,15 +300,19 @@ export function buildThemeVars(theme) {
     vars['--primary-foreground'] = contrastText(fill);
     vars['--classroom-primary-text-light'] = hexToOklch(readableColor(primary, '#f5f5f5'));
     vars['--classroom-primary-text-dark'] = hexToOklch(readableColor(primary, '#303030'));
-    // The night classroom (index.css `.dark .classroom-theme`): its own header
-    // and fills, and the trace of the brand's hue its surfaces carry.
+    // The night classroom (index.css `.dark .classroom-theme`): its own header,
+    // fills, and learner bubbles, and the trace of the brand's hue its
+    // surfaces carry.
     const header = darkHeaderColor(primary);
     const nightFill = darkFillColor(primary);
+    const nightBubble = darkBubbleColor(primary);
     const { c, h } = hexToOklchParts(primary);
     vars['--classroom-header-bg-dark'] = header;
     vars['--classroom-header-text-dark'] = contrastText(header);
     vars['--classroom-primary-dark'] = nightFill;
     vars['--classroom-primary-foreground-dark'] = contrastText(nightFill);
+    vars['--classroom-bubble-dark'] = nightBubble;
+    vars['--classroom-bubble-foreground-dark'] = contrastText(nightBubble);
     vars['--classroom-tint-hue'] = h.toFixed(1);
     vars['--classroom-tint-chroma'] = tintChroma(c).toFixed(3);
   }

@@ -334,6 +334,36 @@
           "oklch(0.950 0.000 0)"
         ]
       },
+      "bubble": {
+        "role": "primary",
+        "displayName": "Learner Bubble",
+        "canonical": "oklch(0.336 0.182 285)",
+        "tonalRamp": [
+          "oklch(0.150 0.061 285)",
+          "oklch(0.264 0.107 285)",
+          "oklch(0.379 0.153 285)",
+          "oklch(0.493 0.182 285)",
+          "oklch(0.607 0.159 285)",
+          "oklch(0.721 0.113 285)",
+          "oklch(0.836 0.066 285)",
+          "oklch(0.950 0.020 285)"
+        ]
+      },
+      "bubble-foreground": {
+        "role": "primary",
+        "displayName": "Learner Bubble Text",
+        "canonical": "oklch(0.985 0 0)",
+        "tonalRamp": [
+          "oklch(0.150 0.000 0)",
+          "oklch(0.264 0.000 0)",
+          "oklch(0.379 0.000 0)",
+          "oklch(0.493 0.000 0)",
+          "oklch(0.607 0.000 0)",
+          "oklch(0.721 0.000 0)",
+          "oklch(0.836 0.000 0)",
+          "oklch(0.950 0.000 0)"
+        ]
+      },
       "success": {
         "role": "semantic",
         "displayName": "Success Surface",
@@ -472,16 +502,16 @@
       "dark-primary": {
         "role": "primary",
         "displayName": "Dark Plato Purple",
-        "canonical": "oklch(0.556 0.2 285)",
+        "canonical": "oklch(0.565 0.17 285)",
         "tonalRamp": [
-          "oklch(0.150 0.067 285)",
-          "oklch(0.264 0.117 285)",
-          "oklch(0.379 0.168 285)",
-          "oklch(0.493 0.200 285)",
-          "oklch(0.607 0.175 285)",
-          "oklch(0.721 0.124 285)",
-          "oklch(0.836 0.073 285)",
-          "oklch(0.950 0.022 285)"
+          "oklch(0.150 0.057 285)",
+          "oklch(0.264 0.100 285)",
+          "oklch(0.379 0.143 285)",
+          "oklch(0.493 0.170 285)",
+          "oklch(0.607 0.148 285)",
+          "oklch(0.721 0.105 285)",
+          "oklch(0.836 0.062 285)",
+          "oklch(0.950 0.019 285)"
         ]
       },
       "dark-primary-foreground": {
@@ -502,29 +532,29 @@
       "dark-background": {
         "role": "neutral",
         "displayName": "Dark Page Surface",
-        "canonical": "oklch(0.165 0.012 285)",
+        "canonical": "oklch(0.15 0.007 285)",
         "tonalRamp": [
-          "oklch(0.150 0.004 285)",
-          "oklch(0.264 0.007 285)",
-          "oklch(0.379 0.010 285)",
-          "oklch(0.493 0.012 285)",
-          "oklch(0.607 0.010 285)",
-          "oklch(0.721 0.007 285)",
-          "oklch(0.836 0.004 285)",
+          "oklch(0.150 0.002 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.006 285)",
+          "oklch(0.493 0.007 285)",
+          "oklch(0.607 0.006 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
         ]
       },
       "dark-foreground": {
         "role": "neutral",
         "displayName": "Dark Main Text",
-        "canonical": "oklch(0.97 0.004 285)",
+        "canonical": "oklch(0.95 0.002 285)",
         "tonalRamp": [
           "oklch(0.150 0.001 285)",
-          "oklch(0.264 0.002 285)",
-          "oklch(0.379 0.003 285)",
-          "oklch(0.493 0.004 285)",
-          "oklch(0.607 0.003 285)",
-          "oklch(0.721 0.002 285)",
+          "oklch(0.264 0.001 285)",
+          "oklch(0.379 0.002 285)",
+          "oklch(0.493 0.002 285)",
+          "oklch(0.607 0.002 285)",
+          "oklch(0.721 0.001 285)",
           "oklch(0.836 0.001 285)",
           "oklch(0.950 0.000 285)"
         ]
@@ -532,59 +562,59 @@
       "dark-card": {
         "role": "neutral",
         "displayName": "Dark Card Surface",
-        "canonical": "oklch(0.205 0.012 285)",
+        "canonical": "oklch(0.195 0.007 285)",
         "tonalRamp": [
-          "oklch(0.150 0.004 285)",
-          "oklch(0.264 0.007 285)",
-          "oklch(0.379 0.010 285)",
-          "oklch(0.493 0.012 285)",
-          "oklch(0.607 0.010 285)",
-          "oklch(0.721 0.007 285)",
-          "oklch(0.836 0.004 285)",
+          "oklch(0.150 0.002 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.006 285)",
+          "oklch(0.493 0.007 285)",
+          "oklch(0.607 0.006 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
         ]
       },
       "dark-popover": {
         "role": "neutral",
         "displayName": "Dark Popover Surface",
-        "canonical": "oklch(0.245 0.012 285)",
+        "canonical": "oklch(0.235 0.007 285)",
         "tonalRamp": [
-          "oklch(0.150 0.004 285)",
-          "oklch(0.264 0.007 285)",
-          "oklch(0.379 0.010 285)",
-          "oklch(0.493 0.012 285)",
-          "oklch(0.607 0.010 285)",
-          "oklch(0.721 0.007 285)",
-          "oklch(0.836 0.004 285)",
+          "oklch(0.150 0.002 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.006 285)",
+          "oklch(0.493 0.007 285)",
+          "oklch(0.607 0.006 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
         ]
       },
       "dark-secondary": {
         "role": "neutral",
         "displayName": "Dark Secondary Surface",
-        "canonical": "oklch(0.285 0.012 285)",
+        "canonical": "oklch(0.27 0.007 285)",
         "tonalRamp": [
-          "oklch(0.150 0.004 285)",
-          "oklch(0.264 0.007 285)",
-          "oklch(0.379 0.010 285)",
-          "oklch(0.493 0.012 285)",
-          "oklch(0.607 0.010 285)",
-          "oklch(0.721 0.007 285)",
-          "oklch(0.836 0.004 285)",
+          "oklch(0.150 0.002 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.006 285)",
+          "oklch(0.493 0.007 285)",
+          "oklch(0.607 0.006 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
         ]
       },
       "dark-secondary-foreground": {
         "role": "neutral",
         "displayName": "Dark Secondary Text",
-        "canonical": "oklch(0.97 0.004 285)",
+        "canonical": "oklch(0.95 0.002 285)",
         "tonalRamp": [
           "oklch(0.150 0.001 285)",
-          "oklch(0.264 0.002 285)",
-          "oklch(0.379 0.003 285)",
-          "oklch(0.493 0.004 285)",
-          "oklch(0.607 0.003 285)",
-          "oklch(0.721 0.002 285)",
+          "oklch(0.264 0.001 285)",
+          "oklch(0.379 0.002 285)",
+          "oklch(0.493 0.002 285)",
+          "oklch(0.607 0.002 285)",
+          "oklch(0.721 0.001 285)",
           "oklch(0.836 0.001 285)",
           "oklch(0.950 0.000 285)"
         ]
@@ -592,59 +622,59 @@
       "dark-muted": {
         "role": "neutral",
         "displayName": "Dark Muted Surface",
-        "canonical": "oklch(0.285 0.012 285)",
+        "canonical": "oklch(0.27 0.007 285)",
         "tonalRamp": [
-          "oklch(0.150 0.004 285)",
-          "oklch(0.264 0.007 285)",
-          "oklch(0.379 0.010 285)",
-          "oklch(0.493 0.012 285)",
-          "oklch(0.607 0.010 285)",
-          "oklch(0.721 0.007 285)",
-          "oklch(0.836 0.004 285)",
+          "oklch(0.150 0.002 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.006 285)",
+          "oklch(0.493 0.007 285)",
+          "oklch(0.607 0.006 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
         ]
       },
       "dark-muted-foreground": {
         "role": "neutral",
         "displayName": "Dark Muted Text",
-        "canonical": "oklch(0.74 0.012 285)",
+        "canonical": "oklch(0.76 0.007 285)",
         "tonalRamp": [
-          "oklch(0.150 0.004 285)",
-          "oklch(0.264 0.007 285)",
-          "oklch(0.379 0.010 285)",
-          "oklch(0.493 0.012 285)",
-          "oklch(0.607 0.010 285)",
-          "oklch(0.721 0.007 285)",
-          "oklch(0.836 0.004 285)",
+          "oklch(0.150 0.002 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.006 285)",
+          "oklch(0.493 0.007 285)",
+          "oklch(0.607 0.006 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
         ]
       },
       "dark-accent": {
         "role": "neutral",
         "displayName": "Dark Interaction Wash",
-        "canonical": "oklch(0.3 0.012 285)",
+        "canonical": "oklch(0.29 0.007 285)",
         "tonalRamp": [
-          "oklch(0.150 0.004 285)",
-          "oklch(0.264 0.007 285)",
-          "oklch(0.379 0.010 285)",
-          "oklch(0.493 0.012 285)",
-          "oklch(0.607 0.010 285)",
-          "oklch(0.721 0.007 285)",
-          "oklch(0.836 0.004 285)",
+          "oklch(0.150 0.002 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.006 285)",
+          "oklch(0.493 0.007 285)",
+          "oklch(0.607 0.006 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
         ]
       },
       "dark-accent-foreground": {
         "role": "neutral",
         "displayName": "Dark Interaction Text",
-        "canonical": "oklch(0.97 0.004 285)",
+        "canonical": "oklch(0.95 0.002 285)",
         "tonalRamp": [
           "oklch(0.150 0.001 285)",
-          "oklch(0.264 0.002 285)",
-          "oklch(0.379 0.003 285)",
-          "oklch(0.493 0.004 285)",
-          "oklch(0.607 0.003 285)",
-          "oklch(0.721 0.002 285)",
+          "oklch(0.264 0.001 285)",
+          "oklch(0.379 0.002 285)",
+          "oklch(0.493 0.002 285)",
+          "oklch(0.607 0.002 285)",
+          "oklch(0.721 0.001 285)",
           "oklch(0.836 0.001 285)",
           "oklch(0.950 0.000 285)"
         ]
@@ -667,7 +697,7 @@
       "dark-border": {
         "role": "neutral",
         "displayName": "Dark Surface Boundary",
-        "canonical": "oklch(1 0 0 / 10%)",
+        "canonical": "oklch(1 0 0 / 13%)",
         "tonalRamp": [
           "oklch(0.150 0.000 0)",
           "oklch(0.264 0.000 0)",
@@ -697,31 +727,31 @@
       "dark-ring": {
         "role": "primary",
         "displayName": "Dark Focus Ring",
-        "canonical": "oklch(0.72 0.14 285)",
+        "canonical": "oklch(0.74 0.12 285)",
         "tonalRamp": [
-          "oklch(0.150 0.047 285)",
-          "oklch(0.264 0.082 285)",
-          "oklch(0.379 0.118 285)",
-          "oklch(0.493 0.140 285)",
-          "oklch(0.607 0.122 285)",
-          "oklch(0.721 0.087 285)",
-          "oklch(0.836 0.051 285)",
-          "oklch(0.950 0.016 285)"
+          "oklch(0.150 0.040 285)",
+          "oklch(0.264 0.070 285)",
+          "oklch(0.379 0.101 285)",
+          "oklch(0.493 0.120 285)",
+          "oklch(0.607 0.105 285)",
+          "oklch(0.721 0.074 285)",
+          "oklch(0.836 0.044 285)",
+          "oklch(0.950 0.013 285)"
         ]
       },
       "dark-sidebar": {
         "role": "primary",
         "displayName": "Dark Sidebar",
-        "canonical": "oklch(0.255 0.065 285)",
+        "canonical": "oklch(0.235 0.05 285)",
         "tonalRamp": [
-          "oklch(0.150 0.022 285)",
-          "oklch(0.264 0.038 285)",
-          "oklch(0.379 0.055 285)",
-          "oklch(0.493 0.065 285)",
-          "oklch(0.607 0.057 285)",
-          "oklch(0.721 0.040 285)",
-          "oklch(0.836 0.024 285)",
-          "oklch(0.950 0.007 285)"
+          "oklch(0.150 0.017 285)",
+          "oklch(0.264 0.029 285)",
+          "oklch(0.379 0.042 285)",
+          "oklch(0.493 0.050 285)",
+          "oklch(0.607 0.044 285)",
+          "oklch(0.721 0.031 285)",
+          "oklch(0.836 0.018 285)",
+          "oklch(0.950 0.006 285)"
         ]
       },
       "dark-sidebar-foreground": {
@@ -742,51 +772,81 @@
       "dark-primary-text": {
         "role": "neutral",
         "displayName": "Dark Primary Text",
-        "canonical": "oklch(0.78 0.12 285)",
+        "canonical": "oklch(0.79 0.105 285)",
         "tonalRamp": [
-          "oklch(0.150 0.040 285)",
-          "oklch(0.264 0.070 285)",
-          "oklch(0.379 0.101 285)",
-          "oklch(0.493 0.120 285)",
-          "oklch(0.607 0.105 285)",
-          "oklch(0.721 0.074 285)",
-          "oklch(0.836 0.044 285)",
-          "oklch(0.950 0.013 285)"
+          "oklch(0.150 0.035 285)",
+          "oklch(0.264 0.062 285)",
+          "oklch(0.379 0.088 285)",
+          "oklch(0.493 0.105 285)",
+          "oklch(0.607 0.092 285)",
+          "oklch(0.721 0.065 285)",
+          "oklch(0.836 0.038 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-link": {
         "role": "neutral",
         "displayName": "Dark Link Emphasis",
-        "canonical": "oklch(0.78 0.12 285)",
+        "canonical": "oklch(0.79 0.105 285)",
         "tonalRamp": [
-          "oklch(0.150 0.040 285)",
-          "oklch(0.264 0.070 285)",
-          "oklch(0.379 0.101 285)",
-          "oklch(0.493 0.120 285)",
-          "oklch(0.607 0.105 285)",
-          "oklch(0.721 0.074 285)",
-          "oklch(0.836 0.044 285)",
-          "oklch(0.950 0.013 285)"
+          "oklch(0.150 0.035 285)",
+          "oklch(0.264 0.062 285)",
+          "oklch(0.379 0.088 285)",
+          "oklch(0.493 0.105 285)",
+          "oklch(0.607 0.092 285)",
+          "oklch(0.721 0.065 285)",
+          "oklch(0.836 0.038 285)",
+          "oklch(0.950 0.012 285)"
         ]
       },
       "dark-header": {
         "role": "primary",
         "displayName": "Dark Classroom Header Band",
-        "canonical": "oklch(0.4 0.15 285)",
+        "canonical": "oklch(0.33 0.1 285)",
         "tonalRamp": [
-          "oklch(0.150 0.050 285)",
-          "oklch(0.264 0.088 285)",
-          "oklch(0.379 0.126 285)",
-          "oklch(0.493 0.150 285)",
-          "oklch(0.607 0.131 285)",
-          "oklch(0.721 0.093 285)",
-          "oklch(0.836 0.055 285)",
-          "oklch(0.950 0.017 285)"
+          "oklch(0.150 0.033 285)",
+          "oklch(0.264 0.059 285)",
+          "oklch(0.379 0.084 285)",
+          "oklch(0.493 0.100 285)",
+          "oklch(0.607 0.087 285)",
+          "oklch(0.721 0.062 285)",
+          "oklch(0.836 0.037 285)",
+          "oklch(0.950 0.011 285)"
         ]
       },
       "dark-header-foreground": {
         "role": "primary",
         "displayName": "Dark Header Text",
+        "canonical": "oklch(0.985 0 0)",
+        "tonalRamp": [
+          "oklch(0.150 0.000 0)",
+          "oklch(0.264 0.000 0)",
+          "oklch(0.379 0.000 0)",
+          "oklch(0.493 0.000 0)",
+          "oklch(0.607 0.000 0)",
+          "oklch(0.721 0.000 0)",
+          "oklch(0.836 0.000 0)",
+          "oklch(0.950 0.000 0)"
+        ]
+      },
+      "dark-bubble": {
+        "role": "primary",
+        "displayName": "Dark Learner Bubble",
+        "canonical": "oklch(0.565 0.17 285)",
+        "tonalRamp": [
+          "oklch(0.150 0.057 285)",
+          "oklch(0.264 0.100 285)",
+          "oklch(0.379 0.143 285)",
+          "oklch(0.493 0.170 285)",
+          "oklch(0.607 0.148 285)",
+          "oklch(0.721 0.105 285)",
+          "oklch(0.836 0.062 285)",
+          "oklch(0.950 0.019 285)"
+        ]
+      },
+      "dark-bubble-foreground": {
+        "role": "primary",
+        "displayName": "Dark Learner Bubble Text",
         "canonical": "oklch(0.985 0 0)",
         "tonalRamp": [
           "oklch(0.150 0.000 0)",
@@ -982,15 +1042,15 @@
       "dark-workspace": {
         "role": "neutral",
         "displayName": "Dark Learner Workspace",
-        "canonical": "oklch(0.165 0.012 285)",
+        "canonical": "oklch(0.15 0.007 285)",
         "tonalRamp": [
-          "oklch(0.150 0.004 285)",
-          "oklch(0.264 0.007 285)",
-          "oklch(0.379 0.010 285)",
-          "oklch(0.493 0.012 285)",
-          "oklch(0.607 0.010 285)",
-          "oklch(0.721 0.007 285)",
-          "oklch(0.836 0.004 285)",
+          "oklch(0.150 0.002 285)",
+          "oklch(0.264 0.004 285)",
+          "oklch(0.379 0.006 285)",
+          "oklch(0.493 0.007 285)",
+          "oklch(0.607 0.006 285)",
+          "oklch(0.721 0.004 285)",
+          "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
         ]
       },
@@ -1286,7 +1346,7 @@
       "refersTo": "button-outline",
       "description": "A bounded secondary action that reveals a muted hover surface.",
       "html": "<button class=\"ds-btn-outline\" type=\"button\">View outline</button>",
-      "css": ".ds-btn-outline{display:inline-flex;flex-shrink:0;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border:1px solid transparent;border-radius:var(--radius, 0.5rem);font-family:var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer;user-select:none;transition:all 150ms cubic-bezier(0.4, 0, 0.2, 1);outline:none;text-decoration:none}.ds-btn-outline:focus-visible{border-color:light-dark(var(--ring, oklch(0.336 0.182 285)), var(--input, oklch(0.62 0 0)));box-shadow:0 0 0 3px color-mix(in oklab, var(--ring, oklch(0.336 0.182 285)) 50%, transparent);outline:3px solid var(--ring, oklch(0.336 0.182 285));outline-offset:2px}.ds-btn-outline:active:not([aria-haspopup]){transform:translateY(1px)}.ds-btn-outline:is(:disabled,[aria-disabled=true]){pointer-events:none;opacity:.5}.ds-btn-outline[aria-invalid=true]{border-color:light-dark(var(--destructive, oklch(0.505 0.213 27.518)), color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 50%, transparent));box-shadow:0 0 0 3px light-dark(color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 20%, transparent), color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 40%, transparent))}.ds-btn-outline{border-color:light-dark(var(--border, oklch(0.905 0 0)), var(--input, oklch(0.62 0 0)));background:light-dark(var(--background, oklch(1 0 0)), color-mix(in oklab, var(--input, oklch(0.62 0 0)) 30%, transparent));color:var(--foreground, oklch(0.145 0 0))}.ds-btn-outline:hover,.ds-btn-outline[aria-expanded=true]{background:light-dark(var(--muted, oklch(0.97 0 0)), color-mix(in oklab, var(--input, oklch(0.62 0 0)) 30%, transparent));color:var(--foreground, oklch(0.145 0 0))}@media(max-width:639px),(any-pointer:coarse){.ds-btn-outline{min-width:44px;min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-btn-outline:active:not([aria-haspopup]){transform:none}}.ds-btn-outline:hover{background:light-dark(var(--muted, oklch(0.97 0 0)), color-mix(in oklab, var(--input, oklch(0.62 0 0)) 50%, transparent))}"
+      "css": ".ds-btn-outline{display:inline-flex;flex-shrink:0;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border:1px solid transparent;border-radius:var(--radius, 0.5rem);font-family:var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer;user-select:none;transition:all 150ms cubic-bezier(0.4, 0, 0.2, 1);outline:none;text-decoration:none}.ds-btn-outline:focus-visible{border-color:light-dark(var(--ring, oklch(0.336 0.182 285)), var(--input, oklch(0.62 0 0)));box-shadow:0 0 0 3px color-mix(in oklab, var(--ring, oklch(0.336 0.182 285)) 50%, transparent);outline:3px solid var(--ring, oklch(0.336 0.182 285));outline-offset:2px}.ds-btn-outline:active:not([aria-haspopup]){transform:translateY(1px)}.ds-btn-outline:is(:disabled,[aria-disabled=true]){pointer-events:none;opacity:.5}.ds-btn-outline[aria-invalid=true]{border-color:light-dark(var(--destructive, oklch(0.505 0.213 27.518)), color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 50%, transparent));box-shadow:0 0 0 3px light-dark(color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 20%, transparent), color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 40%, transparent))}.ds-btn-outline{border-color:light-dark(var(--border, oklch(0.905 0 0)), var(--input, oklch(0.62 0 0)));background:light-dark(var(--background, oklch(1 0 0)), color-mix(in oklab, var(--foreground, oklch(0.145 0 0)) 5%, transparent));color:var(--foreground, oklch(0.145 0 0))}.ds-btn-outline:hover,.ds-btn-outline[aria-expanded=true]{background:light-dark(var(--muted, oklch(0.97 0 0)), color-mix(in oklab, var(--foreground, oklch(0.145 0 0)) 10%, transparent));color:var(--foreground, oklch(0.145 0 0))}@media(max-width:639px),(any-pointer:coarse){.ds-btn-outline{min-width:44px;min-height:44px}}@media(prefers-reduced-motion:reduce){.ds-btn-outline:active:not([aria-haspopup]){transform:none}}.ds-btn-outline:hover{background:light-dark(var(--muted, oklch(0.97 0 0)), color-mix(in oklab, var(--foreground, oklch(0.145 0 0)) 10%, transparent))}"
     },
     {
       "name": "Secondary Button",
@@ -1326,7 +1386,7 @@
       "refersTo": "input-field",
       "description": "A named text field with the mobile-to-desktop type-size change.",
       "html": "<div class=\"ds-field\"><label class=\"ds-field-label\" for=\"ds-example-field\">Name</label><input class=\"ds-input\" id=\"ds-example-field\" type=\"text\" placeholder=\"Your name\" autocomplete=\"name\"></div>",
-      "css": ".ds-field{display:flex;flex-direction:column;gap:8px;font-family:var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);color:var(--foreground, oklch(0.145 0 0))}.ds-field-label{font-size:14px;font-weight:500;line-height:14px}.ds-input{box-sizing:border-box;width:100%;min-width:0;height:40px;padding:8px 12px;border:1px solid var(--input, oklch(0.62 0 0));border-radius:var(--radius, 0.5rem);background:light-dark(transparent, color-mix(in oklab, var(--input, oklch(0.62 0 0)) 30%, transparent));color:var(--foreground, oklch(0.145 0 0));font-family:var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);font-size:16px;line-height:24px;transition:color 150ms cubic-bezier(0.4, 0, 0.2, 1),background-color 150ms cubic-bezier(0.4, 0, 0.2, 1),border-color 150ms cubic-bezier(0.4, 0, 0.2, 1);outline:none}.ds-input::placeholder{color:var(--muted-foreground, oklch(0.45 0 0))}.ds-input:hover:not(:disabled){border-color:var(--input, oklch(0.62 0 0))}.ds-input:focus-visible{border-color:var(--ring, oklch(0.336 0.182 285));box-shadow:0 0 0 3px color-mix(in oklab, var(--ring, oklch(0.336 0.182 285)) 50%, transparent);outline:3px solid var(--ring, oklch(0.336 0.182 285));outline-offset:2px}.ds-input:disabled{pointer-events:none;cursor:not-allowed;opacity:.5;background:light-dark(color-mix(in oklab, var(--input, oklch(0.62 0 0)) 50%, transparent), color-mix(in oklab, var(--input, oklch(0.62 0 0)) 80%, transparent))}.ds-input[aria-invalid=true]{border-color:light-dark(var(--destructive, oklch(0.505 0.213 27.518)), color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 50%, transparent));box-shadow:0 0 0 3px light-dark(color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 20%, transparent), color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 40%, transparent))}@media(min-width:768px){.ds-input{font-size:14px;line-height:20px}}@media(pointer:coarse){.ds-input{min-height:44px;font-size:1rem}}"
+      "css": ".ds-field{display:flex;flex-direction:column;gap:8px;font-family:var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);color:var(--foreground, oklch(0.145 0 0))}.ds-field-label{font-size:14px;font-weight:500;line-height:14px}.ds-input{box-sizing:border-box;width:100%;min-width:0;height:40px;padding:8px 12px;border:1px solid var(--input, oklch(0.62 0 0));border-radius:var(--radius, 0.5rem);background:transparent;color:var(--foreground, oklch(0.145 0 0));font-family:var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);font-size:16px;line-height:24px;transition:color 150ms cubic-bezier(0.4, 0, 0.2, 1),background-color 150ms cubic-bezier(0.4, 0, 0.2, 1),border-color 150ms cubic-bezier(0.4, 0, 0.2, 1);outline:none}.ds-input::placeholder{color:var(--muted-foreground, oklch(0.45 0 0))}.ds-input:hover:not(:disabled){border-color:var(--input, oklch(0.62 0 0))}.ds-input:focus-visible{border-color:var(--ring, oklch(0.336 0.182 285));box-shadow:0 0 0 3px color-mix(in oklab, var(--ring, oklch(0.336 0.182 285)) 50%, transparent);outline:3px solid var(--ring, oklch(0.336 0.182 285));outline-offset:2px}.ds-input:disabled{pointer-events:none;cursor:not-allowed;opacity:.5;background:light-dark(color-mix(in oklab, var(--input, oklch(0.62 0 0)) 50%, transparent), color-mix(in oklab, var(--muted, oklch(0.97 0 0)) 50%, transparent))}.ds-input[aria-invalid=true]{border-color:light-dark(var(--destructive, oklch(0.505 0.213 27.518)), color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 50%, transparent));box-shadow:0 0 0 3px light-dark(color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 20%, transparent), color-mix(in oklab, var(--destructive, oklch(0.505 0.213 27.518)) 40%, transparent))}@media(min-width:768px){.ds-input{font-size:14px;line-height:20px}}@media(pointer:coarse){.ds-input{min-height:44px;font-size:1rem}}"
     },
     {
       "name": "Admin Navigation",
@@ -1358,7 +1418,7 @@
       "refersTo": "coach-message",
       "description": "The signature unboxed serif coach reply and right-aligned learner bubble.",
       "html": "<div class=\"ds-conversation\"><div class=\"ds-coach-row\"><div class=\"ds-coach-message\">Explain the <strong>important idea</strong> in your own words, then give one example.<ul><li>Name the key detail.</li><li>Read <a href=\"https://example.com\">the reference</a>.</li></ul></div></div><div class=\"ds-learner-row\"><div class=\"ds-learner-message\">This sample shows the learner message style.</div></div></div>",
-      "css": ".ds-conversation{display:flex;flex-direction:column;gap:12px;padding:16px;background:var(--workspace,oklch(0.97 0.001 106.424));color:var(--foreground, oklch(0.145 0 0))}.ds-coach-row{display:flex;justify-content:flex-start}.ds-coach-message{box-sizing:border-box;min-width:0;max-width:85%;overflow-wrap:anywhere;padding:8px 4px;background:transparent;font-family:ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;font-size:16px;font-weight:400;line-height:24px}.ds-coach-message ul,.ds-coach-message ol{margin-block:12px;padding-inline-start:24px}.ds-coach-message ul{list-style-type:disc}.ds-coach-message ol{list-style-type:decimal}.ds-coach-message li+li{margin-block-start:4px}.ds-coach-message a{color:var(--link, oklch(0.336 0.182 285));text-decoration:underline;text-underline-offset:.15em}.ds-coach-message a:hover{text-decoration-thickness:2px}.ds-learner-row{display:flex;justify-content:flex-end}.ds-learner-message{box-sizing:border-box;max-width:85%;padding:12px 16px;border-radius:calc(var(--radius, 0.5rem) * 1.8);border-bottom-right-radius:calc(var(--radius, 0.5rem) * .6);background:var(--primary, oklch(0.336 0.182 285));color:var(--primary-foreground, oklch(0.985 0 0));font-family:var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);font-size:16px;line-height:24px;overflow-wrap:break-word;overflow:hidden}.ds-learner-message{white-space:pre-wrap}"
+      "css": ".ds-conversation{display:flex;flex-direction:column;gap:12px;padding:16px;background:var(--workspace,oklch(0.97 0.001 106.424));color:var(--foreground, oklch(0.145 0 0))}.ds-coach-row{display:flex;justify-content:flex-start}.ds-coach-message{box-sizing:border-box;min-width:0;max-width:85%;overflow-wrap:anywhere;padding:8px 4px;background:transparent;font-family:ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;font-size:16px;font-weight:400;line-height:24px}.ds-coach-message ul,.ds-coach-message ol{margin-block:12px;padding-inline-start:24px}.ds-coach-message ul{list-style-type:disc}.ds-coach-message ol{list-style-type:decimal}.ds-coach-message li+li{margin-block-start:4px}.ds-coach-message a{color:var(--link, oklch(0.336 0.182 285));text-decoration:underline;text-underline-offset:.15em}.ds-coach-message a:hover{text-decoration-thickness:2px}.ds-learner-row{display:flex;justify-content:flex-end}.ds-learner-message{box-sizing:border-box;max-width:85%;padding:12px 16px;border-radius:calc(var(--radius, 0.5rem) * 1.8);border-bottom-right-radius:calc(var(--radius, 0.5rem) * .6);background:var(--bubble, oklch(0.336 0.182 285));color:var(--bubble-foreground, oklch(0.985 0 0));font-family:var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);font-size:16px;line-height:24px;overflow-wrap:break-word;overflow:hidden}.ds-learner-message{white-space:pre-wrap}"
     }
   ],
   "narrative": {

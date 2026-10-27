@@ -248,9 +248,10 @@ export default function AdminStyles({ initialData, onSaved }) {
                     <div className="px-4 py-3 bg-workspace text-sm space-y-2 text-foreground" inert>
                       <p>Body text on the page background.</p>
                       <span className="text-link underline">Accent link</span>
-                      <div className="flex flex-wrap gap-2 mt-2">
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
                         <Button type="button" size="sm">Button</Button>
                         <Button type="button" size="sm" variant="outline">Outline</Button>
+                        <p className="ml-auto max-w-full rounded-2xl rounded-br-sm bg-bubble px-3 py-1 text-bubble-foreground">A learner&apos;s message</p>
                       </div>
                     </div>
                   </div>
