@@ -14,6 +14,11 @@ server/client-content/
 .DS_Store
 .claude-pr/
 
+# Generated audit and browser output.
+/output/
+/.mobile-ux/
+/.playwright-cli/
+
 # Generated at deploy time from the latest Beta-RC-* tag.
 # See .github/workflows/version-bump.yml (tag creation) and the private
 # deploy fork's deploy.yml (version.json generation).
