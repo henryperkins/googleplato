@@ -1,5 +1,7 @@
 # Live coaching evaluation and remediation
 
+**Evidence archive:** Historical raw captures, logs, and run records are retained privately in archive `googleplato-untracked-curation-20261027T055535Z` (`evidence-1730.tar.gz`). Paths beginning `output/` or `.mobile-ux/` below identify archive members.
+
 The local configuration selects **Cloudflare Workers AI** and
 **`@cf/deepseek-ai/deepseek-v4.1-flash-1017`**. The tests used the actual configured
 provider through the application's adapters, without changing the selection or

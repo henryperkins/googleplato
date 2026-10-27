@@ -1,5 +1,7 @@
 # Classroom Customizer remediation — 2026-10-26
 
+**Evidence archive:** Historical raw captures, logs, and run records are retained privately in archive `googleplato-untracked-curation-20261027T055535Z` (`evidence-1730.tar.gz`). Paths beginning `output/` or `.mobile-ux/` below identify archive members.
+
 Implemented in the `main` working tree at `f4254b6`, against
 `classroom-customizer-and-experience-review-2026-10-26.md`. The scope is the
 review's five recommended work items. Each finding was re-checked against the
@@ -89,11 +91,11 @@ multi-paragraph and `## Description` parsing. Theme tests check the shared
 footer on all seven public pages.
 
 Fresh logs are in
-[`output/playwright/customizer-validation-2026-10-26/validation/`](../../output/playwright/customizer-validation-2026-10-26/validation/).
+archive directory `output/playwright/customizer-validation-2026-10-26/validation/`.
 The new browser screenshots include the
-[reviewed preview](../../output/playwright/customizer-validation-2026-10-26/chromium/knowledge-reviewed-preview.png),
-[unsaved-change dialog](../../output/playwright/customizer-validation-2026-10-26/webkit/knowledge-unsaved-dialog.png),
-and [saved viewer](../../output/playwright/customizer-validation-2026-10-26/chromium/knowledge-saved.png).
+reviewed preview (archive member `output/playwright/customizer-validation-2026-10-26/chromium/knowledge-reviewed-preview.png`),
+unsaved-change dialog (archive member `output/playwright/customizer-validation-2026-10-26/webkit/knowledge-unsaved-dialog.png`),
+and saved viewer (archive member `output/playwright/customizer-validation-2026-10-26/chromium/knowledge-saved.png`).
 
 This is local source, build, and browser evidence. Physical devices, screen
 readers, hosted CI, Cloud SQL/PostgreSQL, production behavior, and live AI remain
@@ -138,9 +140,9 @@ tabs or administrators. No Cloud SQL, live AI, physical-device, screen-reader,
 hosted CI, or production qualification is claimed.
 
 Final logs, failing-before/fixed-after evidence, and source hashes are in
-[`output/playwright/customizer-regression-fixes-2026-10-26/validation/`](../../output/playwright/customizer-regression-fixes-2026-10-26/validation/).
+archive directory `output/playwright/customizer-regression-fixes-2026-10-26/validation/`.
 Fresh screenshots are under
-[`output/playwright/customizer-regression-fixes-2026-10-26/final/`](../../output/playwright/customizer-regression-fixes-2026-10-26/final/).
+archive directory `output/playwright/customizer-regression-fixes-2026-10-26/final/`.
 `PLATO_TEST_ARTIFACT_DIR` lets this run preserve the earlier screenshot evidence.
 No commit, push, merge, or deployment was performed.
 

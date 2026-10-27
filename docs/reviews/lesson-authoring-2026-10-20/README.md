@@ -1,5 +1,7 @@
 # Lesson authoring hardening, clarification and polish
 
+**Evidence archive:** Historical raw captures, logs, and run records are retained privately in archive `googleplato-untracked-curation-20261027T055535Z` (`evidence-1730.tar.gz`). Paths beginning `output/` or `.mobile-ux/` below identify archive members.
+
 The eight findings from the October 20 lesson-creation audit are addressed.
 The existing conversational editor and design tokens are retained.
 

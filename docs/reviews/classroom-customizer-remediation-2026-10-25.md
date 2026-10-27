@@ -1,5 +1,7 @@
 # Classroom Customizer remediation — 2026-10-25
 
+**Evidence archive:** Historical raw captures, logs, and run records are retained privately in archive `googleplato-untracked-curation-20261027T055535Z` (`evidence-1730.tar.gz`). Paths beginning `output/` or `.mobile-ux/` below identify archive members.
+
 Implemented on `fix/classroom-customizer`, based on `d8a4718`. The scope is the
 confirmed review findings plus the requested device-based default theme. This
 record covers local implementation and validation; no deployment, real email,

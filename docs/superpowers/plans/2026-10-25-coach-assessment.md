@@ -1,5 +1,9 @@
 # Coach assessment implementation plan
 
+**Closeout 2026-10-27:** This is the historical implementation plan. The coach, Customizer, and learner-recovery work was integrated through merge `e1ebc66`.
+
+**Evidence archive:** Historical raw captures, logs, and run records are retained privately in archive `googleplato-untracked-curation-20261027T055535Z` (`evidence-1730.tar.gz`). Paths beginning `output/` or `.mobile-ux/` below identify archive members.
+
 > Execution: native implementation with test-driven development and a fresh independent final review. User explicitly authorized every finding in the consolidated review; no further design approval is required. No commit, push, or deployment is included.
 
 **Goal:** Resolve every confirmed prompt/code finding while preserving existing uncommitted work and persistence-only recovery.

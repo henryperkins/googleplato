@@ -1,5 +1,7 @@
 # Coach prompt and assessment remediation
 
+**Evidence archive:** Historical raw captures, logs, and run records are retained privately in archive `googleplato-untracked-curation-20261027T055535Z` (`evidence-1730.tar.gz`). Paths beginning `output/` or `.mobile-ux/` below identify archive members.
+
 Implemented on `fix/coach-assessment-contract`, based on the consolidated review
 in `coach-prompt-consolidated-review-2026-10-25.md`. The original review is retained
 as historical evidence. This document describes the resulting behavior and
