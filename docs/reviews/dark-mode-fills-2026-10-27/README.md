@@ -43,3 +43,15 @@ Captures use the production client build at 1280 px in Chromium's dark theme, wi
 - Chromium browser suites passed: Customizer 26, admin 23, learner 19. The Customizer suite's rendered-contrast test now also measures `--bubble` for four palettes in both themes and requires white night bubble text.
 - The new contract tests fail against `main`: the bubble tokens, no control fill from `--input`, and the course bar's fill.
 - One Customizer regression presses Save by its coordinates at 1440 × 1000. A first layout put the bubble sample on its own line, which pushed Save 40 px below the viewport. The sample now shares the sample buttons' row, so the page keeps its height.
+
+## Second pass: making the night palette worth using
+
+The first pass fixed contrast defects, but the rendered night theme still read as muddy and flat, so this pass retunes the palette itself (no component markup changes beyond what the first pass did):
+
+- **Surfaces go nearly neutral.** The brand tint in night surfaces drops from OKLCH chroma 0.012 to 0.007 (`tintChroma` cap and `--tint-chroma`), so a maroon classroom no longer tints the whole room brown nor a yellow one olive; the brand lives in the header and fills. The ramp deepens and spreads slightly (page 0.15, card 0.195, popover 0.235, muted 0.27, accent 0.29), body text softens from 0.97 to 0.95, secondary text rises from 0.74 to 0.76, and `--border` strengthens from 10% to 13% white so cards and separators carry their separation without shadows.
+- **Lifted brand shades ease their saturation.** Headers the night band forces and fills/bubbles that must lift now keep 90–92% of their chroma, so maroon lifts to brick instead of salmon and forced yellows read as deep gold instead of mustard. A header already in the band with real separation stays byte-identical; this also fixes saturated blues (e.g. `#330099`) whose eased shade passed 1.5:1 while the true color sat at 1.47:1.
+- **Unbranded night tokens calm down to match:** primary `oklch(0.565 0.17 285)`, header `oklch(0.39 0.13 285)`, sidebar deepened and desaturated, ring/primary-text eased. Selected text and the text caret now take the theme colors in both modes.
+
+Deliberately unchanged: transparent dark fields with the 45% `--input` border, the salmon-leaning `primary-text` progress shade (any 3:1 red on a dark track reads pink; the alternative fails WCAG 1.4.11), and light mode entirely.
+
+Validation for this pass: 707 client unit tests pass, client lint has 0 errors (20 pre-existing warnings), the impeccable detector is clean, and the Chromium suites pass (Customizer 26, admin + learner 42) against a fresh production build. Fresh dark captures of the lesson list, a live chat exchange, and Settings were inspected visually: near-neutral room, rich maroon header, brick learner bubble with white text, crisp field borders.

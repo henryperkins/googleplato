@@ -29,7 +29,7 @@ function rule(selector) {
 }
 
 // Hex for an oklch() value, with the surface tint (plato purple by default) filled in.
-function hexOf(value, tint = { chroma: 0.012, hue: 285 }) {
+function hexOf(value, tint = { chroma: 0.007, hue: 285 }) {
   const resolved = value
     .replace('calc(var(--tint-chroma) / 3)', String(tint.chroma / 3))
     .replaceAll('var(--tint-chroma)', String(tint.chroma))
@@ -166,7 +166,7 @@ describe('theme contrast', () => {
 
   it('keeps dark text readable on the lightest surface, whatever hue tints it', () => {
     for (const hue of HUES) {
-      const tint = { chroma: 0.012, hue };
+      const tint = { chroma: 0.007, hue };
       for (const text of ['foreground', 'muted-foreground']) {
         const ratio = contrastRatio(token(surfaces, text, tint), token(surfaces, 'accent', tint));
         assert.ok(ratio >= 4.5, `${text} on accent at hue ${hue}: ${ratio.toFixed(2)}:1`);
@@ -179,7 +179,7 @@ describe('theme contrast', () => {
     const alpha = Number(dark.match(/--input:\s*oklch\(1 0 0 \/ (\d+)%\);/)[1]) / 100;
     for (const hue of HUES) {
       for (const name of ['workspace', 'card', 'popover']) {
-        const surface = token(surfaces, name, { chroma: 0.012, hue });
+        const surface = token(surfaces, name, { chroma: 0.007, hue });
         const ratio = contrastRatio(over('#ffffff', alpha, surface), surface);
         assert.ok(ratio >= 3, `field border on ${name} at hue ${hue}: ${ratio.toFixed(2)}:1`);
       }

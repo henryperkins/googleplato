@@ -139,22 +139,24 @@
     --sidebar-ring: oklch(0.985 0 0);
 }
 
-/* The night classroom (DESIGN.md). Surfaces carry a trace of a hue (plato
-   purple, or the classroom's own, set below) and rise in lightness with
-   elevation: the page, then cards and chrome (the lesson header and message
-   box are bg-card), then menus. The header is a deep band of the brand; fills
-   are lit just enough to stand out. */
+/* The night classroom (DESIGN.md). Surfaces carry only a whisper of a hue
+   (plato purple, or the classroom's own, set below) so the room reads as a
+   calm neutral dark with the brand living in its header and fills, and rise
+   in lightness with elevation: the page, then cards and chrome (the lesson
+   header and message box are bg-card), then menus. The header is a deep band
+   of the brand; fills are lit just enough to stand out, with their saturation
+   eased so lifted shades do not turn pastel or neon at night. */
 .dark {
     --tint-hue: 285;
-    --tint-chroma: 0.012;
-    --primary: oklch(0.556 0.2 285);
+    --tint-chroma: 0.007;
+    --primary: oklch(0.565 0.17 285);
     --primary-foreground: oklch(0.985 0 0);
-    --header: oklch(0.4 0.15 285);
+    --header: oklch(0.39 0.13 285);
     --header-foreground: oklch(0.985 0 0);
     --bubble: var(--primary);
     --bubble-foreground: var(--primary-foreground);
     --destructive: oklch(0.704 0.191 22.216);
-    --primary-text: oklch(0.78 0.12 285);
+    --primary-text: oklch(0.79 0.105 285);
     --link: var(--primary-text);
     --success: oklch(0.266 0.065 152.934);
     --success-foreground: oklch(0.925 0.084 155.995);
@@ -170,22 +172,22 @@
     --completed-foreground: oklch(0.84 0.13 163);
     --in-progress-background: oklch(0.33 0.07 75);
     --in-progress-foreground: oklch(0.85 0.14 80);
-    --border: oklch(1 0 0 / 10%);
+    --border: oklch(1 0 0 / 13%);
     --input: oklch(1 0 0 / 45%);
-    --ring: oklch(0.72 0.14 285);
-    --chart-1: oklch(0.556 0.2 285);
-    --chart-2: oklch(0.7 0.15 285);
+    --ring: oklch(0.74 0.12 285);
+    --chart-1: oklch(0.565 0.17 285);
+    --chart-2: oklch(0.72 0.13 285);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.255 0.065 285);
+    --sidebar: oklch(0.235 0.05 285);
     --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.556 0.2 285);
+    --sidebar-primary: oklch(0.565 0.17 285);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.32 0.08 285);
+    --sidebar-accent: oklch(0.295 0.06 285);
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.72 0.14 285);
+    --sidebar-ring: oklch(0.74 0.12 285);
 }
 
 /* The tinted surfaces. Declared again on each .classroom-theme because a
@@ -193,19 +195,19 @@
    own hue reaches them, and how a .light preview stays out. */
 .dark,
 .dark .classroom-theme:not(.light *) {
-    --workspace: oklch(0.165 var(--tint-chroma) var(--tint-hue));
-    --background: oklch(0.165 var(--tint-chroma) var(--tint-hue));
-    --card: oklch(0.205 var(--tint-chroma) var(--tint-hue));
-    --popover: oklch(0.245 var(--tint-chroma) var(--tint-hue));
-    --secondary: oklch(0.285 var(--tint-chroma) var(--tint-hue));
-    --muted: oklch(0.285 var(--tint-chroma) var(--tint-hue));
-    --accent: oklch(0.3 var(--tint-chroma) var(--tint-hue));
-    --foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
-    --card-foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
-    --popover-foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
-    --secondary-foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
-    --accent-foreground: oklch(0.97 calc(var(--tint-chroma) / 3) var(--tint-hue));
-    --muted-foreground: oklch(0.74 var(--tint-chroma) var(--tint-hue));
+    --workspace: oklch(0.15 var(--tint-chroma) var(--tint-hue));
+    --background: oklch(0.15 var(--tint-chroma) var(--tint-hue));
+    --card: oklch(0.195 var(--tint-chroma) var(--tint-hue));
+    --popover: oklch(0.235 var(--tint-chroma) var(--tint-hue));
+    --secondary: oklch(0.27 var(--tint-chroma) var(--tint-hue));
+    --muted: oklch(0.27 var(--tint-chroma) var(--tint-hue));
+    --accent: oklch(0.29 var(--tint-chroma) var(--tint-hue));
+    --foreground: oklch(0.95 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --card-foreground: oklch(0.95 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --popover-foreground: oklch(0.95 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --secondary-foreground: oklch(0.95 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --accent-foreground: oklch(0.95 calc(var(--tint-chroma) / 3) var(--tint-hue));
+    --muted-foreground: oklch(0.76 var(--tint-chroma) var(--tint-hue));
 }
 
 @layer base {
@@ -242,6 +244,14 @@
   }
   html.dark, .dark {
     color-scheme: dark;
+  }
+  /* Selected text and the text caret speak the theme instead of the
+     browser's default blue, in both modes. */
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 32%, transparent);
+  }
+  input, textarea {
+    caret-color: var(--ring);
   }
   /* Prevent display utility classes (e.g. .flex) from overriding the UA
      stylesheet for closed native <dialog> and [popover] elements. */
@@ -323,17 +333,17 @@
 .dark.classroom-theme,
 .dark .classroom-theme:not(.light *) {
   --tint-hue: var(--classroom-tint-hue, 285);
-  --tint-chroma: var(--classroom-tint-chroma, 0.012);
-  --header: var(--classroom-header-bg-dark, oklch(0.4 0.15 285));
+  --tint-chroma: var(--classroom-tint-chroma, 0.007);
+  --header: var(--classroom-header-bg-dark, oklch(0.39 0.13 285));
   --header-foreground: var(--classroom-header-text-dark, oklch(0.985 0 0));
-  --primary-text: var(--classroom-primary-text-dark, oklch(0.78 0.12 285));
+  --primary-text: var(--classroom-primary-text-dark, oklch(0.79 0.105 285));
   --link: var(--classroom-link-dark, var(--primary-text));
   --bubble: var(--classroom-bubble-dark, var(--primary));
   --bubble-foreground: var(--classroom-bubble-foreground-dark, var(--primary-foreground));
   /* !important so the inline (light) `--primary` and `--ring` from
      buildThemeVars, kept for consumers without `.classroom-theme`, do not
      override the dark values. */
-  --primary: var(--classroom-primary-dark, oklch(0.556 0.2 285)) !important;
+  --primary: var(--classroom-primary-dark, oklch(0.565 0.17 285)) !important;
   --primary-foreground: var(--classroom-primary-foreground-dark, oklch(0.985 0 0)) !important;
   --ring: var(--classroom-ring-dark, var(--primary-text)) !important;
 }

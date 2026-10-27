@@ -131,32 +131,46 @@ export function readableColor(hex, background, minimum = 4.6) {
 // Surface references (index.css). Fills (buttons, chat bubbles, badges) must
 // stand out, 3:1, from every surface they sit on: by day the darkest is the
 // workspace, oklch(0.97 0.001 106.424); at night the lightest is the popover
-// that dialogs use, oklch(0.245 …) in the brand's tint. A dark header's
+// that dialogs use, oklch(0.235 …) in the brand's tint. A dark header's
 // lightness stays in the night band, so it neither glares nor sinks into the
-// page (oklch(0.165 …)).
+// page (oklch(0.15 …)).
 const LIGHT_WORKSPACE = '#f5f5f4';
-const DARK_POPOVER_LIGHTNESS = 0.245;
+const DARK_POPOVER_LIGHTNESS = 0.235;
 const DARK_PAGE = '#0e0e0e';
 const NIGHT_BAND = [0.33, 0.48];
 // Below this chroma a color reads as gray, and its hue is noise.
 const ACHROMATIC = 0.03;
 
-/** The chroma of the brand's hue in the night surfaces (index.css `--tint-chroma`). */
+/**
+ * The chroma of the brand's hue in the night surfaces (index.css
+ * `--tint-chroma`). Only a whisper: at full strength every classroom's room
+ * turned the brand's mud (brown for maroon, olive for yellow) instead of a
+ * calm neutral dark with the brand in its header and fills.
+ */
 function tintChroma(c) {
-  return c < ACHROMATIC ? 0 : Math.round(Math.min(0.012, c * 0.08) * 1000) / 1000;
+  return c < ACHROMATIC ? 0 : Math.round(Math.min(0.007, c * 0.08) * 1000) / 1000;
 }
 
-/** The header color in dark mode: the brand, deepened or lifted into the night band. */
+/**
+ * The header color in dark mode: the brand, deepened or lifted into the
+ * night band. A brand already in the band stays exactly as chosen; a shade
+ * the band forces eases its saturation a little, so a bright yellow becomes
+ * deep gold rather than mustard and a candy violet stays rich, not neon.
+ */
 export function darkHeaderColor(hex) {
   const normalized = normalizeHex(hex);
   if (!normalized) return null;
   const { l, c, h } = hexToOklchParts(normalized);
-  const chroma = c < ACHROMATIC ? 0 : c;
+  const chroma = c < ACHROMATIC ? 0 : c * 0.9;
   let band = Math.min(NIGHT_BAND[1], Math.max(NIGHT_BAND[0], l));
+  // Already in the band and separating from the page: keep the brand exact.
+  // (Checking the eased shade here would bless saturated blues whose true
+  // color sits under 1.5:1, since easing raises their luminance.)
+  if (band === l && contrastRatio(normalized, DARK_PAGE) >= 1.5) return normalized;
   // Saturated blues carry little luminance for their lightness: lift them
   // until the band still separates from the page.
   while (band < NIGHT_BAND[1] && contrastRatio(oklchToHex(band, chroma, h), DARK_PAGE) < 1.5) band += 0.005;
-  return band === l ? normalized : oklchToHex(band, chroma, h);
+  return oklchToHex(band, chroma, h);
 }
 
 /**
@@ -172,12 +186,15 @@ export function darkFillColor(hex) {
   const surface = oklchToHex(DARK_POPOVER_LIGHTNESS, tintChroma(c), h);
   if (contrastRatio(normalized, surface) >= 3) return normalized;
   if (c < ACHROMATIC) return oklchToHex(0.93, 0, 0);
+  // Ease saturation as lightness climbs: full chroma at night lightness
+  // reads pastel (maroon becomes salmon) or neon, never the brand at ease.
+  const liftedChroma = c * 0.92;
   let failing = l, passing = 1;
   for (let i = 0; i < 24; i++) {
     const mid = (failing + passing) / 2;
-    if (contrastRatio(oklchToHex(mid, c, h), surface) >= 3) passing = mid; else failing = mid;
+    if (contrastRatio(oklchToHex(mid, liftedChroma, h), surface) >= 3) passing = mid; else failing = mid;
   }
-  return oklchToHex(passing, c, h);
+  return oklchToHex(passing, liftedChroma, h);
 }
 
 /**
@@ -191,7 +208,7 @@ export function darkBubbleColor(hex) {
   const fill = darkFillColor(hex);
   if (!fill || contrastText(fill) === '#ffffff') return fill;
   const { c, h } = hexToOklchParts(normalizeHex(hex));
-  const chroma = c < ACHROMATIC ? 0 : c;
+  const chroma = c < ACHROMATIC ? 0 : c * 0.92;
   const surface = oklchToHex(DARK_POPOVER_LIGHTNESS, tintChroma(c), h);
   let failing = 0, passing = hexToOklchParts(fill).l;
   for (let i = 0; i < 24; i++) {

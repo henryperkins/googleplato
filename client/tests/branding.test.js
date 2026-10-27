@@ -106,9 +106,9 @@ for (const r of [0, 51, 102, 153, 204, 255]) {
     }
   }
 }
-// index.css `.dark`: cards at oklch(0.205 …), the learner page at oklch(0.165 …).
-const DARK_CARD = oklchToHex(0.205, 0, 0);
-const DARK_PAGE = oklchToHex(0.165, 0, 0);
+// index.css `.dark`: cards at oklch(0.195 …), the learner page at oklch(0.15 …).
+const DARK_CARD = oklchToHex(0.195, 0, 0);
+const DARK_PAGE = oklchToHex(0.15, 0, 0);
 const hueGap = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
 
 describe('night classroom colors', () => {
@@ -179,7 +179,7 @@ describe('night classroom colors', () => {
     for (const hex of ['#f8fafc', '#bae6fd', '#eab308', '#fef08a', '#141414']) {
       assert.ok(contrastRatio(darkBubbleColor(hex), DARK_PAGE) < 4.5, `${hex} -> ${darkBubbleColor(hex)} glares`);
     }
-    assert.equal(darkBubbleColor('#141414'), '#6a6a6a', 'near-black bubbles turn gray, not light gray');
+    assert.equal(darkBubbleColor('#141414'), '#696969', 'near-black bubbles turn gray, not light gray');
     assert.equal(darkBubbleColor('invalid'), null);
   });
 
@@ -209,15 +209,15 @@ describe('night classroom colors', () => {
       const tint = Number(vars['--classroom-tint-chroma']);
       const hue = Number(vars['--classroom-tint-hue']);
       const nightFill = hexOf(vars['--classroom-primary-dark']);
-      for (const lightness of [0.165, 0.205, 0.245]) {
+      for (const lightness of [0.15, 0.195, 0.235]) {
         const surface = oklchToHex(lightness, tint, hue);
         assert.ok(contrastRatio(nightFill, surface) >= 3, `${hex} dark fill ${nightFill} vs ${surface}`);
       }
       assert.ok(contrastRatio(hexOf(vars['--classroom-primary-foreground-dark']), nightFill) >= 4.5, `${hex} dark label`);
-      assert.ok(contrastRatio(hexOf(vars['--classroom-primary-text-dark']), oklchToHex(0.285, tint, hue)) >= 3, `${hex} dark progress`);
+      assert.ok(contrastRatio(hexOf(vars['--classroom-primary-text-dark']), oklchToHex(0.27, tint, hue)) >= 3, `${hex} dark progress`);
       // Learner bubbles stand out like fills, with white text at night.
       const nightBubble = hexOf(vars['--classroom-bubble-dark']);
-      for (const lightness of [0.165, 0.205, 0.245]) {
+      for (const lightness of [0.15, 0.195, 0.235]) {
         const surface = oklchToHex(lightness, tint, hue);
         assert.ok(contrastRatio(nightBubble, surface) >= 3, `${hex} dark bubble ${nightBubble} vs ${surface}`);
       }
@@ -252,13 +252,13 @@ describe('night classroom colors', () => {
     assert.equal(vars['--classroom-bubble-dark'], darkBubbleColor('#8b1a1a'));
     assert.equal(vars['--classroom-bubble-foreground-dark'], '#ffffff');
     assert.equal(vars['--classroom-tint-hue'], hexToOklchParts('#8b1a1a').h.toFixed(1));
-    assert.equal(vars['--classroom-tint-chroma'], '0.012');
+    assert.equal(vars['--classroom-tint-chroma'], '0.007');
     assert.equal(buildThemeVars({ primary: '#141414' })['--classroom-tint-chroma'], '0.000', 'gray brands leave surfaces neutral');
   });
 
   it('keeps every classroom focus ring visible on menus in both themes', () => {
-    // Menus sit on the popover: white in light mode, oklch(0.245 …) at night.
-    const darkMenu = oklchToHex(0.245, 0, 0);
+    // Menus sit on the popover: white in light mode, oklch(0.235 …) at night.
+    const darkMenu = oklchToHex(0.235, 0, 0);
     const hexOfVar = (value) => {
       const [, l, c, h] = value.match(/^oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)$/);
       return oklchToHex(Number(l), Number(c), Number(h));
