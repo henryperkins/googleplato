@@ -160,10 +160,10 @@ export function darkHeaderColor(hex) {
 }
 
 /**
- * The button and bubble fill in dark mode: the brand when it already stands
- * out from the night surfaces (3:1 against the popover, the lightest of them),
- * else lifted until it does. A near-black brand turns light gray instead, the
- * way a monochrome mark inverts at night.
+ * The button fill in dark mode: the brand when it already stands out from the
+ * night surfaces (3:1 against the popover, the lightest of them), else lifted
+ * until it does. A near-black brand turns light gray instead, the way a
+ * monochrome mark inverts at night.
  */
 export function darkFillColor(hex) {
   const normalized = normalizeHex(hex);
@@ -178,6 +178,27 @@ export function darkFillColor(hex) {
     if (contrastRatio(oklchToHex(mid, c, h), surface) >= 3) passing = mid; else failing = mid;
   }
   return oklchToHex(passing, c, h);
+}
+
+/**
+ * The learner bubble fill in dark mode. A bubble is a large surface, so a
+ * night fill that would glare there, one that carries dark text (a pale brand
+ * kept as chosen, or the light gray a near-black brand turns), deepens to the
+ * darkest shade of the brand that still stands out from the popover. Every
+ * night bubble then carries white text.
+ */
+export function darkBubbleColor(hex) {
+  const fill = darkFillColor(hex);
+  if (!fill || contrastText(fill) === '#ffffff') return fill;
+  const { c, h } = hexToOklchParts(normalizeHex(hex));
+  const chroma = c < ACHROMATIC ? 0 : c;
+  const surface = oklchToHex(DARK_POPOVER_LIGHTNESS, tintChroma(c), h);
+  let failing = 0, passing = hexToOklchParts(fill).l;
+  for (let i = 0; i < 24; i++) {
+    const mid = (failing + passing) / 2;
+    if (contrastRatio(oklchToHex(mid, chroma, h), surface) >= 3) passing = mid; else failing = mid;
+  }
+  return oklchToHex(passing, chroma, h);
 }
 
 /**
@@ -203,8 +224,8 @@ export function lightFillColor(hex) {
 
 /**
  * Notes for the Customizer: a warning when the header won't stand out in light
- * mode (there it uses the color as chosen), and what each mode changes to keep
- * the buttons and the night header visible.
+ * mode (there it uses the color as chosen), what each mode changes to keep the
+ * buttons and the night header visible, and when night bubbles deepen.
  */
 export function themeColorNotes(theme) {
   const primary = normalizeHex(theme?.primary);
@@ -242,6 +263,14 @@ export function themeColorNotes(theme) {
         : 'In dark mode, buttons use a lighter shade so they stand out from dark cards.',
     });
   }
+  if (darkBubbleColor(primary) !== darkFillColor(primary)) {
+    notes.push({
+      level: 'info',
+      text: c < ACHROMATIC
+        ? `In dark mode, learners' messages turn gray with white text, so they don't glare at night.`
+        : `In dark mode, learners' messages use a deeper shade with white text, so they don't glare at night.`,
+    });
+  }
   return notes;
 }
 
@@ -262,15 +291,19 @@ export function buildThemeVars(theme) {
     vars['--primary-foreground'] = contrastText(fill);
     vars['--classroom-primary-text-light'] = hexToOklch(readableColor(primary, '#f5f5f5'));
     vars['--classroom-primary-text-dark'] = hexToOklch(readableColor(primary, '#303030'));
-    // The night classroom (index.css `.dark .classroom-theme`): its own header
-    // and fills, and the trace of the brand's hue its surfaces carry.
+    // The night classroom (index.css `.dark .classroom-theme`): its own header,
+    // fills, and learner bubbles, and the trace of the brand's hue its
+    // surfaces carry.
     const header = darkHeaderColor(primary);
     const nightFill = darkFillColor(primary);
+    const nightBubble = darkBubbleColor(primary);
     const { c, h } = hexToOklchParts(primary);
     vars['--classroom-header-bg-dark'] = header;
     vars['--classroom-header-text-dark'] = contrastText(header);
     vars['--classroom-primary-dark'] = nightFill;
     vars['--classroom-primary-foreground-dark'] = contrastText(nightFill);
+    vars['--classroom-bubble-dark'] = nightBubble;
+    vars['--classroom-bubble-foreground-dark'] = contrastText(nightBubble);
     vars['--classroom-tint-hue'] = h.toFixed(1);
     vars['--classroom-tint-chroma'] = tintChroma(c).toFixed(3);
   }

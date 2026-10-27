@@ -579,7 +579,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
     });
   }
 
-  it('keeps rendered brand fills visible against light and tinted dark surfaces', async () => {
+  it('keeps rendered brand fills and learner bubbles visible against light and tinted dark surfaces', async () => {
     const { context, page } = await openPage({ width: 1440, height: 1000 });
     page.setDefaultTimeout(6000);
     let primary;
@@ -589,7 +589,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
         await page.goto(`${base}/lessons`);
         await page.getByRole('link', { name: 'Contrast Studio — Lessons', exact: true }).waitFor();
         for (const mode of ['light', 'dark']) {
-          const ratios = await page.evaluate(theme => {
+          const { ratios, bubbleText } = await page.evaluate(theme => {
             document.documentElement.classList.toggle('dark', theme === 'dark');
             const probe = document.createElement('span');
             document.querySelector('div.classroom-theme').append(probe);
@@ -608,18 +608,24 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
             };
             const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
             const fill = luminance('--primary');
+            const bubble = luminance('--bubble');
             const results = {
               card: ratio(fill, luminance('--card')),
               dialog: ratio(fill, luminance('--popover')),
               progress: ratio(luminance('--primary-text'), luminance('--muted')),
               text: ratio(fill, luminance('--primary-foreground')),
+              bubble: ratio(bubble, luminance('--popover')),
+              'bubble text': ratio(bubble, luminance('--bubble-foreground')),
             };
+            const bubbleText = luminance('--bubble-foreground');
             probe.remove();
-            return results;
+            return { ratios: results, bubbleText };
           }, mode);
           for (const [surface, ratio] of Object.entries(ratios)) {
-            assert.ok(ratio >= (surface === 'text' ? 4.5 : 3), `${primary} ${mode} ${surface}: ${ratio.toFixed(3)}:1`);
+            assert.ok(ratio >= (surface.endsWith('text') ? 4.5 : 3), `${primary} ${mode} ${surface}: ${ratio.toFixed(3)}:1`);
           }
+          // At night every learner bubble carries white text, so a pale brand's can't glare.
+          if (mode === 'dark') assert.ok(bubbleText > 0.9, `${primary} night bubble text luminance ${bubbleText.toFixed(3)}`);
         }
       }
     } finally { await context.close(); }

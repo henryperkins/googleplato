@@ -524,7 +524,7 @@ function LessonConversation() {
               if (urls.length === 0) return null;
               return (
                 <div className="flex justify-end mt-1">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary p-1.5 flex flex-wrap gap-1">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-bubble p-1.5 flex flex-wrap gap-1">
                     {urls.map((url, i) => (
                       // Hydrated data URLs are already in memory: lazy loading
                       // saved nothing and decoded late, shifting the scrolled log.
@@ -547,7 +547,7 @@ function LessonConversation() {
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label={`Attached link: ${link.title || host} (${host}) — opens in a new tab`}
-                        className="inline-flex max-w-full items-center gap-1.5 rounded-2xl rounded-br-sm bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:underline"
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-2xl rounded-br-sm bg-bubble px-3 py-1.5 text-sm text-bubble-foreground hover:underline"
                       >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
                           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>

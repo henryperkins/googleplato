@@ -10,6 +10,7 @@ import {
   buildThemeVars,
   contrastRatio,
   contrastText,
+  darkBubbleColor,
   darkFillColor,
   darkHeaderColor,
   generateFavicon,
@@ -158,6 +159,30 @@ describe('night classroom colors', () => {
     assert.ok(hueGap(hexToOklchParts(darkFillColor('#8b1a1a')).h, hexToOklchParts('#8b1a1a').h) < 3);
   });
 
+  it('calms night bubbles that would glare: every one carries white text, in the brand hue', () => {
+    for (const hex of SWEEP) {
+      const fill = darkFillColor(hex);
+      const bubble = darkBubbleColor(hex);
+      assert.equal(contrastText(bubble), '#ffffff', `${hex} -> ${bubble} text`);
+      assert.ok(contrastRatio('#ffffff', bubble) >= 4.5, `${hex} -> ${bubble} text contrast`);
+      assert.ok(contrastRatio(bubble, DARK_CARD) >= 3, `${hex} -> ${bubble} vs card`);
+      assert.ok(hexToOklchParts(bubble).l <= hexToOklchParts(fill).l, `${hex} -> ${bubble} brighter than its fill`);
+      if (bubble !== fill && hexToOklchParts(hex).c >= 0.03) {
+        assert.ok(hueGap(hexToOklchParts(bubble).h, hexToOklchParts(hex).h) < 3, `${hex} -> ${bubble} changed hue`);
+      }
+    }
+    // A fill that already carries white text, as chosen or lifted, is the bubble.
+    for (const hex of ['#8b1a1a', '#470d99', '#1d4ed8', '#dc2626']) {
+      assert.equal(darkBubbleColor(hex), darkFillColor(hex), hex);
+    }
+    // Pale brands and the light gray of near-black ones glowed at 10–18:1 on the page.
+    for (const hex of ['#f8fafc', '#bae6fd', '#eab308', '#fef08a', '#141414']) {
+      assert.ok(contrastRatio(darkBubbleColor(hex), DARK_PAGE) < 4.5, `${hex} -> ${darkBubbleColor(hex)} glares`);
+    }
+    assert.equal(darkBubbleColor('#141414'), '#6a6a6a', 'near-black bubbles turn gray, not light gray');
+    assert.equal(darkBubbleColor('invalid'), null);
+  });
+
   it('keeps fills, labels, and progress bars visible on every surface in both themes', () => {
     // The palettes from the 2026-10-26 customizer review, then the sweep.
     const palettes = ['#8b1a1a', '#1d4ed8', '#f8fafc', '#09090b', '#eab308', '#bae6fd', '#fef08a', ...SWEEP];
@@ -190,11 +215,21 @@ describe('night classroom colors', () => {
       }
       assert.ok(contrastRatio(hexOf(vars['--classroom-primary-foreground-dark']), nightFill) >= 4.5, `${hex} dark label`);
       assert.ok(contrastRatio(hexOf(vars['--classroom-primary-text-dark']), oklchToHex(0.285, tint, hue)) >= 3, `${hex} dark progress`);
+      // Learner bubbles stand out like fills, with white text at night.
+      const nightBubble = hexOf(vars['--classroom-bubble-dark']);
+      for (const lightness of [0.165, 0.205, 0.245]) {
+        const surface = oklchToHex(lightness, tint, hue);
+        assert.ok(contrastRatio(nightBubble, surface) >= 3, `${hex} dark bubble ${nightBubble} vs ${surface}`);
+      }
+      assert.equal(vars['--classroom-bubble-foreground-dark'], '#ffffff', `${hex} dark bubble text`);
     }
-    // Both progress bars fill with that shade, not the button fill.
-    for (const rel of ['pages/LessonsList.jsx', 'components/chat/ProgressBar.jsx']) {
-      assert.match(readSrc(rel), /progress-fill h-full rounded-full[^"]*\bbg-primary-text\b/, rel);
-    }
+    // Every progress bar fills with that shade, not the button fill, which
+    // fell to 2.65:1 on the night track: the lesson bar, and in the lesson
+    // list both the course summary and the outline's bar.
+    assert.match(readSrc('components/chat/ProgressBar.jsx'), /progress-fill h-full rounded-full[^"]*\bbg-primary-text\b/);
+    const fills = [...readSrc('pages/LessonsList.jsx').matchAll(/rounded-full bg-muted overflow-hidden"[^]*?className="([^"]*)"/g)].map(match => match[1]);
+    assert.equal(fills.length, 2, 'the course summary and outline progress bars');
+    for (const fill of fills) assert.match(fill, /\bbg-primary-text\b/, fill);
   });
 
   it('deepens only light-mode fills that fade into the page, keeping their hue', () => {
@@ -209,11 +244,13 @@ describe('night classroom colors', () => {
     }
   });
 
-  it('gives the dark theme its own header, fills, and surface tint', () => {
+  it('gives the dark theme its own header, fills, bubbles, and surface tint', () => {
     const vars = buildThemeVars({ primary: '#8b1a1a', accent: '#dc2626' });
     assert.equal(vars['--classroom-header-bg-dark'], darkHeaderColor('#8b1a1a'));
     assert.equal(vars['--classroom-header-text-dark'], '#ffffff');
     assert.equal(vars['--classroom-primary-dark'], darkFillColor('#8b1a1a'));
+    assert.equal(vars['--classroom-bubble-dark'], darkBubbleColor('#8b1a1a'));
+    assert.equal(vars['--classroom-bubble-foreground-dark'], '#ffffff');
     assert.equal(vars['--classroom-tint-hue'], hexToOklchParts('#8b1a1a').h.toFixed(1));
     assert.equal(vars['--classroom-tint-chroma'], '0.012');
     assert.equal(buildThemeVars({ primary: '#141414' })['--classroom-tint-chroma'], '0.000', 'gray brands leave surfaces neutral');
@@ -237,13 +274,14 @@ describe('night classroom colors', () => {
     assert.deepEqual(themeColorNotes(null), []);
     assert.deepEqual(themeColorNotes({ primary: '#470d99' }).map(n => n.level), ['info']);
     const yellow = themeColorNotes({ primary: '#f5c518' });
-    assert.deepEqual(yellow.map(n => n.level), ['warning', 'info', 'info']);
+    assert.deepEqual(yellow.map(n => n.level), ['warning', 'info', 'info', 'info']);
     assert.match(yellow[0].text, /header in this color barely stands out from white \(1\.6:1\)/);
     assert.match(yellow[1].text, /In light mode, buttons use a deeper shade/);
     assert.match(yellow[2].text, /In dark mode, the header uses a deeper shade/);
+    assert.match(yellow[3].text, /In dark mode, learners' messages use a deeper shade with white text/);
     assert.match(themeColorNotes({ primary: '#f8fafc' })[1].text, /In light mode, buttons turn near-black/);
     assert.deepEqual(themeColorNotes({ primary: '#8b1a1a' }).map(n => n.text), ['In dark mode, buttons use a lighter shade so they stand out from dark cards.']);
-    assert.match(themeColorNotes({ primary: '#141414' }).map(n => n.text).join(' '), /lighter shade so it stands out.*light gray/);
+    assert.match(themeColorNotes({ primary: '#141414' }).map(n => n.text).join(' '), /lighter shade so it stands out.*light gray.*messages turn gray with white text/);
   });
 });
 
@@ -389,6 +427,13 @@ describe('root theme application, favicons, and customizer parity', () => {
     assert.match(customizer, /\['light', 'dark'\]\.map\(mode =>/);
     assert.match(customizer, /<div className=\{mode\}>\s*<div className="classroom-theme [^"]*" style=\{previewVars\}>/);
     assert.match(customizer, /bg-header text-header-foreground/);
+    // Learner bubbles (text, image, and link) fill with their own token, which
+    // can differ from the buttons at night, so the previews sample it too.
+    assert.match(customizer, /bg-bubble px-3 py-1 text-bubble-foreground/);
+    assert.match(readSrc('components/chat/UserMessage.jsx'), /bg-bubble px-4 py-3 text-base text-bubble-foreground/);
+    const chat = readSrc('pages/LessonChat.jsx');
+    assert.equal(chat.match(/rounded-br-sm bg-bubble\b/g)?.length, 2, 'image and link bubbles');
+    assert.equal(/rounded-br-sm bg-primary\b/.test(chat), false);
     assert.match(customizer, /themeColorNotes\(\{ primary: safePrimary \}\)/);
     // The notes are the inputs' description, so their container stays mounted
     // and carries no aria-label, which would replace the notes' text.

@@ -39,6 +39,14 @@ function hexOf(value, tint = { chroma: 0.012, hue: 285 }) {
 }
 const token = (block, name, tint) => hexOf(block.match(new RegExp(`--${name}:\\s*([^;]+);`))[1], tint);
 
+// A translucent color as the browser paints it over a surface (sRGB blending).
+function over(color, alpha, surface) {
+  const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [fg, bg] = [channels(color), channels(surface)];
+  return '#' + fg.map((c, i) => Math.round(c * alpha + bg[i] * (1 - alpha)).toString(16).padStart(2, '0')).join('');
+}
+const ui = (name) => fs.readFileSync(path.join(CLIENT_SRC, 'components/ui', name), 'utf8');
+
 const PALETTE = /\b(?:bg|text|border|ring|fill|stroke|from|to|outline|decoration|divide|shadow|accent|caret|placeholder)-(?:stone|emerald|amber|green|blue|red|yellow|sky|slate|gray|zinc|neutral|orange|lime|teal|cyan|indigo|violet|purple|pink|rose|fuchsia)-\d{2,3}\b/;
 
 function jsxFiles(dir) {
@@ -69,10 +77,35 @@ describe('design tokens', () => {
   });
 
   it('defines the workspace and lesson-status tokens DESIGN.md names', () => {
-    for (const name of ['workspace', 'completed-background', 'completed-foreground', 'in-progress-background', 'in-progress-foreground', 'header', 'header-foreground']) {
+    for (const name of ['workspace', 'completed-background', 'completed-foreground', 'in-progress-background', 'in-progress-foreground', 'header', 'header-foreground', 'bubble', 'bubble-foreground']) {
       assert.match(CSS, new RegExp(`--${name}:\\s*(oklch|var)`), `--${name} value`);
       assert.match(CSS, new RegExp(`--color-${name}:\\s*var\\(--${name}\\)`), `--color-${name} mapping`);
     }
+  });
+
+  it('gives learner bubbles the fill, unless a classroom fill would glare across them at night', () => {
+    // Declared beside each --primary, so a nested .classroom-theme (the
+    // Customizer previews) resolves its own fill rather than inheriting one.
+    for (const selector of [':root,\n.light', '.dark', '.classroom-theme']) {
+      assert.match(rule(selector), /--bubble: var\(--primary\);\s*--bubble-foreground: var\(--primary-foreground\);/, selector);
+    }
+    assert.match(rule('.dark.classroom-theme,\n.dark .classroom-theme:not(.light *)'),
+      /--bubble: var\(--classroom-bubble-dark, var\(--primary\)\);\s*--bubble-foreground: var\(--classroom-bubble-foreground-dark, var\(--primary-foreground\)\);/);
+  });
+
+  it('fills no control from --input, the field border token', () => {
+    // A dark fill mixed from the 3:1 border glowed brighter than the menus and
+    // dialogs above it. Fields stay transparent; outline buttons and the
+    // selected tab lift with a wash of the text color instead.
+    for (const name of ['input.jsx', 'textarea.jsx', 'button.jsx', 'tabs.jsx']) {
+      assert.doesNotMatch(ui(name), /\bdark:(?:[\w[\]=/-]+:)*bg-input\b/, name);
+    }
+    for (const name of ['input.jsx', 'textarea.jsx']) {
+      assert.doesNotMatch(ui(name), /\bdark:bg-/, `${name} rests transparent at night`);
+    }
+    // The dark rest fill outranks aria-expanded:bg-muted, so an outline menu
+    // trigger needs its own dark open state.
+    assert.match(ui('button.jsx'), /\bdark:aria-expanded:bg-foreground\/10\b/);
   });
 
   it('gives dark mode its own status chips, and surfaces that rise with elevation', () => {
@@ -137,6 +170,18 @@ describe('theme contrast', () => {
       for (const text of ['foreground', 'muted-foreground']) {
         const ratio = contrastRatio(token(surfaces, text, tint), token(surfaces, 'accent', tint));
         assert.ok(ratio >= 4.5, `${text} on accent at hue ${hue}: ${ratio.toFixed(2)}:1`);
+      }
+    }
+  });
+
+  it('keeps the dark field border at 3:1 on every surface a transparent field sits on', () => {
+    // Fields have no fill at night, so their border meets the surface on both sides.
+    const alpha = Number(dark.match(/--input:\s*oklch\(1 0 0 \/ (\d+)%\);/)[1]) / 100;
+    for (const hue of HUES) {
+      for (const name of ['workspace', 'card', 'popover']) {
+        const surface = token(surfaces, name, { chroma: 0.012, hue });
+        const ratio = contrastRatio(over('#ffffff', alpha, surface), surface);
+        assert.ok(ratio >= 3, `field border on ${name} at hue ${hue}: ${ratio.toFixed(2)}:1`);
       }
     }
   });

@@ -34,6 +34,8 @@
     --color-link: var(--link);
     --color-header: var(--header);
     --color-header-foreground: var(--header-foreground);
+    --color-bubble: var(--bubble);
+    --color-bubble-foreground: var(--bubble-foreground);
     --color-success: var(--success);
     --color-success-foreground: var(--success-foreground);
     --color-success-border: var(--success-border);
@@ -96,6 +98,10 @@
     /* The classroom header band (and the auth pages' backdrop). */
     --header: var(--primary);
     --header-foreground: var(--primary-foreground);
+    /* Learner message bubbles: the primary fill, except in a classroom at
+       night whose fill would glare across a whole message. */
+    --bubble: var(--primary);
+    --bubble-foreground: var(--primary-foreground);
     --success: oklch(0.982 0.018 155.826);
     --success-foreground: oklch(0.393 0.095 152.535);
     --success-border: oklch(0.871 0.15 154.449);
@@ -145,6 +151,8 @@
     --primary-foreground: oklch(0.985 0 0);
     --header: oklch(0.4 0.15 285);
     --header-foreground: oklch(0.985 0 0);
+    --bubble: var(--primary);
+    --bubble-foreground: var(--primary-foreground);
     --destructive: oklch(0.704 0.191 22.216);
     --primary-text: oklch(0.78 0.12 285);
     --link: var(--primary-text);
@@ -305,11 +313,13 @@
   --primary-text: var(--classroom-primary-text-light, var(--primary));
   --link: var(--classroom-link-light, var(--primary-text));
   --ring: var(--classroom-ring-light, var(--primary));
+  --bubble: var(--primary);
+  --bubble-foreground: var(--primary-foreground);
 }
 
-/* The classroom at night: its hue tints the surfaces, and its header and fills
-   take the dark values buildThemeVars derives (lib/branding.js). Fallbacks
-   match the plato defaults in `.dark`. */
+/* The classroom at night: its hue tints the surfaces, and its header, fills,
+   and learner bubbles take the dark values buildThemeVars derives
+   (lib/branding.js). Fallbacks match the plato defaults in `.dark`. */
 .dark.classroom-theme,
 .dark .classroom-theme:not(.light *) {
   --tint-hue: var(--classroom-tint-hue, 285);
@@ -318,6 +328,8 @@
   --header-foreground: var(--classroom-header-text-dark, oklch(0.985 0 0));
   --primary-text: var(--classroom-primary-text-dark, oklch(0.78 0.12 285));
   --link: var(--classroom-link-dark, var(--primary-text));
+  --bubble: var(--classroom-bubble-dark, var(--primary));
+  --bubble-foreground: var(--classroom-bubble-foreground-dark, var(--primary-foreground));
   /* !important so the inline (light) `--primary` and `--ring` from
      buildThemeVars, kept for consumers without `.classroom-theme`, do not
      override the dark values. */
