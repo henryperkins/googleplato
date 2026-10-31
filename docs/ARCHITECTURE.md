@@ -887,9 +887,14 @@ inline at the end of a short one); `client/tests/stickToBottom.test.js` covers
 only the decision layer.
 
 The admin lesson editor passes an explicit `scrollTargetRef` at the end of its
-inline composer. On narrow screens the markdown preview follows the chat, so
-scrolling that admin container to its absolute bottom would hide the composer.
-The optional target changes both pinning and the "at bottom" calculation.
+inline composer. Scrolling its container to the absolute bottom can instead
+land at the end of the adjacent preview. The optional target changes both
+pinning and the "at bottom" calculation. Hidden chat logs never scroll their
+ancestors, including when a reply arrives behind the mobile Preview tab.
+When a hidden log reappears, its pin state is recomputed from the current
+position before mutation, resize or animation callbacks can follow it again.
+Returning to Refine therefore keeps the selected tab in view; a new submitted
+message still explicitly resumes following the conversation.
 Learner chat continues to use full-scrollport pinning.
 
 The lesson page fills `<main>` (`#main-content:has(> .lesson-page)` is a flex
@@ -1264,15 +1269,25 @@ place, without starting an agent or writing a draft. `AdminLessons` keys
 `LessonEditor` on the lesson and load attempt so switching lessons remounts cleanly.
 
 Authoring stays on one page. The conversation and preview sit side by side when
-space permits; both save choices follow the preview in reading order at every
-width. On narrow screens, the preview uses the page's scrolling flow so the
-author reaches both choices together after reading. **Start over** stays with
-the conversation and keeps its confirmation dialog.
+the editor container is at least 52rem wide; course and readiness sit above both
+columns. Narrower containers show keyboard-operated **Refine / Preview** tabs,
+including when enlarged text reduces the available space. Both panels remain
+mounted so switching tabs preserves the composer and in-flight requests. Arrow
+keys, Home and End select tabs; **View preview** opens and focuses the review.
+When widening hides a focused mobile tab, readiness summary or View preview
+control, focus moves to its visible content after the layout updates. Narrowing
+keeps focused readiness guidance expanded. Ordinary blur and focus outside the
+editor do not restore an abandoned control.
+Both save choices follow the preview in reading order at every width, with
+full-width buttons on narrow screens. The mobile preview uses the page's
+scrolling flow. **Start over** stays with the conversation and keeps its
+confirmation dialog. Unknown final-save recovery opens the Preview tab.
 
 Readiness describes how fully the conversation has defined the lesson. Its
 native disclosure explains the exemplar, objectives and scope rubric and the
-existing 3/10 creation minimum. The score and its color do not replace review
-or preview validation; the underlying thresholds are unchanged.
+existing 3/10 creation minimum. Mobile shows the score in a disclosure that
+expands to the bar, explanation and rubric. The score and its color do not
+replace review or preview validation; the underlying thresholds are unchanged.
 
 The lesson directory uses compact rows below the medium breakpoint and the
 existing table at wider sizes. Both share filtering, pagination, visibility
@@ -1312,12 +1327,18 @@ text size. Headers and action groups wrap at narrow widths. The preview is
 re-runs the relevant extractor agent — it does NOT auto-update per message and
 runs no AI call on editor open. On open the pane shows the already-saved markdown
 (edit) or a quiet empty-state (new). Once the conversation advances past the last
-refresh a hint explains that the conversation has changed. Conversation and
-markdown revision IDs preserve that distinction across sessions.
+refresh, a **Needs refresh** badge and notice explain that the conversation has
+changed. The saved or previous content stays visible during extraction and
+after a failure. Conversation and markdown revision IDs preserve that
+distinction across sessions. A late extraction remains stale if the author has
+continued the conversation. Refresh completion does not move focus away from
+the conversation or another panel.
 **Generate preview / Refresh preview** generates and validates a preview;
 **Save privately / Save & make public / Update Lesson** saves that exact
-markdown, after pending autosaves finish. Publishing is offered only for a
-current, reviewed preview. Failed finalization retains the preview and visibility
+markdown, after pending autosaves finish. Refresh is a separate action; final
+save controls stay disabled while the preview is missing, stale or refreshing.
+Conversation-save status, currently saved content, and a current but unapplied
+preview have separate labels. Failed finalization retains the preview and visibility
 choice for persistence-only retry, including after a same-tab reload. Restart clears it and invalidates outstanding
 extractions. Preview markdown is kept in the tab's recovery copy, but is not
 published as lesson content until the save button is used.

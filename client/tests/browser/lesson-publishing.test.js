@@ -17,6 +17,7 @@ const browserType = { chromium, firefox, webkit }[browserName];
 assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
 const publishingEvidence = join(root, 'output/playwright/lesson-publishing', browserName === 'chromium' ? '' : browserName);
 const mobileEvidence = join(root, 'output/playwright/lesson-mobile-refinement', browserName === 'chromium' ? '' : browserName);
+const workspaceEvidence = join(root, 'output/playwright/lesson-workspace', browserName);
 const markdown = '# Reviewed Lesson\n\n## Exemplar\nWrite a clear summary.\n\n## Learning Objectives\n- Can identify the main idea.\n- Can write a concise summary.';
 let browser;
 let server;
@@ -24,7 +25,7 @@ let directory;
 let base;
 let storageState;
 
-async function fixture({ draft = true, width = 1280, theme = 'light', readiness = 8 } = {}) {
+async function fixture({ draft = true, width = 1280, theme = 'light', readiness = 8, lesson = {} } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, storageState });
   await context.addInitScript(value => localStorage.setItem('plato_theme', value), theme);
   const page = await context.newPage();
@@ -35,12 +36,17 @@ async function fixture({ draft = true, width = 1280, theme = 'light', readiness 
       markdown: draft ? '' : markdown, version: 1, sharedWith: ['learner'],
       conversation: [{ role: 'assistant', content: 'The lesson is ready for review.' }],
       readiness, conversationRevision: 'revision-1', markdownRevision: draft ? null : 'revision-1',
+      ...lesson,
     },
-    writes: [], aiCalls: 0, beforeWrite: null, previewMarkdown: markdown,
+    writes: [], aiCalls: 0, beforeWrite: null, beforeAI: null, previewMarkdown: markdown,
   };
   await context.route('**/v1/ai/messages', async route => {
     state.aiCalls++;
-    await route.fulfill({ json: { content: [{ type: 'text', text: state.previewMarkdown }] } });
+    if (state.beforeAI && await state.beforeAI(route)) return;
+    const text = route.request().postDataJSON().stream
+      ? 'I will include that change. Refresh the preview to review it. [READINESS: 8]'
+      : state.previewMarkdown;
+    await route.fulfill({ json: { content: [{ type: 'text', text }] } });
   });
   await context.route('**/v1/admin/**', async route => {
     const request = route.request();
@@ -69,7 +75,10 @@ async function fixture({ draft = true, width = 1280, theme = 'light', readiness 
 }
 
 async function review(page) {
-  await page.getByRole('complementary', { name: 'Lesson markdown preview' }).getByRole('button', { name: /Generate preview|Refresh preview/ }).click();
+  const previewTab = page.getByRole('tab', { name: 'Preview', exact: true });
+  if (await previewTab.isVisible()) await previewTab.click();
+  await page.getByRole('button', { name: /^(Generate preview|Refresh preview)$/ }).click();
+  await page.waitForFunction(() => document.querySelector('.markdown-preview-body')?.getAttribute('aria-busy') === 'false');
   await page.getByRole('complementary', { name: 'Lesson markdown preview' }).getByRole('heading', { name: 'Reviewed Lesson', exact: true }).waitFor();
 }
 
@@ -77,6 +86,7 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
   before(async () => {
     await mkdir(publishingEvidence, { recursive: true });
     await mkdir(mobileEvidence, { recursive: true });
+    await mkdir(workspaceEvidence, { recursive: true });
     directory = await mkdtemp(join(tmpdir(), 'plato-publishing-'));
     const reservation = createServer();
     reservation.listen(0, '127.0.0.1');
@@ -173,7 +183,7 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
 
   for (const committed of [false, true]) {
     it(`recovers the public choice after reload when the lost response ${committed ? 'was committed' : 'was not committed'}`, async () => {
-      const { context, page, state } = await fixture();
+      const { context, page, state } = await fixture({ width: 320 });
       try {
         await review(page);
         state.beforeWrite = async (route, body) => {
@@ -469,6 +479,7 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
     for (const readiness of [2, 3, 8]) {
       const { context, page, state } = await fixture({ width: 320, readiness });
       try {
+        await page.locator('.lesson-editor-readiness-toggle').click();
         await page.getByText('How fully your lesson has been defined in this conversation.', { exact: true }).waitFor();
         const help = page.locator('summary').filter({ hasText: 'About lesson readiness' });
         await help.focus();
@@ -476,11 +487,290 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
         const rubric = page.getByRole('region', { name: 'Readiness guidance', exact: true });
         assert.match(await rubric.innerText(), /3\/10/);
         assert.match(await rubric.innerText(), /exemplar|outcome/i);
-        await review(page);
         assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'), String(readiness));
+        await review(page);
         assert.equal(await page.getByRole('button', { name: 'Save privately', exact: true }).isDisabled(), readiness < 3);
         assert.equal(await page.getByRole('button', { name: 'Save & make public', exact: true }).isDisabled(), readiness < 3);
         assert.equal(state.writes.length, 0);
+      } finally { await context.close(); }
+    }
+  });
+
+  it('transfers focus when responsive controls disappear and retains open readiness guidance', async () => {
+    const { context, page, state } = await fixture({ width: 390 });
+    try {
+      for (const name of ['Refine', 'Preview', 'readiness', 'View preview']) {
+        await page.setViewportSize({ width: 390, height: 900 });
+        await page.getByRole('tab', { name: 'Refine', exact: true }).click();
+        const control = name === 'readiness' ? page.locator('.lesson-editor-readiness-toggle')
+          : name === 'View preview' ? page.getByRole('button', { name, exact: true })
+            : page.getByRole('tab', { name, exact: true });
+        await control.focus();
+        await page.setViewportSize({ width: 1280, height: 900 });
+        const selector = name === 'readiness' ? '.lesson-editor-readiness [role="progressbar"]'
+          : name === 'Refine' ? '#lesson-refine-heading' : '#lesson-preview-panel > [aria-label="Lesson preview"]';
+        await page.waitForFunction(selector => document.querySelector(selector) === document.activeElement, selector);
+        assert.equal(await page.locator(selector).isVisible(), true, `${name} transfers focus to visible content`);
+      }
+      await page.getByText('About lesson readiness', { exact: true }).focus();
+      await page.setViewportSize({ width: 390, height: 900 });
+      const guidance = page.getByText('About lesson readiness', { exact: true });
+      await guidance.waitFor();
+      assert.equal(await guidance.evaluate(element => element === document.activeElement), true,
+        'narrowing keeps the focused readiness content visible');
+      assert.equal(state.aiCalls, 0);
+      assert.equal(state.writes.length, 0);
+    } finally { await context.close(); }
+  });
+
+  it('preserves the composer and reviewed preview through keyboard tabs, resizing and enlarged text', async () => {
+    const { context, page, state } = await fixture({ width: 320 });
+    try {
+      const refine = page.getByRole('tab', { name: 'Refine', exact: true });
+      const preview = page.getByRole('tab', { name: 'Preview', exact: true });
+      await page.getByRole('textbox', { name: 'Your message' }).fill('Keep this unfinished thought.');
+      await refine.focus();
+      await page.keyboard.press('End');
+      assert.equal(await preview.getAttribute('aria-selected'), 'true');
+      assert.equal(await preview.evaluate(element => element === document.activeElement), true);
+      assert.equal(await page.getByRole('textbox', { name: 'Your message' }).count(), 0);
+      await review(page);
+      await preview.focus();
+      await page.keyboard.press('Home');
+      assert.equal(await page.getByRole('textbox', { name: 'Your message' }).inputValue(), 'Keep this unfinished thought.');
+      await page.getByRole('button', { name: 'View preview', exact: true }).click();
+      assert.equal(await page.getByRole('complementary', { name: 'Lesson markdown preview' }).isVisible(), true);
+      assert.equal(state.aiCalls, 1, 'switching tabs does not generate a preview');
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.getByRole('textbox', { name: 'Your message' }).waitFor();
+      assert.equal(await page.getByRole('tablist', { name: 'Lesson workspace' }).count(), 0);
+      assert.equal(await page.getByRole('complementary', { name: 'Lesson markdown preview' }).isVisible(), true);
+      await page.getByRole('button', { name: 'Save privately', exact: true }).focus();
+      await page.setViewportSize({ width: 320, height: 900 });
+      await preview.waitFor();
+      assert.equal(await preview.getAttribute('aria-selected'), 'true', 'narrowing retains the panel with keyboard focus');
+      assert.equal(await page.getByRole('button', { name: 'Save privately', exact: true }).evaluate(element => element === document.activeElement), true);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.evaluate(() => { document.documentElement.style.fontSize = '32px'; });
+      await preview.waitFor();
+      assert.equal(await preview.getAttribute('aria-selected'), 'true');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.screenshot({ path: join(workspaceEvidence, 'preview-enlarged-text.png'), fullPage: true });
+      await refine.click();
+      assert.equal(await page.getByRole('textbox', { name: 'Your message' }).inputValue(), 'Keep this unfinished thought.');
+      assert.equal(state.writes.length, 0, 'view changes never finalize or autosave content');
+    } finally { await context.close(); }
+  });
+
+  it('keeps the saved public lesson visible and blocks updates until a refreshed preview is ready', async () => {
+    const { context, page, state } = await fixture({ draft: false, lesson: {
+      status: 'public', conversationRevision: 'revised-conversation',
+    } });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    try {
+      const update = page.getByRole('button', { name: 'Update lesson', exact: true });
+      const preview = page.getByRole('complementary', { name: 'Lesson markdown preview' });
+      await preview.getByText('Needs refresh', { exact: true }).waitFor();
+      await preview.getByText('Currently saved content', { exact: true }).waitFor();
+      assert.equal(await update.isDisabled(), true);
+      await update.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(state.writes.length, 0);
+      assert.equal(state.aiCalls, 0, 'the disabled update does not extract or save');
+      state.previewMarkdown = markdown.replace('clear summary', 'clear summary with an owner and due date');
+      state.beforeAI = async () => { await gate; return false; };
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      await preview.getByText('Refreshing preview…', { exact: true }).waitFor();
+      assert.equal(await preview.locator('.coach-copy').isVisible(), true);
+      assert.match(await preview.locator('.coach-copy').innerText(), /Write a clear summary\./);
+      assert.equal(await update.isDisabled(), true);
+      release();
+      await preview.getByText('Preview current · Changes not applied', { exact: true }).waitFor();
+      assert.equal(await update.isEnabled(), true);
+      assert.equal(state.lesson.markdown, markdown, 'refreshing does not change the public lesson');
+      await update.click();
+      await page.waitForURL(`${base}/plato/lessons`);
+      assert.equal(state.lesson.markdown, state.previewMarkdown);
+      assert.equal(state.lesson.status, 'public');
+      assert.equal(state.aiCalls, 1);
+    } finally { release(); await context.close(); }
+  });
+
+  it('retains saved content after a failed refresh and allows an explicit retry', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 320, theme: 'dark', lesson: {
+      status: 'public', conversationRevision: 'revised-conversation',
+    } });
+    try {
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      state.previewMarkdown = '# Incomplete lesson';
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      const preview = page.getByRole('complementary', { name: 'Lesson markdown preview' });
+      await preview.getByRole('alert').waitFor();
+      assert.equal(await preview.getByRole('heading', { name: 'Reviewed Lesson', exact: true }).isVisible(), true);
+      assert.equal(await page.getByRole('button', { name: 'Update lesson', exact: true }).isDisabled(), true);
+      assert.equal(state.writes.length, 0);
+      await page.screenshot({ path: join(workspaceEvidence, 'refresh-failed-320-dark.png'), fullPage: true });
+      state.previewMarkdown = markdown;
+      await review(page);
+      await preview.getByRole('alert').waitFor({ state: 'hidden' });
+      assert.equal(await page.getByRole('button', { name: 'Update lesson', exact: true }).isEnabled(), true);
+      assert.equal(state.aiCalls, 2);
+    } finally { await context.close(); }
+  });
+
+  it('keeps a background refresh stale when the author continues refining on mobile', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 390, lesson: { status: 'public' } });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    try {
+      state.beforeAI = async route => {
+        if (!route.request().postDataJSON().stream) await gate;
+        return false;
+      };
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      await page.getByRole('tab', { name: 'Refine', exact: true }).click();
+      const composer = page.getByRole('textbox', { name: 'Your message' });
+      await composer.fill('Require an owner and a due date.');
+      await composer.press('Control+Enter');
+      await page.getByRole('status').filter({ hasText: /Reply received/ }).waitFor();
+      await composer.fill('An unsent follow-up.');
+      await composer.focus();
+      release();
+      await page.waitForFunction(() => document.querySelector('.markdown-preview-body')?.getAttribute('aria-busy') === 'false');
+      assert.equal(await composer.evaluate(element => element === document.activeElement), true, 'background completion does not steal focus');
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      await page.getByText('Needs refresh', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Update lesson', exact: true }).isDisabled(), true);
+      assert.equal(state.writes.every(write => write.markdown === undefined), true, 'conversation autosaves do not apply preview content');
+      await review(page);
+      assert.equal(await page.getByRole('button', { name: 'Update lesson', exact: true }).isEnabled(), true);
+      await page.getByRole('tab', { name: 'Refine', exact: true }).click();
+      assert.equal(await composer.inputValue(), 'An unsent follow-up.');
+    } finally { release(); await context.close(); }
+  });
+
+  it('keeps the mobile review position while a hidden conversation receives its reply', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 390, lesson: {
+      markdown: markdown.replace('Write a clear summary.', `Write a clear summary.\n\n${'Consider the audience and choose specific details.\n\n'.repeat(30)}`),
+    } });
+    let release;
+    let started;
+    const gate = new Promise(resolve => { release = resolve; });
+    const called = new Promise(resolve => { started = resolve; });
+    try {
+      state.beforeAI = async () => { started(); await gate; return false; };
+      const composer = page.getByRole('textbox', { name: 'Your message' });
+      await composer.fill('Make the next action more specific.');
+      await composer.press('Control+Enter');
+      await called;
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      const main = page.locator('#main-content');
+      await main.evaluate(element => { element.scrollTop = element.scrollHeight / 2; });
+      const position = await main.evaluate(element => element.scrollTop);
+      assert.ok(position > 100, 'the review is scrolled away from its header');
+      release();
+      await page.waitForFunction(() => Array.from(document.querySelectorAll('[role="status"]')).some(element => element.textContent.includes('Reply received.')));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await main.evaluate(element => element.scrollTop), position, 'the hidden chat never scrolls the review');
+      assert.equal(await page.getByRole('tab', { name: 'Preview', exact: true }).getAttribute('aria-selected'), 'true');
+      assert.equal(state.writes.every(write => write.markdown === undefined), true);
+    } finally { release(); await context.close(); }
+  });
+
+  it('keeps the selected tab in place when returning from a scrolled preview to a long conversation', async () => {
+    for (const pendingReply of [false, true]) {
+      const { context, page, state } = await fixture({ draft: false, width: 390, lesson: {
+        conversation: Array.from({ length: 12 }, (_, index) => ({
+          role: index % 2 ? 'assistant' : 'user',
+          content: 'Keep the project update focused on progress, a blocker, and a clear next action with an owner.',
+        })),
+        markdown: markdown.replace('Write a clear summary.', `Write a clear summary.\n\n${'Choose specific details for the audience.\n\n'.repeat(40)}`),
+      } });
+      let release = () => {};
+      try {
+        const main = page.locator('#main-content');
+        await page.waitForFunction(() => document.querySelector('#main-content').scrollTop > 100);
+        if (pendingReply) {
+          let started;
+          const gate = new Promise(resolve => { release = resolve; });
+          const called = new Promise(resolve => { started = resolve; });
+          state.beforeAI = async () => { started(); await gate; return false; };
+          const composer = page.getByRole('textbox', { name: 'Your message' });
+          await composer.fill('Require a specific owner for the next action.');
+          await composer.press('Control+Enter');
+          await called;
+        }
+        await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+        await main.evaluate(element => { element.scrollTop = element.scrollHeight / 2; });
+        const refine = page.getByRole('tab', { name: 'Refine', exact: true });
+        await refine.focus();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const position = await main.evaluate(element => element.scrollTop);
+        await refine.press('Enter');
+        await page.getByRole('textbox', { name: 'Your message' }).waitFor();
+        release();
+        if (pendingReply) await page.getByRole('status').filter({ hasText: /Reply received/ }).waitFor();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await main.evaluate(element => element.scrollTop), position,
+          'revealing the chat does not reuse its old pinned position');
+        assert.equal(await refine.evaluate(element => {
+          const box = element.getBoundingClientRect();
+          const main = document.querySelector('#main-content').getBoundingClientRect();
+          return box.top >= main.top && box.bottom <= main.bottom;
+        }), true, 'the selected tab remains visible');
+        assert.equal(state.aiCalls, pendingReply ? 1 : 0);
+        assert.equal(state.writes.every(write => write.markdown === undefined), true);
+      } finally { release(); await context.close(); }
+    }
+  });
+
+  it('renders the selected create, public-edit and mobile-review concepts with sample content', async () => {
+    const sampleMarkdown = '# Write a useful project update\n\n## Exemplar\nWrite a three-sentence project update that states progress, a blocker, and the next action.\n\n## Learning Objectives\n- Can separate progress from activity.\n- Can describe one blocker clearly.\n- Can name a next action and owner.';
+    for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
+      const { context, page, state } = await fixture({ width, theme, lesson: {
+        course: 'communication',
+        conversation: [
+          { role: 'assistant', content: 'What should a learner be able to produce by the end?' },
+          { role: 'user', content: 'A three-sentence update: progress, a blocker, and the next action.' },
+          { role: 'assistant', content: 'I’ve shaped that into one outcome and three objectives. Review the preview, or tell me what to change.' },
+        ],
+      } });
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => {
+        // WebKit reports this unsupported, existing progressive-enhancement hint
+        // as an error. Keep all application errors and other console output gated.
+        if (message.type() === 'error' && !(browserName === 'webkit'
+          && message.text() === 'Viewport argument key "interactive-widget" not recognized and ignored.')) errors.push(message.text());
+      });
+      try {
+        await context.route('**/v1/admin/courses', route => route.fulfill({ json: [{ courseId: 'communication', name: 'Workplace communication' }] }));
+        await page.reload();
+        if (width === 390) {
+          await page.getByRole('tab', { name: 'Refine', exact: true }).waitFor();
+          await page.locator('#main-content').evaluate(element => { element.scrollTop = 0; });
+          await page.screenshot({ path: join(workspaceEvidence, `create-refine-${width}-${theme}.png`), fullPage: true });
+          await page.getByRole('button', { name: 'View preview', exact: true }).click();
+        }
+        state.previewMarkdown = sampleMarkdown;
+        await page.getByRole('button', { name: 'Generate preview', exact: true }).click();
+        await page.getByText('Preview current · Not saved as a lesson', { exact: true }).waitFor();
+        await page.screenshot({ path: join(workspaceEvidence, `create-preview-${width}-${theme}.png`), fullPage: true });
+        state.lesson = { ...state.lesson, status: 'public', markdown: sampleMarkdown, markdownRevision: 'older-revision',
+          conversation: [
+            { role: 'assistant', content: 'What would you like to change in this lesson?' },
+            { role: 'user', content: 'Keep the three-sentence format, but require an owner and a due date for the next action.' },
+            { role: 'assistant', content: 'I’ll include both in the next-action requirement. Refresh the preview to review the revised lesson.' },
+          ] };
+        await page.evaluate(() => sessionStorage.clear());
+        await page.reload();
+        if (width === 390) await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+        await page.getByText('Needs refresh', { exact: true }).waitFor();
+        await page.screenshot({ path: join(workspaceEvidence, `edit-stale-${width}-${theme}.png`), fullPage: true });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        assert.deepEqual(errors, [], 'sample flows have no browser console errors');
       } finally { await context.close(); }
     }
   });

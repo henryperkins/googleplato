@@ -176,18 +176,34 @@ export function useStickToBottom(logRef, scrollTargetRef) {
     // markdown settling its height). One scroll lands on the pre-layout bottom,
     // so re-assert on the next frame once heights are final.
     let raf = null;
+    let wasVisible = !!log.getClientRects().length;
+    const updateVisibility = () => {
+      const visible = !!log.getClientRects().length;
+      const appeared = visible && !wasVisible;
+      wasVisible = visible;
+      if (appeared) {
+        // Returning to an authoring tab is navigation, not a request to jump
+        // to the composer. Recompute before any observer can reuse the old pin.
+        atBottomRef.current = computeAtBottom(scrollers(), BOTTOM_EPSILON, scrollTargetRef?.current);
+      }
+      return { visible, appeared };
+    };
     const pinToBottom = () => {
+      const { visible, appeared } = updateVisibility();
+      if (!visible || appeared) return;
       scrollToBottom(scrollers(), scrollTargetRef?.current);
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         raf = null;
-        scrollToBottom(scrollers(), scrollTargetRef?.current);
+        const { visible, appeared } = updateVisibility();
+        if (visible && !appeared && atBottomRef.current) scrollToBottom(scrollers(), scrollTargetRef?.current);
       });
     };
 
     // --- track position ---------------------------------------------------
     // Capture phase: catches scroll from any element, since scroll doesn't bubble.
     const handleScroll = (e) => {
+      if (!updateVisibility().visible) return;
       const target = e.target;
       const isDocTarget = target === document || target === window;
       // Ignore scrollers unrelated to the log (a dropdown, the markdown preview
@@ -200,6 +216,8 @@ export function useStickToBottom(logRef, scrollTargetRef) {
 
     // --- re-pin when content is added -------------------------------------
     const observer = new MutationObserver((records) => {
+      const { visible, appeared } = updateVisibility();
+      if (!visible) return;
       // Sending a message is an explicit "take me to the latest" — jump to the
       // bottom and resume following, even if the reader had scrolled up to
       // reference an earlier message while composing.
@@ -208,7 +226,7 @@ export function useStickToBottom(logRef, scrollTargetRef) {
         pinToBottom();
         return;
       }
-      if (atBottomRef.current) pinToBottom();
+      if (!appeared && atBottomRef.current) pinToBottom();
     });
     observer.observe(log, {
       childList: true,      // new messages
@@ -218,6 +236,8 @@ export function useStickToBottom(logRef, scrollTargetRef) {
 
     // Images and late-loading content change height without mutating the DOM.
     const resizeObserver = new ResizeObserver(() => {
+      const { visible, appeared } = updateVisibility();
+      if (!visible || appeared) return;
       if (atBottomRef.current) pinToBottom();
     });
     resizeObserver.observe(log);
