@@ -160,9 +160,10 @@ export function containsNewUserMessage(record) {
 /**
  * @param {React.RefObject} logRef  the chat log element (content container)
  */
-export function useStickToBottom(logRef, scrollTargetRef) {
-  // Start stuck: a freshly-opened lesson should sit at the latest message.
-  const atBottomRef = useRef(true);
+export function useStickToBottom(logRef, scrollTargetRef, { scrollOnMount = true } = {}) {
+  // Learner chat starts at its latest message. Authoring can retain its page
+  // heading and tabs until the author explicitly submits a new message.
+  const atBottomRef = useRef(scrollOnMount);
 
   useEffect(() => {
     const log = logRef.current;
@@ -171,6 +172,13 @@ export function useStickToBottom(logRef, scrollTargetRef) {
     // Re-collected rather than cached: the compose bar swaps between inline and
     // fixed as the reader scrolls, which can change what overflows.
     const scrollers = () => collectScrollers(log);
+    const readScrollPositions = () => new Map([
+      [window, window.scrollY], ...scrollers().map(element => [element, element.scrollTop]),
+    ]);
+    let scrollPositions = readScrollPositions();
+    const rememberScrollPositions = () => {
+      if (scrollTargetRef?.current) scrollPositions = readScrollPositions();
+    };
 
     // Content is often added across two frames (React commit, then the image or
     // markdown settling its height). One scroll lands on the pre-layout bottom,
@@ -185,6 +193,7 @@ export function useStickToBottom(logRef, scrollTargetRef) {
         // Returning to an authoring tab is navigation, not a request to jump
         // to the composer. Recompute before any observer can reuse the old pin.
         atBottomRef.current = computeAtBottom(scrollers(), BOTTOM_EPSILON, scrollTargetRef?.current);
+        rememberScrollPositions();
       }
       return { visible, appeared };
     };
@@ -192,11 +201,15 @@ export function useStickToBottom(logRef, scrollTargetRef) {
       const { visible, appeared } = updateVisibility();
       if (!visible || appeared) return;
       scrollToBottom(scrollers(), scrollTargetRef?.current);
+      rememberScrollPositions();
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         raf = null;
         const { visible, appeared } = updateVisibility();
-        if (visible && !appeared && atBottomRef.current) scrollToBottom(scrollers(), scrollTargetRef?.current);
+        if (visible && !appeared && atBottomRef.current) {
+          scrollToBottom(scrollers(), scrollTargetRef?.current);
+          rememberScrollPositions();
+        }
       });
     };
 
@@ -209,6 +222,15 @@ export function useStickToBottom(logRef, scrollTargetRef) {
       // Ignore scrollers unrelated to the log (a dropdown, the markdown preview
       // pane) — they say nothing about the reader's position in the chat.
       if (!isDocTarget && target?.nodeType === 1 && !target.contains(log)) return;
+      if (scrollTargetRef?.current) {
+        // WebKit can emit scroll after the composer endpoint moves without
+        // changing any scroll offset. Layout growth is not the reader leaving
+        // the latest turn; only an actual position change can stop following.
+        const nextPositions = readScrollPositions();
+        const moved = [...nextPositions].some(([element, top]) => (scrollPositions.get(element) ?? 0) !== top);
+        scrollPositions = nextPositions;
+        if (!moved) return;
+      }
       atBottomRef.current = computeAtBottom(scrollers(), BOTTOM_EPSILON, scrollTargetRef?.current);
     };
     const scrollListenerOptions = { capture: true, passive: true };
@@ -243,8 +265,7 @@ export function useStickToBottom(logRef, scrollTargetRef) {
     resizeObserver.observe(log);
     if (scrollTargetRef?.current?.parentElement) resizeObserver.observe(scrollTargetRef.current.parentElement);
 
-    // Land at the bottom on first mount (resumed conversation).
-    pinToBottom();
+    if (scrollOnMount) pinToBottom();
 
     return () => {
       window.removeEventListener('scroll', handleScroll, scrollListenerOptions);
@@ -252,5 +273,5 @@ export function useStickToBottom(logRef, scrollTargetRef) {
       resizeObserver.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [logRef, scrollTargetRef]);
+  }, [logRef, scrollTargetRef, scrollOnMount]);
 }

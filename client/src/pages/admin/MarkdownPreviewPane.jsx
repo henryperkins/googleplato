@@ -64,14 +64,14 @@ export default function MarkdownPreviewPane({
           <TriangleAlert className="size-3.5" aria-hidden="true" /> {staleLabel}
         </Badge>}
         {onRefresh && <Button
-          variant="outline"
+          variant={stale && staleLabel ? 'default' : 'outline'}
           size="sm"
           className="markdown-preview-refresh h-auto min-h-9 max-w-full whitespace-normal py-2"
           onClick={onRefresh}
           disabled={refreshDisabled}
           focusableWhenDisabled
           aria-label={refreshLabel}
-          aria-describedby={showStaleHint ? 'md-preview-stale-hint' : undefined}
+          aria-describedby={[showStaleHint && 'md-preview-stale-hint', error && 'md-preview-error'].filter(Boolean).join(' ') || undefined}
         >
           {statusLabel && <RotateCcw aria-hidden="true" />} <span className="markdown-preview-refresh-label">{refreshLabel}</span>
         </Button>}
@@ -107,6 +107,7 @@ export default function MarkdownPreviewPane({
       <div className="markdown-preview-body flex-1 max-h-[70dvh] overflow-auto overscroll-contain" aria-busy={loading}>
         {error && (
           <div
+            id="md-preview-error"
             role="alert"
             className="rounded-lg bg-destructive/10 text-destructive px-4 py-3 text-sm"
           >

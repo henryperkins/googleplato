@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,8 +25,8 @@ let directory;
 let base;
 let storageState;
 
-async function fixture({ draft = true, width = 1280, theme = 'light', readiness = 8, lesson = {} } = {}) {
-  const context = await browser.newContext({ viewport: { width, height: 900 }, storageState });
+async function fixture({ draft = true, width = 1280, height = 900, theme = 'light', readiness = 8, lesson = {} } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, storageState });
   await context.addInitScript(value => localStorage.setItem('plato_theme', value), theme);
   const page = await context.newPage();
   page.setDefaultTimeout(5000);
@@ -619,6 +619,187 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
     } finally { await context.close(); }
   });
 
+  it('offers refresh beside the stale notice before a long mobile preview', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 320, height: 568, theme: 'dark', lesson: {
+      status: 'public', conversationRevision: 'revised-conversation',
+      markdown: markdown.replace('Write a clear summary.', 'Describe progress, the blocker, an owner and a due date.\n\n'.repeat(30)),
+    } });
+    try {
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      await page.locator('#main-content').evaluate(element => { element.scrollTop = 0; });
+      const refresh = page.getByRole('button', { name: 'Refresh preview', exact: true });
+      const position = await refresh.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const main = document.querySelector('#main-content').getBoundingClientRect();
+        return { visible: box.top >= main.top && box.bottom <= main.bottom,
+          beforeContent: !!(element.compareDocumentPosition(document.querySelector('.markdown-preview-body')) & Node.DOCUMENT_POSITION_FOLLOWING) };
+      });
+      await page.screenshot({ path: join(workspaceEvidence, 'stale-refresh-first-screen-320-dark.png') });
+      assert.equal(position.visible, true, 'refresh is available without scrolling through outdated content');
+      assert.equal(position.beforeContent, true, 'refresh precedes the content it regenerates');
+      assert.equal(await page.getByRole('button', { name: 'Update lesson', exact: true }).isDisabled(), true);
+      assert.equal(state.aiCalls, 0);
+      assert.equal(state.writes.length, 0);
+    } finally { await context.close(); }
+  });
+
+  it('keeps refresh errors visible with focus on the initiating control for long mobile previews', async () => {
+    for (const [width, height] of [[320, 568], [390, 844]]) {
+      const savedMarkdown = markdown.replace('Write a clear summary.', 'Choose concrete details for the audience.\n\n'.repeat(30));
+      const { context, page, state } = await fixture({ draft: false, width, height, theme: 'dark', lesson: {
+        status: 'public', conversationRevision: 'revised-conversation', markdown: savedMarkdown,
+      } });
+      try {
+        await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+        state.previewMarkdown = '# Incomplete lesson';
+        const refresh = page.getByRole('button', { name: 'Refresh preview', exact: true });
+        await refresh.click();
+        const alert = page.getByRole('alert');
+        await alert.waitFor();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await page.screenshot({ path: join(workspaceEvidence, `refresh-error-visible-${width}-dark.png`) });
+        assert.equal(await alert.evaluate(element => {
+          const box = element.getBoundingClientRect();
+          const main = document.querySelector('#main-content').getBoundingClientRect();
+          return box.top >= main.top && box.bottom <= main.bottom;
+        }), true, 'the failure is visible where the author initiated refresh');
+        assert.equal(await refresh.evaluate(element => element === document.activeElement), true, 'failed refresh retains control focus');
+        const errorId = await alert.getAttribute('id');
+        assert.ok(errorId && (await refresh.getAttribute('aria-describedby'))?.split(' ').includes(errorId),
+          'the refresh control describes its validation failure');
+        assert.equal(await page.getByRole('button', { name: 'Update lesson', exact: true }).isDisabled(), true);
+        assert.equal(state.lesson.markdown, savedMarkdown);
+        assert.equal(state.writes.length, 0);
+      } finally { await context.close(); }
+    }
+  });
+
+  it('preserves refinement focus and scroll when a background refresh fails', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 390, height: 844, lesson: { status: 'public' } });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    try {
+      state.previewMarkdown = '# Incomplete lesson';
+      state.beforeAI = async () => { await gate; return false; };
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      await page.getByRole('tab', { name: 'Refine', exact: true }).click();
+      const composer = page.getByRole('textbox', { name: 'Your message' });
+      await composer.fill('Keep this unsent revision.');
+      await composer.focus();
+      const main = page.locator('#main-content');
+      const position = await main.evaluate(element => element.scrollTop);
+      release();
+      await page.locator('#lesson-preview-panel [role="alert"]').waitFor({ state: 'attached' });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await composer.evaluate(element => element === document.activeElement), true);
+      assert.equal(await main.evaluate(element => element.scrollTop), position);
+      assert.equal(await composer.inputValue(), 'Keep this unsent revision.');
+      assert.equal(state.writes.length, 0);
+    } finally { release(); await context.close(); }
+  });
+
+  it('reveals a preview error when activation leaves focus on the document', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 320, height: 568, theme: 'dark', lesson: {
+      status: 'public', conversationRevision: 'revised-conversation',
+      markdown: markdown.replace('Write a clear summary.', 'Choose concrete details for the audience.\n\n'.repeat(30)),
+    } });
+    try {
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      state.previewMarkdown = '# Incomplete lesson';
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).evaluate(element => {
+        // Exercise non-focusing button activation without calling it a physical
+        // Safari test. Keyboard-focused activation is covered separately.
+        document.activeElement.blur();
+        element.click();
+      });
+      const alert = page.getByRole('alert');
+      await alert.waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await alert.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const main = document.querySelector('#main-content').getBoundingClientRect();
+        return box.top >= main.top && box.bottom <= main.bottom;
+      }), true, 'a non-focusing activation still reveals its failure');
+      assert.equal(await page.evaluate(() => document.activeElement === document.body), true,
+        'revealing the error does not move focus');
+      assert.equal(state.writes.length, 0);
+    } finally { await context.close(); }
+  });
+
+  it('preserves focus deliberately moved within Preview before a refresh fails', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 320, height: 568, lesson: {
+      status: 'public', conversationRevision: 'revised-conversation',
+      markdown: markdown.replace('Write a clear summary.', 'Choose concrete details for the audience.\n\n'.repeat(30)),
+    } });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    try {
+      state.previewMarkdown = '# Incomplete lesson';
+      state.beforeAI = async () => { await gate; return false; };
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      const update = page.getByRole('button', { name: 'Update lesson', exact: true });
+      await update.focus();
+      release();
+      await page.getByRole('alert').waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await update.evaluate(element => element === document.activeElement), true);
+      assert.equal(await update.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const main = document.querySelector('#main-content').getBoundingClientRect();
+        return box.top >= main.top && box.bottom <= main.bottom;
+      }), true, 'the author’s chosen control remains visible as the error adds content');
+      assert.equal(state.writes.length, 0);
+    } finally { release(); await context.close(); }
+  });
+
+  it('opens mobile authoring at its heading and workspace tabs and follows an explicit new message', async () => {
+    for (const [width, height] of [[320, 568], [390, 844], [430, 932]]) {
+      const { context, page, state } = await fixture({ width, height, lesson: {
+        conversation: [
+          { role: 'assistant', content: 'What should a learner be able to produce by the end?' },
+          { role: 'user', content: 'A three-sentence update with progress, a blocker and the next action.' },
+          { role: 'assistant', content: 'Review the exemplar and objectives, or tell me what to change.' },
+        ],
+      } });
+      try {
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
+        const main = page.locator('#main-content');
+        await page.screenshot({ path: join(workspaceEvidence, `editor-entry-${width}-light.png`) });
+        assert.equal(await main.evaluate(element => element.scrollTop), 0, 'opening the editor preserves its page context');
+        for (const control of [page.getByRole('heading', { name: 'New Lesson', exact: true }), page.getByRole('tablist', { name: 'Lesson workspace' })]) {
+          assert.equal(await control.evaluate(element => {
+            const box = element.getBoundingClientRect();
+            const main = document.querySelector('#main-content').getBoundingClientRect();
+            return box.top >= main.top && box.bottom <= main.bottom;
+          }), true, 'the title and workspace tabs are visible on entry');
+        }
+        assert.equal(state.writes.length, 0);
+        const composer = page.getByRole('textbox', { name: 'Your message' });
+        await composer.fill('Require an owner and a due date.');
+        await composer.focus();
+        await main.evaluate(element => { element.scrollTop = 0; });
+        await composer.press('Control+Enter');
+        await page.getByRole('status').filter({ hasText: /Reply received/ }).waitFor();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.ok(await main.evaluate(element => element.scrollTop) > 0, 'an explicit submission still follows the newest turn');
+        const endpoint = await page.getByRole('button', { name: 'View preview', exact: true }).evaluate(element => {
+          const box = element.getBoundingClientRect();
+          const main = document.querySelector('#main-content').getBoundingClientRect();
+          return { visible: box.bottom <= main.bottom, bottom: box.bottom, mainBottom: main.bottom,
+            scrollTop: document.querySelector('#main-content').scrollTop,
+            scrollHeight: document.querySelector('#main-content').scrollHeight };
+        });
+        if (!endpoint.visible) await page.screenshot({ path: join(workspaceEvidence, `editor-submitted-${width}-light.png`) });
+        assert.equal(endpoint.visible, true, `following reaches the composer endpoint: ${JSON.stringify(endpoint)}`);
+      } finally { await context.close(); }
+    }
+  });
+
   it('keeps a background refresh stale when the author continues refining on mobile', async () => {
     const { context, page, state } = await fixture({ draft: false, width: 390, lesson: { status: 'public' } });
     let release;
@@ -648,6 +829,78 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
       assert.equal(await page.getByRole('button', { name: 'Update lesson', exact: true }).isEnabled(), true);
       await page.getByRole('tab', { name: 'Refine', exact: true }).click();
       assert.equal(await composer.inputValue(), 'An unsent follow-up.');
+    } finally { release(); await context.close(); }
+  });
+
+  it('stops following a pending authoring reply when the author scrolls away', async () => {
+    const { context, page, state } = await fixture({ width: 390, height: 844, lesson: {
+      conversation: Array.from({ length: 12 }, (_, index) => ({
+        role: index % 2 ? 'assistant' : 'user', content: 'Keep the update focused on a concrete next action with an owner and due date.',
+      })),
+    } });
+    let release;
+    let started;
+    const gate = new Promise(resolve => { release = resolve; });
+    const called = new Promise(resolve => { started = resolve; });
+    try {
+      state.beforeAI = async () => { started(); await gate; return false; };
+      const composer = page.getByRole('textbox', { name: 'Your message' });
+      await composer.fill('Require a clear owner.');
+      await composer.press('Control+Enter');
+      await called;
+      await page.waitForFunction(() => document.querySelector('#main-content').scrollTop > 100);
+      await page.locator('#main-content').evaluate(element => { element.scrollTop = 0; });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      release();
+      await page.getByRole('status').filter({ hasText: /Reply received/ }).waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.locator('#main-content').evaluate(element => element.scrollTop), 0,
+        'an actual scroll away stops following the pending reply');
+      assert.equal(state.aiCalls, 1);
+    } finally { release(); await context.close(); }
+  });
+
+  it('resumes following when the first mobile scroll reaches the composer after narrowing', async () => {
+    const { context, page, state } = await fixture({ width: 1280, lesson: {
+      conversation: Array.from({ length: 16 }, (_, index) => ({
+        role: index % 2 ? 'assistant' : 'user', content: 'Keep the update focused on a concrete next action with an owner and due date.',
+      })),
+    } });
+    let release;
+    let started;
+    const gate = new Promise(resolve => { release = resolve; });
+    const called = new Promise(resolve => { started = resolve; });
+    try {
+      state.beforeAI = async route => {
+        started();
+        await gate;
+        await route.fulfill({ json: { content: [{ type: 'text', text:
+          `${'Keep each requirement specific and connected to the outcome. '.repeat(15)}[READINESS: 8]` }] } });
+        return true;
+      };
+      const composer = page.getByRole('textbox', { name: 'Your message' });
+      await composer.fill('Require a clear owner.');
+      await composer.press('Control+Enter');
+      await called;
+      await page.waitForFunction(() => window.scrollY > 100);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByRole('tabpanel', { name: 'Refine', exact: true }).waitFor();
+      // Reach the composer with one small bottom gutter; the endpoint is before
+      // the page padding, so scrolling beyond it tests a different position.
+      await page.locator('#main-content').evaluate(element => {
+        element.scrollTop = element.scrollHeight - element.clientHeight - 16;
+      });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      release();
+      await page.getByRole('status').filter({ hasText: /Reply received/ }).waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.getByRole('button', { name: 'View preview', exact: true }).evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const main = document.querySelector('#main-content').getBoundingClientRect();
+        return box.bottom <= main.bottom;
+      }), true, 'the first movement in the new mobile scrollport resumes following');
     } finally { release(); await context.close(); }
   });
 
@@ -691,6 +944,9 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
       let release = () => {};
       try {
         const main = page.locator('#main-content');
+        // Recreate the formerly pinned position explicitly; editor entry now
+        // stays at the heading, while this regression concerns tab return.
+        await main.evaluate(element => { element.scrollTop = element.scrollHeight; });
         await page.waitForFunction(() => document.querySelector('#main-content').scrollTop > 100);
         if (pendingReply) {
           let started;
@@ -724,6 +980,52 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
         assert.equal(state.writes.every(write => write.markdown === undefined), true);
       } finally { release(); await context.close(); }
     }
+  });
+
+  it('rebases following offsets when a hidden authoring log reappears', async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    try {
+      const page = await context.newPage();
+      // Install the actual hook with a one-mount lifecycle adapter. Layout,
+      // scrolling and ResizeObserver are native; the final unchanged-offset
+      // scroll event is controlled, not a physical-device reproduction.
+      const source = (await readFile(join(root, 'client/src/hooks/useStickToBottom.js'), 'utf8'))
+        .replace("import { useEffect, useRef } from 'react';",
+          'const useRef = value => ({ current: value }); const useEffect = callback => callback();')
+        .replaceAll('export ', '');
+      await page.setContent('<style>body{margin:0} #main{height:200px;overflow:auto;position:relative} #height{height:2000px} #panel{position:absolute;top:0;width:100%} #log{height:600px} #end{height:0}</style><div id="main"><div id="height"></div><div id="panel"><div id="log">Conversation</div><div id="end"></div></div></div>');
+      await page.evaluate(code => {
+        const logRef = { current: document.querySelector('#log') };
+        const endRef = { current: document.querySelector('#end') };
+        const mount = new Function('logRef', 'endRef', `${code}\nuseStickToBottom(logRef, endRef, { scrollOnMount: false });`);
+        mount(logRef, endRef);
+        logRef.current.insertAdjacentHTML('beforeend', '<div data-chat-message="user">A new author turn</div>');
+      }, source);
+      const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await frames();
+      assert.ok(await page.locator('#main').evaluate(element => element.scrollTop) > 100);
+      await page.locator('#panel').evaluate(element => { element.style.display = 'none'; });
+      await frames();
+      await page.evaluate(() => {
+        document.querySelector('#log').style.height = '1000px';
+        document.querySelector('#main').scrollTop = 816;
+      });
+      await frames();
+      await page.locator('#panel').evaluate(element => { element.style.display = 'block'; });
+      await frames();
+      assert.equal(await page.locator('#main').evaluate(element => element.scrollTop), 816,
+        'returning to the log preserves the selected position');
+      await page.evaluate(() => {
+        document.querySelector('#log').style.height = '1100px';
+        document.querySelector('#main').dispatchEvent(new Event('scroll'));
+      });
+      await frames();
+      assert.equal(await page.locator('#end').evaluate(element => {
+        const endpoint = element.getBoundingClientRect();
+        const viewport = document.querySelector('#main').getBoundingClientRect();
+        return endpoint.bottom >= viewport.top && endpoint.bottom <= viewport.bottom;
+      }), true, 'an unchanged-offset layout event after return does not stop following');
+    } finally { await context.close(); }
   });
 
   it('renders the selected create, public-edit and mobile-review concepts with sample content', async () => {
