@@ -72,6 +72,21 @@ test('retries a committed operation without writing it twice after a lost respon
   assert.equal(writes, 1);
 });
 
+test('rejects malformed share lists even when an operation was already committed', async () => {
+  const body = { expectedVersion: 1, operationId: 'save-shares', markdown, status: 'private', sharedWith: ['learner'] };
+  assert.equal((await request('PUT', body)).status, 200);
+  const saved = structuredClone(record);
+  for (const sharedWith of [null, {}, 42, true, '', ['learner', 42]]) {
+    const res = await request('PUT', { ...body, sharedWith });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /sharedWith must be an array/);
+  }
+  assert.equal(writes, 1);
+  assert.deepEqual(record, saved);
+  assert.equal((await request('PUT', body)).status, 200);
+  assert.equal(writes, 1);
+});
+
 test('a course deletion invalidates an earlier lost-response retry', async () => {
   record.data.course = 'communication';
   const body = { expectedVersion: 1, operationId: 'save-before-delete', course: 'communication', conversation: [] };

@@ -83,14 +83,26 @@ describe('GET /v1/lessons — visibility filtering', () => {
     assert.equal(data[0].status, 'private');
   });
 
-  it('returns missing or unknown visibility as private only to shared users', async () => {
+  it('returns legacy status-less lessons to learners without a share list', async () => {
     db.getAllSyncData = async () => [
-      { dataKey: 'lesson:missing', data: { markdown: '# Missing', sharedWith: ['usr_1'] } },
+      { dataKey: 'lesson:seeded', data: { name: 'Seeded', markdown: '# Seeded', isBuiltIn: true, updatedBy: 'setup' } },
+      { dataKey: 'lesson:authored', data: { name: 'Authored', markdown: '# Authored' } },
+    ];
+    const app = new Hono(); app.route('/', content);
+    const res = await userReq(app, 'GET', '/v1/lessons', 'usr_99');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.deepEqual(data.map(l => [l.lessonId, l.status]), [['authored', 'public'], ['seeded', 'public']]);
+    assert.ok(data.every(l => !Object.hasOwn(l, 'sharedWith')));
+  });
+
+  it('returns unknown visibility as private only to shared users', async () => {
+    db.getAllSyncData = async () => [
       { dataKey: 'lesson:unknown', data: { markdown: '# Unknown', status: 'unknown', sharedWith: ['usr_1'] } },
     ];
     const app = new Hono(); app.route('/', content);
     const shared = await (await userReq(app, 'GET', '/v1/lessons', 'usr_1')).json();
-    assert.deepEqual(shared.map(l => [l.lessonId, l.status]), [['missing', 'private'], ['unknown', 'private']]);
+    assert.deepEqual(shared.map(l => [l.lessonId, l.status]), [['unknown', 'private']]);
     assert.deepEqual(await (await userReq(app, 'GET', '/v1/lessons', 'usr_99')).json(), []);
   });
 
@@ -120,6 +132,18 @@ describe('GET /v1/lessons/:lessonId — access control', () => {
     assert.equal(res.status, 200);
   });
 
+  it('returns a legacy status-less lesson to an unshared learner', async () => {
+    db.getSyncData = async () => ({
+      data: { name: 'Seeded', markdown: '# Seeded', isBuiltIn: true, updatedBy: 'setup' }, version: 1,
+    });
+    const app = new Hono(); app.route('/', content);
+    const res = await userReq(app, 'GET', '/v1/lessons/seeded', 'usr_99');
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.status, 'public');
+    assert.equal(data.sharedWith, undefined);
+  });
+
   it('returns 404 for private lesson when user not in sharedWith', async () => {
     db.getSyncData = async () => ({ data: { name: 'Private', status: 'private', sharedWith: ['usr_2'], markdown: '# P' }, version: 1 });
     const app = new Hono(); app.route('/', content);
@@ -138,7 +162,7 @@ describe('GET /v1/lessons/:lessonId — access control', () => {
 
   it('returns the same normalized visibility as the lesson list', async () => {
     const app = new Hono(); app.route('/', content);
-    for (const [stored, expected] of [['published', 'public'], ['draft', 'private'], [undefined, 'private']]) {
+    for (const [stored, expected] of [['published', 'public'], ['draft', 'private'], [undefined, 'public']]) {
       db.getSyncData = async () => ({ data: { markdown: '# Legacy', status: stored, sharedWith: ['usr_1'] }, version: 1 });
       const res = await userReq(app, 'GET', '/v1/lessons/legacy');
       assert.equal(res.status, 200);

@@ -985,6 +985,11 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   const body = await c.req.json();
   const adminUser = c.get('user');
   const current = await db.getSyncData('_system', `lesson:${lessonId}`, { consistentRead: true });
+  // Validate the independent share list before acknowledging a retried write.
+  const sharedWith = body.sharedWith !== undefined ? body.sharedWith : (current?.data?.sharedWith || []);
+  if (!Array.isArray(sharedWith) || !sharedWith.every(id => typeof id === 'string')) {
+    return c.json({ error: 'sharedWith must be an array of user ID strings' }, 400);
+  }
   const rejected = checkLessonWrite(c, body, current);
   if (rejected) return rejected;
   // Also protect against delayed autosaves from clients without revision metadata.
@@ -993,8 +998,8 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   }
   const markdownToValidate = body.markdown || current?.data?.markdown;
   const hasMarkdown = !!markdownToValidate;
-  const newStatus = normalizeStatus(body.status || current?.data?.status, hasMarkdown);
   const currentStatus = normalizeStatus(current?.data?.status, !!current?.data?.markdown);
+  const newStatus = normalizeStatus(body.status || currentStatus, hasMarkdown);
   // Drafts are allowed without markdown (they hold a mid-creation conversation).
   // Any non-draft lesson must have markdown.
   if (newStatus !== 'draft' && !hasMarkdown) {
@@ -1006,11 +1011,6 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   if ((markdownChanged || isGoingPublic || isLeavingDraft) && hasMarkdown) {
     const mdError = validateLessonMarkdown(markdownToValidate);
     if (mdError) return c.json({ error: mdError }, 400);
-  }
-  // sharedWith is independent of status — validate format if provided
-  const sharedWith = body.sharedWith !== undefined ? body.sharedWith : (current?.data?.sharedWith || []);
-  if (sharedWith.length > 0 && (!Array.isArray(sharedWith) || !sharedWith.every(id => typeof id === 'string'))) {
-    return c.json({ error: 'sharedWith must be an array of user ID strings' }, 400);
   }
   // course is an optional string courseId or null. Don't validate that the
   // courseId points to an existing course — DELETE on a course cascades to

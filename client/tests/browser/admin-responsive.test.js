@@ -192,6 +192,59 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
+  it('preserves lesson shares through a public/private round trip', async () => {
+    for (const width of [320, 1280]) {
+      const { context, page } = await openPage({ width, height: 844 });
+      try {
+        const sharedWith = ['share-avery', 'share-blair'];
+        let lesson = { lessonId: 'share-regression', name: 'Sharing Regression', status: 'private', sharedWith: [...sharedWith] };
+        await context.route('**/v1/admin/**', async route => {
+          const request = route.request();
+          const path = new URL(request.url()).pathname;
+          if (path === '/v1/admin/lessons/share-regression' && request.method() === 'PUT') {
+            lesson = { ...lesson, ...request.postDataJSON() };
+            return route.fulfill({ json: { ok: true } });
+          }
+          if (request.method() !== 'GET') return route.fallback();
+          if (path === '/v1/admin/lessons') return route.fulfill({ json: [lesson] });
+          if (path === '/v1/admin/courses') return route.fulfill({ json: [] });
+          if (path === '/v1/admin/stats/lessons') return route.fulfill({ json: { byLesson: {} } });
+          if (path === '/v1/admin/users') return route.fulfill({ json: [
+            { userId: 'share-avery', name: 'Avery North', email: 'avery@example.test', role: 'user' },
+            { userId: 'share-blair', name: 'Blair West', email: 'blair@example.test', role: 'user' },
+          ] });
+          return route.fallback();
+        });
+
+        await navigate(page, 'lessons');
+        const shareButton = page.getByRole('button', { name: 'Visibility and sharing for Sharing Regression', exact: true });
+        await shareButton.click();
+        const dialog = page.getByRole('dialog', { name: 'Visibility & Sharing' });
+        await dialog.getByRole('radio', { name: 'Public', exact: true }).focus();
+        await page.keyboard.press('Space');
+        await dialog.getByRole('button', { name: 'Make Public', exact: true }).click();
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(lesson.status, 'public');
+        assert.deepEqual(lesson.sharedWith, sharedWith, 'making a lesson public must retain its share list');
+
+        await page.reload();
+        await shareButton.click();
+        await dialog.getByRole('radio', { name: 'Private', exact: true }).focus();
+        await page.keyboard.press('Space');
+        assert.equal(await dialog.getByRole('checkbox', { name: 'Share with Avery North', exact: true }).isChecked(), true);
+        assert.equal(await dialog.getByRole('checkbox', { name: 'Share with Blair West', exact: true }).isChecked(), true);
+        const confirm = dialog.getByRole('button', { name: 'Share with 2 users', exact: true });
+        assert.equal(await confirm.isEnabled(), true);
+        await confirm.click();
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(lesson.status, 'private');
+        assert.deepEqual(lesson.sharedWith, sharedWith);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
   it('downloads the full searched and sorted user list from mobile and desktop', async () => {
     for (const width of [320, 1280]) {
       const { context, page } = await openPage({ width, height: 844 });

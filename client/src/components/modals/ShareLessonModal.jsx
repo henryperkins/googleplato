@@ -72,7 +72,7 @@ export default function ShareLessonModal({
   }
 
   function handleConfirm() {
-    onConfirm({ status, sharedWith: status === 'public' ? [] : [...selected] });
+    onConfirm({ status, sharedWith: [...selected] });
   }
 
   const isPublic = status === 'public';

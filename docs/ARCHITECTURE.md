@@ -1166,7 +1166,7 @@ return enrichment object or `null`.
 
 Lessons have three statuses:
 
-- `public` — visible to all (legacy `published` normalizes to `public`).
+- `public` — visible to all (legacy `published`, and legacy lessons with markdown but no status, normalize to `public`).
 - `private` — visible only to users in `sharedWith`.
 - `draft` — in-progress, admin-only, no markdown yet.
 
@@ -1175,6 +1175,11 @@ legacy `status: 'draft'` records that *do* have markdown are treated as
 `private` to preserve pre-rework semantics. Drafts surface as a `Draft` pill in
 Admin → Lessons and are never exposed to learner-facing endpoints.
 
+Missing status on an existing lesson with markdown preserves the public visibility
+it had before statuses were introduced, including during an admin edit. Unknown
+statuses and incomplete status-less records remain private. Creating a new lesson
+through the admin API without an explicit status defaults to private.
+
 New lessons start as `draft` the moment the Lesson Creator conversation begins
 (one `lesson:<id>` record per draft in `_system` sync-data), so admins can pause
 and resume drafts or work on several in parallel. Clicking "Create Lesson"
@@ -1182,6 +1187,11 @@ finalizes the same record with extracted markdown and flips status
 `draft` → `private` (shared only with author). Admins toggle public/private on
 finalized lessons and manage shared users via the Share modal. Drafts hide the
 Share icon (nothing shareable yet).
+
+The share list is independent of visibility and survives a public/private round
+trip in the Share modal. Public lessons ignore the list for access checks.
+The admin API requires `sharedWith` to be an array of user ID strings; omitting
+it preserves the current list, and an explicit empty array clears it.
 
 ### Courses
 
@@ -1221,9 +1231,10 @@ affects completion.
 
 Both learner lesson endpoints return normalized visibility in `status`, using
 the same `normalizeStatus()` helper as dashboard/activity stats: legacy
-`published` becomes `public`, and legacy drafts with markdown become `private`.
-`loadLessons()` preserves this field alongside course metadata. Only an explicit
-`public` status contributes to progress; missing or unknown visibility does not.
+`published` and status-less lessons with markdown become `public`, and legacy
+drafts with markdown become `private`. `loadLessons()` preserves this field
+alongside course metadata. Only the normalized `public` status contributes to
+progress; unknown visibility and incomplete status-less records do not.
 
 `loadLessons()` merges system lessons (`/v1/lessons`) with user lessons from
 sync-data. To preview a lesson as a learner sees it (the live coach experience),

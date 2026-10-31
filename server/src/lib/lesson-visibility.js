@@ -8,6 +8,8 @@
 
 /**
  * Normalize a lesson's visibility status.
+ * Lessons with markdown but no status predate visibility and were public.
+ * Unknown statuses and incomplete status-less records remain private.
  * `draft` is a first-class status for in-progress lessons that have no markdown
  * yet. Legacy records with `status: 'draft'` AND markdown present are treated
  * as `private` to preserve the old auto-normalize semantics (CLAUDE.md: "legacy
@@ -15,6 +17,7 @@
  */
 export function normalizeStatus(status, hasMarkdown = true) {
   if (status === 'published' || status === 'public') return 'public';
+  if (status === undefined && hasMarkdown) return 'public';
   if (status === 'draft' && !hasMarkdown) return 'draft';
   return 'private';
 }
