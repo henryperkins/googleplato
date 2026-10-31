@@ -14,7 +14,7 @@ import UsersFeedback from './UsersFeedback.jsx';
  * group, and custom field answers before inviting them. Deep-linked at
  * /plato/users/waitlist/:token, same shape as the Edit User view.
  */
-export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, onSaved, onInvite, onApply, onRemove, isMobile = false }) {
+export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, onSaved, onInvite, onApply, onRemove, applying = false, isMobile = false }) {
   const [form, setForm] = useState({
     name: entry.name || '',
     email: entry.email || '',
@@ -75,23 +75,25 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
     {isMobile && message && <UsersFeedback message={message} />}
     {dirty && <p id="wl-edit-invite-hint" className="text-sm text-muted-foreground">{entry.alreadyRegistered === 'account' ? 'Save your changes before copying. Copy uses the saved answers.' : 'Save your changes before inviting. The invite uses the saved answers.'}</p>}
     <div className="flex flex-wrap items-center gap-2">
-      <Button onClick={save} disabled={saving || inviting} focusableWhenDisabled className="flex-1 md:flex-none">
+      <Button onClick={save} disabled={saving || inviting || applying} focusableWhenDisabled className="flex-1 md:flex-none">
         {saving && <LoaderCircle aria-hidden="true" className="animate-spin" />}{saving ? 'Saving…' : 'Save'}
       </Button>
-      <Button variant="outline" onClick={onBack} disabled={saving || inviting} focusableWhenDisabled>Cancel</Button>
+      <Button variant="outline" onClick={onBack} disabled={saving || inviting || applying} focusableWhenDisabled>Cancel</Button>
       {entry.alreadyRegistered === 'account'
-        ? <Button variant="outline" onClick={() => onApply(entry, e => setMessage({ text: e.message || 'The answers could not be copied. Try again.', type: 'error' }))} disabled={saving || dirty || inviting} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>Copy to account</Button>
+        ? <Button variant="outline" onClick={() => onApply(entry, e => setMessage({ text: e.message || 'The answers could not be copied. Try again.', type: 'error' }))} disabled={saving || dirty || inviting || applying} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>
+          {applying && <LoaderCircle aria-hidden="true" className="animate-spin" />}{applying ? 'Copying…' : 'Copy to account'}
+        </Button>
         : <Button variant="outline" onClick={invite} disabled={saving || dirty || inviting} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>
           {inviting && <LoaderCircle aria-hidden="true" className="animate-spin" />}{inviting ? 'Sending…' : 'Invite'}
         </Button>}
     </div>
-    <span role="status" className="sr-only">{saving ? 'Saving entry…' : inviting ? 'Sending invite…' : ''}</span>
+    <span role="status" className="sr-only">{saving ? 'Saving entry…' : inviting ? 'Sending invite…' : applying ? 'Copying answers to account…' : ''}</span>
   </div>;
 
   return (
     <div className="users-page users-editor">
       <div className="flex items-center gap-3 mb-4">
-        <Button variant="ghost" size="sm" onClick={onBack} disabled={saving || inviting} focusableWhenDisabled aria-label="Back to users">&larr; Back</Button>
+        <Button variant="ghost" size="sm" onClick={onBack} disabled={saving || inviting || applying} focusableWhenDisabled aria-label="Back to users">&larr; Back</Button>
         <h1 tabIndex={-1} className="text-2xl font-bold outline-none">Edit Wait List Entry</h1>
       </div>
       {!isMobile && message && (
@@ -136,7 +138,7 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
             />
           ))}
           {!isMobile && actions}
-          <div className="border-t pt-4"><Button variant="destructive" onClick={() => onRemove(entry, e => setMessage({ text: e.message || 'The entry could not be removed. Try again.', type: 'error' }))} disabled={saving || inviting} focusableWhenDisabled>Remove from wait list</Button></div>
+          <div className="border-t pt-4"><Button variant="destructive" onClick={() => onRemove(entry, e => setMessage({ text: e.message || 'The entry could not be removed. Try again.', type: 'error' }))} disabled={saving || inviting || applying} focusableWhenDisabled>Remove from wait list</Button></div>
         </CardContent>
       </Card>
       {isMobile && actions}
