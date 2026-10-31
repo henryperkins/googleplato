@@ -124,10 +124,11 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
     if (!previewError) return;
     const trigger = previewTrigger.current;
     previewTrigger.current = null;
+    const control = trigger?.control;
     // Reveal the result of the active refresh without taking focus or moving
     // a different panel the author switched to while the request was pending.
-    if (trigger === document.activeElement && previewRef.current?.getClientRects().length
-      && previewRef.current.parentElement.contains(trigger)) {
+    if (control && (control === document.activeElement || trigger.focus === document.activeElement)
+      && previewRef.current?.getClientRects().length && previewRef.current.parentElement.contains(control)) {
       previewRef.current.querySelector('[role="alert"]')?.scrollIntoView({ block: 'nearest' });
     }
   }, [previewError]);
@@ -277,10 +278,10 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
     void requestReply();
   }
 
-  async function refreshPreview() {
+  async function refreshPreview(event) {
     if (previewLoading || blocked || !snapshot.conversation.length) return;
     const request = ++previewRequest.current;
-    previewTrigger.current = document.activeElement;
+    previewTrigger.current = { control: event?.currentTarget || document.activeElement, focus: document.activeElement };
     const current = queue.getState().snapshot;
     setPreviewError('');
     setPreviewLoading(true);

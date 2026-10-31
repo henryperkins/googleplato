@@ -894,7 +894,8 @@ authoring passes false so opening an editor preserves its title, saved status
 and workspace tabs. Explicit submission still resumes following. Hidden chat logs
 never scroll their ancestors, including when a reply arrives behind the mobile Preview tab.
 When a hidden log reappears, its pin state is recomputed from the current
-position before mutation, resize or animation callbacks can follow it again.
+position and its offset snapshot is refreshed before mutation, resize or
+animation callbacks can follow it again.
 Returning to Refine therefore keeps the selected tab in view; a new submitted
 message still explicitly resumes following the conversation.
 For the explicit authoring endpoint, scroll events with unchanged offsets do
@@ -1292,10 +1293,11 @@ confirmation dialog. Unknown final-save recovery opens the Preview tab.
 Existing preview content has one Refresh preview control in its header, including
 when stale. Authors can refresh before scrolling through the old content; empty
 previews keep Generate preview after their explanation. Final save/update choices
-remain after the preview. Refresh errors describe that control and are brought
-into view only while its initiating control remains focused in the visible
-Preview panel. Focus stays on the control; background failures preserve Refine's
-focus and scroll position.
+remain after the preview. Refresh errors describe the initiating control and
+come into view while Preview is visible and focus remains on that control or
+has not changed since activation. Recording the activated control separately
+also handles browsers that leave focus elsewhere when a button is tapped.
+Focus stays unchanged; background failures preserve Refine's focus and scroll.
 
 Readiness describes how fully the conversation has defined the lesson. Its
 native disclosure explains the exemplar, objectives and scope rubric and the

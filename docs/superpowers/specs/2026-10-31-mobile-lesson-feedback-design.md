@@ -9,8 +9,9 @@ before long stale content, and initial editor positioning.
 - Keep one Refresh preview control in the preview header whenever content exists,
   including stale content. Keep Generate preview for an empty preview and final
   save/update choices after the content.
-- Connect refresh errors to the initiating control. Reveal an error only while
-  that control remains focused in the visible Preview panel; retain its focus.
+- Connect refresh errors to the initiating control. Reveal an error while the
+  Preview panel is visible and focus remains on that control or has not moved
+  since activation; preserve focus even when tapping does not focus the button.
   A failed background refresh must preserve the author's focus and scroll.
 - Add an opt-out from initial chat pinning and apply it only to lesson authoring.
   The title, saved status and tabs stay visible on entry. Explicit submission
@@ -29,8 +30,9 @@ change learner behavior, so the editor receives an explicit opt-out instead.
 Preserve exact-preview saving, readiness thresholds, versioned operations,
 visibility, recovery, shared knowledge-base behavior and learner scrolling.
 Add no dependencies, model calls, backend/schema changes or production writes.
-The owner subsequently authorized committing and pushing the isolated feature
-branch. Merge and deployment remain outside this request.
+The owner subsequently authorized committing, pushing and merging the isolated
+feature branch into main. The existing automatic release follows main; no
+infrastructure or provider changes are included.
 
 ## Acceptance
 

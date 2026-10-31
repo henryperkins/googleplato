@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -699,6 +699,61 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
     } finally { release(); await context.close(); }
   });
 
+  it('reveals a preview error when activation leaves focus on the document', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 320, height: 568, theme: 'dark', lesson: {
+      status: 'public', conversationRevision: 'revised-conversation',
+      markdown: markdown.replace('Write a clear summary.', 'Choose concrete details for the audience.\n\n'.repeat(30)),
+    } });
+    try {
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      state.previewMarkdown = '# Incomplete lesson';
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).evaluate(element => {
+        // Exercise non-focusing button activation without calling it a physical
+        // Safari test. Keyboard-focused activation is covered separately.
+        document.activeElement.blur();
+        element.click();
+      });
+      const alert = page.getByRole('alert');
+      await alert.waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await alert.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const main = document.querySelector('#main-content').getBoundingClientRect();
+        return box.top >= main.top && box.bottom <= main.bottom;
+      }), true, 'a non-focusing activation still reveals its failure');
+      assert.equal(await page.evaluate(() => document.activeElement === document.body), true,
+        'revealing the error does not move focus');
+      assert.equal(state.writes.length, 0);
+    } finally { await context.close(); }
+  });
+
+  it('preserves focus deliberately moved within Preview before a refresh fails', async () => {
+    const { context, page, state } = await fixture({ draft: false, width: 320, height: 568, lesson: {
+      status: 'public', conversationRevision: 'revised-conversation',
+      markdown: markdown.replace('Write a clear summary.', 'Choose concrete details for the audience.\n\n'.repeat(30)),
+    } });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    try {
+      state.previewMarkdown = '# Incomplete lesson';
+      state.beforeAI = async () => { await gate; return false; };
+      await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      const update = page.getByRole('button', { name: 'Update lesson', exact: true });
+      await update.focus();
+      release();
+      await page.getByRole('alert').waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await update.evaluate(element => element === document.activeElement), true);
+      assert.equal(await update.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const main = document.querySelector('#main-content').getBoundingClientRect();
+        return box.top >= main.top && box.bottom <= main.bottom;
+      }), true, 'the author’s chosen control remains visible as the error adds content');
+      assert.equal(state.writes.length, 0);
+    } finally { release(); await context.close(); }
+  });
+
   it('opens mobile authoring at its heading and workspace tabs and follows an explicit new message', async () => {
     for (const [width, height] of [[320, 568], [390, 844], [430, 932]]) {
       const { context, page, state } = await fixture({ width, height, lesson: {
@@ -925,6 +980,52 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
         assert.equal(state.writes.every(write => write.markdown === undefined), true);
       } finally { release(); await context.close(); }
     }
+  });
+
+  it('rebases following offsets when a hidden authoring log reappears', async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    try {
+      const page = await context.newPage();
+      // Install the actual hook with a one-mount lifecycle adapter. Layout,
+      // scrolling and ResizeObserver are native; the final unchanged-offset
+      // scroll event is controlled, not a physical-device reproduction.
+      const source = (await readFile(join(root, 'client/src/hooks/useStickToBottom.js'), 'utf8'))
+        .replace("import { useEffect, useRef } from 'react';",
+          'const useRef = value => ({ current: value }); const useEffect = callback => callback();')
+        .replaceAll('export ', '');
+      await page.setContent('<style>body{margin:0} #main{height:200px;overflow:auto;position:relative} #height{height:2000px} #panel{position:absolute;top:0;width:100%} #log{height:600px} #end{height:0}</style><div id="main"><div id="height"></div><div id="panel"><div id="log">Conversation</div><div id="end"></div></div></div>');
+      await page.evaluate(code => {
+        const logRef = { current: document.querySelector('#log') };
+        const endRef = { current: document.querySelector('#end') };
+        const mount = new Function('logRef', 'endRef', `${code}\nuseStickToBottom(logRef, endRef, { scrollOnMount: false });`);
+        mount(logRef, endRef);
+        logRef.current.insertAdjacentHTML('beforeend', '<div data-chat-message="user">A new author turn</div>');
+      }, source);
+      const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await frames();
+      assert.ok(await page.locator('#main').evaluate(element => element.scrollTop) > 100);
+      await page.locator('#panel').evaluate(element => { element.style.display = 'none'; });
+      await frames();
+      await page.evaluate(() => {
+        document.querySelector('#log').style.height = '1000px';
+        document.querySelector('#main').scrollTop = 816;
+      });
+      await frames();
+      await page.locator('#panel').evaluate(element => { element.style.display = 'block'; });
+      await frames();
+      assert.equal(await page.locator('#main').evaluate(element => element.scrollTop), 816,
+        'returning to the log preserves the selected position');
+      await page.evaluate(() => {
+        document.querySelector('#log').style.height = '1100px';
+        document.querySelector('#main').dispatchEvent(new Event('scroll'));
+      });
+      await frames();
+      assert.equal(await page.locator('#end').evaluate(element => {
+        const endpoint = element.getBoundingClientRect();
+        const viewport = document.querySelector('#main').getBoundingClientRect();
+        return endpoint.bottom >= viewport.top && endpoint.bottom <= viewport.bottom;
+      }), true, 'an unchanged-offset layout event after return does not stop following');
+    } finally { await context.close(); }
   });
 
   it('renders the selected create, public-edit and mobile-review concepts with sample content', async () => {

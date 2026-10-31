@@ -4,7 +4,7 @@
 
 **Goal:** Resolve all three confirmed mobile findings while preserving publishing and chat behavior.
 
-**Architecture:** Reuse the preview header's refresh control, keep final actions after review, reveal errors only for the still-focused initiator, and give the shared scrolling hook an authoring-only initial-pin option.
+**Architecture:** Reuse the preview header's refresh control, keep final actions after review, reveal errors while the activation context remains current, and give the shared scrolling hook an authoring-only initial-pin option.
 
 **Tech Stack:** React, existing CSS and UI primitives, node:test and installed Playwright Chromium/WebKit.
 
@@ -15,7 +15,7 @@
 - Preserve exact-preview saves, readiness, visibility, versioned operations and recovery.
 - Preserve learner and shared knowledge-base behavior.
 - No dependencies, backend changes, model calls or production writes.
-- The owner authorized committing and pushing the feature branch after validation; merge and deployment are separate.
+- The owner authorized committing, pushing and then merging the feature branch into main after validation; the existing automatic release follows main.
 - Keep the primary checkout and other worktrees intact.
 
 ## Review Focus

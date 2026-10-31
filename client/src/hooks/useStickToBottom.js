@@ -193,6 +193,7 @@ export function useStickToBottom(logRef, scrollTargetRef, { scrollOnMount = true
         // Returning to an authoring tab is navigation, not a request to jump
         // to the composer. Recompute before any observer can reuse the old pin.
         atBottomRef.current = computeAtBottom(scrollers(), BOTTOM_EPSILON, scrollTargetRef?.current);
+        rememberScrollPositions();
       }
       return { visible, appeared };
     };

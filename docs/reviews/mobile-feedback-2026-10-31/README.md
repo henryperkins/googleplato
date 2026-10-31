@@ -5,9 +5,9 @@ This follow-up resolves the three findings from the second mobile review:
 - Opening the editor preserves the title, saved status and workspace tabs.
 - Existing content has one Refresh preview control beside its state, including
   when stale. Final save/update choices remain after the reviewed content.
-- A refresh error comes into view while its initiating control remains focused
-  in Preview. The control describes the error; background failures preserve
-  Refine's focus and scroll position.
+- A refresh error comes into view while Preview is visible and focus remains on
+  its control or has not moved since activation. The control describes the error;
+  background failures preserve Refine's focus and scroll position.
 
 Authoring still follows a new submitted turn, stops when the reader scrolls
 away, and preserves review position while chat is hidden. The new browser
@@ -21,7 +21,7 @@ chat retains its default initial pinning and event handling.
 | --- | --- |
 | Client suite | 708 passed. |
 | Server suite | 889 passed; 3 optional PostgreSQL-dependent tests skipped locally. |
-| Final authoring/publishing browser suite | 32 passed in Chromium; 32 passed in WebKit. |
+| Final authoring/publishing browser suite | 35 passed in Chromium; 35 passed in WebKit. |
 | Learner recovery browser suite | 19 passed. |
 | Admin responsive browser suite | 24 passed. |
 | Lint | Passed; 19 existing client warnings. |
@@ -52,6 +52,12 @@ GitHub approval; the owner requested the merge in the Codex conversation.
 | --- | --- | --- |
 | [390px light](screenshots/editor-entry-390-light.png) | [320px dark](screenshots/stale-refresh-first-screen-320-dark.png) | [320px WebKit dark](screenshots/refresh-error-visible-320-dark.png) |
 
-The functional changes are in `7915513`; this evidence does not change application
-code. GitHub review, hosted checks and the automatic main-branch release are
-recorded on the pull request.
+Pre-merge review added a refreshed scroll baseline on hidden-panel return and
+separate tracking of the activated preview control and current focus. New tests
+cover activation leaving the document focused and deliberate focus changes.
+A native-layout hook harness uses a minimal lifecycle adapter and a controlled
+unchanged-offset scroll event to verify resumed following; it is mechanism
+evidence, not full React lifecycle or physical-device qualification.
+
+GitHub review, hosted checks and the automatic main-branch release are recorded
+on [PR #35](https://github.com/henryperkins/googleplato/pull/35).
