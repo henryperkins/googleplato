@@ -103,11 +103,11 @@ export default function UserMobileList({
                   className="min-h-11"
                   disabled={pending}
                   focusableWhenDisabled
-                  aria-label={hasAccount ? `Copy ${item.email}'s wait-list answers to their account` : item._type === 'waitlist' ? `Invite ${item.email}` : `Resend invite to ${item.email}`}
+                  aria-label={hasAccount ? `Copy to account for ${item.email}` : item._type === 'waitlist' ? `Invite ${item.email}` : `Resend invite to ${item.email}`}
                   onClick={() => hasAccount ? onApply(item._key, item.email) : item._type === 'waitlist' ? onInvite(item._key, item.email) : onResend(item.email, item._key)}
                 >
                   {pending && <LoaderCircle aria-hidden="true" className="animate-spin" />}
-                  {pending ? 'Sending…' : hasAccount ? 'Copy to account' : item._type === 'waitlist' ? 'Invite' : 'Resend'}
+                  {pending ? (hasAccount ? 'Copying…' : 'Sending…') : hasAccount ? 'Copy to account' : item._type === 'waitlist' ? 'Invite' : 'Resend'}
                 </Button>
               )}
             </div>
