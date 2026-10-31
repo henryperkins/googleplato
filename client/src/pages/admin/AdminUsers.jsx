@@ -530,6 +530,29 @@ export default function AdminUsers() {
     }
   }
 
+  // The email already has an account: copy the entry's group and answers onto
+  // it (only what the account is missing), then the entry is removed.
+  function applyFromWaitlist(token, email, onApplied, onError) {
+    setConfirmModal({
+      title: 'Copy to Account?',
+      message: `Copy ${email}'s wait-list answers to their account and remove the entry? Nothing already on the account is replaced.`,
+      confirmLabel: 'Copy to Account',
+      variant: 'default',
+      onConfirm: async () => {
+        try {
+          const r = await adminApi('POST', `/v1/admin/waitlist/${token}/apply`);
+          const copied = [r.userGroup && 'group', r.fields.length && `${r.fields.length} ${r.fields.length === 1 ? 'field' : 'fields'}`].filter(Boolean);
+          setMessage({ text: copied.length ? `Copied ${copied.join(' and ')} to ${email}'s account.` : `Nothing new to copy; removed ${email} from the wait list.`, type: 'success' });
+          loadData();
+          if (onApplied) onApplied();
+        } catch (e) {
+          if (onError) onError(e);
+          else setMessage({ text: e.message, type: 'error' });
+        }
+      },
+    });
+  }
+
   function removeFromWaitlist(token, email, onRemoved, onError) {
     setConfirmModal({
       title: 'Remove from Wait List?',
@@ -927,6 +950,7 @@ export default function AdminUsers() {
           onBack={back}
           onSaved={(text) => { setMessage({ text, type: 'success' }); back(); loadData(); }}
           onInvite={async (e) => { const ok = await inviteFromWaitlist(e.inviteToken, e.email); if (ok) back(); return ok; }}
+          onApply={(e, onError) => { applyFromWaitlist(e.inviteToken, e.email, back, onError); }}
           onRemove={(e, onError) => { removeFromWaitlist(e.inviteToken, e.email, back, onError); }}
         />
         {confirmModalElement}
@@ -1190,6 +1214,7 @@ export default function AdminUsers() {
           onEdit={openEditUser}
           onEditWaitlist={item => { returnToRowRef.current = item._key; navigate(`/plato/users/waitlist/${item._key}`); }}
           onInvite={inviteFromWaitlist}
+          onApply={applyFromWaitlist}
           onResend={resendInvite}
           onRevoke={revokeInvite}
           onRemove={removeFromWaitlist}
@@ -1223,7 +1248,12 @@ export default function AdminUsers() {
                     </div>
                   </TableCell>
                   <TableCell>{item.userGroup || <span className="text-muted-foreground">&mdash;</span>}</TableCell>
-                  <TableCell><Badge variant="outline">Wait List</Badge></TableCell>
+                  <TableCell>
+                    <Badge variant="outline">Wait List</Badge>
+                    {item._entry.alreadyRegistered && (
+                      <span className="block text-xs text-muted-foreground mt-1">{item._entry.alreadyRegistered === 'account' ? 'Has an account' : 'Invited'}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-muted-foreground text-center">&mdash;</TableCell>
                   <TableCell className="text-muted-foreground">&mdash;</TableCell>
                   <TableCell className="whitespace-normal">{new Date(item.createdAt).toLocaleString()}</TableCell>
@@ -1237,7 +1267,9 @@ export default function AdminUsers() {
                   {slackConnected && <TableCell className="text-muted-foreground">&mdash;</TableCell>}
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button variant="outline" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>{pendingRows[item._key] ? 'Sending…' : 'Invite'}</Button>
+                      {item._entry.alreadyRegistered === 'account'
+                        ? <Button variant="outline" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Copy ${item.email}'s wait-list answers to their account`} onClick={() => applyFromWaitlist(item._key, item.email)}>Copy to account</Button>
+                        : <Button variant="outline" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>{pendingRows[item._key] ? 'Sending…' : 'Invite'}</Button>}
                       <Button variant="ghost" size="icon-xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                       </Button>

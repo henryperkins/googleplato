@@ -14,7 +14,7 @@ import UsersFeedback from './UsersFeedback.jsx';
  * group, and custom field answers before inviting them. Deep-linked at
  * /plato/users/waitlist/:token, same shape as the Edit User view.
  */
-export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, onSaved, onInvite, onRemove, isMobile = false }) {
+export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, onSaved, onInvite, onApply, onRemove, isMobile = false }) {
   const [form, setForm] = useState({
     name: entry.name || '',
     email: entry.email || '',
@@ -73,15 +73,17 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
 
   const actions = <div className={isMobile ? 'users-mobile-actions admin-sticky-bar space-y-3' : 'space-y-3 pt-2'}>
     {isMobile && message && <UsersFeedback message={message} />}
-    {dirty && <p id="wl-edit-invite-hint" className="text-sm text-muted-foreground">Save your changes before inviting. The invite uses the saved answers.</p>}
+    {dirty && <p id="wl-edit-invite-hint" className="text-sm text-muted-foreground">{entry.alreadyRegistered === 'account' ? 'Save your changes before copying. Copy uses the saved answers.' : 'Save your changes before inviting. The invite uses the saved answers.'}</p>}
     <div className="flex flex-wrap items-center gap-2">
       <Button onClick={save} disabled={saving || inviting} focusableWhenDisabled className="flex-1 md:flex-none">
         {saving && <LoaderCircle aria-hidden="true" className="animate-spin" />}{saving ? 'Saving…' : 'Save'}
       </Button>
       <Button variant="outline" onClick={onBack} disabled={saving || inviting} focusableWhenDisabled>Cancel</Button>
-      <Button variant="outline" onClick={invite} disabled={saving || dirty || inviting} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>
-        {inviting && <LoaderCircle aria-hidden="true" className="animate-spin" />}{inviting ? 'Sending…' : 'Invite'}
-      </Button>
+      {entry.alreadyRegistered === 'account'
+        ? <Button variant="outline" onClick={() => onApply(entry, e => setMessage({ text: e.message || 'The answers could not be copied. Try again.', type: 'error' }))} disabled={saving || dirty || inviting} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>Copy to account</Button>
+        : <Button variant="outline" onClick={invite} disabled={saving || dirty || inviting} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>
+          {inviting && <LoaderCircle aria-hidden="true" className="animate-spin" />}{inviting ? 'Sending…' : 'Invite'}
+        </Button>}
     </div>
     <span role="status" className="sr-only">{saving ? 'Saving entry…' : inviting ? 'Sending invite…' : ''}</span>
   </div>;
@@ -100,7 +102,9 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
       <Card>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Joined {new Date(entry.createdAt).toLocaleDateString()}. Invite sends the signup email, prefilled with these answers.
+            Joined {new Date(entry.createdAt).toLocaleDateString()}. {entry.alreadyRegistered === 'account'
+              ? 'This email already has an account. Copy to account adds the group and answers it doesn\u2019t have yet.'
+              : 'Invite sends the signup email, prefilled with these answers.'}
           </p>
           <div className="space-y-2">
             <Label htmlFor="wl-edit-name">Name</Label>

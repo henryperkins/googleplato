@@ -30,7 +30,7 @@ function Detail({ label, children }) {
 // only the narrow-screen presentation, so every action uses the same guards.
 export default function UserMobileList({
   items, currentUserId, filterField, slackConnected, pendingRows,
-  onEdit, onEditWaitlist, onInvite, onResend, onRevoke, onRemove, onDelete,
+  onEdit, onEditWaitlist, onInvite, onApply, onResend, onRevoke, onRemove, onDelete,
 }) {
   return (
     <ul aria-label="Users and invites" className="divide-y divide-border border-y border-border">
@@ -39,6 +39,7 @@ export default function UserMobileList({
         const status = item._type === 'waitlist' ? 'Wait List'
           : item._type === 'invite' ? 'Invited' : item.role === 'admin' ? 'Admin' : 'Learner';
         const pending = !!pendingRows[item._key];
+        const hasAccount = item._type === 'waitlist' && item._entry?.alreadyRegistered === 'account';
         return (
           <li key={item._key} className="py-3" data-user-key={item._key}>
             <div className="flex items-start justify-between gap-3">
@@ -62,7 +63,7 @@ export default function UserMobileList({
             {item._type === 'user' ? (
               <p className="mt-1 text-sm text-muted-foreground"><UserCompletion user={item._user} /></p>
             ) : item._type === 'waitlist' ? (
-              <p className="mt-2 text-sm text-muted-foreground">Joined <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></p>
+              <p className="mt-2 text-sm text-muted-foreground">Joined <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time>{item._entry?.alreadyRegistered && <> &middot; {item._entry.alreadyRegistered === 'account' ? 'Has an account' : 'Invited'}</>}</p>
             ) : (
               <p className="mt-2 text-sm text-muted-foreground">Waiting to sign up</p>
             )}
@@ -102,11 +103,11 @@ export default function UserMobileList({
                   className="min-h-11"
                   disabled={pending}
                   focusableWhenDisabled
-                  aria-label={item._type === 'waitlist' ? `Invite ${item.email}` : `Resend invite to ${item.email}`}
-                  onClick={() => item._type === 'waitlist' ? onInvite(item._key, item.email) : onResend(item.email, item._key)}
+                  aria-label={hasAccount ? `Copy ${item.email}'s wait-list answers to their account` : item._type === 'waitlist' ? `Invite ${item.email}` : `Resend invite to ${item.email}`}
+                  onClick={() => hasAccount ? onApply(item._key, item.email) : item._type === 'waitlist' ? onInvite(item._key, item.email) : onResend(item.email, item._key)}
                 >
                   {pending && <LoaderCircle aria-hidden="true" className="animate-spin" />}
-                  {pending ? 'Sending…' : item._type === 'waitlist' ? 'Invite' : 'Resend'}
+                  {pending ? 'Sending…' : hasAccount ? 'Copy to account' : item._type === 'waitlist' ? 'Invite' : 'Resend'}
                 </Button>
               )}
             </div>
