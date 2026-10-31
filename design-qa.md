@@ -88,6 +88,12 @@ Chromium and WebKit.
    regression failed on the prior code and passed after correction in Chromium
    and WebKit; the reviewer independently confirmed the transitions and ordinary
    blur/external-focus cases. See the [review handoff](docs/reviews/lesson-workspace-2026-10-31/README.md).
+5. **P2, returning to Refine — fixed during ready-for-review qualification.**
+   Sourcery identified stale chat pin state after a hidden-to-visible transition.
+   A long conversation jumped 1,217px to the composer when the author returned
+   from Preview. The hook now recomputes its current position before following
+   again. The regression failed before correction and passed independently in
+   Chromium and WebKit, including a pending reply completing after return.
 
 The final comparison was performed after these changes and the resulting build.
 The actions for long lessons remain at the end of the content in the page's normal
@@ -147,9 +153,10 @@ Validation results:
 | --- | --- |
 | Client unit suite | 708 passed |
 | Server suite | 889 passed; 3 environment-dependent tests skipped |
-| Chromium authoring/publishing browser suite | 25 passed |
-| WebKit authoring/publishing browser suite | 25 passed |
-| Existing admin responsive browser suite | 24 passed |
+| Chromium authoring/publishing browser suite | 26 passed |
+| WebKit authoring/publishing browser suite | 26 passed |
+| Learner recovery browser suite after the shared scroll correction | 19 passed |
+| Existing admin responsive browser suite | 24 passed during implementation; rerun by the release gate |
 | Client/server lint | No errors; 19 client warnings |
 | Client production build | Passed; existing large-chunk advisory |
 | Diff whitespace check | Passed |

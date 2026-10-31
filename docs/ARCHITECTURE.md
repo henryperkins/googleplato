@@ -891,6 +891,10 @@ inline composer. Scrolling its container to the absolute bottom can instead
 land at the end of the adjacent preview. The optional target changes both
 pinning and the "at bottom" calculation. Hidden chat logs never scroll their
 ancestors, including when a reply arrives behind the mobile Preview tab.
+When a hidden log reappears, its pin state is recomputed from the current
+position before mutation, resize or animation callbacks can follow it again.
+Returning to Refine therefore keeps the selected tab in view; a new submitted
+message still explicitly resumes following the conversation.
 Learner chat continues to use full-scrollport pinning.
 
 The lesson page fills `<main>` (`#main-content:has(> .lesson-page)` is a flex

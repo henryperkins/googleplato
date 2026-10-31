@@ -38,6 +38,23 @@ or Minor findings identified in the reviewed scope.** The reviewer also ran 74
 focused queue, extraction, scrolling-decision and knowledge-base tests with no
 failures. This is technical review evidence, not a submitted GitHub approval.
 
+After the owner approved release, the PR was marked ready for the additional
+automated reviews. CodeRabbit found a minor wording mismatch in the stale private
+preview hint; it now says Refresh when content exists and Generate when it does
+not. A separate speaker-label concern was checked against the accessibility tree
+and learner call sites: the visible authoring label remains accessible, and
+learner messages retain their existing hidden speaker prefix. That thread was
+resolved with the verification evidence.
+
+Sourcery subsequently identified a valid hidden-to-visible scroll regression:
+returning to a long Refine conversation could reuse its old pinned position and
+scroll the selected tab out of view. The new regression reproduced a 1,217px
+jump. The correction recomputes visibility and the current pin state before any
+mutation, resize or scheduled frame can follow the revealed log. It preserves
+explicit following for a new submitted message. The independent reviewer passed
+the regression in Chromium and WebKit, both with and without a pending assistant
+reply completing after return, plus all 39 scrolling-decision unit tests.
+
 ## Validation
 
 Fresh checks after the focus correction:
@@ -47,15 +64,16 @@ Fresh checks after the focus correction:
 | `npm test` | 708 client tests passed; 889 server tests passed; 3 optional PostgreSQL-dependent tests skipped. |
 | `npm run lint` | Passed; no errors, 19 client warnings. |
 | `npm run build:client` | Passed; bundle-size advisory remains. |
-| Chromium authoring/publishing browser suite | 25 passed, 0 failed. |
-| WebKit authoring/publishing browser suite | 25 passed, 0 failed. |
+| Chromium authoring/publishing browser suite | 26 passed, 0 failed. |
+| WebKit authoring/publishing browser suite | 26 passed, 0 failed. |
+| Learner recovery browser suite after the shared scroll correction | 19 passed, 0 failed. |
 | Responsive focus regression | Failed on the earlier implementation, then passed in Chromium and WebKit after correction. |
 | `git diff --check` | Passed. |
 
 The existing admin responsive browser suite passed all 24 tests during the
-implementation. That valid evidence is retained: the review correction changes
-only lesson-editor focus and its browser regression, and does not affect the
-other admin pages exercised by that suite.
+implementation and is rerun by the Cloud Build release gate. The subsequent
+shared scrolling correction also passed the full learner browser suite and both
+authoring browser suites.
 
 All browser records are synthetic fixtures backed by disposable local services.
 The browser suite also saves and reads the reviewed lesson and public visibility
@@ -91,6 +109,9 @@ the resulting authoring behavior.
 - Physical-device and spoken-screen-reader behavior, live AI/provider access and
   production Cloud SQL behavior remain unqualified by the local evidence.
 
-This handoff accompanies a feature-branch Draft PR. It records local qualification
-and technical review; production publication requires the separate merge and
-release steps.
+This handoff began with a feature-branch Draft PR. The owner approved completing
+review, merging and releasing through Cloud Build on 2026-10-31. Local checks and
+review corrections are recorded here; final build and serving identity are
+recorded on PR #34 and in the operator’s release evidence directory. The owner’s
+approval is recorded in the Codex conversation, rather than a submitted GitHub
+approval review.

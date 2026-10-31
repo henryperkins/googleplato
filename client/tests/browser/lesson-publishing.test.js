@@ -679,6 +679,53 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
     } finally { release(); await context.close(); }
   });
 
+  it('keeps the selected tab in place when returning from a scrolled preview to a long conversation', async () => {
+    for (const pendingReply of [false, true]) {
+      const { context, page, state } = await fixture({ draft: false, width: 390, lesson: {
+        conversation: Array.from({ length: 12 }, (_, index) => ({
+          role: index % 2 ? 'assistant' : 'user',
+          content: 'Keep the project update focused on progress, a blocker, and a clear next action with an owner.',
+        })),
+        markdown: markdown.replace('Write a clear summary.', `Write a clear summary.\n\n${'Choose specific details for the audience.\n\n'.repeat(40)}`),
+      } });
+      let release = () => {};
+      try {
+        const main = page.locator('#main-content');
+        await page.waitForFunction(() => document.querySelector('#main-content').scrollTop > 100);
+        if (pendingReply) {
+          let started;
+          const gate = new Promise(resolve => { release = resolve; });
+          const called = new Promise(resolve => { started = resolve; });
+          state.beforeAI = async () => { started(); await gate; return false; };
+          const composer = page.getByRole('textbox', { name: 'Your message' });
+          await composer.fill('Require a specific owner for the next action.');
+          await composer.press('Control+Enter');
+          await called;
+        }
+        await page.getByRole('tab', { name: 'Preview', exact: true }).click();
+        await main.evaluate(element => { element.scrollTop = element.scrollHeight / 2; });
+        const refine = page.getByRole('tab', { name: 'Refine', exact: true });
+        await refine.focus();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const position = await main.evaluate(element => element.scrollTop);
+        await refine.press('Enter');
+        await page.getByRole('textbox', { name: 'Your message' }).waitFor();
+        release();
+        if (pendingReply) await page.getByRole('status').filter({ hasText: /Reply received/ }).waitFor();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await main.evaluate(element => element.scrollTop), position,
+          'revealing the chat does not reuse its old pinned position');
+        assert.equal(await refine.evaluate(element => {
+          const box = element.getBoundingClientRect();
+          const main = document.querySelector('#main-content').getBoundingClientRect();
+          return box.top >= main.top && box.bottom <= main.bottom;
+        }), true, 'the selected tab remains visible');
+        assert.equal(state.aiCalls, pendingReply ? 1 : 0);
+        assert.equal(state.writes.every(write => write.markdown === undefined), true);
+      } finally { release(); await context.close(); }
+    }
+  });
+
   it('renders the selected create, public-edit and mobile-review concepts with sample content', async () => {
     const sampleMarkdown = '# Write a useful project update\n\n## Exemplar\nWrite a three-sentence project update that states progress, a blocker, and the next action.\n\n## Learning Objectives\n- Can separate progress from activity.\n- Can describe one blocker clearly.\n- Can name a next action and owner.';
     for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {

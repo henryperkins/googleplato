@@ -250,7 +250,9 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
     ? (busy === 'saving' ? 'Saving this lesson…'
       : saveState.error?.status === 400 ? 'This preview could not be saved. Choose “Revise lesson” to make changes.'
         : 'Saving is not confirmed. “Retry saving lesson” saves this same preview and visibility choice.')
-    : !previewCurrent ? (visibility === 'public' ? 'Refresh, review, then update the public lesson.' : 'Generate a current preview and review it before saving the lesson.')
+    : !previewCurrent ? (visibility === 'public' ? 'Refresh, review, then update the public lesson.'
+      : snapshot.previewMarkdown ? 'Refresh the preview and review it before saving the lesson.'
+        : 'Generate a preview and review it before saving the lesson.')
       : previewSaved ? 'This is the saved lesson. Describe any changes in the conversation, then refresh the preview.'
       : visibility !== 'public' ? 'Review this preview, then choose “Save privately” or “Save & make public”.'
         : 'Review this preview, then choose “Update lesson” to save your changes.';
