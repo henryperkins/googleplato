@@ -60,6 +60,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   const epoch = useRef(0);
   const composerEnd = useRef(null);
   const previewRef = useRef(null);
+  const previewTrigger = useRef(null);
   const [streamingText, setStreamingText] = useState(null);
   const displayText = useStreamedText(streamingText);
   const [draining, setDraining] = useState(false);
@@ -118,6 +119,18 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
       pending.target.focus({ preventScroll: true });
     }
   }, [compact]);
+
+  useEffect(() => {
+    if (!previewError) return;
+    const trigger = previewTrigger.current;
+    previewTrigger.current = null;
+    // Reveal the result of the active refresh without taking focus or moving
+    // a different panel the author switched to while the request was pending.
+    if (trigger === document.activeElement && previewRef.current?.getClientRects().length
+      && previewRef.current.parentElement.contains(trigger)) {
+      previewRef.current.querySelector('[role="alert"]')?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [previewError]);
 
   const update = useCallback((patch, { save = false, content = false } = {}) => {
     const previous = queue.getState().snapshot;
@@ -267,6 +280,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   async function refreshPreview() {
     if (previewLoading || blocked || !snapshot.conversation.length) return;
     const request = ++previewRequest.current;
+    previewTrigger.current = document.activeElement;
     const current = queue.getState().snapshot;
     setPreviewError('');
     setPreviewLoading(true);
@@ -287,6 +301,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
         previewRef.current.focus();
         previewRef.current.scrollIntoView({ block: 'nearest' });
       }
+      previewTrigger.current = null;
     } catch (failure) {
       if (request === previewRequest.current) setPreviewError(aiErrorMessage(failure, 'preview'));
     } finally {
@@ -509,7 +524,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
               <Button variant="ghost" size="sm" className={actionClass} onClick={() => setConfirmRestart(true)} disabled={blocked} focusableWhenDisabled><RotateCcw aria-hidden="true" /> Start over</Button>
             </div>
             <div className="mb-3">
-              <ChatArea announcement={announcement} scrollTargetRef={composerEnd}>
+              <ChatArea announcement={announcement} scrollTargetRef={composerEnd} scrollOnMount={false}>
                 {chatMessages.map((message, index) => message.role === 'user'
                   ? <UserMessage key={index} content={message.content} />
                   : <AssistantMessage key={index} content={message.content} speakerLabel="Lesson assistant" />)}
@@ -547,10 +562,10 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
               saved={previewSaved && !snapshot.finalizePending} saveHint={previewSaveHint}
               statusLabel={previewStatus} staleLabel="Needs refresh" preserveContent
               refreshDisabled={previewDisabled}
-              onRefresh={needsPreview || snapshot.finalizePending ? undefined : refreshPreview} />
+              onRefresh={snapshot.previewMarkdown && !snapshot.finalizePending ? refreshPreview : undefined} />
           </div>
           <div className="lesson-editor-actions mt-4 flex flex-wrap items-stretch gap-2" role="group" aria-label="Save lesson">
-            {needsPreview && <Button size="sm" className={`${actionClass} flex-1`} onClick={refreshPreview}
+            {needsPreview && !snapshot.previewMarkdown && <Button size="sm" className={`${actionClass} flex-1`} onClick={refreshPreview}
               disabled={previewDisabled} focusableWhenDisabled aria-describedby="lesson-preview-save-hint">
               <RotateCcw aria-hidden="true" /> {previewLoading ? (snapshot.previewMarkdown ? 'Refreshing preview…' : 'Generating preview…') : previewAction}
             </Button>}

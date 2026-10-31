@@ -889,12 +889,18 @@ only the decision layer.
 The admin lesson editor passes an explicit `scrollTargetRef` at the end of its
 inline composer. Scrolling its container to the absolute bottom can instead
 land at the end of the adjacent preview. The optional target changes both
-pinning and the "at bottom" calculation. Hidden chat logs never scroll their
-ancestors, including when a reply arrives behind the mobile Preview tab.
+pinning and the "at bottom" calculation. `scrollOnMount` defaults to true;
+authoring passes false so opening an editor preserves its title, saved status
+and workspace tabs. Explicit submission still resumes following. Hidden chat logs
+never scroll their ancestors, including when a reply arrives behind the mobile Preview tab.
 When a hidden log reappears, its pin state is recomputed from the current
 position before mutation, resize or animation callbacks can follow it again.
 Returning to Refine therefore keeps the selected tab in view; a new submitted
 message still explicitly resumes following the conversation.
+For the explicit authoring endpoint, scroll events with unchanged offsets do
+not stop following: WebKit can emit them when content grows. Programmatic pins
+record their resulting offsets, and a newly active scrollport is measured from
+zero so its first actual movement can resume following after a layout change.
 Learner chat continues to use full-scrollport pinning.
 
 The lesson page fills `<main>` (`#main-content:has(> .lesson-page)` is a flex
@@ -1282,6 +1288,14 @@ Both save choices follow the preview in reading order at every width, with
 full-width buttons on narrow screens. The mobile preview uses the page's
 scrolling flow. **Start over** stays with the conversation and keeps its
 confirmation dialog. Unknown final-save recovery opens the Preview tab.
+
+Existing preview content has one Refresh preview control in its header, including
+when stale. Authors can refresh before scrolling through the old content; empty
+previews keep Generate preview after their explanation. Final save/update choices
+remain after the preview. Refresh errors describe that control and are brought
+into view only while its initiating control remains focused in the visible
+Preview panel. Focus stays on the control; background failures preserve Refine's
+focus and scroll position.
 
 Readiness describes how fully the conversation has defined the lesson. Its
 native disclosure explains the exemplar, objectives and scope rubric and the
