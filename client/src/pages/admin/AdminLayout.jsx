@@ -213,7 +213,7 @@ export default function AdminLayout() {
         tabIndex={-1}
         className="admin-main min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] lg:ml-56 lg:overflow-visible"
       >
-        <div className="min-w-0 max-w-4xl pb-4">
+        <div className="min-w-0 max-w-4xl has-[.lesson-editor]:max-w-6xl pb-4">
           <Outlet />
         </div>
       </main>

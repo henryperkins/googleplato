@@ -459,6 +459,37 @@ html {
   container: lesson-editor / inline-size;
 }
 
+.lesson-editor-title {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.lesson-editor-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-block: 1.25rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.lesson-editor-tabs [role="tab"] {
+  min-block-size: 2.75rem;
+  padding: 0.625rem 0.5rem;
+  border-block-end: 3px solid transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.lesson-editor-tabs [aria-selected="true"] {
+  border-block-end-color: var(--primary-text);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+.lesson-editor-tabs [role="tab"]:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: -3px;
+}
+
 .lesson-editor-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -468,14 +499,38 @@ html {
 
 .lesson-editor-setup {
   row-gap: 1rem;
+  margin-block-end: 1.25rem;
+  padding-block-end: 1.25rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.lesson-editor-readiness-toggle {
+  display: flex;
 }
 
 @container lesson-editor (min-width: 52rem) {
-  .lesson-editor-columns {
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  .lesson-editor-title {
+    font-size: 2.25rem;
   }
-  .lesson-editor-chat {
-    padding-block-start: 1rem;
+  .lesson-editor-tabs,
+  .lesson-editor-view-preview,
+  .lesson-editor-readiness-toggle {
+    display: none;
+  }
+  .lesson-editor-columns {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+  .lesson-editor-refine {
+    display: contents;
+  }
+  .lesson-editor-setup {
+    grid-column: 1 / -1;
+    margin-block: 0.5rem 0;
+    padding-block-end: 1.25rem;
+  }
+  .lesson-editor-preview {
+    grid-column: 2;
+    grid-row: 2;
   }
 }
 
@@ -487,6 +542,21 @@ html {
   padding: 0;
 }
 
+.lesson-editor-composer textarea {
+  min-block-size: 4.25rem;
+}
+
+.lesson-editor-chat [data-chat-message="assistant"] > .coach-copy {
+  max-inline-size: 100%;
+  padding-inline: 0;
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+
+.lesson-editor-actions > button {
+  min-block-size: 2.5rem;
+}
+
 /* The lesson has one review boundary. Shared knowledge-base previews retain
    their existing surface, hint and scrolling styles. */
 .lesson-editor-preview .markdown-preview-pane {
@@ -494,7 +564,7 @@ html {
 }
 
 .lesson-editor-preview .markdown-preview-heading {
-  font-size: 1rem;
+  font-size: 1.25rem;
   line-height: 1.5;
 }
 
@@ -514,12 +584,94 @@ html {
 .lesson-editor-preview .coach-copy {
   max-inline-size: 65ch;
   line-height: 1.625;
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
 }
 
-@container lesson-editor (max-width: 52rem) {
+.lesson-editor-preview .coach-copy :is(h2, h3, h4) {
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+
+.lesson-editor-preview .coach-copy h2 {
+  font-size: 1.375rem;
+  font-weight: 700;
+}
+
+.lesson-editor-preview .coach-copy h3 {
+  font-size: 1.125rem;
+}
+
+@container lesson-editor (width < 52rem) {
+  .lesson-editor-setup {
+    row-gap: 0.5rem;
+    padding-block-end: 0.5rem;
+    margin-block-end: 0.75rem;
+  }
+  .lesson-editor-setup > div:first-child {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .lesson-editor-readiness[open] > summary {
+    margin-block-end: 0.5rem;
+  }
   .lesson-editor-preview .markdown-preview-body {
     max-height: none;
     overflow: visible;
+  }
+  .lesson-editor-preview .markdown-preview-pane {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem 0.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .lesson-editor-preview .markdown-preview-header {
+    grid-column: 2;
+    grid-row: 1;
+    margin: 0;
+  }
+  .lesson-editor-preview .markdown-preview-heading {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .lesson-editor-preview .markdown-preview-refresh-label {
+    display: none;
+  }
+  .lesson-editor-preview .markdown-preview-refresh {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+  .lesson-editor-preview .markdown-preview-hint {
+    grid-column: 1;
+    grid-row: 1;
+    margin: 0;
+  }
+  .lesson-editor-preview #md-preview-stale-hint {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin: 0;
+  }
+  .lesson-editor-preview .markdown-preview-body {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .lesson-editor-preview .markdown-preview-pane:has(#md-preview-stale-hint) .markdown-preview-body {
+    grid-row: 3;
+  }
+  .lesson-editor-actions > button {
+    flex-basis: 100%;
+    min-block-size: 2.75rem;
+  }
+  .lesson-editor-shortcut {
+    display: none;
   }
 }
 

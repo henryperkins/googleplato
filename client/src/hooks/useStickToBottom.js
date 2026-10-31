@@ -177,17 +177,19 @@ export function useStickToBottom(logRef, scrollTargetRef) {
     // so re-assert on the next frame once heights are final.
     let raf = null;
     const pinToBottom = () => {
+      if (!log.getClientRects().length) return;
       scrollToBottom(scrollers(), scrollTargetRef?.current);
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         raf = null;
-        scrollToBottom(scrollers(), scrollTargetRef?.current);
+        if (log.getClientRects().length) scrollToBottom(scrollers(), scrollTargetRef?.current);
       });
     };
 
     // --- track position ---------------------------------------------------
     // Capture phase: catches scroll from any element, since scroll doesn't bubble.
     const handleScroll = (e) => {
+      if (!log.getClientRects().length) return;
       const target = e.target;
       const isDocTarget = target === document || target === window;
       // Ignore scrollers unrelated to the log (a dropdown, the markdown preview

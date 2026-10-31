@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, ChevronDown, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, Globe, LockKeyhole, RotateCcw, X } from 'lucide-react';
 import { adminApi } from './adminApi.js';
 import MarkdownPreviewPane from './MarkdownPreviewPane.jsx';
 import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
@@ -67,6 +67,57 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   const [visibility, setVisibility] = useState(initialStatus);
   const [sharedWith, setSharedWith] = useState(initialSharedWith);
   const [shareOpen, setShareOpen] = useState(false);
+  const editorRef = useRef(null);
+  const tabsRef = useRef(null);
+  const lastFocusedControl = useRef(null);
+  const focusAfterLayout = useRef(null);
+  const readinessRef = useRef(null);
+  const [compact, setCompact] = useState(false);
+  const [activePane, setActivePane] = useState(snapshot.finalizePending ? 'preview' : 'refine');
+  const [readinessOpen, setReadinessOpen] = useState(false);
+
+  // Follow the container breakpoint, including enlarged text and the sidebar.
+  // Keep both panels mounted so drafts and in-flight replies survive tab changes.
+  useLayoutEffect(() => {
+    let previousNarrow;
+    const measure = () => {
+      const narrow = getComputedStyle(tabsRef.current).display !== 'none';
+      if (narrow === previousNarrow) return;
+      previousNarrow = narrow;
+      // CSS can hide and blur a mobile control before ResizeObserver runs.
+      const active = document.activeElement;
+      const focused = editorRef.current.contains(active) ? active
+        : active === document.body ? lastFocusedControl.current : null;
+      if (narrow && focused) {
+        if (focused.closest('#lesson-preview-panel')) setActivePane('preview');
+        else if (focused.closest('#lesson-refine-panel')) setActivePane('refine');
+        if (focused.closest('.lesson-editor-readiness')) setReadinessOpen(true);
+      } else if (focused) {
+        let target;
+        if (tabsRef.current.contains(focused)) {
+          target = focused.getAttribute('aria-controls') === 'lesson-refine-panel'
+            ? document.getElementById('lesson-refine-heading') : previewRef.current;
+        } else if (focused.matches('.lesson-editor-readiness-toggle')) target = readinessRef.current;
+        else if (focused.matches('.lesson-editor-view-preview')) target = previewRef.current;
+        if (target) focusAfterLayout.current = { from: focused, target };
+      }
+      setCompact(narrow);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(editorRef.current);
+    observer.observe(tabsRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
+    const pending = focusAfterLayout.current;
+    focusAfterLayout.current = null;
+    if (pending?.target.getClientRects().length
+      && (document.activeElement === document.body || document.activeElement === pending.from)) {
+      pending.target.focus({ preventScroll: true });
+    }
+  }, [compact]);
 
   const update = useCallback((patch, { save = false, content = false } = {}) => {
     const previous = queue.getState().snapshot;
@@ -184,16 +235,23 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   const chatMessages = draining ? snapshot.conversation.slice(0, -1) : snapshot.conversation;
   const saveLabel = isDraft || visibility !== 'public' ? 'Save privately' : 'Update lesson';
   const publishing = snapshot.finalizePending && snapshot.finalizeStatus === 'public';
-  const showPublish = !saveRejected && (publishing || (visibility !== 'public' && previewCurrent && !snapshot.finalizePending));
+  const showPublish = !saveRejected && (publishing || (visibility !== 'public' && !!snapshot.previewMarkdown && !snapshot.finalizePending));
   const saveDisabled = !!busy || previewLoading || saveState.error?.status === 409 || !!snapshot.failedReply
-    || !!snapshot.visibilityPending || (!previewCurrent && !snapshot.conversation.length)
-    || (isDraft && previewCurrent && snapshot.readiness < 3);
+    || !!snapshot.visibilityPending || (!previewCurrent && !snapshot.finalizePending)
+    || (isDraft && snapshot.readiness < 3 && !snapshot.finalizePending);
   const previewAction = snapshot.previewMarkdown ? 'Refresh preview' : 'Generate preview';
+  const needsPreview = !previewCurrent && !snapshot.finalizePending;
+  const previewDisabled = previewLoading || blocked || !!snapshot.failedReply || !snapshot.conversation.length;
+  const previewStatus = snapshot.finalizePending ? 'Lesson save not confirmed'
+    : previewSaved ? 'Currently saved content'
+      : previewCurrent ? (isDraft ? 'Preview current · Not saved as a lesson' : 'Preview current · Changes not applied')
+        : 'Previous preview · Changes not applied';
   const previewSaveHint = snapshot.finalizePending
     ? (busy === 'saving' ? 'Saving this lesson…'
       : saveState.error?.status === 400 ? 'This preview could not be saved. Choose “Revise lesson” to make changes.'
         : 'Saving is not confirmed. “Retry saving lesson” saves this same preview and visibility choice.')
-    : previewSaved ? 'This is the saved lesson. Describe any changes in the conversation, then refresh the preview.'
+    : !previewCurrent ? (visibility === 'public' ? 'Refresh, review, then update the public lesson.' : 'Generate a current preview and review it before saving the lesson.')
+      : previewSaved ? 'This is the saved lesson. Describe any changes in the conversation, then refresh the preview.'
       : visibility !== 'public' ? 'Review this preview, then choose “Save privately” or “Save & make public”.'
         : 'Review this preview, then choose “Update lesson” to save your changes.';
 
@@ -221,8 +279,12 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
         throw new Error(`The preview needs a title, exemplar and ${MIN_OBJECTIVES}–${MAX_OBJECTIVES} learning objectives. Keep refining the lesson, then generate it again.`);
       }
       update({ previewMarkdown: markdown, previewRevision: current.revision });
-      previewRef.current?.focus();
-      previewRef.current?.scrollIntoView({ block: 'nearest' });
+      // A refresh finishing in the background must not pull focus out of Refine.
+      if (previewRef.current?.getClientRects().length
+        && previewRef.current.parentElement.contains(document.activeElement)) {
+        previewRef.current.focus();
+        previewRef.current.scrollIntoView({ block: 'nearest' });
+      }
     } catch (failure) {
       if (request === previewRequest.current) setPreviewError(aiErrorMessage(failure, 'preview'));
     } finally {
@@ -248,9 +310,9 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   }
 
   async function handleSave(status = visibility) {
-    if (busyRef.current || previewLoading || saveState.error?.status === 409) return;
+    if (busyRef.current || saveDisabled) return;
     if (snapshot.finalizePending) { await retrySaving(); return; }
-    if (!previewCurrent) { await refreshPreview(); return; }
+    if (!previewCurrent) return;
     busyRef.current = 'saving';
     setBusy('saving');
     setError('');
@@ -316,6 +378,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
     setPreviewLoading(false);
     setPreviewError('');
     setError('');
+    setActivePane('refine');
     update({ conversation: [], readiness: 0, previewMarkdown: '', previewRevision: -1, failedReply: null },
       { save: true, content: true });
     void requestReply(true);
@@ -329,21 +392,29 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
         : saveState.version ? 'Conversation and course saved automatically.' : 'Conversation not saved yet.';
 
   return (
-    <div className="lesson-editor min-w-0">
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <Button variant="ghost" size="sm" className={`${actionClass} px-0`} onClick={goBack} aria-label="Back to lessons">
-          <ArrowLeft className="size-3.5" aria-hidden="true" /> Back
-        </Button>
-        <h1 className="text-2xl font-bold text-balance">{isDraft ? 'New Lesson' : 'Edit Lesson'}</h1>
+    <div ref={editorRef} className="lesson-editor min-w-0"
+      onFocusCapture={event => { lastFocusedControl.current = event.target; }}
+      onBlurCapture={event => {
+        // An ordinary blur should not restore focus later; preserve only a
+        // control that the responsive layout has just hidden.
+        if (event.target.getClientRects().length) lastFocusedControl.current = null;
+      }}>
+      <Button variant="ghost" size="sm" className={`${actionClass} mb-3 px-0`} onClick={goBack} aria-label="Back to lessons">
+        <ArrowLeft className="size-4" aria-hidden="true" /> Lessons
+      </Button>
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <h1 className="lesson-editor-title font-bold text-balance">{isDraft ? 'New Lesson' : 'Edit Lesson'}</h1>
         {isDraft ? <Badge variant="outline">Draft</Badge> : (
           <Button variant="outline" size="sm" className={actionClass}
             aria-label={`Visibility and sharing: ${visibility === 'public' ? 'Public' : 'Private'}`}
             aria-haspopup="dialog" aria-expanded={shareOpen}
             disabled={!!busy || snapshot.finalizePending || saveState.error?.status === 409} focusableWhenDisabled
             onClick={() => setShareOpen(true)}>
+            {visibility === 'public' ? <Globe aria-hidden="true" /> : <LockKeyhole aria-hidden="true" />}
             {visibility === 'public' ? 'Public' : 'Private'} <ChevronDown aria-hidden="true" />
           </Button>
         )}
+        {!isDraft && visibility === 'public' && <p className="text-xs text-muted-foreground">Visible to all learners in this classroom.</p>}
       </div>
       {error && (
         <div className="flex items-start justify-between gap-3 rounded-lg border border-danger-border bg-danger text-danger-foreground px-4 py-3 mb-4 text-sm" role="alert">
@@ -352,51 +423,159 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <p className={`text-sm ${saveState.error || saveState.localError ? 'text-warning-foreground' : 'text-muted-foreground'}`} role="status">{statusText}</p>
+        <p className={`flex items-start gap-2 text-sm ${saveState.error || saveState.localError ? 'text-warning-foreground' : 'text-muted-foreground'}`} role="status">
+          {saveState.version > 0 && !saveState.saving && !saveState.pending && !saveState.error && !saveState.localError
+            && <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success-foreground" aria-hidden="true" />}
+          {statusText}
+        </p>
         {saveState.error && !saveRejected && (saveState.error.status === 409
           ? <Button variant="outline" size="sm" className={actionClass} onClick={() => setConfirmReload(true)}>Load saved lesson</Button>
           : <Button variant="outline" size="sm" className={actionClass} disabled={!!busy} focusableWhenDisabled onClick={retrySaving}>Retry saving</Button>)}
       </div>
-      <div className="lesson-editor-columns lesson-editor-setup mb-6">
-        <div className="flex flex-wrap items-center gap-3 min-w-0">
-          <label htmlFor="lesson-course" className="text-sm font-medium">Course <span className="font-normal text-muted-foreground">(optional)</span></label>
-          <select id="lesson-course" value={snapshot.course}
-            aria-disabled={blocked}
-            onChange={event => { if (!blocked) update({ course: event.target.value }, { save: true }); }}
-            className="min-h-10 min-w-0 max-w-full flex-1 sm:flex-initial truncate rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-            <option value="">No course</option>
-            {snapshot.course && !courses.some(course => course.courseId === snapshot.course)
-              && <option value={snapshot.course}>Current course</option>}
-            {courses.map(course => <option key={course.courseId} value={course.courseId}>{course.name}</option>)}
-          </select>
-        </div>
-        <div className="min-w-0">
-          <div className="min-w-0" role="progressbar" aria-valuemin={0} aria-valuemax={10}
-            aria-valuenow={snapshot.readiness} aria-label={`Lesson readiness: ${snapshot.readiness} out of 10`}
-            aria-describedby="lesson-readiness-description">
-            <div className="flex flex-wrap justify-between gap-x-3 text-sm text-muted-foreground mb-2" aria-hidden="true">
-              <span>Lesson readiness</span><span className="tabular-nums">{snapshot.readiness}/10</span>
+      <div ref={tabsRef} className="lesson-editor-tabs" role="tablist" aria-label="Lesson workspace">
+        {['refine', 'preview'].map(pane => (
+          <button key={pane} type="button" role="tab" id={`lesson-${pane}-tab`}
+            aria-controls={`lesson-${pane}-panel`} aria-selected={activePane === pane}
+            tabIndex={activePane === pane ? 0 : -1}
+            onClick={() => setActivePane(pane)}
+            onKeyDown={event => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === 'Home' ? 'refine' : event.key === 'End' ? 'preview'
+                : pane === 'refine' ? 'preview' : 'refine';
+              setActivePane(next);
+              document.getElementById(`lesson-${next}-tab`)?.focus();
+            }}>
+            {pane === 'refine' ? 'Refine' : 'Preview'}
+          </button>
+        ))}
+      </div>
+      <div className="lesson-editor-columns lesson-editor-workspace">
+        <section id="lesson-refine-panel" className="lesson-editor-refine min-w-0"
+          tabIndex={-1}
+          role={compact ? 'tabpanel' : undefined}
+          aria-labelledby={compact ? 'lesson-refine-tab' : 'lesson-refine-heading'}
+          hidden={compact && activePane !== 'refine'}>
+          <div className="lesson-editor-columns lesson-editor-setup">
+            <div className="flex flex-wrap items-center gap-3 min-w-0">
+              <label htmlFor="lesson-course" className="text-sm font-medium">Course <span className="font-normal text-muted-foreground">(optional)</span></label>
+              <select id="lesson-course" value={snapshot.course}
+                aria-disabled={blocked}
+                onChange={event => { if (!blocked) update({ course: event.target.value }, { save: true }); }}
+                className="min-h-10 min-w-0 max-w-full flex-1 truncate rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                <option value="">No course</option>
+                {snapshot.course && !courses.some(course => course.courseId === snapshot.course)
+                  && <option value={snapshot.course}>Current course</option>}
+                {courses.map(course => <option key={course.courseId} value={course.courseId}>{course.name}</option>)}
+              </select>
             </div>
-            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-              <div className="progress-fill h-full rounded-full" style={{ transform: `scaleX(${snapshot.readiness / 10})`, backgroundColor: readinessFill(snapshot.readiness) }} />
-            </div>
+            <details className="lesson-editor-readiness min-w-0" open={!compact || readinessOpen}
+              onToggle={event => { if (compact) setReadinessOpen(event.currentTarget.open); }}>
+              <summary className="lesson-editor-readiness-toggle min-h-10 cursor-pointer list-none items-center justify-between gap-2 rounded-sm text-sm [&::-webkit-details-marker]:hidden">
+                Lesson readiness <span className="flex items-center gap-2 tabular-nums">{snapshot.readiness}/10 <ChevronDown className="size-4" aria-hidden="true" /></span>
+              </summary>
+              <div ref={readinessRef} tabIndex={-1} className="min-w-0" role="progressbar" aria-valuemin={0} aria-valuemax={10}
+                aria-valuenow={snapshot.readiness} aria-label={`Lesson readiness: ${snapshot.readiness} out of 10`}
+                aria-describedby="lesson-readiness-description">
+                <div className="flex flex-wrap justify-between gap-x-3 text-sm text-muted-foreground mb-2" aria-hidden="true">
+                  <span>Lesson readiness</span><span className="tabular-nums">{snapshot.readiness}/10</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div className="progress-fill h-full rounded-full" style={{ transform: `scaleX(${snapshot.readiness / 10})`, backgroundColor: readinessFill(snapshot.readiness) }} />
+                </div>
+              </div>
+              <p id="lesson-readiness-description" className="mt-2 text-sm text-muted-foreground">How fully your lesson has been defined in this conversation.</p>
+              <details className="group mt-1">
+                <summary className="touch-target inline-flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-sm text-sm font-medium hover:text-link [&::-webkit-details-marker]:hidden">
+                  About lesson readiness <ChevronDown className="size-4 group-open:rotate-180" aria-hidden="true" />
+                </summary>
+                <div role="region" aria-label="Readiness guidance" className="max-w-prose pb-3 text-sm text-muted-foreground">
+                  <p>The authoring assistant estimates readiness from the lesson you describe:</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    <li>A concrete outcome: what the learner will produce or demonstrate as the exemplar.</li>
+                    <li>{MIN_OBJECTIVES}–{MAX_OBJECTIVES} measurable objectives that support that outcome.</li>
+                    <li>Clear, aligned requirements and a focused lesson scope.</li>
+                  </ul>
+                  <p className="mt-2">You can create a lesson from 3/10 once its preview is ready. Always review the exemplar and objectives in the preview before saving.</p>
+                </div>
+              </details>
+            </details>
           </div>
-          <p id="lesson-readiness-description" className="mt-2 text-sm text-muted-foreground">How fully your lesson has been defined in this conversation.</p>
-          <details className="group mt-1">
-            <summary className="touch-target inline-flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-sm text-sm font-medium hover:text-link [&::-webkit-details-marker]:hidden">
-              About lesson readiness <ChevronDown className="size-4 group-open:rotate-180" aria-hidden="true" />
-            </summary>
-            <div role="region" aria-label="Readiness guidance" className="max-w-prose pb-3 text-sm text-muted-foreground">
-              <p>The authoring assistant estimates readiness from the lesson you describe:</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>A concrete outcome: what the learner will produce or demonstrate as the exemplar.</li>
-                <li>{MIN_OBJECTIVES}–{MAX_OBJECTIVES} measurable objectives that support that outcome.</li>
-                <li>Clear, aligned requirements and a focused lesson scope.</li>
-              </ul>
-              <p className="mt-2">You can create a lesson from 3/10 once its preview is ready. Always review the exemplar and objectives in the preview before saving.</p>
+          <div className="lesson-editor-chat">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+              <h2 id="lesson-refine-heading" tabIndex={-1} className="text-xl font-semibold leading-7">Refine lesson</h2>
+              <Button variant="ghost" size="sm" className={actionClass} onClick={() => setConfirmRestart(true)} disabled={blocked} focusableWhenDisabled><RotateCcw aria-hidden="true" /> Start over</Button>
             </div>
-          </details>
-        </div>
+            <div className="mb-3">
+              <ChatArea announcement={announcement} scrollTargetRef={composerEnd}>
+                {chatMessages.map((message, index) => message.role === 'user'
+                  ? <UserMessage key={index} content={message.content} />
+                  : <AssistantMessage key={index} content={message.content} speakerLabel="Lesson assistant" />)}
+                {displayText != null && displayText.length > 0 && <AssistantMessage content={displayText} speakerLabel="Lesson assistant" streaming />}
+                {(busy === 'starting' || busy === 'reply') && !displayText && <ThinkingSpinner text={busy === 'starting' ? 'Starting the lesson conversation…' : undefined} />}
+              </ChatArea>
+            </div>
+            {snapshot.failedReply && !busy && (
+              <div className="flex flex-wrap items-center gap-2 mb-3 px-4">
+                <p className="text-sm text-muted-foreground">{snapshot.failedReply === 'opening'
+                  ? 'The conversation could not start. Try again when you’re ready.'
+                  : 'The reply did not finish. Your message is still in the conversation.'}</p>
+                <Button variant="outline" size="sm" className={actionClass} disabled={blocked} onClick={() => requestReply(snapshot.failedReply === 'opening')}>Retry reply</Button>
+              </div>
+            )}
+            <ComposeBar className="lesson-editor-composer" placeholder={isDraft ? 'Describe what you want to teach…' : 'Describe the change you want to make…'}
+              storageKey={`plato_lesson_editor_draft:${userId}:${lessonId}`}
+              onSend={handleSend} busy={blocked || !!snapshot.failedReply} />
+            <p className="lesson-editor-shortcut mt-2 text-xs text-muted-foreground">Ctrl / ⌘ + Enter to send</p>
+            <Button variant="outline" className="lesson-editor-view-preview mt-3 w-full" onClick={() => {
+              setActivePane('preview');
+              requestAnimationFrame(() => previewRef.current?.focus());
+            }}>View preview <ArrowRight aria-hidden="true" /></Button>
+            <div ref={composerEnd} />
+          </div>
+        </section>
+        <section id="lesson-preview-panel" className="lesson-editor-preview min-w-0"
+          tabIndex={-1}
+          role={compact ? 'tabpanel' : undefined}
+          aria-labelledby={compact ? 'lesson-preview-tab' : undefined}
+          hidden={compact && activePane !== 'preview'}>
+          <div ref={previewRef} tabIndex={-1} aria-label="Lesson preview">
+            <MarkdownPreviewPane markdown={snapshot.previewMarkdown} loading={previewLoading} error={previewError}
+              stale={!!snapshot.previewMarkdown && !previewCurrent} saveLabel={saveLabel}
+              saved={previewSaved && !snapshot.finalizePending} saveHint={previewSaveHint}
+              statusLabel={previewStatus} staleLabel="Needs refresh" preserveContent
+              refreshDisabled={previewDisabled}
+              onRefresh={needsPreview || snapshot.finalizePending ? undefined : refreshPreview} />
+          </div>
+          <div className="lesson-editor-actions mt-4 flex flex-wrap items-stretch gap-2" role="group" aria-label="Save lesson">
+            {needsPreview && <Button size="sm" className={`${actionClass} flex-1`} onClick={refreshPreview}
+              disabled={previewDisabled} focusableWhenDisabled aria-describedby="lesson-preview-save-hint">
+              <RotateCcw aria-hidden="true" /> {previewLoading ? (snapshot.previewMarkdown ? 'Refreshing preview…' : 'Generating preview…') : previewAction}
+            </Button>}
+            {(!publishing || saveRejected) && (!!snapshot.previewMarkdown || !isDraft || snapshot.finalizePending)
+              && <Button size="sm" variant={needsPreview ? 'outline' : 'default'} className={`${actionClass} flex-1`} onClick={saveRejected ? () => {
+              if (queue.discardRejected()) update({ finalizePending: false, finalizeStatus: null, previewRevision: -1 });
+            } : () => handleSave()} focusableWhenDisabled
+              disabled={saveDisabled}
+              aria-describedby={isDraft && snapshot.readiness < 3 ? 'create-lesson-hint' : 'lesson-preview-save-hint'}>
+              {needsPreview && <LockKeyhole aria-hidden="true" />}
+              {busy === 'saving' ? 'Saving…' : saveRejected ? 'Revise lesson' : snapshot.finalizePending ? 'Retry saving lesson'
+                : saveLabel}
+            </Button>}
+            {showPublish && <Button variant="outline" size="sm" className={`${actionClass} flex-1`}
+              onClick={() => !isDraft && previewSaved && !publishing
+                ? void saveVisibility({ status: 'public', sharedWith }).catch(failure => setError(failure.message))
+                : void handleSave('public')}
+              disabled={saveDisabled} focusableWhenDisabled aria-describedby="publish-lesson-hint">
+              {publishing ? (busy === 'saving' ? 'Saving…' : 'Retry saving lesson')
+                : !isDraft && previewSaved ? 'Make public' : 'Save & make public'}
+            </Button>}
+            {showPublish && <p id="publish-lesson-hint" className="basis-full text-sm text-muted-foreground">Public lessons are visible to all learners in this classroom.</p>}
+            <p id="lesson-preview-save-hint" className={showPublish && previewCurrent && !previewSaved && !snapshot.finalizePending
+              ? 'sr-only' : 'basis-full text-sm text-muted-foreground'}>{previewSaveHint}</p>
+            {isDraft && snapshot.readiness < 3 && <p id="create-lesson-hint" className="basis-full text-sm text-muted-foreground">Keep refining the lesson in the conversation. You can create it once readiness reaches 3/10.</p>}
+          </div>
+        </section>
       </div>
       {shareOpen && <ShareLessonModal open onOpenChange={setShareOpen}
         lessonName={parseLessonPrompt(lessonId, initialMarkdown || snapshot.previewMarkdown).name || lessonId}
@@ -409,67 +588,6 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
       <ConfirmModal open={confirmReload} onOpenChange={setConfirmReload} title="Load the saved lesson?"
         message="This discards this tab’s unsaved conversation and preview and loads the latest saved lesson."
         confirmLabel="Discard local changes" onConfirm={() => { queue.clear(); onReload(); }} />
-      <div className="lesson-editor-columns">
-        <div className="min-w-0">
-          <div className="lesson-editor-chat">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
-              <h2 className="text-base font-semibold leading-6">Refine lesson</h2>
-              <Button variant="ghost" size="sm" className={actionClass} onClick={() => setConfirmRestart(true)} disabled={blocked} focusableWhenDisabled>Start over</Button>
-            </div>
-            <div className="mb-3">
-              <ChatArea announcement={announcement} scrollTargetRef={composerEnd}>
-                {chatMessages.map((message, index) => message.role === 'user'
-                  ? <UserMessage key={index} content={message.content} />
-                  : <AssistantMessage key={index} content={message.content} />)}
-                {displayText != null && displayText.length > 0 && <AssistantMessage content={displayText} streaming />}
-                {(busy === 'starting' || busy === 'reply') && !displayText && <ThinkingSpinner text={busy === 'starting' ? 'Starting the lesson conversation…' : undefined} />}
-              </ChatArea>
-            </div>
-            {snapshot.failedReply && !busy && (
-              <div className="flex flex-wrap items-center gap-2 mb-3 px-4">
-                <p className="text-sm text-muted-foreground">{snapshot.failedReply === 'opening'
-                  ? 'The conversation could not start. Try again when you’re ready.'
-                  : 'The reply did not finish. Your message is still in the conversation.'}</p>
-                <Button variant="outline" size="sm" className={actionClass} disabled={blocked} onClick={() => requestReply(snapshot.failedReply === 'opening')}>Retry reply</Button>
-              </div>
-            )}
-            <ComposeBar className="lesson-editor-composer" placeholder="Describe what you want to teach..."
-              storageKey={`plato_lesson_editor_draft:${userId}:${lessonId}`}
-              onSend={handleSend} busy={blocked || !!snapshot.failedReply} />
-            <div ref={composerEnd} />
-          </div>
-        </div>
-        <div className="lesson-editor-preview min-w-0">
-          <div ref={previewRef} tabIndex={-1} aria-label="Lesson preview">
-            <MarkdownPreviewPane markdown={snapshot.previewMarkdown} loading={previewLoading} error={previewError}
-            stale={!!snapshot.previewMarkdown && !previewCurrent} saveLabel={saveLabel}
-            saved={previewSaved && !snapshot.finalizePending} saveHint={previewSaveHint}
-            refreshDisabled={previewLoading || blocked || !!snapshot.failedReply || !snapshot.conversation.length}
-            onRefresh={refreshPreview} />
-          </div>
-          <div className="lesson-editor-actions mt-4 flex flex-wrap items-stretch gap-2" role="group" aria-label="Save lesson">
-            {(!publishing || saveRejected) && <Button size="sm" className={`${actionClass} flex-1 sm:flex-initial`} onClick={saveRejected ? () => {
-              if (queue.discardRejected()) update({ finalizePending: false, finalizeStatus: null, previewRevision: -1 });
-            } : () => handleSave()} focusableWhenDisabled
-              disabled={saveDisabled}
-              aria-describedby={isDraft && snapshot.readiness < 3 ? 'create-lesson-hint' : undefined}>
-              {busy === 'saving' ? 'Saving…' : saveRejected ? 'Revise lesson' : snapshot.finalizePending ? 'Retry saving lesson'
-                : previewLoading ? (snapshot.previewMarkdown ? 'Refreshing preview…' : 'Generating preview…')
-                  : previewCurrent ? saveLabel : previewAction}
-            </Button>}
-            {showPublish && <Button variant="outline" size="sm" className={`${actionClass} flex-1 sm:flex-initial`}
-              onClick={() => !isDraft && previewSaved && !publishing
-                ? void saveVisibility({ status: 'public', sharedWith }).catch(failure => setError(failure.message))
-                : void handleSave('public')}
-              disabled={saveDisabled} focusableWhenDisabled aria-describedby="publish-lesson-hint">
-              {publishing ? (busy === 'saving' ? 'Saving…' : 'Retry saving lesson')
-                : !isDraft && previewSaved ? 'Make public' : 'Save & make public'}
-            </Button>}
-            {showPublish && <p id="publish-lesson-hint" className="basis-full text-sm text-muted-foreground">Public lessons are visible to all learners in this classroom.</p>}
-            {isDraft && snapshot.readiness < 3 && <p id="create-lesson-hint" className="basis-full text-sm text-muted-foreground">Keep refining the lesson in the conversation. You can create it once readiness reaches 3/10.</p>}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
