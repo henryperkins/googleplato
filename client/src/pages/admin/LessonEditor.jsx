@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ArrowLeft, ChevronDown, X } from 'lucide-react';
 import { adminApi } from './adminApi.js';
 import MarkdownPreviewPane from './MarkdownPreviewPane.jsx';
 import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
+import ShareLessonModal from '../../components/modals/ShareLessonModal.jsx';
 import ChatArea from '../../components/chat/ChatArea.jsx';
 import ComposeBar from '../../components/chat/ComposeBar.jsx';
 import AssistantMessage from '../../components/chat/AssistantMessage.jsx';
@@ -18,10 +21,12 @@ import { MSG_TYPES, MIN_OBJECTIVES, MAX_OBJECTIVES } from '../../lib/constants.j
 import { readinessFill } from '../../lib/readiness.js';
 import { aiErrorMessage } from '../../lib/aiErrors.js';
 
-const actionClass = 'h-auto min-h-9 max-w-full whitespace-normal py-2';
+const actionClass = 'h-auto min-h-9 max-w-full whitespace-normal py-2 text-sm';
+const NO_USERS = [];
 
 export default function LessonEditor({ lessonId, userId, isDraft, initialMessages, initialReadiness,
   needsAgentReply, initialCourse, initialMarkdown, conversationRevision, markdownRevision,
+  initialStatus = 'private', initialSharedWith = NO_USERS,
   version, operationId, recovery, onSave, onCancel, onReload }) {
   const pageTitle = isDraft ? 'New Lesson — plato' : 'Edit Lesson — plato';
   useEffect(() => { document.title = pageTitle; }, [pageTitle]);
@@ -59,6 +64,9 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   const displayText = useStreamedText(streamingText);
   const [draining, setDraining] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  const [visibility, setVisibility] = useState(initialStatus);
+  const [sharedWith, setSharedWith] = useState(initialSharedWith);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const update = useCallback((patch, { save = false, content = false } = {}) => {
     const previous = queue.getState().snapshot;
@@ -71,6 +79,19 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
     });
     return next;
   }, [queue, isDraft]);
+
+  // Run after the queue acknowledges a visibility save, including recovery.
+  const confirmVisibility = useCallback(() => {
+    const current = queue.getState();
+    if (!current.snapshot.visibilityPending || current.pending || current.error) return;
+    const confirmed = current.snapshot.visibilityPending;
+    setVisibility(confirmed.status);
+    setSharedWith(confirmed.sharedWith);
+    update({ visibilityPending: null });
+    setShareOpen(false);
+    setError('');
+    setAnnouncement(confirmed.status === 'public' ? 'Lesson is now public.' : 'Lesson visibility and sharing saved.');
+  }, [queue, update]);
 
   const requestReply = useCallback(async (opening = false) => {
     if (busyRef.current || queue.getState().error?.status === 409) return;
@@ -119,7 +140,10 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
     window.addEventListener('beforeunload', beforeUnload);
     // Deferring startup avoids duplicate requests during StrictMode's effect probe.
     const start = setTimeout(() => {
-      void queue.flush().catch(() => {});
+      const generation = epoch.current;
+      void queue.flush().then(() => {
+        if (generation === epoch.current) confirmVisibility();
+      }).catch(() => {});
       const current = queue.getState().snapshot;
       if (!current.failedReply && !current.finalizePending
         && (!current.conversation.length || (needsAgentReply && !recovery))) void requestReply(true);
@@ -132,7 +156,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
       invalidateRequests();
       window.removeEventListener('beforeunload', beforeUnload);
     };
-  }, [queue, requestReply, needsAgentReply, recovery]);
+  }, [queue, requestReply, needsAgentReply, recovery, confirmVisibility]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,20 +177,25 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
     }
   }, [displayText, draining, snapshot.conversation.length]);
 
-  const blocked = !!busy || snapshot.finalizePending || saveState.error?.status === 409;
+  const blocked = !!busy || snapshot.finalizePending || !!snapshot.visibilityPending || saveState.error?.status === 409;
   const previewCurrent = !!snapshot.previewMarkdown && snapshot.previewRevision === snapshot.revision;
   const previewSaved = !isDraft && snapshot.previewMarkdown === initialMarkdown;
   const saveRejected = saveState.error?.status === 400 && snapshot.finalizePending;
   const chatMessages = draining ? snapshot.conversation.slice(0, -1) : snapshot.conversation;
-  const saveLabel = isDraft ? 'Create Lesson' : 'Update Lesson';
+  const saveLabel = isDraft || visibility !== 'public' ? 'Save privately' : 'Update lesson';
+  const publishing = snapshot.finalizePending && snapshot.finalizeStatus === 'public';
+  const showPublish = !saveRejected && (publishing || (visibility !== 'public' && previewCurrent && !snapshot.finalizePending));
+  const saveDisabled = !!busy || previewLoading || saveState.error?.status === 409 || !!snapshot.failedReply
+    || !!snapshot.visibilityPending || (!previewCurrent && !snapshot.conversation.length)
+    || (isDraft && previewCurrent && snapshot.readiness < 3);
   const previewAction = snapshot.previewMarkdown ? 'Refresh preview' : 'Generate preview';
   const previewSaveHint = snapshot.finalizePending
     ? (busy === 'saving' ? 'Saving this lesson…'
       : saveState.error?.status === 400 ? 'This preview could not be saved. Choose “Revise lesson” to make changes.'
-        : 'Saving is not confirmed. “Retry saving lesson” saves this same preview.')
+        : 'Saving is not confirmed. “Retry saving lesson” saves this same preview and visibility choice.')
     : previewSaved ? 'This is the saved lesson. Describe any changes in the conversation, then refresh the preview.'
-      : isDraft ? 'Review this preview, then choose “Create Lesson”. Your new lesson starts private.'
-        : 'Review this preview, then choose “Update Lesson” to save your changes.';
+      : visibility !== 'public' ? 'Review this preview, then choose “Save privately” or “Save & make public”.'
+        : 'Review this preview, then choose “Update lesson” to save your changes.';
 
   function handleSend({ text }) {
     if (!text?.trim() || busyRef.current || blocked || snapshot.failedReply) return;
@@ -209,15 +238,16 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
     try {
       await queue.flush();
       if (generation !== epoch.current) return;
+      confirmVisibility();
       if (queue.getState().snapshot.finalizePending) {
         queue.clear();
-        await onSave();
+        await onSave({ status: queue.getState().snapshot.finalizeStatus || visibility });
       }
     } catch { /* The persistent save status owns the recovery action. */ }
     finally { busyRef.current = ''; setBusy(''); }
   }
 
-  async function handleSave() {
+  async function handleSave(status = visibility) {
     if (busyRef.current || previewLoading || saveState.error?.status === 409) return;
     if (snapshot.finalizePending) { await retrySaving(); return; }
     if (!previewCurrent) { await refreshPreview(); return; }
@@ -230,18 +260,45 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
       if (generation !== epoch.current) return;
       const current = queue.getState().snapshot;
       const lesson = parseLessonPrompt(lessonId, current.previewMarkdown);
-      update({ finalizePending: true });
+      const finalStatus = status === 'public' ? 'public' : 'private';
+      update({ finalizePending: true, finalizeStatus: finalStatus });
       await queue.save({
         markdown: current.previewMarkdown, name: lesson.name, conversation: current.conversation,
         readiness: current.readiness, course: current.course || null,
         conversationRevision: current.revision, markdownRevision: current.previewRevision,
-        ...(isDraft ? { status: 'private', sharedWith: [userId] } : {}),
+        status: finalStatus,
+        ...(isDraft ? { sharedWith: [userId] } : {}),
       });
       if (generation !== epoch.current) return;
       queue.clear();
-      await onSave();
+      await onSave({ status: finalStatus });
     } catch { /* Keep the exact preview and pending write for persistence-only retry. */ }
     finally { busyRef.current = ''; setBusy(''); }
+  }
+
+  async function saveVisibility(choice) {
+    if (busyRef.current || snapshot.finalizePending || saveState.error?.status === 409) return;
+    const generation = epoch.current;
+    busyRef.current = 'visibility';
+    setBusy('visibility');
+    setError('');
+    try {
+      // Keep the original pending choice after an unknown outcome.
+      if (queue.getState().snapshot.visibilityPending) {
+        await queue.flush();
+        if (generation === epoch.current) confirmVisibility();
+        return;
+      }
+      await queue.flush();
+      if (generation !== epoch.current) return;
+      update({ visibilityPending: choice });
+      await queue.save(choice);
+      if (generation === epoch.current) confirmVisibility();
+    } catch (failure) {
+      if (generation !== epoch.current) return;
+      if (queue.discardRejected()) update({ visibilityPending: null });
+      throw failure;
+    } finally { busyRef.current = ''; setBusy(''); }
   }
 
   async function goBack() {
@@ -267,20 +324,31 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   const statusText = saveState.error
     ? (saveState.error.status === 409 || saveState.error.status === 400 ? saveState.error.message
       : `Saving is not confirmed. ${saveState.localError ? 'Keep this page open and retry saving.' : 'Your work is kept in this tab. Retry saving before closing it.'}`)
-    : saveState.saving ? (snapshot.finalizePending ? 'Saving lesson…' : 'Saving conversation and course…')
+    : saveState.saving ? (snapshot.finalizePending ? 'Saving lesson…' : snapshot.visibilityPending ? 'Saving visibility…' : 'Saving conversation and course…')
       : saveState.localError ? 'A backup is unavailable in this tab. Check that changes are saved before leaving.'
         : saveState.version ? 'Conversation and course saved automatically.' : 'Conversation not saved yet.';
 
   return (
     <div className="lesson-editor min-w-0">
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <Button variant="ghost" size="sm" className={actionClass} onClick={goBack} aria-label="Back to lessons">&larr; Back</Button>
-        <h1 className="text-2xl font-bold">{isDraft ? 'New Lesson' : 'Edit Lesson'}</h1>
+        <Button variant="ghost" size="sm" className={`${actionClass} px-0`} onClick={goBack} aria-label="Back to lessons">
+          <ArrowLeft className="size-3.5" aria-hidden="true" /> Back
+        </Button>
+        <h1 className="text-2xl font-bold text-balance">{isDraft ? 'New Lesson' : 'Edit Lesson'}</h1>
+        {isDraft ? <Badge variant="outline">Draft</Badge> : (
+          <Button variant="outline" size="sm" className={actionClass}
+            aria-label={`Visibility and sharing: ${visibility === 'public' ? 'Public' : 'Private'}`}
+            aria-haspopup="dialog" aria-expanded={shareOpen}
+            disabled={!!busy || snapshot.finalizePending || saveState.error?.status === 409} focusableWhenDisabled
+            onClick={() => setShareOpen(true)}>
+            {visibility === 'public' ? 'Public' : 'Private'} <ChevronDown aria-hidden="true" />
+          </Button>
+        )}
       </div>
       {error && (
         <div className="flex items-start justify-between gap-3 rounded-lg border border-danger-border bg-danger text-danger-foreground px-4 py-3 mb-4 text-sm" role="alert">
           <span className="min-w-0 break-words">{error}</span>
-          <Button variant="ghost" size="icon" onClick={() => setError('')} aria-label="Dismiss error">&times;</Button>
+          <Button variant="ghost" size="icon" onClick={() => setError('')} aria-label="Dismiss error"><X aria-hidden="true" /></Button>
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -289,52 +357,65 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
           ? <Button variant="outline" size="sm" className={actionClass} onClick={() => setConfirmReload(true)}>Load saved lesson</Button>
           : <Button variant="outline" size="sm" className={actionClass} disabled={!!busy} focusableWhenDisabled onClick={retrySaving}>Retry saving</Button>)}
       </div>
-      <div className="flex flex-wrap items-center gap-3 min-w-0 mb-4">
-        <label htmlFor="lesson-course" className="text-sm font-medium">Course <span className="font-normal text-muted-foreground">(optional)</span></label>
-        <select id="lesson-course" value={snapshot.course}
-          aria-disabled={blocked}
-          onChange={event => { if (!blocked) update({ course: event.target.value }, { save: true }); }}
-          className="min-h-10 min-w-0 max-w-full flex-1 sm:flex-initial truncate rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-          <option value="">No course</option>
-          {snapshot.course && !courses.some(course => course.courseId === snapshot.course)
-            && <option value={snapshot.course}>Current course</option>}
-          {courses.map(course => <option key={course.courseId} value={course.courseId}>{course.name}</option>)}
-        </select>
-      </div>
-      <div className="lesson-editor-actions admin-sticky-bar sticky top-0 z-20 -mx-1 px-1 py-2 bg-background flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex-[1_1_10rem] min-w-0" role="progressbar" aria-valuemin={0} aria-valuemax={10}
-          aria-valuenow={snapshot.readiness} aria-label={`Lesson readiness: ${snapshot.readiness} out of 10`}>
-          <div className="flex flex-wrap justify-between gap-x-3 text-sm text-muted-foreground mb-2" aria-hidden="true">
-            <span>Lesson readiness</span><span className="tabular-nums">{snapshot.readiness}/10</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <div className="progress-fill h-full rounded-full" style={{ transform: `scaleX(${snapshot.readiness / 10})`, backgroundColor: readinessFill(snapshot.readiness) }} />
-          </div>
+      <div className="lesson-editor-columns lesson-editor-setup mb-6">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
+          <label htmlFor="lesson-course" className="text-sm font-medium">Course <span className="font-normal text-muted-foreground">(optional)</span></label>
+          <select id="lesson-course" value={snapshot.course}
+            aria-disabled={blocked}
+            onChange={event => { if (!blocked) update({ course: event.target.value }, { save: true }); }}
+            className="min-h-10 min-w-0 max-w-full flex-1 sm:flex-initial truncate rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+            <option value="">No course</option>
+            {snapshot.course && !courses.some(course => course.courseId === snapshot.course)
+              && <option value={snapshot.course}>Current course</option>}
+            {courses.map(course => <option key={course.courseId} value={course.courseId}>{course.name}</option>)}
+          </select>
         </div>
-        <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
-          <Button variant="outline" size="sm" className={actionClass} onClick={() => setConfirmRestart(true)} disabled={blocked} focusableWhenDisabled>Start over</Button>
-          <Button size="sm" className={actionClass} onClick={saveRejected ? () => {
-            if (queue.discardRejected()) update({ finalizePending: false, previewRevision: -1 });
-          } : handleSave} focusableWhenDisabled
-            disabled={!!busy || previewLoading || saveState.error?.status === 409 || !!snapshot.failedReply
-              || (!previewCurrent && !snapshot.conversation.length) || (isDraft && previewCurrent && snapshot.readiness < 3)}
-            aria-describedby={isDraft && snapshot.readiness < 3 ? 'create-lesson-hint' : undefined}>
-            {busy === 'saving' ? 'Saving…' : saveRejected ? 'Revise lesson' : snapshot.finalizePending ? 'Retry saving lesson'
-              : previewLoading ? (snapshot.previewMarkdown ? 'Refreshing preview…' : 'Generating preview…')
-                : previewCurrent ? saveLabel : previewAction}
-          </Button>
+        <div className="min-w-0">
+          <div className="min-w-0" role="progressbar" aria-valuemin={0} aria-valuemax={10}
+            aria-valuenow={snapshot.readiness} aria-label={`Lesson readiness: ${snapshot.readiness} out of 10`}
+            aria-describedby="lesson-readiness-description">
+            <div className="flex flex-wrap justify-between gap-x-3 text-sm text-muted-foreground mb-2" aria-hidden="true">
+              <span>Lesson readiness</span><span className="tabular-nums">{snapshot.readiness}/10</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div className="progress-fill h-full rounded-full" style={{ transform: `scaleX(${snapshot.readiness / 10})`, backgroundColor: readinessFill(snapshot.readiness) }} />
+            </div>
+          </div>
+          <p id="lesson-readiness-description" className="mt-2 text-sm text-muted-foreground">How fully your lesson has been defined in this conversation.</p>
+          <details className="group mt-1">
+            <summary className="touch-target inline-flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-sm text-sm font-medium hover:text-link [&::-webkit-details-marker]:hidden">
+              About lesson readiness <ChevronDown className="size-4 group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <div role="region" aria-label="Readiness guidance" className="max-w-prose pb-3 text-sm text-muted-foreground">
+              <p>The authoring assistant estimates readiness from the lesson you describe:</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>A concrete outcome: what the learner will produce or demonstrate as the exemplar.</li>
+                <li>{MIN_OBJECTIVES}–{MAX_OBJECTIVES} measurable objectives that support that outcome.</li>
+                <li>Clear, aligned requirements and a focused lesson scope.</li>
+              </ul>
+              <p className="mt-2">You can create a lesson from 3/10 once its preview is ready. Always review the exemplar and objectives in the preview before saving.</p>
+            </div>
+          </details>
         </div>
-        {isDraft && snapshot.readiness < 3 && <p id="create-lesson-hint" className="basis-full text-sm text-muted-foreground">Keep refining the lesson in the conversation. You can create it once readiness reaches 3/10.</p>}
       </div>
+      {shareOpen && <ShareLessonModal open onOpenChange={setShareOpen}
+        lessonName={parseLessonPrompt(lessonId, initialMarkdown || snapshot.previewMarkdown).name || lessonId}
+        initialStatus={snapshot.visibilityPending?.status || visibility}
+        initialSharedWith={snapshot.visibilityPending?.sharedWith || sharedWith}
+        pendingSave={!!snapshot.visibilityPending} onConfirm={saveVisibility} />}
       <ConfirmModal open={confirmRestart} onOpenChange={setConfirmRestart} title="Start over?"
         message="This clears the conversation, preview and readiness score. It cannot be undone."
         confirmLabel="Start over" onConfirm={restart} />
       <ConfirmModal open={confirmReload} onOpenChange={setConfirmReload} title="Load the saved lesson?"
         message="This discards this tab’s unsaved conversation and preview and loads the latest saved lesson."
         confirmLabel="Discard local changes" onConfirm={() => { queue.clear(); onReload(); }} />
-      <div className="flex flex-wrap gap-4">
-        <div className="flex-[3_1_28rem] min-w-0">
-          <div className="lesson-editor-chat rounded-2xl bg-muted/40 p-2 sm:p-4">
+      <div className="lesson-editor-columns">
+        <div className="min-w-0">
+          <div className="lesson-editor-chat">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+              <h2 className="text-base font-semibold leading-6">Refine lesson</h2>
+              <Button variant="ghost" size="sm" className={actionClass} onClick={() => setConfirmRestart(true)} disabled={blocked} focusableWhenDisabled>Start over</Button>
+            </div>
             <div className="mb-3">
               <ChatArea announcement={announcement} scrollTargetRef={composerEnd}>
                 {chatMessages.map((message, index) => message.role === 'user'
@@ -358,12 +439,35 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
             <div ref={composerEnd} />
           </div>
         </div>
-        <div className="flex-[2_1_22rem] min-w-0" ref={previewRef} tabIndex={-1} aria-label="Lesson preview">
-          <MarkdownPreviewPane markdown={snapshot.previewMarkdown} loading={previewLoading} error={previewError}
+        <div className="lesson-editor-preview min-w-0">
+          <div ref={previewRef} tabIndex={-1} aria-label="Lesson preview">
+            <MarkdownPreviewPane markdown={snapshot.previewMarkdown} loading={previewLoading} error={previewError}
             stale={!!snapshot.previewMarkdown && !previewCurrent} saveLabel={saveLabel}
             saved={previewSaved && !snapshot.finalizePending} saveHint={previewSaveHint}
             refreshDisabled={previewLoading || blocked || !!snapshot.failedReply || !snapshot.conversation.length}
             onRefresh={refreshPreview} />
+          </div>
+          <div className="lesson-editor-actions mt-4 flex flex-wrap items-stretch gap-2" role="group" aria-label="Save lesson">
+            {(!publishing || saveRejected) && <Button size="sm" className={`${actionClass} flex-1 sm:flex-initial`} onClick={saveRejected ? () => {
+              if (queue.discardRejected()) update({ finalizePending: false, finalizeStatus: null, previewRevision: -1 });
+            } : () => handleSave()} focusableWhenDisabled
+              disabled={saveDisabled}
+              aria-describedby={isDraft && snapshot.readiness < 3 ? 'create-lesson-hint' : undefined}>
+              {busy === 'saving' ? 'Saving…' : saveRejected ? 'Revise lesson' : snapshot.finalizePending ? 'Retry saving lesson'
+                : previewLoading ? (snapshot.previewMarkdown ? 'Refreshing preview…' : 'Generating preview…')
+                  : previewCurrent ? saveLabel : previewAction}
+            </Button>}
+            {showPublish && <Button variant="outline" size="sm" className={`${actionClass} flex-1 sm:flex-initial`}
+              onClick={() => !isDraft && previewSaved && !publishing
+                ? void saveVisibility({ status: 'public', sharedWith }).catch(failure => setError(failure.message))
+                : void handleSave('public')}
+              disabled={saveDisabled} focusableWhenDisabled aria-describedby="publish-lesson-hint">
+              {publishing ? (busy === 'saving' ? 'Saving…' : 'Retry saving lesson')
+                : !isDraft && previewSaved ? 'Make public' : 'Save & make public'}
+            </Button>}
+            {showPublish && <p id="publish-lesson-hint" className="basis-full text-sm text-muted-foreground">Public lessons are visible to all learners in this classroom.</p>}
+            {isDraft && snapshot.readiness < 3 && <p id="create-lesson-hint" className="basis-full text-sm text-muted-foreground">Keep refining the lesson in the conversation. You can create it once readiness reaches 3/10.</p>}
+          </div>
         </div>
       </div>
     </div>

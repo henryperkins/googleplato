@@ -1182,11 +1182,21 @@ through the admin API without an explicit status defaults to private.
 
 New lessons start as `draft` the moment the Lesson Creator conversation begins
 (one `lesson:<id>` record per draft in `_system` sync-data), so admins can pause
-and resume drafts or work on several in parallel. Clicking "Create Lesson"
-finalizes the same record with extracted markdown and flips status
-`draft` → `private` (shared only with author). Admins toggle public/private on
-finalized lessons and manage shared users via the Share modal. Drafts hide the
-Share icon (nothing shareable yet).
+and resume drafts or work on several in parallel. After reviewing the preview,
+admins choose **Save privately** (shared only with the author) or **Save & make
+public** (visible to all learners in the classroom). Both finalize the same
+record, saving the reviewed markdown and chosen visibility together.
+
+The finalized lesson's **Private/Public** button opens **Visibility & Sharing**
+from either the lesson list or the editor. A saved private lesson also offers
+**Make public** directly in the editor. This changes only visibility, preserving
+the saved content, shares and any unsaved preview. Drafts retain a noninteractive
+Draft badge until finalized. Visibility success is shown after acknowledgement;
+failed dialog saves keep their selection and show the error inside the dialog.
+An empty share list is valid: **Make Private** removes classroom-wide visibility
+without adding recipients. During an unknown visibility save, the editor header
+keeps the last confirmed status while the dialog shows the pending choice that
+**Retry saving** will resend, including when reopened or recovered after reload.
 
 The share list is independent of visibility and survives a public/private round
 trip in the Share modal. Public lessons ignore the list for access checks.
@@ -1253,7 +1263,24 @@ unsaved recovery copy opens create mode. Other load failures offer retry in
 place, without starting an agent or writing a draft. `AdminLessons` keys
 `LessonEditor` on the lesson and load attempt so switching lessons remounts cleanly.
 
-`lessonSaveQueue` serializes conversation, course and final markdown writes.
+Authoring stays on one page. The conversation and preview sit side by side when
+space permits; both save choices follow the preview in reading order at every
+width. On narrow screens, the preview uses the page's scrolling flow so the
+author reaches both choices together after reading. **Start over** stays with
+the conversation and keeps its confirmation dialog.
+
+Readiness describes how fully the conversation has defined the lesson. Its
+native disclosure explains the exemplar, objectives and scope rubric and the
+existing 3/10 creation minimum. The score and its color do not replace review
+or preview validation; the underlying thresholds are unchanged.
+
+The lesson directory uses compact rows below the medium breakpoint and the
+existing table at wider sizes. Both share filtering, pagination, visibility
+controls and edit/delete handlers. Mobile rows expose named actions and optional
+metrics. Search stays visible; a native **Filters** disclosure contains the
+course and visibility choices, indicates active filters and offers clearing.
+
+`lessonSaveQueue` serializes conversation, course, visibility and final markdown writes.
 Each write carries the last acknowledged `expectedVersion` and a stable
 `operationId`. Authoring reads are consistent on DynamoDB; both database
 adapters enforce strict compare-and-set, including first creation and deletion.
@@ -1273,7 +1300,10 @@ warns while writes are pending, and storage failure is visible. Departed editors
 cannot overwrite a newer recovery copy or navigate after their requests finish.
 Conflicts preserve local work until the admin explicitly chooses to discard it
 and load the saved lesson. A confirmed 400 rejecting final markdown permits
-**Revise lesson**; unknown write outcomes retain the same operation for retry.
+**Revise lesson**; a rejected visibility-only request can also be corrected.
+Unknown write outcomes retain the same operation and chosen visibility for
+retry. The editor's confirmed status and acknowledged version advance together
+after a visibility-only save, so later content saves do not conflict with it.
 
 **Markdown preview pane** (`client/src/pages/admin/MarkdownPreviewPane.jsx`):
 chat left, rendered markdown right, wrapping according to available space and
@@ -1285,9 +1315,10 @@ runs no AI call on editor open. On open the pane shows the already-saved markdow
 refresh a hint explains that the conversation has changed. Conversation and
 markdown revision IDs preserve that distinction across sessions.
 **Generate preview / Refresh preview** generates and validates a preview;
-**Create/Update Lesson** saves that exact
-markdown, after pending autosaves finish. Failed finalization retains the
-preview for persistence-only retry. Restart clears it and invalidates outstanding
+**Save privately / Save & make public / Update Lesson** saves that exact
+markdown, after pending autosaves finish. Publishing is offered only for a
+current, reviewed preview. Failed finalization retains the preview and visibility
+choice for persistence-only retry, including after a same-tab reload. Restart clears it and invalidates outstanding
 extractions. Preview markdown is kept in the tab's recovery copy, but is not
 published as lesson content until the save button is used.
 `buildConversationText` (`client/src/lib/lessonCreationEngine.js`) is the shared

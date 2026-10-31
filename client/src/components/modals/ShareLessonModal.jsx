@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { adminApi } from '../../pages/admin/adminApi.js';
 
-// A stable default: a fresh `[]` per render would re-run the load effect.
+// Shared empty default for lessons without explicit recipients.
 const NO_USERS = [];
 
 const VISIBILITY_OPTIONS = [
@@ -23,7 +23,10 @@ export default function ShareLessonModal({
   initialSharedWith = NO_USERS,
   initialStatus = 'private',
   onConfirm,
+  pendingSave = false,
 }) {
+  // Parents mount on opening. Keep those initial choices through user-list
+  // retries and save errors, even while the pending operation changes props.
   const [users, setUsers] = useState([]);
   const [selected, setSelected] = useState(new Set(initialSharedWith));
   const [status, setStatus] = useState(initialStatus);
@@ -31,12 +34,12 @@ export default function ShareLessonModal({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
-    setSelected(new Set(initialSharedWith));
-    setStatus(initialStatus);
-    setSearch('');
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -50,7 +53,7 @@ export default function ShareLessonModal({
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [open, initialSharedWith, initialStatus, reloadKey]);
+  }, [open, reloadKey]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return users;
@@ -71,14 +74,25 @@ export default function ShareLessonModal({
     });
   }
 
-  function handleConfirm() {
-    onConfirm({ status, sharedWith: [...selected] });
+  async function handleConfirm() {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await onConfirm({ status, sharedWith: [...selected] });
+    } catch (failure) {
+      setSaveError(failure.message || 'Saving is not confirmed. Try again.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
   const isPublic = status === 'public';
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={next => { if (!savingRef.current) onOpenChange(next); }}>
       <DialogContent variant="sheet" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Visibility &amp; Sharing</DialogTitle>
@@ -91,7 +105,7 @@ export default function ShareLessonModal({
             the arrow keys move between options. The ring is drawn inset on the
             label because the input itself is visually hidden, in the
             foreground color on the filled (selected) option so it stays visible. */}
-        <fieldset className="flex min-w-0 rounded-lg border border-border overflow-hidden">
+        <fieldset disabled={saving || pendingSave} className="flex min-w-0 rounded-lg border border-border overflow-hidden">
           <legend className="sr-only">Lesson visibility</legend>
           {VISIBILITY_OPTIONS.map(({ value, label }) => (
             <label
@@ -117,6 +131,7 @@ export default function ShareLessonModal({
           </p>
         ) : (
           <>
+            <p className="text-sm text-muted-foreground">Private lessons are visible only to the users you select.</p>
             <label htmlFor="share-lesson-search" className="sr-only">Search users</label>
             <Input
               id="share-lesson-search"
@@ -129,6 +144,7 @@ export default function ShareLessonModal({
               placeholder="Search users..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              readOnly={saving || pendingSave}
             />
 
             <ScrollArea className="max-h-[min(16rem,40dvh)] min-h-36 rounded-md border">
@@ -150,6 +166,7 @@ export default function ShareLessonModal({
                     >
                       <input
                         type="checkbox"
+                        disabled={saving || pendingSave}
                         checked={selected.has(u.userId)}
                         onChange={() => toggle(u.userId)}
                         className="rounded border-input"
@@ -172,10 +189,13 @@ export default function ShareLessonModal({
           </>
         )}
 
+        {saveError && <p className="text-sm text-destructive" role="alert">{saveError}</p>}
+        {pendingSave && <p className="text-sm text-muted-foreground" role="status">Retry saving to confirm the same visibility choice.</p>}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleConfirm} disabled={!isPublic && selected.size === 0}>
-            {isPublic ? 'Make Public' : `Share with ${selected.size} ${selected.size === 1 ? 'user' : 'users'}`}
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving} focusableWhenDisabled>Cancel</Button>
+          <Button onClick={handleConfirm} disabled={saving} focusableWhenDisabled>
+            {saving ? 'Saving…' : pendingSave ? 'Retry saving' : isPublic ? 'Make public'
+              : selected.size === 0 ? 'Make private' : `Share with ${selected.size} ${selected.size === 1 ? 'user' : 'users'}`}
           </Button>
         </DialogFooter>
       </DialogContent>

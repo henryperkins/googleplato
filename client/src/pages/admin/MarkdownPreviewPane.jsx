@@ -51,14 +51,14 @@ export default function MarkdownPreviewPane({
   return (
     <aside
       aria-label={ariaLabel}
-      className="flex min-w-0 flex-col rounded-2xl bg-muted/40 border border-border p-4"
+      className="markdown-preview-pane flex min-w-0 flex-col rounded-2xl bg-muted/40 border border-border p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <h2 className="markdown-preview-heading text-sm font-semibold">{title}</h2>
         <Button
           variant="outline"
           size="sm"
-          className="h-auto min-h-9 max-w-full whitespace-normal py-2"
+          className="markdown-preview-refresh h-auto min-h-9 max-w-full whitespace-normal py-2"
           onClick={onRefresh}
           disabled={refreshDisabled}
           focusableWhenDisabled
@@ -80,9 +80,9 @@ export default function MarkdownPreviewPane({
       {hasContent && !stale && !loading && (
         <p
           role="note"
-          className={saved
+          className={`markdown-preview-hint ${saved
             ? 'text-sm text-muted-foreground mb-3'
-            : 'text-sm rounded-md bg-warning text-warning-foreground px-3 py-2 mb-3'}
+            : 'text-sm rounded-md bg-warning text-warning-foreground px-3 py-2 mb-3'}`}
         >
           {saveHint}
         </p>
@@ -93,7 +93,7 @@ export default function MarkdownPreviewPane({
         {announcement}
       </div>
 
-      <div className="flex-1 max-h-[70dvh] overflow-auto overscroll-contain" aria-busy={loading}>
+      <div className="markdown-preview-body flex-1 max-h-[70dvh] overflow-auto overscroll-contain" aria-busy={loading}>
         {error ? (
           <div
             role="alert"

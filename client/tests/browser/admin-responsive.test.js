@@ -10,9 +10,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
+const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
+const browserType = { chromium, firefox, webkit }[browserName];
+assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
 const destinations = ['Home', 'Lessons', 'Users', 'Customizer', 'AI Settings', 'Plugins'];
 let browser;
 let server;
@@ -164,7 +167,7 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
       assert.ok(Date.now() - started < 15000, `Test server did not start: ${output}`);
       await delay(100);
     }
-    browser = await chromium.launch();
+    browser = await browserType.launch();
     const context = await browser.newContext();
     try {
       const page = await context.newPage();
@@ -217,12 +220,12 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
         });
 
         await navigate(page, 'lessons');
-        const shareButton = page.getByRole('button', { name: 'Visibility and sharing for Sharing Regression', exact: true });
+        const shareButton = page.getByRole('button', { name: /^Visibility and sharing for Sharing Regression:/ });
         await shareButton.click();
         const dialog = page.getByRole('dialog', { name: 'Visibility & Sharing' });
         await dialog.getByRole('radio', { name: 'Public', exact: true }).focus();
         await page.keyboard.press('Space');
-        await dialog.getByRole('button', { name: 'Make Public', exact: true }).click();
+        await dialog.getByRole('button', { name: 'Make public', exact: true }).click();
         await dialog.waitFor({ state: 'hidden' });
         assert.equal(lesson.status, 'public');
         assert.deepEqual(lesson.sharedWith, sharedWith, 'making a lesson public must retain its share list');
@@ -578,7 +581,7 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
 
   it('keeps all six enlarged-text labels visible and inside their own targets', async () => {
     for (const theme of ['light', 'dark']) {
-      for (const width of [480, 768]) {
+      for (const width of [320, 390, 480, 768]) {
         const { context, page } = await openPage({ width, height: 900 }, theme);
         try {
           await navigate(page, 'customizer');
@@ -618,15 +621,16 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
     }
   });
 
-  it('preserves narrow-phone names, normal single-row labels, and page-change focus', async () => {
+  it('keeps navigation labels visible in narrow rows and preserves page-change focus', async () => {
     for (const width of [320, 390, 480, 768]) {
       const { context, page } = await openPage({ width, height: 900 });
       try {
         await navigate(page, 'customizer');
         const tabs = await tabGeometry(page);
         assert.deepEqual(tabs.map(tab => tab.name), destinations);
-        assert.deepEqual(tabs.map(tab => tab.visible), Array(6).fill(width >= 480));
-        assert.equal(new Set(tabs.map(tab => Math.round(tab.target.top))).size, 1, `${width}px: normal tabs stay in one row`);
+        assert.deepEqual(tabs.map(tab => tab.visible), Array(6).fill(true));
+        assert.equal(new Set(tabs.map(tab => Math.round(tab.target.top))).size, width < 480 ? 2 : 1,
+          `${width}px: names determine whether tabs use one or two rows`);
         const users = page.locator('.admin-bottom-nav').getByRole('link', { name: 'Users', exact: true });
         await users.focus();
         await page.keyboard.press('Enter');

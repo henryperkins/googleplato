@@ -302,17 +302,14 @@
   outline-offset: -3px;
 }
 
-/* Labelled tabs keep their names when text grows: use two rows rather than
-   letting a label paint over its neighbour. Container rem units follow the
-   current root text size, unlike the viewport label-visibility breakpoint. */
+/* Keep every admin destination visibly named. Container rem units let narrow
+   phones and enlarged text use two rows without clipping the labels. */
 .admin-bottom-nav {
   container: admin-tabs / inline-size;
 }
-@media (min-width: 30rem) {
-  @container admin-tabs (max-width: 29rem) {
-    .admin-bottom-nav > a {
-      flex-basis: calc(100% / 3);
-    }
+@container admin-tabs (max-width: 29rem) {
+  .admin-bottom-nav > a {
+    flex-basis: calc(100% / 3);
   }
 }
 
@@ -459,19 +456,70 @@ html {
 
 /* Authoring adapts to usable space, including enlarged text beside the sidebar. */
 .lesson-editor {
-  container-type: inline-size;
+  container: lesson-editor / inline-size;
 }
 
-@container (max-width: 32rem) {
-  .lesson-editor-actions {
-    position: static;
+.lesson-editor-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1.5rem;
+}
+
+.lesson-editor-setup {
+  row-gap: 1rem;
+}
+
+@container lesson-editor (min-width: 52rem) {
+  .lesson-editor-columns {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
   }
-  .lesson-editor-chat,
-  .lesson-editor-chat [role="log"] {
-    padding: 0.5rem;
+  .lesson-editor-chat {
+    padding-block-start: 1rem;
   }
-  .lesson-editor-composer {
-    padding-inline: 0;
+}
+
+.lesson-editor-chat [role="log"] {
+  padding: 1rem 0;
+}
+
+.lesson-editor-composer {
+  padding: 0;
+}
+
+/* The lesson has one review boundary. Shared knowledge-base previews retain
+   their existing surface, hint and scrolling styles. */
+.lesson-editor-preview .markdown-preview-pane {
+  background: transparent;
+}
+
+.lesson-editor-preview .markdown-preview-heading {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.lesson-editor-preview .markdown-preview-refresh {
+  padding-inline: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.lesson-editor-preview .markdown-preview-hint {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.lesson-editor-preview .coach-copy {
+  max-inline-size: 65ch;
+  line-height: 1.625;
+}
+
+@container lesson-editor (max-width: 52rem) {
+  .lesson-editor-preview .markdown-preview-body {
+    max-height: none;
+    overflow: visible;
   }
 }
 

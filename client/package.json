@@ -8,6 +8,7 @@
     "lint": "eslint .",
     "test": "node --test tests/*.test.js",
     "test:browser:admin": "node --test tests/browser/admin-responsive.test.js",
+    "test:browser:publishing": "node --test tests/browser/lesson-publishing.test.js",
     "test:browser:customizer": "node --test tests/browser/customizer.test.js",
     "test:browser:learner": "node --test tests/browser/learner-recovery.test.js"
   },

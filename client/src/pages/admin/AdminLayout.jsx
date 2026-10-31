@@ -229,7 +229,7 @@ export default function AdminLayout() {
             to={to}
             end={end}
             className={({ isActive }) =>
-              `touch-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 border-t-2 px-0.5 py-2.5 min-[30rem]:py-1.5 transition-colors ${
+              `touch-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 border-t-2 px-0.5 py-1.5 transition-colors ${
                 isActive
                   ? 'border-primary text-primary-text'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -239,9 +239,7 @@ export default function AdminLayout() {
             {({ isActive }) => (
               <>
                 <Icon aria-hidden="true" strokeWidth={isActive ? 2.25 : 1.9} className="size-[1.375rem]" />
-                {/* Show names from 30rem; the container query lets enlarged
-                    text use two rows. Narrower phones keep screen-reader names. */}
-                <span className={`sr-only min-[30rem]:not-sr-only min-[30rem]:max-w-full min-[30rem]:wrap-anywhere min-[30rem]:text-center min-[30rem]:text-xs min-[30rem]:leading-4 ${isActive ? 'font-medium' : ''}`}>
+                <span className={`max-w-full wrap-anywhere text-center text-xs leading-4 ${isActive ? 'font-medium' : ''}`}>
                   {label}
                 </span>
               </>
