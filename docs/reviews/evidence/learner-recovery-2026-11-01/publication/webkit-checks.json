@@ -1,0 +1,103 @@
+{
+  "engine": "webkit",
+  "version": "26.5",
+  "substitutions": [
+    "isolated SQLite fixture",
+    "deterministic AI/link responses",
+    "scenario failure/response interception"
+  ],
+  "checks": [
+    {
+      "name": "shows lesson choices immediately on load, filtering, and pagination with either motion preference",
+      "status": "pass"
+    },
+    {
+      "name": "counts only public lessons across status filters and pages while keeping private lessons available",
+      "status": "pass"
+    },
+    {
+      "name": "warns on native draft storage exhaustion and retains exact work after retry and reload",
+      "status": "pass"
+    },
+    {
+      "name": "keeps a draft warning until verified readback and handles unavailable copying",
+      "status": "pass"
+    },
+    {
+      "name": "distinguishes coach waiting, pending save and acknowledged progress",
+      "status": "pass"
+    },
+    {
+      "name": "distinguishes coach waiting, pending save and acknowledged progress after lost acknowledgment",
+      "status": "pass"
+    },
+    {
+      "name": "saved reply confirmation fades before the coach with no-preference motion",
+      "status": "pass"
+    },
+    {
+      "name": "saved reply confirmation fades before the coach with reduce motion",
+      "status": "pass"
+    },
+    {
+      "name": "clears the previous save confirmation before the next coach request",
+      "status": "pass"
+    },
+    {
+      "name": "keeps save failures and reassessment notices visible",
+      "status": "pass"
+    },
+    {
+      "name": "retains a failed response and newer draft through navigation and reload",
+      "status": "pass"
+    },
+    {
+      "name": "reopening a pending request joins its late success without generating twice",
+      "status": "pass"
+    },
+    {
+      "name": "provider failure while staying in the lesson preserves newer text and attachments",
+      "status": "pass"
+    },
+    {
+      "name": "reload during generation retains input without automatically repeating inference",
+      "status": "pass"
+    },
+    {
+      "name": "pending submission remains with account A after switching to B and back",
+      "status": "pass"
+    },
+    {
+      "name": "text and optional attachments survive failure, reload and lost acknowledgement",
+      "status": "pass"
+    },
+    {
+      "name": "failed local retention refuses Send without clearing the only draft copy",
+      "status": "pass"
+    },
+    {
+      "name": "reload reconciles a committed turn when the generated journal could not be stored",
+      "status": "pass"
+    },
+    {
+      "name": "restore and confirmed discard preserve attachments and newer drafts",
+      "status": "pass"
+    },
+    {
+      "name": "Settings fields and feedback stay with their owner through A B A and reload",
+      "status": "pass"
+    },
+    {
+      "name": "acknowledges unchanged profile feedback without writes and still retains malformed responses",
+      "status": "pass"
+    },
+    {
+      "name": "delayed feedback generation cannot save into the next account",
+      "status": "pass"
+    },
+    {
+      "name": "lesson titles and metadata fit narrow enlarged text in both themes",
+      "status": "pass"
+    }
+  ]
+}

@@ -98,8 +98,10 @@ async function generateTurn(lessonId, kind, generate, submission) {
 }
 
 async function saveGeneratedTurn(entry) {
-  const persistence = await persistLessonTurn(entry);
   const { turn } = entry;
+  const submission = lessonSubmissions.read(turn.userId, turn.lessonId);
+  if (submission?.id === turn.turnId) lessonSubmissions.setStatus(submission, 'saving');
+  const persistence = await persistLessonTurn(entry);
   if (persistence.status === 'saved' && persistence.state?.lessonKB.data?.assessmentReviewRequired) persistence.message = 'Your reply is saved. The lesson requirements changed, so the coach will reassess your work.';
   if (persistence.status === 'saved') generatedTurns.clear(turn.userId, turn.lessonId, turn.turnId);
   const conversation = await hydrateMessageImages(persistence.state?.messages.data || [...turn.base.messages.data, ...turn.messages]);

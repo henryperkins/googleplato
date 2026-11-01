@@ -1,0 +1,2634 @@
+[
+  {
+    "path": ".aistudio/artifacts/brain/196eecf7-5744-4762-b19b-47cbd67015e6/implementation_plan.md",
+    "sha256": "f2a9e46f93ebd989c22e4d73c3e5df2d645080428686972effbec9e455db814c"
+  },
+  {
+    "path": ".aistudio/artifacts/brain/196eecf7-5744-4762-b19b-47cbd67015e6/implementation_plan.md.metadata.json",
+    "sha256": "70cc38062c463eb383403b18784cf04988e87c22c075f8ba8bdc5fc4e75beef0"
+  },
+  {
+    "path": ".aistudio/artifacts/brain/485db21d-1a20-4e2f-bc93-d02182ace7ef/implementation_plan.md",
+    "sha256": "25c806486810524f27540bad1ecb373e513355ccde93b5a1c0c18acbadaf3b4a"
+  },
+  {
+    "path": ".aistudio/artifacts/brain/485db21d-1a20-4e2f-bc93-d02182ace7ef/implementation_plan.md.metadata.json",
+    "sha256": "08dc2a9cb051cf8d2812c766576b5bcdc69ba2b9703467cebfc9330f9721a2fb"
+  },
+  {
+    "path": ".dockerignore",
+    "sha256": "29df29f5e04925caef4e34967f992f39988ec78eafbe010d3b5d402d7a3268f0"
+  },
+  {
+    "path": ".env.example",
+    "sha256": "117daf58eb99084617c7eea8e05b3ec6dedfccafffd989f851c58d5fb3d24696"
+  },
+  {
+    "path": ".github/ISSUE_TEMPLATE/bug_report.md",
+    "sha256": "694e9ba99f37ad6cadfbee9d14bc577e9981d11c52e43bc80c864eb324cec13e"
+  },
+  {
+    "path": ".github/ISSUE_TEMPLATE/extension-point-request.yml",
+    "sha256": "a581a9dca6ed50c3ac66d1b13f6dab221caf0c4f7238b7ac13ba8cf615aa6d22"
+  },
+  {
+    "path": ".github/ISSUE_TEMPLATE/feature_request.md",
+    "sha256": "b6a9a4e1a24a8ab38f7fc4cc246faa04789cf2aa9043e0d7746be72545c29c14"
+  },
+  {
+    "path": ".github/dependabot.yml",
+    "sha256": "bd94ea8dce50d9a8ae7d5b84e7391f6a8ca6bf2104081f82cdb36fce5e7ae0c7"
+  },
+  {
+    "path": ".github/release.yml",
+    "sha256": "bce332d4f1beb2d1ae8739a9800dc1d24a7802bb735c3f9a91d6dee71ddc66c5"
+  },
+  {
+    "path": ".github/workflows/code-review.yml",
+    "sha256": "dcc38d0baed72b5828f50f537197c54ab7e27469a10a3750a2c0dce6284d3da9"
+  },
+  {
+    "path": ".github/workflows/issue-intake-sweep.yml",
+    "sha256": "bc439cc5f5fd631239e0130e1410e718fea6991b976f4ce34a5361c8e55f9a59"
+  },
+  {
+    "path": ".github/workflows/issue-intake.yml",
+    "sha256": "8076ccd19234e6003ce41e3ff87d9d56028a65988419c7562a917120f9fb9b73"
+  },
+  {
+    "path": ".github/workflows/lint.yml",
+    "sha256": "d73d08813462d4424af7d9551d540124e09219e54db6627b918f2feecae4604e"
+  },
+  {
+    "path": ".github/workflows/log-watch.yml",
+    "sha256": "8829bdcab3c8e0ac3dd45e0e82dc9065c546cbdf20aa1f5a8f10c77772be17fe"
+  },
+  {
+    "path": ".github/workflows/needs-info-rescan.yml",
+    "sha256": "cab011932e9834e96a1b3139d837fd219b3d9eb4f24b2c483d39cf239c65a42e"
+  },
+  {
+    "path": ".github/workflows/pilot.yml",
+    "sha256": "e8de3fcec24be581cf66b78aa0afb629a1e8c70368607bab9d3b64f8c828b6e5"
+  },
+  {
+    "path": ".github/workflows/revise.yml",
+    "sha256": "a4c43796c733c41dceb36b29d6773f7bcd7950a51079f17cedfa735ccc62f37b"
+  },
+  {
+    "path": ".github/workflows/test.yml",
+    "sha256": "7ebfac9ce28e890150cd2a557455854182ba3b2e3281dd5bfadb02357db8c978"
+  },
+  {
+    "path": ".github/workflows/trigger-deploy.yml",
+    "sha256": "83f354069965b9958efe10b4f39026f7eb8cae7cb5e725c29d041cc0639d8462"
+  },
+  {
+    "path": ".github/workflows/version-bump.yml",
+    "sha256": "6f70b28e915ca3e77a262e0a1399952625d63248361501281386ceaf3ce13021"
+  },
+  {
+    "path": ".gitignore",
+    "sha256": "51c9b1b0df5174a4e6b55e8bf9a98d63e30008dca1168f63b5db5469e8e05241"
+  },
+  {
+    "path": ".impeccable/config.json",
+    "sha256": "252d4c48860d3111d238ec913113f91e9088f5b1da165eb73a51a1370145757d"
+  },
+  {
+    "path": ".impeccable/critique/2026-10-19T21-48-27Z__client-src-pages-admin.md",
+    "sha256": "ae3adeaee0e6bc06d4235e5c6baf7aa3925bb97f49a4db427c08ab3cfad654cf"
+  },
+  {
+    "path": ".impeccable/critique/2026-10-20T20-07-16Z__client-src-pages-admin-adminai-jsx.md",
+    "sha256": "2a75f714d6aab2691d6ae944967e00168fd7f86a56150662897ac1b6313b1740"
+  },
+  {
+    "path": ".impeccable/critique/2026-10-24T19-14-53Z__client-src-components-appshell-jsx.md",
+    "sha256": "f69693398dcc04f8f60134243cc1571fdf710b5e137aa7088d0b04fcf26c0ddb"
+  },
+  {
+    "path": ".impeccable/critique/2026-10-25T05-19-58Z__client-src-pages-admin-adminlayout-jsx.md",
+    "sha256": "aefd45b99740c23eb420c7fa125df376b530ccf58c15b8f207a628a3ea496c09"
+  },
+  {
+    "path": ".impeccable/critique/2026-10-26T08-38-43Z__client-src-pages-admin-adminusers-jsx.md",
+    "sha256": "07cdef9c4f380b3cd0cac3fb096afde07cd2d75c557525bb5f9f3cd624e804d9"
+  },
+  {
+    "path": ".impeccable/critique/2026-10-31T18-59-50Z__client-src-pages-admin-lessoneditor-jsx.md",
+    "sha256": "1e548b6d1e7d804b57f83150cdc77ba909c72d8e56e81b38249c752abffc5774"
+  },
+  {
+    "path": ".impeccable/design.json",
+    "sha256": "de3e1262bba0de445111febad975678436e340a8bfb8930a2ab6d3a76d13b389"
+  },
+  {
+    "path": "AGENTS.md",
+    "sha256": "42ea6dbfb64c14bdaa3100852bd613db6667d32060b8648358f9317105fd2032"
+  },
+  {
+    "path": "CLAUDE.md",
+    "sha256": "e0360e8c9ab30a3fd3337c6c0b06a15c8524a1a0f02c5f8251915ef04d84baed"
+  },
+  {
+    "path": "CONTRIBUTING.md",
+    "sha256": "2e281737c7ed35ca672eb54ea98bf2c8812a3f349505cf7523b9ea52e23ae8d4"
+  },
+  {
+    "path": "DESIGN.md",
+    "sha256": "33d61e717985d851baf159dc81072612116a5682dbc8ad578a54bf7f0e3d2860"
+  },
+  {
+    "path": "Dockerfile",
+    "sha256": "b99a0a162febdc05ebb6516f755900a9d3e3cbe2387a01c6dcded636bd4050ad"
+  },
+  {
+    "path": "LICENSE",
+    "sha256": "91fe0a457b9f3c016740818216f32c4832b577e5a102337963b749ca7e2a6e97"
+  },
+  {
+    "path": "PRODUCT.md",
+    "sha256": "552f64686ea59d24dc2e29d1b59e4afdff9f745ab2ca088fd241964c87017c11"
+  },
+  {
+    "path": "README.md",
+    "sha256": "6bd1e92c0f6df76a06064ada23727f62b228b5af08b6792f1f07a118c0e8a066"
+  },
+  {
+    "path": "REVIEW.md",
+    "sha256": "d6fcc01c5660051503241de2a8377a493c4265ddf725af0617bfa9791858451e"
+  },
+  {
+    "path": "TESTING_INVITE_LINK.md",
+    "sha256": "d429f73dbcd2715085f11c3a92ace3c771c299a9c5a6653b2b97463450f2b4bf"
+  },
+  {
+    "path": "client/.gitignore",
+    "sha256": "8b25523c9cb767ff541aebfea38bdc006e3eb8bf4697b7d26dfb0a8ec3fab871"
+  },
+  {
+    "path": "client/.impeccable/live/config.json",
+    "sha256": "acdd8cf322b51eba6249fdbcae606841e063c3cab1376a7d3b4ef61db16c3764"
+  },
+  {
+    "path": "client/LICENSE",
+    "sha256": "119d54a4bd57c098df6da0757e973aa83012507841c68734a88bde4954936715"
+  },
+  {
+    "path": "client/assets/icon-128.png",
+    "sha256": "82050ad7fbd22ea17b7acdca46944484b5bb1a27e750d88f5fb898b1558341be"
+  },
+  {
+    "path": "client/assets/icon-16.png",
+    "sha256": "9efe3d570aa4a2b34971474204ce4be88694c24c09c2b01213adc36b3ec48d43"
+  },
+  {
+    "path": "client/assets/icon-32.png",
+    "sha256": "10d24c40c023c62c56347c50cb1b9360ca9e89ba467cfa7966260ac767e02640"
+  },
+  {
+    "path": "client/assets/icon-48.png",
+    "sha256": "e9b9ebc2dd52696e8f5a542930aa71e2223134bf81c4b54ab7da084e2a9f9369"
+  },
+  {
+    "path": "client/assets/icon.png",
+    "sha256": "3fb0476f1f6163c4e3dd79920fa75828d9e345541a170f9e76de9250b6406985"
+  },
+  {
+    "path": "client/assets/logo-white.svg",
+    "sha256": "586c0d5c7db486273b27f1d6a7190b6857dffc1f9f7e3ae73b62d81f4918e665"
+  },
+  {
+    "path": "client/assets/logo.svg",
+    "sha256": "3e329f91debed7213632e7d488155e612579cadd56580a6b790229c59f463b7a"
+  },
+  {
+    "path": "client/assets/plato-square.png",
+    "sha256": "3fb0476f1f6163c4e3dd79920fa75828d9e345541a170f9e76de9250b6406985"
+  },
+  {
+    "path": "client/components.json",
+    "sha256": "338ef82d6ba8cf3a5aa92594bbf1b65436427c1630eaceaf2e9cd5be2357eb05"
+  },
+  {
+    "path": "client/eslint.config.js",
+    "sha256": "07c0c649de3516ce3aa7b497bf810e0efbaca33875f5cdb19b0c9968cb1b286d"
+  },
+  {
+    "path": "client/index.html",
+    "sha256": "bf16e33d9666695d24bcedb5fabc20c1d3ada9024311677dbeb4f58d4123e3f3"
+  },
+  {
+    "path": "client/js/api.js",
+    "sha256": "3ee726175589fe4186bf4d5d316dcd3b641793c248fe81bd022f161e8dabf8a2"
+  },
+  {
+    "path": "client/js/auth.js",
+    "sha256": "1c1b54a1cdd5e9a5326f67afbfe1e3b65b5e7efbb560dfa4d3e6ac3bf8aa95a2"
+  },
+  {
+    "path": "client/js/clientCompatibility.js",
+    "sha256": "9a5486abc5302c01641f644a80ca97bb16dbe87f17e55631516c9c498af34fc1"
+  },
+  {
+    "path": "client/js/coachTransport.js",
+    "sha256": "15d42a7cca2d6a435d3641d656681a04038c424ded68d25e773a03feb8a077c2"
+  },
+  {
+    "path": "client/js/firebaseAuth.js",
+    "sha256": "a4fffa8ea0da68d20d21f32aaf0d640874f5b3a9097352351dd07f27fcae96f7"
+  },
+  {
+    "path": "client/js/inferenceTelemetry.js",
+    "sha256": "233b5f7437a2ecc0e2b03e40f3196e9514b6d3a9419aef81238a1188563a6da1"
+  },
+  {
+    "path": "client/js/language.js",
+    "sha256": "0fc7f1ff63a65d360d4e7df35e681df7fff8cf18aa3bb66dd1b1287fd9b69844"
+  },
+  {
+    "path": "client/js/lessonOwner.js",
+    "sha256": "25d9a79f180edced7726893cd3fb6411db51dfe30e8ac4f1bd0369701f3db8ca"
+  },
+  {
+    "path": "client/js/orchestrator.js",
+    "sha256": "6e0aa91124bbace568f1f0310fed94f74dcdff846037edf8858624774708c619"
+  },
+  {
+    "path": "client/js/saveObservability.js",
+    "sha256": "3b92d89f8529cda313fbc7686b5130bcba9d2fab7c68e6fa539f3d7d8b23eab6"
+  },
+  {
+    "path": "client/js/storage.js",
+    "sha256": "eb68e0dbd19d34bad48327b24ed8e826bea905002b3837332ff052b161a79d5c"
+  },
+  {
+    "path": "client/js/sync.js",
+    "sha256": "f2685a5b07aa4e2652626f91a0f5a12300a922fbfa536ee7af670b9f0bacd8b7"
+  },
+  {
+    "path": "client/js/turnPersistence.js",
+    "sha256": "ee67a56902fe6cc0b8b6805453c95526b942b4c7e9c4d40f2fb2a9dadfbfd517"
+  },
+  {
+    "path": "client/js/validators.js",
+    "sha256": "4ec89de58f858a41066cdf5c6e68cbbc82fc75bbf12ee00ea17989932e1c9f20"
+  },
+  {
+    "path": "client/jsconfig.json",
+    "sha256": "6dfda1ddf53329b2f1da5cc7e81740c654082fd2921177549754fb688b306d68"
+  },
+  {
+    "path": "client/package.json",
+    "sha256": "53cffddafebc31416db8483dcc07c79c1a77417814f27a9b3dff16687bd6754a"
+  },
+  {
+    "path": "client/prompts/coach.md",
+    "sha256": "ffde85bc018ddeb8bc4501ad0225469bd3037070b224eedc10aa966f31f9067c"
+  },
+  {
+    "path": "client/prompts/course-progress-update.md",
+    "sha256": "f5bff0d17c11e23d969eb4c010f28a79c88917c62b56e67843d85214aa32d631"
+  },
+  {
+    "path": "client/prompts/knowledge-base-editor.md",
+    "sha256": "bb20db8521c5a83183922c482414b4a0f885ef1033f8734553a435a754f9c4f0"
+  },
+  {
+    "path": "client/prompts/knowledge-base-extractor.md",
+    "sha256": "96fea71dd3eb37f048bb2889d193aaac601a88cc1565418aeac7f0b07d53bdc5"
+  },
+  {
+    "path": "client/prompts/learner-profile-owner.md",
+    "sha256": "d3a917ff7b148963a0ed6436f4c5b289f36901c76aed0bd5208c3385e46daf01"
+  },
+  {
+    "path": "client/prompts/learner-profile-update.md",
+    "sha256": "fbcc55ca403a4360cf1d8eb467cbf5613353d1843fc64bb366ca9dd3b6aa0d20"
+  },
+  {
+    "path": "client/prompts/lesson-creator.md",
+    "sha256": "2eec224f3901c71542a473f5c6c40101d3b0f17ff9cd7b33d2c15bf2bfb57629"
+  },
+  {
+    "path": "client/prompts/lesson-extractor.md",
+    "sha256": "48a83dd7f1fd5a0dbf6795d273a772ec558469fb02f02506da4646621ee9cf32"
+  },
+  {
+    "path": "client/prompts/lesson-owner.md",
+    "sha256": "d1677c8d5184829c78db4d4c2aeb69760d2f8b4924a104d5f202b56208935827"
+  },
+  {
+    "path": "client/scripts/setup-branch-protection.sh",
+    "sha256": "4137720eb6589c85add1368b54a904edfa24a2ab177de02aaac24c5cfc779d25"
+  },
+  {
+    "path": "client/src/App.jsx",
+    "sha256": "98b7814fd573d829ee0ae33527acc7ba017a9337904563bf974fd21fc50aed5a"
+  },
+  {
+    "path": "client/src/components/AppShell.jsx",
+    "sha256": "60f54956bba686c5c0762efb0e00d63957632c532f00dc8724daa6cce2147a15"
+  },
+  {
+    "path": "client/src/components/ClassroomLogo.jsx",
+    "sha256": "f25faea4d6cab9d9a297e09fc64c136b43933d5964701ba1b40b247e13b13600"
+  },
+  {
+    "path": "client/src/components/CopyLinkField.jsx",
+    "sha256": "5aae7060ca9e4b674fcf0d9a6e0e3b78436a8033c046e21b3a0ffa183d35c1a6"
+  },
+  {
+    "path": "client/src/components/CustomFieldInput.jsx",
+    "sha256": "38ce4780b60fbbf596d2fe1aba303873ab7b1c9ea20b843c3735790af547d319"
+  },
+  {
+    "path": "client/src/components/ErrorBoundary.jsx",
+    "sha256": "8f8e726ccc9fe8c139014fe0a70d7294dd6d9da45f7af8d551c581f777e889cd"
+  },
+  {
+    "path": "client/src/components/GoogleIcon.jsx",
+    "sha256": "75643be7ed752315d58d162561b5de089d94a435671783ae850568eebd86b1b3"
+  },
+  {
+    "path": "client/src/components/PasswordField.jsx",
+    "sha256": "5e56d5a4bf7f0d7be0f98e73fb2f4d618c5fa80f2b7da5f56264d4a2261b651f"
+  },
+  {
+    "path": "client/src/components/ProfileCompletionGate.jsx",
+    "sha256": "f22af07ef9939f6356ad2884f551e7d71f0ebeb1dd828d7ade9da48b646c2dca"
+  },
+  {
+    "path": "client/src/components/PublicFooter.jsx",
+    "sha256": "1cff10be88dfa069e432447a337eb0386835aed9b22c7458c4552a8f81977c67"
+  },
+  {
+    "path": "client/src/components/ScreenReaderAnnounce.jsx",
+    "sha256": "4c5cb2a9f7ba6f2ab59d13406a5badeaf8cd09fb4ec1c65905a8f595309ead09"
+  },
+  {
+    "path": "client/src/components/ThemeToggle.jsx",
+    "sha256": "33da12bc7819988caa93ee7f2c9c457748981f8e7aa7dedcafc352ad80a7e370"
+  },
+  {
+    "path": "client/src/components/chat/AssistantMessage.jsx",
+    "sha256": "84c5bbbe76c578006cbd609b6d837c7fb2af2c09848d11363b2906217df9b249"
+  },
+  {
+    "path": "client/src/components/chat/ChatArea.jsx",
+    "sha256": "ff8975350819e83a9aff471bdd2cd8537c4643a5ddb3675f8ac50500fc484b47"
+  },
+  {
+    "path": "client/src/components/chat/ComposeBar.jsx",
+    "sha256": "a3c8b84a278dd68dd81fca87f058d3afcaa1bbe2a36937dc391dbb8f24e6247b"
+  },
+  {
+    "path": "client/src/components/chat/LessonLoadingView.jsx",
+    "sha256": "f7ef68aa547f8cc1ac2b0e9b603900187ff3b95f081cc6e763e0b99592cfe6c5"
+  },
+  {
+    "path": "client/src/components/chat/ProgressBar.jsx",
+    "sha256": "9815b20148af72017939b90ed332d70882b8798262dbe0c87595faa17adbdddc"
+  },
+  {
+    "path": "client/src/components/chat/ThinkingSpinner.jsx",
+    "sha256": "b77df90305f527adc89afe256bb41a69ab5c3de3e3370594a65d49bab6a98991"
+  },
+  {
+    "path": "client/src/components/chat/UserMessage.jsx",
+    "sha256": "1689f7769575d66a875920b154828bf2f2e36e31b73faafad21cafce57d71aa4"
+  },
+  {
+    "path": "client/src/components/modals/ConfirmModal.jsx",
+    "sha256": "a31a2b2fa595e1c4d7f6c830a0222af72a0e9b22844dfd4cdc7bca1e5a68e6f5"
+  },
+  {
+    "path": "client/src/components/modals/ShareLessonModal.jsx",
+    "sha256": "6bf800de911bee186ed1f3d5c5bdc0a86eaf472158ec38685f4071034c92d9f8"
+  },
+  {
+    "path": "client/src/components/modals/ViewAsUserModal.jsx",
+    "sha256": "b26030dd1534dd18d8041f36ab048d3e1575b8f10ba3d68dbbbb6ea0397e6e0a"
+  },
+  {
+    "path": "client/src/components/ui/alert-dialog.jsx",
+    "sha256": "f64fefe77bda1084d788dda686a98d6f3ae7b3f464e4bb2ff98759c1a96733e5"
+  },
+  {
+    "path": "client/src/components/ui/avatar.jsx",
+    "sha256": "620b57c45372f03dff397ab3d0ab12312c210d49758ffd62b9503a1cf675ecfa"
+  },
+  {
+    "path": "client/src/components/ui/badge.jsx",
+    "sha256": "142f47d9cebff64efd8a431c7ec2374fbc9e88131195bc15027100f84dea340b"
+  },
+  {
+    "path": "client/src/components/ui/button.jsx",
+    "sha256": "6885d3f6871ba83575ac35ce3dcef2f4f94ef55cc5b0cab0b08760abef420fcb"
+  },
+  {
+    "path": "client/src/components/ui/card.jsx",
+    "sha256": "1b6e7eb7222d1fd258917754ac849621f6628b2ed02e721d202bf0cc84163cd7"
+  },
+  {
+    "path": "client/src/components/ui/dialog.jsx",
+    "sha256": "617954a2f9eee0cf61b9b7baebf0d0f4c765d1ac7df90117528545f998c43cd5"
+  },
+  {
+    "path": "client/src/components/ui/dropdown-menu.jsx",
+    "sha256": "f9db3514188a59b1ad2cf33a72bbf5da1c1e24422ef66c9d81a731b90f83a613"
+  },
+  {
+    "path": "client/src/components/ui/input.jsx",
+    "sha256": "6465bc0c6efbcbc6fecaceaa38529f1eda2cc23e6f98990ea4837679b0825663"
+  },
+  {
+    "path": "client/src/components/ui/label.jsx",
+    "sha256": "afb0bb4fff2f9c4813db7e5fe6dc51c19986fc740e03a7ae17a1dd2cc27fe7f5"
+  },
+  {
+    "path": "client/src/components/ui/scroll-area.jsx",
+    "sha256": "e790826ae45fbb632965343a4636bf7bef98a9b153d468bc950a85b113d3b49e"
+  },
+  {
+    "path": "client/src/components/ui/separator.jsx",
+    "sha256": "6634f3510f7e98b7303d6b7f74a43918e5b82ba54b3ef7fa6c12cc36db413b45"
+  },
+  {
+    "path": "client/src/components/ui/table.jsx",
+    "sha256": "4ffbe71c3b70b6cf669b55d1f34b481561053732f08bd41f2888090726a86dc5"
+  },
+  {
+    "path": "client/src/components/ui/tabs.jsx",
+    "sha256": "f09090b6e574c45e820afd940ea07fa9fbf61fd77c1ff2737862ffec5439e10d"
+  },
+  {
+    "path": "client/src/components/ui/textarea.jsx",
+    "sha256": "0f60d790dcd8f17335b5232dd202d1932a5743fb5d8394f078d4bcb15744e62e"
+  },
+  {
+    "path": "client/src/contexts/AppContext.jsx",
+    "sha256": "7bbc1dee0c86b184e2551ccf46381bb8fe3eac071fc25372821370f4b77f878e"
+  },
+  {
+    "path": "client/src/contexts/AuthContext.jsx",
+    "sha256": "29cbcda7df2e69dbc8632a1f55ee7c805d69d5786466324654bd9258f224cfcd"
+  },
+  {
+    "path": "client/src/contexts/BrandingContext.jsx",
+    "sha256": "89330b2002303ef9710419f612e33c77e6a3b698a503e648d1f96bb4bb1cccdb"
+  },
+  {
+    "path": "client/src/contexts/ModalContext.jsx",
+    "sha256": "4830fc066de8270985a1d8ad72d418e7d26f842d1e055d3c1efaf92c72dd1f1b"
+  },
+  {
+    "path": "client/src/hooks/useAutoResize.js",
+    "sha256": "c7fc6b5b27f124e632a4d5eec5f5822f951d3de91ce8d3452a2e9a125ff304df"
+  },
+  {
+    "path": "client/src/hooks/useChatKeyboardNav.js",
+    "sha256": "a3e842aa61ed3b7c8ac2d174aad12878731cde232f870f475b0c4ccd21e48d19"
+  },
+  {
+    "path": "client/src/hooks/useLessonDraft.js",
+    "sha256": "8210bc9650f53ba6206837666e99ec2e2f1d8bd3c9b0bcd2c919096bc62df6c3"
+  },
+  {
+    "path": "client/src/hooks/usePublicBranding.js",
+    "sha256": "07ac64eb689c39b414728670a573fd2985c2638dd29bff4ef090e32e8c280ab5"
+  },
+  {
+    "path": "client/src/hooks/useStickToBottom.js",
+    "sha256": "a4300e2538a6e16ae10b11fd38e9bfce30fd726d9705a0c1174b866df0ddc83b"
+  },
+  {
+    "path": "client/src/hooks/useStickyScrollPadding.js",
+    "sha256": "ddc3b02e4f05b3217c88207f9aebfcaccaf6cdec1cdc1ccfcdc80afed570156c"
+  },
+  {
+    "path": "client/src/hooks/useStreamedText.js",
+    "sha256": "93bf4c3d6bd20d7c744839d97a021c2f58f16dd749ca2b29da13b7bee362307c"
+  },
+  {
+    "path": "client/src/hooks/useTheme.js",
+    "sha256": "b2d483933bcac77679c2eb9db8dd916c6cf3fa2415f7a0acef2b142062677c68"
+  },
+  {
+    "path": "client/src/hooks/useTitleNotification.js",
+    "sha256": "3acec9314030d428cbf75f785c911a72d93b4b12ff0052b4d66a57592611b38f"
+  },
+  {
+    "path": "client/src/hooks/useVisualViewportKeyboardOffset.js",
+    "sha256": "e4132d73594206ce57d58b9cb46370b2238cf10072a17a81be6dec43f1c4f15f"
+  },
+  {
+    "path": "client/src/index.css",
+    "sha256": "99895523e04345699a89232951f642f92bf6735fdaf60e24896b868adac3b265"
+  },
+  {
+    "path": "client/src/lib/aiErrors.js",
+    "sha256": "897c20cae1a2c72b15ba3b90422ed09427c42e967b21af4123ee3ee3e96fd700"
+  },
+  {
+    "path": "client/src/lib/aiSettingsDraft.js",
+    "sha256": "24a93d551da84caffbaa2bed8f2ebebd36d499c0627edc33c94718efe339fdb3"
+  },
+  {
+    "path": "client/src/lib/aiSettingsFeedback.js",
+    "sha256": "e7d249f1226585a9e9a25dafbe46afbb518c6a682015d47287b833c50688f3a3"
+  },
+  {
+    "path": "client/src/lib/aiSettingsPresentation.js",
+    "sha256": "4a3683eaa954eb6861fde310248c36afb72ce8870b9e1901f01f46398002c0ab"
+  },
+  {
+    "path": "client/src/lib/authErrors.js",
+    "sha256": "3edb049ceb9b7e940f55e7b2a6605f51b7d3f71f46bb670300ca3c6e5fba93cc"
+  },
+  {
+    "path": "client/src/lib/branding.js",
+    "sha256": "348fc65ed2b9d53164b2a64bd347c94519deffb308e2b337494bec774684e0e9"
+  },
+  {
+    "path": "client/src/lib/clipboard.js",
+    "sha256": "ffce0366931f5cbe39b061418d435714ad7d7fbafb8bf60b8573bd9c79241c00"
+  },
+  {
+    "path": "client/src/lib/cloudflareConnection.js",
+    "sha256": "4fe32c8272b1e5e89fd2c7474bf87ed8269fce81b127e6628382c303250cdb7f"
+  },
+  {
+    "path": "client/src/lib/constants.js",
+    "sha256": "24ecec8cd74f79b0d1cd5fe7573bf8f86155f8d326a8f980cf7e305a67f2a222"
+  },
+  {
+    "path": "client/src/lib/courseCompletion.js",
+    "sha256": "aa38a8b815ed4c6063f8d7eefb759a7ce5c8e937390b9afa49c52b5d74d40403"
+  },
+  {
+    "path": "client/src/lib/courseProgressQueue.js",
+    "sha256": "6746acbc386306385b10fef50bc5f6d4cc19dfda9ea1f4dffe14b301e34aabc4"
+  },
+  {
+    "path": "client/src/lib/csv.js",
+    "sha256": "823a83b97ff6f1e943ee881f7121c20951a2361631b8b1a2e02bd4d5e4862b19"
+  },
+  {
+    "path": "client/src/lib/exemplarCelebration.js",
+    "sha256": "5f28eaa2e0f716166847625e3332136247a945f2444be1e75d181a97fef945fe"
+  },
+  {
+    "path": "client/src/lib/generatedTurns.js",
+    "sha256": "27d6d6604147e3d0ed1a7ca359057348bb714abf46bf344c1c904e9e0f07c75d"
+  },
+  {
+    "path": "client/src/lib/helpers.js",
+    "sha256": "78b60952860271cd0a18d5f2c6d897c91e1791a407fe2a16322a5c838f9605bf"
+  },
+  {
+    "path": "client/src/lib/imageCompression.js",
+    "sha256": "9c79c347a7ee93918a374f5a70ce09cfc85f6c80054fcff121b7d0a53d84bb0f"
+  },
+  {
+    "path": "client/src/lib/inviteResults.js",
+    "sha256": "e04bc91adbae4597812201ca299a86b37feabbd7614ee866e2670f5151b34ec0"
+  },
+  {
+    "path": "client/src/lib/knowledgeBaseDraft.js",
+    "sha256": "e89b5e6e0503b69275fb757275ce6409dff69a8ba2d2085be34f400ff1b2499a"
+  },
+  {
+    "path": "client/src/lib/lessonCreationEngine.js",
+    "sha256": "06dc28f4811228da83cd9c77aedd7af876923ae52bb2cb9eecaae008d603c0e6"
+  },
+  {
+    "path": "client/src/lib/lessonDrafts.js",
+    "sha256": "7d88902c9ff8e375963a6b328df6a5216e3a69fedc6ce141e34c92cb87828a24"
+  },
+  {
+    "path": "client/src/lib/lessonEngine.js",
+    "sha256": "75bff38fb565550c3dc3b0fdcecea62c16aa6890c6962e73a70a36d5b7cdaef4"
+  },
+  {
+    "path": "client/src/lib/lessonSaveQueue.js",
+    "sha256": "2f017d179f79381ae27b2d963b647bedb0d7df719d4aeee3656bcfd5e2fc27d7"
+  },
+  {
+    "path": "client/src/lib/lessonSubmissions.js",
+    "sha256": "bddc0f6cdb7459976bbf82da090438674df6dc72886cc0be89a833729a650021"
+  },
+  {
+    "path": "client/src/lib/links.js",
+    "sha256": "56ab50137458a75bef316499aabdfd023dba02784bd23329e889c8cb3b4afc6d"
+  },
+  {
+    "path": "client/src/lib/logoUpload.js",
+    "sha256": "940168f604838ab84814817a778c032a49ab90184e74465ddad3eb96bdbb0296"
+  },
+  {
+    "path": "client/src/lib/plugins/SettingsForm.jsx",
+    "sha256": "442556ffcab80f7bdba56af467cdad024a47927cae2b0f961d49b83516b6eca8"
+  },
+  {
+    "path": "client/src/lib/plugins/Slot.jsx",
+    "sha256": "948adc79d61ea1ecc8fc687d1fbf926d33cbc15266cfa1afd22e508093e2242a"
+  },
+  {
+    "path": "client/src/lib/plugins/capabilityLabels.js",
+    "sha256": "540d909456278d094f31ddf93b919ed72ef2266d2b44acd3c16e37c50e48248a"
+  },
+  {
+    "path": "client/src/lib/plugins/loader.js",
+    "sha256": "71f3aaac29910ed7d153a6f5cdea73e39a48d65577fd24f951fc4b9e474d46b3"
+  },
+  {
+    "path": "client/src/lib/plugins/registry.js",
+    "sha256": "4377453a727d636a8b688aa147b8ba4d3fbe4bec0e129259603493a82f654fd1"
+  },
+  {
+    "path": "client/src/lib/plugins/resolvers.js",
+    "sha256": "367c2351f04efcf1b328d163c97906d2514823a8138c85d3d0703bcf6e481faf"
+  },
+  {
+    "path": "client/src/lib/plugins/settingLabels.js",
+    "sha256": "ba98a6269fde9727661e41b731eb2eb5c8ff2a6b0d8ec828f08b9294631e76e3"
+  },
+  {
+    "path": "client/src/lib/popoverPosition.js",
+    "sha256": "7c3b2efd7c329091598687e3bc7dbf121a20065a3a6d0ef935dc72afd218de56"
+  },
+  {
+    "path": "client/src/lib/profileQueue.js",
+    "sha256": "adba064e53087035f6b5c22b166a1e0e65f870fae96c5abf8d32a23285fa6224"
+  },
+  {
+    "path": "client/src/lib/publicBranding.js",
+    "sha256": "b68de076e05fe37b888897809179fb2ef3fbe4319a33117ba3e9df1e14994c32"
+  },
+  {
+    "path": "client/src/lib/readiness.js",
+    "sha256": "5fc7e3efc3fada0ecaa18d300ce116c662435756ec8aabc6ed10c1c7d84d2b9a"
+  },
+  {
+    "path": "client/src/lib/returnPath.js",
+    "sha256": "86cca676efb992d73f03b5ca1074d7d8bf1eb119759d273acd11bf685a1ff591"
+  },
+  {
+    "path": "client/src/lib/routeTitles.js",
+    "sha256": "f8ccd051619c76cdef4f0b98aaa06f5968adc089824a4bd99d514e008e65de90"
+  },
+  {
+    "path": "client/src/lib/scrollLock.js",
+    "sha256": "ef366c37dd07dfaac592c57bdadadb58ba44ed2893d7d9710663bdd7b0bccbd0"
+  },
+  {
+    "path": "client/src/lib/settingsDrafts.js",
+    "sha256": "c16b0018d2075afe1344f4a489d84ff4f00f1eb466f03cb9b95689d5e0ec1764"
+  },
+  {
+    "path": "client/src/lib/stylesDraft.js",
+    "sha256": "97d5840ca5204a04c378b40aa5fac977541f0d0f8d9fd4a19b72a12a2639f324"
+  },
+  {
+    "path": "client/src/lib/syncDebounce.js",
+    "sha256": "29b67f8d0e15f0aca86427e7f3953ed6e06601ac6c9421bb1a90ea987583ccda"
+  },
+  {
+    "path": "client/src/lib/theme.js",
+    "sha256": "d539490df25f0877ca5017e3cceae0a8ca071bc220d4a49918a5932665048473"
+  },
+  {
+    "path": "client/src/lib/userFields.js",
+    "sha256": "c3bea1726c8c223a781e2e016861e8e79df18b2e75e11e96327f0479b9d1bdb4"
+  },
+  {
+    "path": "client/src/lib/utils.js",
+    "sha256": "5ba0ae526d768600bbfb4a4d345c47f6208cb941adbf456de80804a4cf938350"
+  },
+  {
+    "path": "client/src/main.jsx",
+    "sha256": "9bdb38b294ed18c3171b0c19a557f4b3ad23e65904ac966a3776d85245ae6622"
+  },
+  {
+    "path": "client/src/pages/ForgotPassword.jsx",
+    "sha256": "6e6188491f61b188b34b596bbfe2ab42c190b1c367e851ae98019848a82115ad"
+  },
+  {
+    "path": "client/src/pages/LessonChat.jsx",
+    "sha256": "04fd1a58852b132c8ed3cf3b7953f0b9da6581a63a9b98883a44380bfc122351"
+  },
+  {
+    "path": "client/src/pages/LessonsList.jsx",
+    "sha256": "334940651acd578a439c15add7f57051def23edff87c2f7ba43040243713f795"
+  },
+  {
+    "path": "client/src/pages/Login.jsx",
+    "sha256": "d8880d70588c2308bf05f7aa802d52bdbdae9691f8592b12e88c52cf39b2d62d"
+  },
+  {
+    "path": "client/src/pages/Privacy.jsx",
+    "sha256": "72b9c9863e6757eb7b23cb1402163116ab6832d58ec6d3bb2cc0acd430858506"
+  },
+  {
+    "path": "client/src/pages/ResetPassword.jsx",
+    "sha256": "e636d1d3b39227fe3ffedad73a8f85f0a1564f75a8656d8dd355d5b52d266b19"
+  },
+  {
+    "path": "client/src/pages/Settings.jsx",
+    "sha256": "ff1e849ea68b072b84226dde253fe75e60034ff1dd9b3bd6e852644acf1a934c"
+  },
+  {
+    "path": "client/src/pages/Setup.jsx",
+    "sha256": "68dbf15c5591f9167932cbf571f6644b7ddb21891f873267c602d0726256713f"
+  },
+  {
+    "path": "client/src/pages/Signup.jsx",
+    "sha256": "47bc5987b9ac4d5995c582b5c527a69f177b6038ae1c5df173cc7ccc4b55ad3a"
+  },
+  {
+    "path": "client/src/pages/Waitlist.jsx",
+    "sha256": "722de67a647d89b02c0c84bb3ff05024a1247b48ff4c0d6aeea31d3da4a6c8da"
+  },
+  {
+    "path": "client/src/pages/admin/AdminAI.jsx",
+    "sha256": "bbadec7b255de46d75fae002d4b3154bc00500d1e6f866c9c33f1904f01360f8"
+  },
+  {
+    "path": "client/src/pages/admin/AdminCustomizer.jsx",
+    "sha256": "99d4ea8710b3d4051eec7c7892e0dc0b7782d230a77681619879908c6e9db936"
+  },
+  {
+    "path": "client/src/pages/admin/AdminHome.jsx",
+    "sha256": "32422b7e7e05844d3afa899763c3aa9695a7347597f95af235eab100b0fb8c42"
+  },
+  {
+    "path": "client/src/pages/admin/AdminKBSetup.jsx",
+    "sha256": "8cd7ab6f704557bb3575eb9dd21589a84912b4ff3adb0918a73d963b2f69313f"
+  },
+  {
+    "path": "client/src/pages/admin/AdminLayout.jsx",
+    "sha256": "0c4d4658499dc9210335d0e6206ecb5f56fddd5e8fa995cee8165c06b466bac7"
+  },
+  {
+    "path": "client/src/pages/admin/AdminLessons.jsx",
+    "sha256": "3514400f1ddf759139d5eb88771b0ab9c8d05c86b5912fc36ec01a2fbc9e2b4e"
+  },
+  {
+    "path": "client/src/pages/admin/AdminPlugins.jsx",
+    "sha256": "e2c2d3033c836617ca0c0fb0a3ba90013ed68ac446997e677402377d30718b0e"
+  },
+  {
+    "path": "client/src/pages/admin/AdminStyles.jsx",
+    "sha256": "8b1b3c121361537fd4bb37d8d14222dc5a96b9b8b86956cc333821885cc34218"
+  },
+  {
+    "path": "client/src/pages/admin/AdminUsers.jsx",
+    "sha256": "1146fbe2672c538b1832dd3cd401df1177056d9dd5b58bbf3ee5804bab7fe341"
+  },
+  {
+    "path": "client/src/pages/admin/CloudflareConnection.jsx",
+    "sha256": "915254fc81dd44c46ea131a094a1bc15a1d4dc3e32b7204fc5bea396b724e5ad"
+  },
+  {
+    "path": "client/src/pages/admin/CompletionRing.jsx",
+    "sha256": "314d1c924db758048cb7745a615a9fa7e40e24fe8299b6a3426040c07cfd6dfa"
+  },
+  {
+    "path": "client/src/pages/admin/CoursesModal.jsx",
+    "sha256": "d413413984fb09bcfe457aeac42d07ec7033c8b63fd3fb9c84fe631f91d2aab0"
+  },
+  {
+    "path": "client/src/pages/admin/KnowledgeBaseEditor.jsx",
+    "sha256": "bfbe9ea380bbf88332d3941499bc8e4f53383d8410329a4c1f736fc02a81526b"
+  },
+  {
+    "path": "client/src/pages/admin/LessonEditor.jsx",
+    "sha256": "c4e93c23801d72ea4edda776853a8c9daba6e9f02ab8ed3f1fabd244cf23b584"
+  },
+  {
+    "path": "client/src/pages/admin/LessonVisibilityButton.jsx",
+    "sha256": "69c0745aa86641c3d5a6c2026bace190db5e72a92fb781accd9c7351d3b3cd4a"
+  },
+  {
+    "path": "client/src/pages/admin/MarkdownPreviewPane.jsx",
+    "sha256": "a36627456c78897f41ca02eab7982b203a72561d0584980fe0b238aa320eece2"
+  },
+  {
+    "path": "client/src/pages/admin/MobileLessonRow.jsx",
+    "sha256": "a3d38e3e867c2554e69cce81e0b44eb085aac60b44cd447ee653acb5167041c8"
+  },
+  {
+    "path": "client/src/pages/admin/UserFieldsDialog.jsx",
+    "sha256": "974e2ddfcdb162a09c0861a29fb31e855fcf79c9299a9d807dee4ba377addf9e"
+  },
+  {
+    "path": "client/src/pages/admin/UserMobileList.jsx",
+    "sha256": "418894c2e7b5cd997bd65f1d20a7a030912e00afc97434b74df21450d05f47fb"
+  },
+  {
+    "path": "client/src/pages/admin/UserStatsPanel.jsx",
+    "sha256": "efccac79ea3d60b5e40f1b751d1a07ce75dfa3132cb7b091f486df08b682ec1d"
+  },
+  {
+    "path": "client/src/pages/admin/UsersFeedback.jsx",
+    "sha256": "a14cf4bc109e29179d8bed54707ece6655b34d4fcaefc48448ba85c339ba104e"
+  },
+  {
+    "path": "client/src/pages/admin/WaitlistDialog.jsx",
+    "sha256": "41f7116dc5f680884dbcc276fb0d2c2e3a39bb55f9e9a64ef15aaa2bd15f4b97"
+  },
+  {
+    "path": "client/src/pages/admin/WaitlistEntryEdit.jsx",
+    "sha256": "f049d1d4b072d87689125c429b51d895e5e39e6eb6452b2632d9ff958f80ce98"
+  },
+  {
+    "path": "client/src/pages/admin/adminApi.js",
+    "sha256": "5064baedc7f64d047a53a467fc508a998177dd8379ae71a29c3d40f7d6767da7"
+  },
+  {
+    "path": "client/tests/aiErrors.test.js",
+    "sha256": "b8145f489b1e78a2af226e2540457c1a716a4bc93c63600c0fe7aa0cd4a66d0d"
+  },
+  {
+    "path": "client/tests/aiSettingsDraft.test.js",
+    "sha256": "985be90ab18e921a0693551478329cc3d52ec9c8984dce7f47ff59f9f220225b"
+  },
+  {
+    "path": "client/tests/aiSettingsFeedback.test.js",
+    "sha256": "050795c9589b7341a2ba23f9748783d2944309523e208e107834ba349e338370"
+  },
+  {
+    "path": "client/tests/aiSettingsPresentation.test.js",
+    "sha256": "98fc438fbcee33cbc08f9cf725640b83478136cb26a03f285d8c614dce3aeb6c"
+  },
+  {
+    "path": "client/tests/api.test.js",
+    "sha256": "f7d553ea77dc16cbf56dff197956e4e32bf368f7452d72acdcdaaeb93ff97fc9"
+  },
+  {
+    "path": "client/tests/authErrors.test.js",
+    "sha256": "d734270c836dd70d39fefc424022955e743104964f7df28827057cc96d7119c9"
+  },
+  {
+    "path": "client/tests/authSession.test.js",
+    "sha256": "eda7423cba972a1eb81cb7c41fe7eb6169784733da9f9268e0bcf89cebd4407b"
+  },
+  {
+    "path": "client/tests/background-ownership.test.js",
+    "sha256": "802b71e825da4a9fcd4b4d614c0aa500b6cc6d0aa5334e21ba1aef8d05a5bc22"
+  },
+  {
+    "path": "client/tests/branding.test.js",
+    "sha256": "c48bc0516a7573e996db751eceda0f02c6d970a332fabde470a8355ebc47a5c8"
+  },
+  {
+    "path": "client/tests/browser/admin-responsive.test.js",
+    "sha256": "4c0e91195fed2b4cc8925ab38509e49dab6324a74f21f01385f8fcde6d4323c2"
+  },
+  {
+    "path": "client/tests/browser/customizer.test.js",
+    "sha256": "f1d29a79a7ce8d3b94747a0712bdde26ec277f97c13fa5a1e668db3f156faa44"
+  },
+  {
+    "path": "client/tests/browser/fixtures/learner-server.mjs",
+    "sha256": "b858d623777488255d76b4c09fe78b433fa098160c0358733679bf3aaaaba997"
+  },
+  {
+    "path": "client/tests/browser/learner-recovery.test.js",
+    "sha256": "5ce801b5e9587cff62255b5c58c9fd04917930e9b0dd7c9537f1d011985b9436"
+  },
+  {
+    "path": "client/tests/browser/lesson-publishing.test.js",
+    "sha256": "d0370c5f1da4adccc77b0b779f3bc2f5a8266b77e5b8b46193d64b64a46005de"
+  },
+  {
+    "path": "client/tests/capabilityLabels.test.js",
+    "sha256": "d2a4e0dcf8eddc6dd488daa120bccc88189222caf75735eeebc9217c7bb489bc"
+  },
+  {
+    "path": "client/tests/chatKeyboardNav.test.js",
+    "sha256": "64f714941d313c3c4d33fe23800386f51fe9cd477be0284b16a164d58f92ce4d"
+  },
+  {
+    "path": "client/tests/client-compatibility.test.js",
+    "sha256": "0d3755a78b97d87b4f4e92a8a12d0a0d8bf0d37074bcd83489ad7a92e0505ef1"
+  },
+  {
+    "path": "client/tests/clipboard.test.js",
+    "sha256": "0267983bbf2b73336bb1c8d637f585fd9c33e47e1b6f22d762aa1e116e991bd6"
+  },
+  {
+    "path": "client/tests/cloudflareConnection.test.js",
+    "sha256": "15a375243eac9e335898198dc72904ec590e074367851ad5e4cac6920358402e"
+  },
+  {
+    "path": "client/tests/coach-contract.test.js",
+    "sha256": "b89de2842cf506d1d3a86290935df1144cb68705d6aa86a5fecf6a6f042ade47"
+  },
+  {
+    "path": "client/tests/coach-dismissal.test.js",
+    "sha256": "bb688aa5e01cd89ee9d3ba49f470aea0066ea675c0b1f0ca1b45fcff471a0ed4"
+  },
+  {
+    "path": "client/tests/coach-evaluation.test.js",
+    "sha256": "408e4fd7a410bde3613567c7f8cc21d6d6226c974ae163f63c6122bdc39f96fe"
+  },
+  {
+    "path": "client/tests/coach-initialization.test.js",
+    "sha256": "3000f876ca67a8ff57cd5b03a09345efbd23e181f3238f39d796ee9dc673faac"
+  },
+  {
+    "path": "client/tests/coach-transport.test.js",
+    "sha256": "9d81139d7dd82958dcdff6fe680b3e496d38a1e2192902f8646b977f0c9a796d"
+  },
+  {
+    "path": "client/tests/courseCompletion.test.js",
+    "sha256": "0051405ab63ef02af2cbc4bca7694ef6bd10e3925471276ef987198fe15bb087"
+  },
+  {
+    "path": "client/tests/courseProgressQueue.test.js",
+    "sha256": "2bca02dae8d6f8b0c6ff4ffb0b1ff5372d970920cd459d7eb106704394d15bfb"
+  },
+  {
+    "path": "client/tests/csv.test.js",
+    "sha256": "bae1464416731d5ee5cd014c26556e2c9942797dac0e7c7483a2ed06a4a4bd0d"
+  },
+  {
+    "path": "client/tests/design-tokens-contract.test.js",
+    "sha256": "051e737fd84da45614b3101f492ee63d86523649bfda7d0fe2b34408ffb6e4de"
+  },
+  {
+    "path": "client/tests/exemplarCelebration.test.js",
+    "sha256": "98bcbaed92b3d5aa08effe6ab9b9da1cb0c755547f0c6b3ebd07e8d17f19ce15"
+  },
+  {
+    "path": "client/tests/failure-states-contract.test.js",
+    "sha256": "8a54fa3c400c70eb10cc4687ec6d0e9524be4ae1ab9f8238e0343f50cea307f6"
+  },
+  {
+    "path": "client/tests/firebaseAuthLifecycle.test.js",
+    "sha256": "dc7de9679263fa2aa4a289765983abd1ed8cca52a2be452f6e11c2851a27a256"
+  },
+  {
+    "path": "client/tests/firebaseSession.test.js",
+    "sha256": "97790ac34d5116d7d83db6274e79204433b7533f8d6c1bc766cdc5b13a89ab2a"
+  },
+  {
+    "path": "client/tests/firestore-rules.test.js",
+    "sha256": "33e45e3642cf045d037a725a8671b2b7f32870e9dfe273776944c2d0a58f9d27"
+  },
+  {
+    "path": "client/tests/firestoreRetirement.test.js",
+    "sha256": "b52923a3ae6b122d4ac29a56e666e603c2671fc4d159972d429f755b09e393d5"
+  },
+  {
+    "path": "client/tests/fixtures/firebaseAuthLifecycle.js",
+    "sha256": "b80e34e6ac5b213817f7202d7b86815243fbdf0d7401afef4b28a25ffb34f83e"
+  },
+  {
+    "path": "client/tests/fixtures/firestoreRetirement.js",
+    "sha256": "19135c217f2ff328a0660b22245f7ca248707a90f12d59d97476dbd15ec12bea"
+  },
+  {
+    "path": "client/tests/focus-and-boundaries-contract.test.js",
+    "sha256": "6d47836767f49bcbbdb560ab1d2b6d7b0ee57787cc8cd782908841d406139497"
+  },
+  {
+    "path": "client/tests/generatedTurns.test.js",
+    "sha256": "db4e25ffc8212b8de0d1f87efaf4bf912e8b7547758fa25de2075dd88400815f"
+  },
+  {
+    "path": "client/tests/helpers.test.js",
+    "sha256": "fbc15b8a384a48d055ed221e03515b0142f29384544a93e4a5d6f1aae5339c02"
+  },
+  {
+    "path": "client/tests/imageCompression.test.js",
+    "sha256": "c8af9e4a8cf163dd5d22a853f2c75b4eea47c836d9d1a339889b202391ad603b"
+  },
+  {
+    "path": "client/tests/inference-telemetry.test.js",
+    "sha256": "e7fd2cd532fe73ea0cd7e7408d96ed5700ab85a08c2eeeedc88838abb1956396"
+  },
+  {
+    "path": "client/tests/inviteResults.test.js",
+    "sha256": "5a47e0250712fce6039ad6b9c160bceeacba88d04ac0cdd70d9744fe869e4494"
+  },
+  {
+    "path": "client/tests/knowledgeBaseDraft.test.js",
+    "sha256": "4381b1349535b00390093d885b1b96769f480e2af3d6319fb213b41cbcd07fff"
+  },
+  {
+    "path": "client/tests/language.test.js",
+    "sha256": "ad54dc006ea8498d235c91a981a2b299fa3fe54e423c34dcd9d68db08553e5e0"
+  },
+  {
+    "path": "client/tests/learner-durability.test.js",
+    "sha256": "c4bc5bfbc719425e3110cd93492584e6472763a622f569f6e3018fd0d93c789c"
+  },
+  {
+    "path": "client/tests/lesson-composer.test.js",
+    "sha256": "dd3c4f2dc6fcca92c8d2935d86b19fcfe99d0979edd8cb062a2597fad63aeb13"
+  },
+  {
+    "path": "client/tests/lesson-context.test.js",
+    "sha256": "d0f36c250c5ba981878220a9bdd2e2217c8a1c752186ce19abb1d0d39cb46979"
+  },
+  {
+    "path": "client/tests/lesson-drafts.test.js",
+    "sha256": "65d5a32a4ab7d831caf7813277926596a9760d5df90fc86fc7e606dc754dae8d"
+  },
+  {
+    "path": "client/tests/lesson-images.test.js",
+    "sha256": "833936d881d5955ed71fa61e4866a7db1aeb452885af58a5c0513f3fb4da51d8"
+  },
+  {
+    "path": "client/tests/lesson-links.test.js",
+    "sha256": "5146a3571e3ceb31b1900299439fa49afd64bb6327d2a14e81ca2d805e3a224a"
+  },
+  {
+    "path": "client/tests/lesson-outline-markdown.test.js",
+    "sha256": "c77d8f2f93eb71148e65d7941e377ea121afd96530c6ffbd2a8e96c892371ed8"
+  },
+  {
+    "path": "client/tests/lesson-submissions.test.js",
+    "sha256": "cce75b25465a9c0cace7aec9903b4532216f52d7d260831d56b65420f89d77fc"
+  },
+  {
+    "path": "client/tests/lessonCreationEngine.test.js",
+    "sha256": "cc75b876d6ccb52d945e9ac6b1ee9cba11cfb18a3287d19672cd93edf671bad4"
+  },
+  {
+    "path": "client/tests/lessonDrafts.test.js",
+    "sha256": "da5956922244f840bb64659b2fafb509a8e281f695d172e5faaf180ab11a2c3a"
+  },
+  {
+    "path": "client/tests/lessonEngine-impersonation.test.js",
+    "sha256": "df608bb28ad577146766dbf7cb7ae3f7c7673040561d38fa071bb0a6b8289c0d"
+  },
+  {
+    "path": "client/tests/lessonEngine.test.js",
+    "sha256": "05a6465f9b62cbe71cd59fa9b52bfd81afb40d9a0ce1f3da62b955db1274d1cf"
+  },
+  {
+    "path": "client/tests/lessonOwner.test.js",
+    "sha256": "50a035aeb32d7c2c67a0e5f59e9b7428ec413c5a0c4c7b60668ad32cd42451bd"
+  },
+  {
+    "path": "client/tests/lessonSaveQueue.test.js",
+    "sha256": "9ff7b7c1d202ba5e454ffe7738092e3c385e006bafbcfc4c13467fc1269ea241"
+  },
+  {
+    "path": "client/tests/lessons.test.js",
+    "sha256": "8fa891a15267c760c1a07574c1b7cc8d187313980d35e199ba42ac21deb91f46"
+  },
+  {
+    "path": "client/tests/logoUpload.test.js",
+    "sha256": "f69596e2b83136df5060b927ba582ba55c54fc47ee479b856c88a4b7a2c490c2"
+  },
+  {
+    "path": "client/tests/mobile-ux-high-traffic.test.js",
+    "sha256": "4b6668cd172dc1b393da5c7d7d6d9bb5627c513e648fdd6dcb086a18ca8d788f"
+  },
+  {
+    "path": "client/tests/overlays-and-scroll-lock.test.js",
+    "sha256": "c52566334a455ab6d085a6738931cd0505bc021c39cffb850d359809abe2971d"
+  },
+  {
+    "path": "client/tests/plugin-registry.test.js",
+    "sha256": "b814474223e6fe80f5eea673aa7cde2047ecb513ea681c649af77738e9e3d53a"
+  },
+  {
+    "path": "client/tests/plugin-settings-form.test.js",
+    "sha256": "164d3eea7a242a462756636f12b5fd78053efef3deb0146c57bb1c7280a1a822"
+  },
+  {
+    "path": "client/tests/popoverPosition.test.js",
+    "sha256": "4ee5bc18347181fe3a8d0333fe272f5ea2a5e80adf7f0e5c18f4a567903dfe14"
+  },
+  {
+    "path": "client/tests/profileQueue.test.js",
+    "sha256": "5403455357435050dd6561ea626706990046f0c96a70b00188d42b1627e66bb5"
+  },
+  {
+    "path": "client/tests/publicBranding.test.js",
+    "sha256": "df3cb91f0162d4302862c772c91695a21fad891e7588a14d43c9495003d1ce98"
+  },
+  {
+    "path": "client/tests/routeTitles.test.js",
+    "sha256": "f07b1e86a1b1b1edeaa5eb5c293e42e83fc405f89ddd033c976eddffbf46d3f6"
+  },
+  {
+    "path": "client/tests/save-observability.test.js",
+    "sha256": "228db6338033bcc0195c521a176fd6bd7caa93046430c0e3b82adf720801cabf"
+  },
+  {
+    "path": "client/tests/session-return.test.js",
+    "sha256": "6f24e4f695a1213706330fd3f8470d82a66392c6969db3c0a44be44b1a248a3f"
+  },
+  {
+    "path": "client/tests/settingLabels.test.js",
+    "sha256": "17e5b63fb0a68ad56a16e84253102087843abbdfde6a2abbb7ed1c50fb0bce52"
+  },
+  {
+    "path": "client/tests/settings-drafts.test.js",
+    "sha256": "b672be8ef0cc501e633ec4881ace9039e51e797da74d0d22a5f3786cf2f24f4d"
+  },
+  {
+    "path": "client/tests/settings-persistence.test.js",
+    "sha256": "85c0afabd11610495f338f9de7ac7a5f1017fba4146530db2127573885b5d930"
+  },
+  {
+    "path": "client/tests/shell-layout-contract.test.js",
+    "sha256": "411ff6f2ca51927e0d0e9fda45a1f77b5e13169f0850a843bdc28f128c9d4a1b"
+  },
+  {
+    "path": "client/tests/stickToBottom.test.js",
+    "sha256": "56199f7694dd9b4af16bd9e856b20ae37c499af3f188d432af942292268284db"
+  },
+  {
+    "path": "client/tests/storage-conditional.test.js",
+    "sha256": "c981537b53c749d9870e436934105ceafddee60e7dccd8ca7b544d0a234b4545"
+  },
+  {
+    "path": "client/tests/storage-messages.test.js",
+    "sha256": "6c0710aab14030a30312ea5cb76f9edbca1826f1599ca187cbb0653ddb6475b1"
+  },
+  {
+    "path": "client/tests/streamedText.test.js",
+    "sha256": "35cc4b6b8b37632c4690125ca000f66f903b41c2b45ce4aa28a2cac64b823df6"
+  },
+  {
+    "path": "client/tests/stylesDraft.test.js",
+    "sha256": "5a9ac2d9a0d42c9334415b688b0c872a565b89dd392182f1679e390b5968427b"
+  },
+  {
+    "path": "client/tests/sync-authority.test.js",
+    "sha256": "1766745c2e59611c5bba734788218c2895b60903586deb3ef4adc9394fb650ee"
+  },
+  {
+    "path": "client/tests/sync.test.js",
+    "sha256": "92522da717b8ec94e5fbc53744688b519af709a8db81a5b96047257311db6df4"
+  },
+  {
+    "path": "client/tests/theme.test.js",
+    "sha256": "3ee82b5af2026cac586e656f34c60dbbfc1d0ddffc3fcf0468cb179a32b16936"
+  },
+  {
+    "path": "client/tests/userFields.test.js",
+    "sha256": "f76ae7599be9cf34cc3ed43f797770b584774b4c618a6a3312778dbdf2dc5fe0"
+  },
+  {
+    "path": "client/tests/validators.test.js",
+    "sha256": "d971736164410d10982c1d91499170da8dc19927818fc547834618a34e73f3b0"
+  },
+  {
+    "path": "client/vite.config.js",
+    "sha256": "3d29af6d2cbb9854bc9e0b1956d6fd7b2762ff01ba4b0150fa240505137a9c56"
+  },
+  {
+    "path": "deploy/cloudrun/cloudbuild.yaml",
+    "sha256": "be67ec1b2ae1e42d53f90c63fb8f00410a5df14be159b595b6c5ce06fe96a04e"
+  },
+  {
+    "path": "deploy/cloudrun/configure.sh",
+    "sha256": "b4444dd9d8959b4631be4a104607b7091a3c5093aff6c6ab17ea7ae43a50d862"
+  },
+  {
+    "path": "deploy/cloudrun/deploy-watch.js",
+    "sha256": "159b0ffd418509f3ba9505f5332eaf968fb4d20a4a14bf4880972caafbbd495c"
+  },
+  {
+    "path": "deploy/cloudrun/monitoring.js",
+    "sha256": "92c8a02e64e619bdd8593857cb20416b324f5f191025a4b8a0917445e2babc13"
+  },
+  {
+    "path": "deploy/cloudrun/monitoring.sh",
+    "sha256": "c142bb9d644160563287421ccffe92df3233df56817d3232eed5c8cebadb10c3"
+  },
+  {
+    "path": "design-qa.md",
+    "sha256": "c28a716bf68babfc277192a470915e839769baa301b131965a4330b222e2eda7"
+  },
+  {
+    "path": "docs/ARCHITECTURE.md",
+    "sha256": "315b3f99e2aa0a88f4f4360d369071a934cc96d76f72fd9cc3546a5b831e5844"
+  },
+  {
+    "path": "docs/AUTOMATION.md",
+    "sha256": "b4383d4d44c799ac74812c293e6e10a17aae89fcd6c58b3383347b7d1e5a7c6b"
+  },
+  {
+    "path": "docs/CLOUDFLARE_OAUTH.md",
+    "sha256": "d1b203e65a7378a429b7d0a4cab6dec19737456c8eecfc93a0c5aa70549886a0"
+  },
+  {
+    "path": "docs/CLOUD_RUN_STORAGE.md",
+    "sha256": "ce434272bc667d356d1b4d11ac57dba3ed650e36ec110a02a46f49dc85e4ef0a"
+  },
+  {
+    "path": "docs/DEPENDENCIES.md",
+    "sha256": "88d3f6d1327b1388b44accb13b0a260b2047820e2c5a5cbe6de2645cfb8d3e9c"
+  },
+  {
+    "path": "docs/DEPLOY.md",
+    "sha256": "94feffab424fa10492cd10ee522778ace870dc34848ad4285b64870eca3a9463"
+  },
+  {
+    "path": "docs/DEPLOYMENT_WATCH.md",
+    "sha256": "b31221f6421f707482dce042249e3a769fb9f91d211da61cd7678941350f842a"
+  },
+  {
+    "path": "docs/FIRESTORE_RETIREMENT.md",
+    "sha256": "8238e59be048d573b904b5445cf553a569f8efa3c1df64ffbe51e96c9c907c29"
+  },
+  {
+    "path": "docs/INFERENCE_TELEMETRY.md",
+    "sha256": "03efa7beb9a91c4d00fecc8dd0a69a92150e02cc02e5e363a34f0bda4e68b118"
+  },
+  {
+    "path": "docs/MODEL_SELECTION.md",
+    "sha256": "a2aaa5e605937e325620de8b4ec96f50ce9b0da279f331f362553a8a048f2539"
+  },
+  {
+    "path": "docs/OBSERVABILITY.md",
+    "sha256": "665ec3fa841842fa7a634236e0b2aff114663f664a0d277e7b5c4f76f4a57a54"
+  },
+  {
+    "path": "docs/SAVE_OBSERVABILITY.md",
+    "sha256": "fee349089005aa4cea329440db10bc7f8af4b64e2a62186021658b085b626b5c"
+  },
+  {
+    "path": "docs/WAITLIST_API.md",
+    "sha256": "7b6218181dd4cb97c839ac113fbbb6197f45059d0fc78e8eacd4f353314dccdc"
+  },
+  {
+    "path": "docs/plugins/AGENTS.md",
+    "sha256": "1562d92c7b84113964b88706f3c047123805907c23e6fa3511a77c405372ea65"
+  },
+  {
+    "path": "docs/plugins/API_VERSIONING.md",
+    "sha256": "16297848327791ed751be7116e423491c10cffa4d0dbb90417aa069c19a5a52d"
+  },
+  {
+    "path": "docs/plugins/AUTHORING.md",
+    "sha256": "878d7b9930b22b50ffc77be84d5303e317acc68c2ee0a74010e554d7fa63f730"
+  },
+  {
+    "path": "docs/plugins/CAPABILITIES.md",
+    "sha256": "712de2fb6d7de3ee2b3636417ce64513c3939db79b162f477d465a831b00771f"
+  },
+  {
+    "path": "docs/plugins/EXAMPLES.md",
+    "sha256": "df368979a3080bd39066f012e3ef0632c893c5b559127c89744be353ff4aadea"
+  },
+  {
+    "path": "docs/plugins/EXTENSION_REFERENCE.md",
+    "sha256": "af35e90ce93368ff0c2a95acd5a61c9b7bcdfb1bc22f44b286ce5d7548284fcb"
+  },
+  {
+    "path": "docs/plugins/README.md",
+    "sha256": "83f96b0d0027250dc5f3380d440f08f9db05ee8db6656067382de8519a14024f"
+  },
+  {
+    "path": "docs/plugins/TRIAGE.md",
+    "sha256": "ac2dfbeeded2ac36c716f2307e38ef3c25d5ca862db8ceabf5caa632aef844a1"
+  },
+  {
+    "path": "docs/plugins/plugin.schema.json",
+    "sha256": "c59bd35c5e960e0e0f55d2f4b31f0695f35edaee905cfeb567eb8526c9cf1bd8"
+  },
+  {
+    "path": "docs/plugins/templates/server-route.js",
+    "sha256": "616905c6443fb3b34da927d072e444e12c5bbe54074b86fc604b9cceebbc59ac"
+  },
+  {
+    "path": "docs/plugins/templates/settings-panel.jsx",
+    "sha256": "db456ac4f02785f7b845ecb30296be8db47862500f495823305723e832983072"
+  },
+  {
+    "path": "docs/plugins/templates/test-server-route.js",
+    "sha256": "c42bcb206c827b3321cdcdc933584538bf2900d67d90c95d484ac498490508aa"
+  },
+  {
+    "path": "docs/plugins/templates/user-row-action.jsx",
+    "sha256": "190aa79324b3af68d9b10e8819c9309fd08dae9bb6c64926b5ff6c2bb7d55792"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/README.md",
+    "sha256": "63b305e7f27259b5acfaa463cb9ee556296a3dcd2724301e4fd4b9064a341f3d"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/desktop-after.png",
+    "sha256": "e80724fdc5c05cc15117c59302084555a86afe988edfd37412c5499f36b6157f"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/desktop-before.png",
+    "sha256": "6ad30c584ef1d22b136723dbc2d45b2164698b781ab39d74f4246949f24ce839"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/long-account-error-phone.png",
+    "sha256": "f20244093aa9c72b44e81c7a9bd1ce296fe8ebd59647395d2cf05e196703092e"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/phone-after.png",
+    "sha256": "797f6490425b743f59b94fea268cd748e7778ecfa0791823c7d4e74a105d3a93"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/phone-before.png",
+    "sha256": "ff04a50c69c5fd7bc78ea7e0220352557d8a9c1523ddfd96d3a2305cb4a8b9c7"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/phone-dark.png",
+    "sha256": "dbeb699e670182a282bd495cc9d22a432d4e96f0a37f9a34aaea8a195000e94c"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/restored-draft-phone.png",
+    "sha256": "999704329a677e079256ee6191b7dd105580d0fa7dbdb5281624a117e4a2176d"
+  },
+  {
+    "path": "docs/reviews/admin-ai-settings-2026-10-25/unconfirmed-disconnect-phone.png",
+    "sha256": "dea603e72624ca50f5c6e91b2a19b78ae959b90aa8efab6abdf7f9074f861a33"
+  },
+  {
+    "path": "docs/reviews/ai-error-diagnostics-2026-10-25/README.md",
+    "sha256": "f9ab63538440213d9c76d1d567ac7bd4dd882689197de20b015909ef3b22ed00"
+  },
+  {
+    "path": "docs/reviews/ai-error-diagnostics-2026-10-25/ai-settings-bedrock-warning-desktop-light.png",
+    "sha256": "1e81a4339ae78c33aacb1bf056069877255d9509413ad9988bad6afab8707c76"
+  },
+  {
+    "path": "docs/reviews/ai-error-diagnostics-2026-10-25/ai-settings-bedrock-warning-phone-dark.png",
+    "sha256": "6bdbe8c33b4deea0d007581628b5962b2c0f1568cbb8a275bd8ba4308855c75a"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-audit-20261026/chat-default-maroon-light.png",
+    "sha256": "f5d8253355c0bbdbdfe112ec8d8df56aa88ef884021ed85839dabfb5810a0c2d"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-audit-20261026/chat-very-light-match-light.png",
+    "sha256": "24718f51f93346eb2f49b4d22719d91ec02972b8c1e40ad0bbf8673a646e5069"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-audit-20261026/customizer-knowledge-editor-desktop.png",
+    "sha256": "848ee852ff911c40218b4dec574f1837c4a7765dfdacb5652b64ec777333da84"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-audit-20261026/lesson-editor-preview-desktop.png",
+    "sha256": "e2ec70b24a63894f8def00c405a7815e323c6c0c56a2622178f80d5774ad7a2a"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-audit-20261026/lesson-outline-modal-desktop.png",
+    "sha256": "cb0ce1c3bd07be3970a74fce04b9f62f6799f4ac9bfdba8cbe411897389d4f8c"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-audit-20261026/lessons-default-maroon-light.png",
+    "sha256": "0c93b10f9819b828caa59646a9f0e673fe2876f6a41e72c9e4bc50738b2333fb"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-audit-20261026/lessons-very-light-match-light.png",
+    "sha256": "3c27a789ff66d176ad364d8a0e03c9ce20f3cd69fa2679a1dec1fc33447fa7ba"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-experience-20261026/knowledge-reviewed-preview.png",
+    "sha256": "fa0df025b54b3de9eb370282cefd12d75252fa1b099376b3a18cb0d2c6280e8b"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-experience-20261026/knowledge-saved.png",
+    "sha256": "d2bf58fde41bccc0954b36f7a6810b477fcfa25e40ad4103077c5704f0286ded"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-experience-20261026/knowledge-unsaved-dialog.png",
+    "sha256": "c71e490625435e0ceeb94bd3ef1213b9fc0ceacd9dc6ea9dd95cd2d63faef0ec"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-experience-20261026/styles-desktop-dark.png",
+    "sha256": "20496fcb2880139f3010980bba28f36839a101e7e4ba3790e88978f63619202b"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-experience-20261026/styles-desktop-light.png",
+    "sha256": "fe3c7484d1f6c8918b524e97ef032881201d1d2d77ad1eeac5fcb03a36281faa"
+  },
+  {
+    "path": "docs/reviews/assets/customizer-experience-20261026/styles-phone-dark.png",
+    "sha256": "17f56efcea22541353b39b07d495d44115185e5ce197d113c91e22217f01de71"
+  },
+  {
+    "path": "docs/reviews/assets/pr21-responsive/desktop-ai-1024x540.png",
+    "sha256": "4f87c5d2a339d6bb00b5c738da366df14c67b20a8ad3b29983240a28f055cdc4"
+  },
+  {
+    "path": "docs/reviews/assets/pr21-responsive/text200-customizer-480.png",
+    "sha256": "6b2980b40bde6e4da9bf05dec5d6afcc832ae5fa275c33181e741a188829de50"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-and-experience-review-2026-10-26.md",
+    "sha256": "108f557f5a21511b8821a17fbd8df9d087f6a73fe3a01308ecfcd8bd57c7d175"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-followups-2026-10-25.md",
+    "sha256": "4b1fa32c1d09c5a914eec01f46220f790a882af8706fb726f4561726095c085d"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-followups-2026-10-25/legacy-notice-desktop-light.png",
+    "sha256": "a802e04e74a4ca80edd222ce2794a74939584a4f672c453f4b35a47a34605502"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-followups-2026-10-25/legacy-notice-phone-dark.png",
+    "sha256": "1e6561a71afe769caa774c35b349facb699fbc95aedba65d43b7d5d40baef84f"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-followups-2026-10-25/optimized-desktop-light.png",
+    "sha256": "cebd06c4832c28c49d35fba1d573c82f79fc274c69e26c220214690c16f0ae8d"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-readiness-2026-10-25.md",
+    "sha256": "2b063b97fbff74628f51e49a6d01a2205bddd45bb7fd717f00bdf21240e15390"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-readiness-2026-10-25/blocked-logo-desktop.png",
+    "sha256": "2270071a43f044799587fb2c5b856233e1460071fcef25bf85e782b2c5d0fff5"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-readiness-2026-10-25/blocked-logo-phone.png",
+    "sha256": "7b1e443e891ebd438e2d17bbae013b746da32be8b8d4cd0bfda8147b6fb15bc0"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-remediation-2026-10-25.md",
+    "sha256": "8c4231bea99dfc48e3f25fbc1eaaaae5e82e3fb2ee23616d025aaa206b9b3cfd"
+  },
+  {
+    "path": "docs/reviews/classroom-customizer-remediation-2026-10-26.md",
+    "sha256": "af049a16180122250df9b21106b4a6f791c57b41820b950b98cb4d8a896420f3"
+  },
+  {
+    "path": "docs/reviews/client-upgrade-recovery-2026-10-20.md",
+    "sha256": "48244df7f54988fe65f54edddd8d40f7f168353a69196ca161628ce1a4ed22cc"
+  },
+  {
+    "path": "docs/reviews/client-upgrade-recovery-2026-10-21/reply-recovered.png",
+    "sha256": "1308228b955a210f8afb5a2fef156f036caf6addaa6989ee51b880f5c26b4702"
+  },
+  {
+    "path": "docs/reviews/client-upgrade-recovery-2026-10-21/storage-blocked.png",
+    "sha256": "8d7c4475cea85bbdfe7a6fd238465001a1e3dec61bef9bfcd7b8b5522a8830bf"
+  },
+  {
+    "path": "docs/reviews/cloud-run-durability-2026-10-20.md",
+    "sha256": "e75aacaa8e68344bc527d9d441df7697073a3dcfd882b561440f33dbcbb9662f"
+  },
+  {
+    "path": "docs/reviews/cloudflare-oauth-2026-10-21/retry-with-new-connection-desktop.png",
+    "sha256": "70854778820cf0c40654731ed931814789d47e67ef6178a9f8d6b409e3aa3407"
+  },
+  {
+    "path": "docs/reviews/cloudflare-oauth-2026-10-21/retry-with-new-connection-phone.png",
+    "sha256": "ca86e949dafef6c7e7c3e7d3522e1b94028ab4e4efb923e775eba80d2cd00b19"
+  },
+  {
+    "path": "docs/reviews/cloudflare-oauth-release-2026-10-21.md",
+    "sha256": "3a70fff93fa6c2814eb5e7a19be07d82c795f14f6a35868baef87462c466a143"
+  },
+  {
+    "path": "docs/reviews/coach-live-evaluation-2026-10-25.md",
+    "sha256": "22c73334fa97ce8780fa93f6dcac82abaf4014ddce0fd90adf94973d4e7885bd"
+  },
+  {
+    "path": "docs/reviews/coach-prompt-consolidated-review-2026-10-25.md",
+    "sha256": "ad96c7a4c3dca4784f1964cfe1fd21ec588f4ad13535a848e0d77ab9e6069f09"
+  },
+  {
+    "path": "docs/reviews/coach-remediation-2026-10-25.md",
+    "sha256": "76ff2784b3153483f425db5e93d58b0396b5f525099159de63cd215082a8e1f2"
+  },
+  {
+    "path": "docs/reviews/dark-mode-fills-2026-10-27/README.md",
+    "sha256": "e101e4fedc560a7d60d319477533f28bca53e83b805eac2f83aa9e680225f79a"
+  },
+  {
+    "path": "docs/reviews/dark-mode-fills-2026-10-27/admin-strip.png",
+    "sha256": "b3c3d7f8387fc938ee957c6ccb38e27ab24668ccb2078bc1f06f066c50886a5b"
+  },
+  {
+    "path": "docs/reviews/dark-mode-fills-2026-10-27/bubbles.png",
+    "sha256": "0b8502ebf0d6f2d34be30a4b5740550fa9a2381513748d2ff61fb16df3a8c6bc"
+  },
+  {
+    "path": "docs/reviews/dark-mode-fills-2026-10-27/course-progress.png",
+    "sha256": "cc83ddfa3199cbc02f335798dd1eb29baba840fa4395d485b40e77d2ffe8d976"
+  },
+  {
+    "path": "docs/reviews/dark-mode-fills-2026-10-27/customizer-preview.png",
+    "sha256": "93f346a792c7167384ab74881c6de306d5ae4274de8fd0ba9a76d30de4922d03"
+  },
+  {
+    "path": "docs/reviews/dark-mode-fills-2026-10-27/fields-dialog.png",
+    "sha256": "38ca68b22d9a3395b234c0a14b53de472fae135677fe36cd1037d2dabbefdc51"
+  },
+  {
+    "path": "docs/reviews/dark-mode-fills-2026-10-27/fields-settings.png",
+    "sha256": "9c7558215bfcc21fc8b794b6a1a8cfdbbca4a4217e8727e69f69b3222dafd0ef"
+  },
+  {
+    "path": "docs/reviews/dark-mode-fills-2026-10-27/night-header.png",
+    "sha256": "5085e9e48777dc9161f933680c4215e224166d595c51c90d62832c56327163e6"
+  },
+  {
+    "path": "docs/reviews/firestore-retirement-empty-recheck-2026-10-20.json",
+    "sha256": "d56fef08b4e0a4ec4cf222eccee525f612d976f2495ea75ec55c9a32854cca8a"
+  },
+  {
+    "path": "docs/reviews/firestore-retirement-privacy-2026-10-21.png",
+    "sha256": "0062cee182a95b63a359ebbcba2d336981d6cc87c46d367b2c80e3f55ede82cb"
+  },
+  {
+    "path": "docs/reviews/hardening-pr2-pr4-2026-10-24/README.md",
+    "sha256": "8b6ae0322948d93e82b4857a5ab3de9f850cf429738e4b941b8754dea0131642"
+  },
+  {
+    "path": "docs/reviews/hardening-pr2-pr4-2026-10-24/copy-link-denied.png",
+    "sha256": "a3bcd16f22d27c3e74a39aaee41c95468aa139892399380385835aa8d5a15dac"
+  },
+  {
+    "path": "docs/reviews/hardening-pr2-pr4-2026-10-24/copy-link-success.png",
+    "sha256": "968d0d702b052004c038cd995f54c300754a97041a3ebe77a0ba6a2b35f3df86"
+  },
+  {
+    "path": "docs/reviews/hardening-pr2-pr4-2026-10-24/copy-link-unavailable-mobile-dark.png",
+    "sha256": "2fd0ce6b76c907aed9f65130973e3050b6870a646ec8e606aa215aa1e365ee91"
+  },
+  {
+    "path": "docs/reviews/hardening-pr2-pr4-2026-10-24/screenshot-after-reload.png",
+    "sha256": "c590fba34069d39a904d2ec15a547c08b1698e6ca38d2b25da58fd2f500aca78"
+  },
+  {
+    "path": "docs/reviews/hardening-pr2-pr4-2026-10-24/settings-password-changed.png",
+    "sha256": "f53aec0358a773cf6f735ffc88a86784885b3b76c11c9abcc10b45efa5cda425"
+  },
+  {
+    "path": "docs/reviews/impeccable-record-refresh-audit-2026-10-26.md",
+    "sha256": "1d39d204c88558269f12c798f19d374b902e0b688bb9e4db4b9c4773c1102cb0"
+  },
+  {
+    "path": "docs/reviews/interface-clarity-2026-10-21.md",
+    "sha256": "dd8a55e08f532b7a0db5404eb31087941c1b3156fc49542b2db68a4893ebda0c"
+  },
+  {
+    "path": "docs/reviews/interface-clarity-2026-10-21/admin-plugins-mobile.png",
+    "sha256": "456719bd6c0370eda2e6b2eb02c3c8b0b2794872bb22707f5d23339870ebe335"
+  },
+  {
+    "path": "docs/reviews/interface-clarity-2026-10-21/learner-outline-mobile.png",
+    "sha256": "8018ed2b5526c512de3f3cd1684a488fcda01a9327342b16ef9bcf55afb846cd"
+  },
+  {
+    "path": "docs/reviews/interface-clarity-2026-10-21/privacy-plugin-disclosure-mobile.png",
+    "sha256": "b90ba4543b2511f3e559bf06cb13b9ce1ef2b75e9282390dcb283b22a4d8c810"
+  },
+  {
+    "path": "docs/reviews/learner-durability-2026-10-20.md",
+    "sha256": "ae655ea80ef652c56732f83c9cf04468d6400b6e8e2fd71deb2bd28c8e4a0614"
+  },
+  {
+    "path": "docs/reviews/learner-mobile-remediation-2026-10-25.md",
+    "sha256": "a3659c30a1fbb29a95225ec2cdd19e62a32bec3a482af937711e46d6af52911b"
+  },
+  {
+    "path": "docs/reviews/lesson-authoring-2026-10-20/README.md",
+    "sha256": "9e20f3b580122f51ef17dcc50e71cd4208e64ec18f571eadd173ef71cce16b58"
+  },
+  {
+    "path": "docs/reviews/lesson-authoring-2026-10-20/checks/fixture.js",
+    "sha256": "f6fc79e83bedc69f55bbff042fab21959250e19c6e24a72e7ef8e8febe216ea2"
+  },
+  {
+    "path": "docs/reviews/lesson-authoring-2026-10-20/checks/workflow.js",
+    "sha256": "7beca738c9d0f6723aab37f75441d9ea473ab7864c1ec49063d9c7cebfcc0dd8"
+  },
+  {
+    "path": "docs/reviews/lesson-authoring-2026-10-20/desktop.png",
+    "sha256": "1cc4d71bfa5fa0e39e70aaab2cfd755bee1c9844aaa5a676b73a0dc01c6f79fc"
+  },
+  {
+    "path": "docs/reviews/lesson-authoring-2026-10-20/mobile-send.png",
+    "sha256": "84e9a3a6d07264ee2b87cb8991064f68e8559b4964c44c36e5ecea96a1f3eaab"
+  },
+  {
+    "path": "docs/reviews/lesson-authoring-2026-10-20/text-200.png",
+    "sha256": "39593c7adcedc47a38defa8f0741512c3af45e1617f1734bd541fae133a9a2d6"
+  },
+  {
+    "path": "docs/reviews/lesson-layout-typeset-2026-10-31/README.md",
+    "sha256": "08668318682cb34a4244bdbad372f5b5be4cfebe863cc3048b860c432e330d9d"
+  },
+  {
+    "path": "docs/reviews/lesson-mobile-refinement-2026-10-31/README.md",
+    "sha256": "64a61e6982eb5338331ac5faf564e1d5a5004577b0411a9339f6d70bf333fbda"
+  },
+  {
+    "path": "docs/reviews/lesson-polish-2026-10-31/README.md",
+    "sha256": "44054b57957cc4080867c545404c152908edd0f75647dec86052095dbe47d1c2"
+  },
+  {
+    "path": "docs/reviews/lesson-publishing-2026-10-31/README.md",
+    "sha256": "d69053a54eb8dc9aa7642b6385184e34b485f84cbc7e10982ec32cd7de13f373"
+  },
+  {
+    "path": "docs/reviews/lesson-publishing-release-2026-10-31/README.md",
+    "sha256": "93ccfe66d8c52db46edb80fce2a5e159b865b307fb4e06c87c42cb01276d4db9"
+  },
+  {
+    "path": "docs/reviews/lesson-publishing-release-2026-10-31/screenshots/editor-desktop-light.png",
+    "sha256": "2ec295c4b877bb4659560322f9e60d03f00c62d62dd4b9ab98e667ed2d6b5caf"
+  },
+  {
+    "path": "docs/reviews/lesson-publishing-release-2026-10-31/screenshots/lessons-mobile-light.png",
+    "sha256": "428c872c4f99d7bceeaea7bafe9cf47e743d39d44dd226b1daa51a689e6b8ec5"
+  },
+  {
+    "path": "docs/reviews/lesson-publishing-release-2026-10-31/screenshots/review-mobile-dark.png",
+    "sha256": "909dea6c3bb7d2810d0dae1c1c227d608f3dc9273b6c5095e0953d18f56f0e05"
+  },
+  {
+    "path": "docs/reviews/lesson-publishing-release-2026-10-31/screenshots/visibility-mobile-dark.png",
+    "sha256": "c04ca1415f493dfa9b63e423677fba491262c0e7079c135cacbbff74a1b3532e"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/README.md",
+    "sha256": "08d78e186c510071e439fe75f0ef6666e9ce306beb3f686ddb235cf7ccf2e36c"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/before-desktop-width.png",
+    "sha256": "0dce58490ea2dbb4975652dfc4c7321414e2f9d764c438fb0434f6c0434cc900"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/before-mobile-spacing.png",
+    "sha256": "2b37c9eab304d01bd6d8b8dc8969a538fa6c3dee971816918844a71830c3a23a"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/create-desktop-light.png",
+    "sha256": "a88965514d4eede7197f99f5c96962b6b8df145cda82176e3702ae8d18904e98"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/edit-stale-desktop-light.png",
+    "sha256": "2c7474742d4b2700ea99f9c19f24b7711e4ef63aaa2bda163ea60ea392e7c5db"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/edit-stale-mobile-dark.png",
+    "sha256": "543d59a90c956ae32c2f3abd44e6a7bf6e2aba45ec90d088caf9cf6dc54a2ad1"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/refine-mobile-light.png",
+    "sha256": "026c08f16430d2c1ce4a41d6520345ebecdc9f2125ced95a7f30ca96fa39100f"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/refresh-failed-narrow-dark.png",
+    "sha256": "f0a820dc1a637fe31fd319e68baba0ecba9b1b035762464f3e6f1d4a6f06387a"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/review-enlarged-text.png",
+    "sha256": "7d32f4d8b62653207ab04bb9c378d90b256d9b245e936105d7e9dda100b451fb"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/review-mobile-dark.png",
+    "sha256": "a5b0b494824626e78b1054cdf0f268301fc72eb03e113a1b2553db514d992bea"
+  },
+  {
+    "path": "docs/reviews/lesson-workspace-2026-10-31/screenshots/review-mobile-light.png",
+    "sha256": "b7a45524e15497fbfa75f0813293de3b46acf3e31646db99aaa1498172b8081f"
+  },
+  {
+    "path": "docs/reviews/mobile-feedback-2026-10-31/README.md",
+    "sha256": "af2d7fad16339863cecd112ac3a594199cab6459a5a6079e2f0ce7dee74fb169"
+  },
+  {
+    "path": "docs/reviews/mobile-feedback-2026-10-31/screenshots/editor-entry-390-light.png",
+    "sha256": "28631382d5ed7fdbaa6134b5b75dd165a8702e1332a5a35e9906253dda9040ab"
+  },
+  {
+    "path": "docs/reviews/mobile-feedback-2026-10-31/screenshots/refresh-error-visible-320-dark.png",
+    "sha256": "8c583d9a5044b983d4ff66b440fc28b07f2933d6b7f064669176ea323ec33fa1"
+  },
+  {
+    "path": "docs/reviews/mobile-feedback-2026-10-31/screenshots/stale-refresh-first-screen-320-dark.png",
+    "sha256": "94b2ae4a713697edac2c589f8069d64e04307d1a7383f9fbd4c7085f5c10deef"
+  },
+  {
+    "path": "docs/reviews/pending-work-integration-2026-10-26.md",
+    "sha256": "14b8b6915256aa113f12a3be00bb1beeb45c95a11b4cf507affe679838bab118"
+  },
+  {
+    "path": "docs/reviews/pending-work-integration-2026-10-26/narrow-lessons.png",
+    "sha256": "512854758075c52a1641a6c252ef356c64d816e60f49c4e79511da3545993f4a"
+  },
+  {
+    "path": "docs/reviews/pending-work-integration-2026-10-26/retained-response.png",
+    "sha256": "9ee60060017376a40878660f058e08c8ed830cf2c9330935e140840b4ae4b569"
+  },
+  {
+    "path": "docs/reviews/pr-3-review-2026-10-21.md",
+    "sha256": "abd3322f9d0ac3163fceeea94544ffcb607ed6a5931918536759b381c6d90a59"
+  },
+  {
+    "path": "docs/reviews/sync-read-paths-2026-10-25/README.md",
+    "sha256": "192f3f24801c651ce675106d9d200dd03529c3ca6584be482a5621e211afebe4"
+  },
+  {
+    "path": "docs/reviews/users-mobile-2026-10-26/README.md",
+    "sha256": "634c40ad46d8b488ee9540b7b40fa494fdd078ba96681fc337dbf0b809b071b9"
+  },
+  {
+    "path": "docs/reviews/users-mobile-2026-10-26/desktop.png",
+    "sha256": "cc2f1f1b9bcef5c7f08e168fac38c7f8840d0237e792b62285acf1fa60e26c02"
+  },
+  {
+    "path": "docs/reviews/users-mobile-2026-10-26/editor.png",
+    "sha256": "ec4ad74922e58a7d805fb528e90d1181ee313833b8de3c0896484969413b4d62"
+  },
+  {
+    "path": "docs/reviews/users-mobile-2026-10-26/filters.png",
+    "sha256": "1a0af3b77bfd352ef065b853ffd57bd57ba26df2ae38aab93de492794a02a7bc"
+  },
+  {
+    "path": "docs/reviews/users-mobile-2026-10-26/phone-dark.png",
+    "sha256": "02b92276622cca28132b9709ce8f257a5bb2af71e14ab4ef7c3610b4f122c489"
+  },
+  {
+    "path": "docs/reviews/users-mobile-2026-10-26/phone-light.png",
+    "sha256": "85d6a58b0c8258a9d1224526a1bab35c1b9f4c9367cd2b38f932978ffd06be39"
+  },
+  {
+    "path": "docs/reviews/waitlist-timestamps-2026-10-26/README.md",
+    "sha256": "00ac8e41dc2a288ec6710c1317e4584defdf8f546533052f6285eda388ee5bc3"
+  },
+  {
+    "path": "docs/reviews/waitlist-timestamps-2026-10-26/waitlist-en-GB-1280.png",
+    "sha256": "5a990e26af7b80c63eacb6a3e8571f8ee88b16134ec36929746d7dae4e4225f0"
+  },
+  {
+    "path": "docs/reviews/waitlist-timestamps-2026-10-26/waitlist-en-US-320.png",
+    "sha256": "ac134c7b0e26f971d24cf5ab1ab58c18356df5ccfcd9298bebd52154bc1a801b"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-25-coach-assessment.md",
+    "sha256": "3e2026d505ca74d4c1bfaac122d130af906e04e24a521f71fab6a27700a2c2d8"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-25-customizer-readiness.md",
+    "sha256": "ab239a6d5c8c3d26d9b41bf2fc79379d91399b28618966f363a681863a44fcc1"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-26-customizer-regression-fixes.md",
+    "sha256": "3d57fa2d5214f498826e82d9dce8e2e2174c9c88922fecd98bba1b2ad5712083"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-31-lesson-mobile-refinement.md",
+    "sha256": "56e08c648fcb1c0bfe23d41abfd3d64c2b89b685734d3b2dd37fc92aff5add3d"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-31-lesson-publishing.md",
+    "sha256": "713d9e7c7805bbd3f7fff2db607f3ce94ae0df505eb2c0a3de477e878d4f7311"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-31-mobile-lesson-feedback.md",
+    "sha256": "6de30210169e0aa44af1ca0c9dd0096b029ac858b29590a1ca2970c958f2e88e"
+  },
+  {
+    "path": "docs/superpowers/specs/2026-10-31-lesson-mobile-refinement-design.md",
+    "sha256": "7b83dc7c6b773ff63c75d2a6eaa7281e4a3ad3e470222f422344ade098ad6a88"
+  },
+  {
+    "path": "docs/superpowers/specs/2026-10-31-lesson-publishing-design.md",
+    "sha256": "1180a34eb87b93866342f997c855489ccc655930beac2c528122ac04e89ebb67"
+  },
+  {
+    "path": "docs/superpowers/specs/2026-10-31-mobile-lesson-feedback-design.md",
+    "sha256": "e955872b18cac6ef9122b78439341a35f5313a9cc00c2a4dea8bd6317de64907"
+  },
+  {
+    "path": "eslint.config.js",
+    "sha256": "ef63917de2037902545ccc35971039a392ceb98799f9b7b372cf239069c24db9"
+  },
+  {
+    "path": "firebase-applet-config.json",
+    "sha256": "80e31762195beb8af7f81136a439645cad8ac45a7de2f881d31f74a2f76c77da"
+  },
+  {
+    "path": "firebase.json",
+    "sha256": "2149ae466dbf91aa7976c14bdea47cb7283532b2af385d20953796d81f1f7840"
+  },
+  {
+    "path": "firestore.rules",
+    "sha256": "856779e1805c07d7f91a779e7e6675452b217a4ce179856ad94eb1c4029c64df"
+  },
+  {
+    "path": "package-lock.json",
+    "sha256": "aafd8701182c0581751f093db6f0e07a923579702cf72bf40db1193b22012a55"
+  },
+  {
+    "path": "package.json",
+    "sha256": "c487a3e1d7b91a96c33e14a455a332e59e27425ce86b4179c0d688e857845574"
+  },
+  {
+    "path": "packages/plugin-sdk/index.d.ts",
+    "sha256": "bf9f1bebce86fb35716ece3f11de07978ad97ddf2170b9e727bb86b69be33419"
+  },
+  {
+    "path": "packages/plugin-sdk/package.json",
+    "sha256": "3c90dc5e71080da457c28b531e1f28202a83f7988bbdf38bf8d33cba06a95c0e"
+  },
+  {
+    "path": "plugins/slack/CLAUDE.md",
+    "sha256": "6ab20f99e5106ebd835189cd4c8c322d583d423fd534b448a79e817664f8f29a"
+  },
+  {
+    "path": "plugins/slack/client/SlackSettingsPanel.jsx",
+    "sha256": "beabafe52b2f91f3da7ea8b91c23ea98fd8dc014bce3a607f1c879ebe60e5d4d"
+  },
+  {
+    "path": "plugins/slack/client/index.js",
+    "sha256": "9df8e938afd0793bc06dfb19dfc327f56020838b713bd7c77205fd2b8a4dd4b1"
+  },
+  {
+    "path": "plugins/slack/docs/README.md",
+    "sha256": "e97bd3c761f7eabd83763ab8366ccf0f1a9726d10f6363f129cc09cf42a605a2"
+  },
+  {
+    "path": "plugins/slack/plugin.json",
+    "sha256": "d639f68ca5894a7151aab95414c0b1dcc828da762b2d12e6ae893b73d98880b4"
+  },
+  {
+    "path": "plugins/slack/server/index.js",
+    "sha256": "57ab907dbc1c9736818c295b70d71cf2f77c665ae9e7d5c7c8152b77591004d8"
+  },
+  {
+    "path": "plugins/slack/server/slack-client.js",
+    "sha256": "288f086091a7bb470fedab9e8f2d7acbd7e352087beee3972b05bfd8890e1794"
+  },
+  {
+    "path": "plugins/teacher-comments/CLAUDE.md",
+    "sha256": "268c1c6ae872c5306d8777d3b71e6d04f180eec93eb07dff1aa1ed4945ab76b7"
+  },
+  {
+    "path": "plugins/teacher-comments/GAPS.md",
+    "sha256": "03eddeeaa1579f6c6928d236f6b7ec6fd9e0ab8beeeb530b0761280c5a8519b4"
+  },
+  {
+    "path": "plugins/teacher-comments/client/ProfileField.jsx",
+    "sha256": "bb98e2be971b7f6276f7291c7368ba45410958a5fafec93c0b3ef3107ada5d62"
+  },
+  {
+    "path": "plugins/teacher-comments/client/index.js",
+    "sha256": "857850ea156a6a20f4aa43a32e75436e32b4f837330bd6fc135c6488be3c1ca7"
+  },
+  {
+    "path": "plugins/teacher-comments/plugin.json",
+    "sha256": "4bef6a976f4e5a62ec26f47d658e574209244f195fb92ceff64dece3f32d818c"
+  },
+  {
+    "path": "plugins/teacher-comments/server/index.js",
+    "sha256": "4fd74652580275b384f08bf4a72186f1b7fa39c33cac32dc64a1ed46447cfee5"
+  },
+  {
+    "path": "plugins/wordpress-info/CLAUDE.md",
+    "sha256": "508e2f33227d5e3997829e55b5d74132217ab252bde19ea67733185c2386e71e"
+  },
+  {
+    "path": "plugins/wordpress-info/plugin.json",
+    "sha256": "e2a5b5ca83ceba9098452cebad7ac69ef6de71359c8540e2c3effc7d8f84b78a"
+  },
+  {
+    "path": "plugins/wordpress-info/prompts/wordpress-info-planner.md",
+    "sha256": "44db2bb6e7b8f34f5f6f108d202b25ab7991b39a87ab0e1e307fd2736908b7b8"
+  },
+  {
+    "path": "plugins/wordpress-info/prompts/wordpress-info-synthesizer.md",
+    "sha256": "f86b1919570efa9a27c5397274e7d62040ffed66666248f4359852c0d8b75c45"
+  },
+  {
+    "path": "plugins/wordpress-info/server/index.js",
+    "sha256": "338cb3b6c807b71fe16b0726c150bc1d90f3a4848a2b5abc259040b42d18313c"
+  },
+  {
+    "path": "plugins/wordpress-info/server/query-executor.js",
+    "sha256": "6d5a761e1c33706afe3210419c321310c69bebfc25f35966f761cc97e6ce2237"
+  },
+  {
+    "path": "plugins/wordpress-info/server/query-executor.test.js",
+    "sha256": "f05ee73bbf8847853af3ad3b4a0a81ab5457bed7e356d4ddd0fbdeee65379763"
+  },
+  {
+    "path": "plugins/wordpress-info/server/sources.js",
+    "sha256": "4a6f421bb5ec713f1bd108561ab20eb41339859ada1611479f7ec7760f2d91ba"
+  },
+  {
+    "path": "scripts/build.sh",
+    "sha256": "df98eecffac8c72322e34b63718a6394a822a8dfab987bb13e6b0427b661cd5d"
+  },
+  {
+    "path": "scripts/coach-fixtures.js",
+    "sha256": "644371c0cc04f84cda2444722491fa00cb89554e45586440776f4473e8774682"
+  },
+  {
+    "path": "scripts/create-plato-plugin.js",
+    "sha256": "4b340ba3bb7812897051b7194e18c6809697f49425f25a0d847d5453d7e3d3aa"
+  },
+  {
+    "path": "scripts/deploy-watch.js",
+    "sha256": "47613bb653b7f3bf1bac89b0cf2879df631a7a44e45eb3daba9dcd829b40d270"
+  },
+  {
+    "path": "scripts/evaluate-coach.js",
+    "sha256": "5d2dc418868a259eefd7803c717b2c43cd8b59edfa4df2d1806841b1a6c3b007"
+  },
+  {
+    "path": "scripts/inference-report.js",
+    "sha256": "6e266306d72cae215ac88ccae6bb9e452821eb78d70eca193f63152b423272bd"
+  },
+  {
+    "path": "scripts/intake-sweep.js",
+    "sha256": "a70ab95fe316691955571a0e3d9a6d11bffb10fc459fb37c9773564fc0547f64"
+  },
+  {
+    "path": "scripts/log-watch.js",
+    "sha256": "c1070337fe3816d0c1add0e10070bb35c454c4fbf80af74d45619953e8a4dfc1"
+  },
+  {
+    "path": "scripts/pilot-report.js",
+    "sha256": "c5e552c7b1d8865966dcc23a6d9824b57ab0f21b656fed72dd467f134b5293b8"
+  },
+  {
+    "path": "scripts/save-signals.js",
+    "sha256": "cb050e20add6dd8bf2c44d4c5873524f911321f04edf5608a50f0c645a21c0a3"
+  },
+  {
+    "path": "scripts/validate-plugins.js",
+    "sha256": "9eddc6cd84b7df95bd4c95e35db520ec6bfff5d1a1e76252f5b76c3ca1311ac7"
+  },
+  {
+    "path": "security_spec.md",
+    "sha256": "b95c43517b13f39189a6ba931c9055279d142c12fde72b9a066340adb5db702a"
+  },
+  {
+    "path": "server/.env.example",
+    "sha256": "204c0268fca767ad125d48cce832b51c79bab14d4b4a8874bc8700cd52eaf0a6"
+  },
+  {
+    "path": "server/.gitignore",
+    "sha256": "5ad558eb6834fbab54c498f995a513b5d721d8ff3ca7ff1ceb18d8a7affaa3ef"
+  },
+  {
+    "path": "server/dev-sqlite.js",
+    "sha256": "5e58a3b7b4bd5f6c34faead70fbe08ab0ed53342cae8cc7b54819674dea8133c"
+  },
+  {
+    "path": "server/dev.js",
+    "sha256": "48e783f9a01cd7cb55ec5ef9cfc4c0f781e443eb98e92609f0b45610fe0cddd5"
+  },
+  {
+    "path": "server/eslint.config.js",
+    "sha256": "01bbc78721705b563bbd848f53a79ab2391a38e77c670379038cc4fa25678281"
+  },
+  {
+    "path": "server/package.json",
+    "sha256": "67ddf4e84671cc40a77e741c61d57f7d3facd25a89841b47515323d7a2f73fd0"
+  },
+  {
+    "path": "server/samconfig.toml.example",
+    "sha256": "21d4054642ecdb96c9cc30d7816e02b9b24ff9fcf2235b15fb7407778ebfb66d"
+  },
+  {
+    "path": "server/scripts/create-dev-user.js",
+    "sha256": "ded35c1ff84ef97f9b75739c2a38709178a1a09a6d981c1a2567385f36009979"
+  },
+  {
+    "path": "server/scripts/seed-content.js",
+    "sha256": "53187d96aa4696375204c9067414bbd43ceef53bb986cc60c66d96fe2c0ff4fe"
+  },
+  {
+    "path": "server/scripts/setup-local-db.js",
+    "sha256": "82e8b150fb1ab0f83f4b367468cbed078ed117fa7e445da4f57f184d78ddf492"
+  },
+  {
+    "path": "server/src/config.js",
+    "sha256": "e999083a0f5b23a4dca847fd0e358a400cd2532402c2dd03f8abe71f56a43792"
+  },
+  {
+    "path": "server/src/index.js",
+    "sha256": "439f225bfe9cce6bf7f56b5576a40b3a472f0ea68e1c9a588f96193fb87a8421"
+  },
+  {
+    "path": "server/src/lib/ai-errors.js",
+    "sha256": "eebff07f2f7b8deb41ce822e2cfba8bda820125e91b6147f7a32a33448797619"
+  },
+  {
+    "path": "server/src/lib/ai-provider.js",
+    "sha256": "4028a14688a2edb0e3522db9e2aea7990eb69d3101679f24fb048da69fb86b08"
+  },
+  {
+    "path": "server/src/lib/ai-settings.js",
+    "sha256": "7f6bdd32efe06547bfb857e403e806cb8ed26fde6659e253f88e03f9fd94a5b0"
+  },
+  {
+    "path": "server/src/lib/bedrock.js",
+    "sha256": "28453368dc214f2c61c8ddf61ddb4d78b9ef681fe3e0335c0275d4c27b830e4c"
+  },
+  {
+    "path": "server/src/lib/branding.js",
+    "sha256": "2abeb64b6d5fcbd185ffae1d8c94cb2d3bae2f38edb5a908babcf4f11cbd326a"
+  },
+  {
+    "path": "server/src/lib/cloud-logging.js",
+    "sha256": "45162a597e8124a2ab0363ebe5f15d45d654d387407245fcd216d688ca39fd04"
+  },
+  {
+    "path": "server/src/lib/cloudflare-oauth.js",
+    "sha256": "c69b32b556b6c8bad5febafb50824ff37631560f02b7b2419cad595520140f55"
+  },
+  {
+    "path": "server/src/lib/cloudwatch-logs.js",
+    "sha256": "acfff56f6b982c659057185e7dabe3eb955e9cd6e02fa005b2dae81336aeef9f"
+  },
+  {
+    "path": "server/src/lib/coach-assessment.js",
+    "sha256": "50ca06fabb5e22141ae7f39bbf1f96957e2cc03ceec4afb7d79815e91043377c"
+  },
+  {
+    "path": "server/src/lib/coach-receipt.js",
+    "sha256": "7c51af92c266a888f19aedd2cf5af24b58ac0ff3dc6b9e7623415791b440027d"
+  },
+  {
+    "path": "server/src/lib/coach-recovery.js",
+    "sha256": "5232b150dd33783f19d3d0a011201c6402a5f16488e5bffe6be617d3b5d27b46"
+  },
+  {
+    "path": "server/src/lib/concurrency.js",
+    "sha256": "4b74013851c6dec445ea522500de0e6776d0cc2d75d524a59c5bec59812686db"
+  },
+  {
+    "path": "server/src/lib/converse.js",
+    "sha256": "b5c4c33d59d8b788c06dbbe544d313db949276f0efccc46a9fa93f13882be44c"
+  },
+  {
+    "path": "server/src/lib/crypto.js",
+    "sha256": "398629ce18f815d7764ff05dcb59e32586b8a50bbe99a2e68f4ec0acc39a35d5"
+  },
+  {
+    "path": "server/src/lib/db-dynamodb.js",
+    "sha256": "ba91c3f576400a7f1f7b45d2633fa4409c73dda9ce0bc952c3597c6a252f894e"
+  },
+  {
+    "path": "server/src/lib/db-postgres.js",
+    "sha256": "7f45e8652283ecabfde7fca0c87433cca03f3779dc7cc8604268bae458742bf4"
+  },
+  {
+    "path": "server/src/lib/db-sqlite.js",
+    "sha256": "c973da66897f47a06cc86dbd6e7d837ba11e01187820ae519a72e24c0069b7b7"
+  },
+  {
+    "path": "server/src/lib/db.js",
+    "sha256": "9ead2aa5d3f8045817acb5cb5a415aad9d46dd0f1c0d7602ae4afe02cfcda95a"
+  },
+  {
+    "path": "server/src/lib/email.js",
+    "sha256": "4da187fc2b69e9e9bc3527c68a2436d43e32aed7b1abe6b7d50ed58360517f11"
+  },
+  {
+    "path": "server/src/lib/inference-report.js",
+    "sha256": "69e864e1101398d05aa9edc57112aef95a18e059a5505a528c0e07070dedb0d1"
+  },
+  {
+    "path": "server/src/lib/inference-telemetry.js",
+    "sha256": "dca237a907e8ed3dcd1e51b171b014d9127c1bb1d96e7fceeb6b798fc3a8bf24"
+  },
+  {
+    "path": "server/src/lib/jwt.js",
+    "sha256": "d93f729f87c04143584284e30cef2f21ce4795e3b21b4cbade4565f8be04c3e2"
+  },
+  {
+    "path": "server/src/lib/lesson-coaching.js",
+    "sha256": "5444be6ae6ffee9343f1954815c1834c2db16c7d091954d7e73d007a0ec0054c"
+  },
+  {
+    "path": "server/src/lib/lesson-limits.js",
+    "sha256": "381e3c2032fac20efdabe510542885440720e26b4061e09fbcb486ca440960b5"
+  },
+  {
+    "path": "server/src/lib/lesson-stats-cache.js",
+    "sha256": "8b4698ae9ca226d5c8c7b3bbfa632eb99391145710a8e9baf54fa828125e8dfd"
+  },
+  {
+    "path": "server/src/lib/lesson-visibility.js",
+    "sha256": "5611a392de51a425e8d9df0f4fc56b37ef4cac8b5e754e6ede50b6f129bb222d"
+  },
+  {
+    "path": "server/src/lib/link-extractor.js",
+    "sha256": "c757b303b185b17a1171e17f1005cd83b88c2cb0188163d7007e97df0fd7f42d"
+  },
+  {
+    "path": "server/src/lib/logger.js",
+    "sha256": "35b0b28c9bee292a9bc7700e6e7bb76b8736c4e41e8d586e8022892f67c29cad"
+  },
+  {
+    "path": "server/src/lib/password.js",
+    "sha256": "6647de65bf02a61539f9e39feed51c5dfc35b7301bd9cba5fd9f49f6f3b5e6d9"
+  },
+  {
+    "path": "server/src/lib/plugins/capabilities.js",
+    "sha256": "57b47589691c582659970aa26e4b1ec6bc71f0205c9e0a9ea92cbca5633132dc"
+  },
+  {
+    "path": "server/src/lib/plugins/dispatcher.js",
+    "sha256": "9b476bc4349d8c2354e8fad12d00a9f3998e5e539a39fd945a8bbead0a66d022"
+  },
+  {
+    "path": "server/src/lib/plugins/hooks.js",
+    "sha256": "50ffe06af0333d64778fefbf6c9439cd0cc45fbbf769a28815fa15a21b7a0fd5"
+  },
+  {
+    "path": "server/src/lib/plugins/lifecycle.js",
+    "sha256": "50cc4ac690c170ce44f2e34f3a0fd361f90fbd4403e4bb325e1b5be3ddf43fad"
+  },
+  {
+    "path": "server/src/lib/plugins/logger.js",
+    "sha256": "d8f9bb967be9053828970a5ffcffe08fe18665ea3288aff8975ac7c8e9c712a8"
+  },
+  {
+    "path": "server/src/lib/plugins/manifest.js",
+    "sha256": "d31bdb0e10056ac479f89c5feb6de2a4c856df8e5885ec74fdc74044ff96a639"
+  },
+  {
+    "path": "server/src/lib/plugins/registry.js",
+    "sha256": "d3483bbc7b8c447be1b20c0ebcc165652e2b96f94d2336ffac571c466be8fb96"
+  },
+  {
+    "path": "server/src/lib/plugins/sdk.js",
+    "sha256": "938d932db2726dee36907b06cf68f65ec20bcc4c3ec5efc4e1ef829ca9ff88db"
+  },
+  {
+    "path": "server/src/lib/plugins/version.js",
+    "sha256": "be498db562bdbe8f915d1e371069b8fec0a044f6ecc68ddb6d6192dd913efa98"
+  },
+  {
+    "path": "server/src/lib/postgres-database.js",
+    "sha256": "b75a334d50af14546ac501490678519a797f5e7f9cc96eb0b8ca67d033837ea4"
+  },
+  {
+    "path": "server/src/lib/seed.js",
+    "sha256": "48dd74857c08f71a621b51cb3a193e3bb16d123883ff50de435738d27db78134"
+  },
+  {
+    "path": "server/src/lib/shutdown.js",
+    "sha256": "723f817e2a9bc6a032b4c3a15f7b8156a6c983796fdc74969401e3e89721c90b"
+  },
+  {
+    "path": "server/src/lib/svgSafety.js",
+    "sha256": "77c60ad6107bf8345b1aca882c1ff28bc57e64e633c8584b9cf5b501f5ba445b"
+  },
+  {
+    "path": "server/src/lib/sync-limits.js",
+    "sha256": "fdc9f9fa397f42adfe0420c8e755743516e7960c5f903c76339c039a3e93d2bb"
+  },
+  {
+    "path": "server/src/lib/url-guard.js",
+    "sha256": "6b891f40c42c1214143225483d2ef6016a13a574755ab0e1ea2497fb398d569c"
+  },
+  {
+    "path": "server/src/lib/user-fields.js",
+    "sha256": "b29171137c069fb5c93a8a87c86ece1c06578116a0d1d59257f88b6e44d02ae9"
+  },
+  {
+    "path": "server/src/lib/waitlist.js",
+    "sha256": "39ceab3bf9e872c4ebaf0652b9cd38b83a3d84eb432d588a8fe75982f04fed13"
+  },
+  {
+    "path": "server/src/lib/workers-ai.js",
+    "sha256": "ce661424b9493136d54551d2440e54251abf7facc42eeb2cbfc659843529d745"
+  },
+  {
+    "path": "server/src/middleware/authenticate.js",
+    "sha256": "22e003eaeb642b62ec84f8a3bbf74a9e44dbf1c2899650cb4efb76c5909b5a24"
+  },
+  {
+    "path": "server/src/middleware/clientCompatibility.js",
+    "sha256": "ac65f24a395dd7e981161d5c2cb13190fcc18e3805fedf19762aa7c6ae4ba57e"
+  },
+  {
+    "path": "server/src/middleware/clientFence.js",
+    "sha256": "ccbf92ef31ba52ef22fbc04ada1b46a7cf93a8ab450219757e61f01de388d3d7"
+  },
+  {
+    "path": "server/src/middleware/requireAdmin.js",
+    "sha256": "fe2d5b11f66f957cdcbffc51ae3e3d1e642d5ed8aee8fced1f1afc8fd1ad35bf"
+  },
+  {
+    "path": "server/src/middleware/saveObservability.js",
+    "sha256": "3ed61e1677d4ffc84dd3076b2d364337df98f3617bf6079350b17042c5651bca"
+  },
+  {
+    "path": "server/src/routes/admin.js",
+    "sha256": "7ea7f4e4786d1a590188d05cb5ac02c59f7251573e0107262664774f49dca876"
+  },
+  {
+    "path": "server/src/routes/ai-settings.js",
+    "sha256": "9f1492405790fe76757d627d2de8ede1e7ef27ed476c6f06330e37d21ee6d05a"
+  },
+  {
+    "path": "server/src/routes/ai.js",
+    "sha256": "ae0a4b7c00158cb9a8eaa801610d5a14b3857471a36c411a66bca20551f184aa"
+  },
+  {
+    "path": "server/src/routes/app.js",
+    "sha256": "446a535973b99326e44fdeec7de185e5e5b4b5a7b1cd352d3f15abc09c847b07"
+  },
+  {
+    "path": "server/src/routes/auth.js",
+    "sha256": "211d10facec770d1562ab3de37bdfde1cf7791342c2ce4af8c5fd559e6e2f60c"
+  },
+  {
+    "path": "server/src/routes/client-events.js",
+    "sha256": "497fc83d91ef68ce40d56838c565963be3c303541f2b56d51124bb81f035198e"
+  },
+  {
+    "path": "server/src/routes/cloudflare-oauth.js",
+    "sha256": "a6de10d104b574d86d9ab2bd5729aef516a519bfb74e0f276f2c5435b4bccf80"
+  },
+  {
+    "path": "server/src/routes/content.js",
+    "sha256": "80a2fca6b38e083110e808a4a09d2913d093c5548a5af93d3b0c5be7ddaf7653"
+  },
+  {
+    "path": "server/src/routes/health.js",
+    "sha256": "52c0d908f17e6f8fb0271b9c7f0b4662008b2587f5af183e8ced9be02feb9901"
+  },
+  {
+    "path": "server/src/routes/links.js",
+    "sha256": "3ad0aeb00f5ddfc33c2c7ec5c704278f110c70db05e0ab08f2ed45d1b182af89"
+  },
+  {
+    "path": "server/src/routes/me.js",
+    "sha256": "2384a3b7da3b30fbbac04b844da1f22671e1a2dd663b557c8f5f6e5ff31654db"
+  },
+  {
+    "path": "server/src/routes/sync.js",
+    "sha256": "f43798862954d957bbb5e376836b57625ece5c9e9560cab9034e6c50228d0b78"
+  },
+  {
+    "path": "server/src/routes/waitlist.js",
+    "sha256": "5790c386d01be5d14f2f43d9f66c9e3543dddc438c41ac88cfb2bb0fe80702d0"
+  },
+  {
+    "path": "server/src/shared/coachContext.js",
+    "sha256": "38d198bc0243dc1d44362833acdd90e5b20e1ceeddcf48fcaf405b2ea1cc3913"
+  },
+  {
+    "path": "server/src/shared/coachContract.js",
+    "sha256": "f3a9c9a49caffc2a4ddbe5ef81ce6ef0f6c42a8e879e3629d47f323508e3d8da"
+  },
+  {
+    "path": "server/src/shared/coachProtocol.js",
+    "sha256": "6bb24ba2de6e348336246d2f8186e494d126e5308c036a19facb0a6c59477aa9"
+  },
+  {
+    "path": "server/src/shared/lessonAssessment.js",
+    "sha256": "fee47166e004bf643d2d89a1f583cb7383bac46e4c8786bf8d32fd62e3f843ff"
+  },
+  {
+    "path": "server/src/shared/lessonInitialization.js",
+    "sha256": "9231e344b5a548089d1e24efcce9dcf2bd01c1f86b0b486889c36b4c17416a6a"
+  },
+  {
+    "path": "server/src/shared/lessonMarkdown.js",
+    "sha256": "179ab2173ffb7a3e4437648dc1ce9680872f6333977ed353427d094af0a8627a"
+  },
+  {
+    "path": "server/start.js",
+    "sha256": "5cb721862d4774a402018ffe4cbf3e1422cd54ca2d085234f6bd37bac23ff4ea"
+  },
+  {
+    "path": "server/template.yaml",
+    "sha256": "60ff7d8d1d8dc7aac306a8cade222b770fa00b0a3b84dbd39a9006eaf2ce44e0"
+  },
+  {
+    "path": "server/tests/helpers/clientCompatibility.js",
+    "sha256": "a92142dda3e6841efee9d44456793bba75c9b3ae9ee44d00099c4fe90eb3500b"
+  },
+  {
+    "path": "server/tests/lib/ai-errors.test.js",
+    "sha256": "fe45daf038f430a013e4f5d0568d3892ae2885baa535fda152a3862a7703966a"
+  },
+  {
+    "path": "server/tests/lib/ai-settings.test.js",
+    "sha256": "49805d9ee6caf2627cab25ee51d2f109cc83ef0287efeb2c8b82aa464b594f40"
+  },
+  {
+    "path": "server/tests/lib/branding-persistence.test.js",
+    "sha256": "717e52399de8d975f48b33c5e19f0d8501cc993289171fb103d17205f9986848"
+  },
+  {
+    "path": "server/tests/lib/branding-svg.test.js",
+    "sha256": "b80374f693bda44ba9ca951db29933cf49d0262454d08c52a981ed2c8c99df91"
+  },
+  {
+    "path": "server/tests/lib/cloud-logging.test.js",
+    "sha256": "e5d076f8247db25dacdcab03f0fb886d7ba02ca6157befe32f86808627f62008"
+  },
+  {
+    "path": "server/tests/lib/cloudwatch-logs.test.js",
+    "sha256": "8e014da315ac00655c3372172283f7b682cd65ddd6735aa30c2ed31ab573ab13"
+  },
+  {
+    "path": "server/tests/lib/coach-assessment.test.js",
+    "sha256": "56fe484c2962c6d13bbc4b34c53ab8fd2108640f52fc9750af0cf628adbec667"
+  },
+  {
+    "path": "server/tests/lib/coach-receipt.test.js",
+    "sha256": "a7f9be9b734b2e42a1baba9915e4a31530d67aea893c2112f6b1e73538d03c86"
+  },
+  {
+    "path": "server/tests/lib/coach-recovery.test.js",
+    "sha256": "987de4a120c91ab0cbb227f796ffea7cd26d1211280ad7ac53edd25ac924013b"
+  },
+  {
+    "path": "server/tests/lib/converse.test.js",
+    "sha256": "c2e40db26415c2acc2314c752d9bd4c43cef376a9a5a1f3c357eb11fb56745eb"
+  },
+  {
+    "path": "server/tests/lib/db-authoring.test.js",
+    "sha256": "c8d8104bc547e744b3ba3fba6c0fe70a981aed1b979bf7c4cb75fb305ca3fac9"
+  },
+  {
+    "path": "server/tests/lib/db-dynamodb-sync.test.js",
+    "sha256": "a37b579662319b5a7e3e19498ce699f4b2cae0e53dc2ada6bf18bb85a8dc1a5f"
+  },
+  {
+    "path": "server/tests/lib/db-dynamodb.test.js",
+    "sha256": "63af6b48055cd338341f0346016c1ec61d777ab2c395dd29fe4052202f45d0f7"
+  },
+  {
+    "path": "server/tests/lib/db-lesson-turn.test.js",
+    "sha256": "76a26c48c428ac7f98c6b141f25f789a08539b7e30a0722c421b42462267be8c"
+  },
+  {
+    "path": "server/tests/lib/db-postgres.test.js",
+    "sha256": "fb11c7642ed8ce001a9317f9371fa5a4402b15fb07458260949f919a2772ef1e"
+  },
+  {
+    "path": "server/tests/lib/db-sqlite.test.js",
+    "sha256": "05042a5729c5ffc8c571571993fce2cc6a55f71462c10dd5dc5745a464a487c7"
+  },
+  {
+    "path": "server/tests/lib/deploy-watch-setup.test.js",
+    "sha256": "c311844a78b07b248291522a1a973e583999af073df7af93dfe841bdbb5b14c3"
+  },
+  {
+    "path": "server/tests/lib/deploy-watch.test.js",
+    "sha256": "016594ebbad3f635bc7c4d9bb6921782316c6b55e262f92cd4c552d34f28aeb6"
+  },
+  {
+    "path": "server/tests/lib/email.test.js",
+    "sha256": "dfcd64b602d51694fdb3bb01d0118c9284ee1dd0e680b150ff268b1c79d7185f"
+  },
+  {
+    "path": "server/tests/lib/inference-provider.test.js",
+    "sha256": "27ab9fb8bac5cb2ed3a6b53e2426df4ded251b4fb4ac5a344a964d1cbb09edd6"
+  },
+  {
+    "path": "server/tests/lib/inference-report-cli.test.js",
+    "sha256": "1fd3fd581eb60ce80ed235ba8a2c64cce995f1762f533eacbdc1fdb0f6f79bc6"
+  },
+  {
+    "path": "server/tests/lib/inference-report.test.js",
+    "sha256": "09fcffb9b150f8665fe422cac6db5e113c8f03b633897448ff6030068b710475"
+  },
+  {
+    "path": "server/tests/lib/inference-telemetry.test.js",
+    "sha256": "54811181bda4e187a2acd2365d119d5bd587999d97cbea61e21fcab83cdc2c36"
+  },
+  {
+    "path": "server/tests/lib/jwt.test.js",
+    "sha256": "6d8ac0814620fcf05de5a235400082a4085097f9f13597f1869e6165dc25a730"
+  },
+  {
+    "path": "server/tests/lib/lesson-markdown.test.js",
+    "sha256": "7a2bb51437ec2ae40740fd77d19cc92a553ce0dfa39b3f7f469d8debea49ce6d"
+  },
+  {
+    "path": "server/tests/lib/lesson-stats-cache.test.js",
+    "sha256": "8dea607cef845eda45fd6435f3f0e7ad9d0182948b5052560f6216194db54632"
+  },
+  {
+    "path": "server/tests/lib/lesson-visibility.test.js",
+    "sha256": "435c1aa24a48e467898b79d6d1aebdd1ecd33d3b4d0b12b34b9b5951a7a6045d"
+  },
+  {
+    "path": "server/tests/lib/limits-contract.test.js",
+    "sha256": "feca16b93b017f6c091f9994f68822642be23077ac9d4e0ce6300afaefafb291"
+  },
+  {
+    "path": "server/tests/lib/link-extractor.test.js",
+    "sha256": "d7efd3d5d17dc41d21a2494513d9379f544cf9de36a8f03a9ffd22e9f02594cb"
+  },
+  {
+    "path": "server/tests/lib/log-watch.test.js",
+    "sha256": "33ababf4e2725049f88080117d1f167e95f7e88dd037cfebbca2ece853f7fd34"
+  },
+  {
+    "path": "server/tests/lib/logger.test.js",
+    "sha256": "8d89d1dc524c8b7822068ab3c7e23285d6e263d1dedf5ef8bcc928095bd6b06c"
+  },
+  {
+    "path": "server/tests/lib/monitoring.test.js",
+    "sha256": "3dc3a005b00654ed19834b6c92d3a5866cac499b57a4466e4d905b46cb7d4a06"
+  },
+  {
+    "path": "server/tests/lib/password.test.js",
+    "sha256": "9111d595da4cf384471755d983d86747c85889de1c7cde7f5d2a65b27b0db95d"
+  },
+  {
+    "path": "server/tests/lib/pilot-log-report.test.js",
+    "sha256": "12d22e492dad7526bc52827ad97503dc6ea9a891959066056581cd690a0596b4"
+  },
+  {
+    "path": "server/tests/lib/plugins/capabilities.test.js",
+    "sha256": "5127cf60d74edd849967015681a36631952bf598700612f60407fefebb9ed2fa"
+  },
+  {
+    "path": "server/tests/lib/plugins/dispatcher.test.js",
+    "sha256": "ff62997f9f5c6be6d137c699483e5d17a81d1251923227262e075ac2b6f7e365"
+  },
+  {
+    "path": "server/tests/lib/plugins/hooks.test.js",
+    "sha256": "9915d85dc7f9d1fe6b3f57a2acff3cf067e8c42f7e7f8e566300f458a59c2bbf"
+  },
+  {
+    "path": "server/tests/lib/plugins/lifecycle.test.js",
+    "sha256": "10d6228fb072f721123759702df30f7c0043550ae9abc286d906887caeb24096"
+  },
+  {
+    "path": "server/tests/lib/plugins/logger.test.js",
+    "sha256": "6d97973c26706dcfb72074271bbbb860381b50ef21eda328fa9796ac1a34a344"
+  },
+  {
+    "path": "server/tests/lib/plugins/manifest.test.js",
+    "sha256": "2b50eca5aff7aed65e413d2cad21760418e48d71ec5d0cce62ca061e5e1043c1"
+  },
+  {
+    "path": "server/tests/lib/plugins/registry.test.js",
+    "sha256": "e9b7e07f5c55353b565a20c1a32508fb4f8b989ce5bfa117e8364b7bba0573d1"
+  },
+  {
+    "path": "server/tests/lib/plugins/sdk-user-meta.test.js",
+    "sha256": "3261bf7ee8a1eda97d1553d450144d00da932dee699427ee5ba98cf760a71ab7"
+  },
+  {
+    "path": "server/tests/lib/plugins/version.test.js",
+    "sha256": "652cf8bb7327ea9d26770a723fcb2cfa5be0a5b0ffe67721d997d117c574d230"
+  },
+  {
+    "path": "server/tests/lib/production-start.test.js",
+    "sha256": "4902517eef2941caee01637306d6aa1a54a7a8a5fcf5f97ead67e0612200da15"
+  },
+  {
+    "path": "server/tests/lib/save-observability-start.test.js",
+    "sha256": "4e95490762ecb08c5b415491d1ed0cf56a22b4ecddd08539eb6059b3809750b4"
+  },
+  {
+    "path": "server/tests/lib/shutdown.test.js",
+    "sha256": "2ab0a6bd126d4e690f90db5f290cff1c395067cd4de3aa66df6df80a528c13db"
+  },
+  {
+    "path": "server/tests/lib/url-guard.test.js",
+    "sha256": "796297f40fa8c68ac88f6088d2cdcd8031dfca3782d3dda695fb0eddd5a75769"
+  },
+  {
+    "path": "server/tests/lib/user-fields.test.js",
+    "sha256": "a9a10c909190bc8308f01f7d65d56adc950c0d169502b934a6178d288afec3a1"
+  },
+  {
+    "path": "server/tests/lib/workers-ai.test.js",
+    "sha256": "55d6903fe102e7ff467b5492ffe607d8e2d8ed406b1b13139c8bf67d2b5decde"
+  },
+  {
+    "path": "server/tests/routes/admin.test.js",
+    "sha256": "245f4464f087a609c5f6269839c91113c775f7bd2cc128df5bb774ef287c5d1b"
+  },
+  {
+    "path": "server/tests/routes/ai-settings.test.js",
+    "sha256": "1d0be6aadf2f8752addf1861fe51e8cf62281a7ca7b1cd625ce613810feb6703"
+  },
+  {
+    "path": "server/tests/routes/ai.test.js",
+    "sha256": "c6a4cf7dfddbdbf0425e7c47d1f7b093e349bcd81094dad60c13c78143fed682"
+  },
+  {
+    "path": "server/tests/routes/app.test.js",
+    "sha256": "a3442c22cd8af7b86f64f18465d48aca88b7a715a549d97991162bafd77737f1"
+  },
+  {
+    "path": "server/tests/routes/auth-link-invites.test.js",
+    "sha256": "32cf7fb81f5b67a16419b6fa3910b7d124161ab2041b48b9bbb379c4a26408dc"
+  },
+  {
+    "path": "server/tests/routes/auth-revocation-races.test.js",
+    "sha256": "f581366ab4ade98ec943f61c60c72551a2c97d129d2f0a6f4c2f6b996092ced2"
+  },
+  {
+    "path": "server/tests/routes/auth.test.js",
+    "sha256": "419cf5c14573667bf12c4e489c931a667db08dd649642b7056d3c7897c8e5c3f"
+  },
+  {
+    "path": "server/tests/routes/branding-concurrency.test.js",
+    "sha256": "e6bc0edfd2e9a84991f711ab7d7f298215b0882d3df1d2827364a01f1903b290"
+  },
+  {
+    "path": "server/tests/routes/branding.test.js",
+    "sha256": "f65dd620439e078a5295844c947b4fc31ffe7c53b8a489f692d6cd645ce8c4b6"
+  },
+  {
+    "path": "server/tests/routes/client-compatibility.test.js",
+    "sha256": "78a3fa939dad90878d3eb4ca7d900dbf2583345390d72a61163cccf6052e6409"
+  },
+  {
+    "path": "server/tests/routes/client-events.test.js",
+    "sha256": "1f9a0a472e562c9325b10ae37435dcc0ad9e33de7ca1603a827c9bd4f80e5349"
+  },
+  {
+    "path": "server/tests/routes/cloudflare-oauth.test.js",
+    "sha256": "158310e78a1a0318b7dfac1eb9edec720145d67750f58008a6776a492b116dd2"
+  },
+  {
+    "path": "server/tests/routes/coach.test.js",
+    "sha256": "0aefa0b3030574828ebdd90cdc5ab571117a0b6c73590fb5acd0e7f873357a6a"
+  },
+  {
+    "path": "server/tests/routes/content.test.js",
+    "sha256": "382a56a55c5e5a2aca0bdd06d32d911d21f85521758ba0ce7db0121206361c14"
+  },
+  {
+    "path": "server/tests/routes/lesson-authoring.test.js",
+    "sha256": "c3a18eb38d7e453f3aff5e3d7170886009f4a28e6fb8e05b1aa42b86df33f2c1"
+  },
+  {
+    "path": "server/tests/routes/lesson-started-hook.test.js",
+    "sha256": "12a0dc069a576ca3c822684f56ba0a252c1bb2fb5a52bd6c8a036c03cb11c2e2"
+  },
+  {
+    "path": "server/tests/routes/lesson-turn.test.js",
+    "sha256": "199a6af6c2b5d51cfcfd1701db5158c8a7ce20e5bdd383bde85c7430270af9a8"
+  },
+  {
+    "path": "server/tests/routes/lifecycle-hooks.test.js",
+    "sha256": "223b55fd163fe218d270fde5865b0a49ad05a03d8cf56eef52983dae0a6ab042"
+  },
+  {
+    "path": "server/tests/routes/links.test.js",
+    "sha256": "7fdf428dd0d28d28605d57400c01da74a3eeac2bddedf9ec3cb2568ecf21ed0c"
+  },
+  {
+    "path": "server/tests/routes/me-password.test.js",
+    "sha256": "cfbcd23018b7af089400b6336b790d35e62413dcc83ef4086cf86682c1eef42b"
+  },
+  {
+    "path": "server/tests/routes/me.test.js",
+    "sha256": "d124f6408fed0e6e36d7648de3afe0af7ffc52aef95c8149b2a11660bb3c82dd"
+  },
+  {
+    "path": "server/tests/routes/password-reset-privacy.test.js",
+    "sha256": "ad797743c73a167ad85b9dc754c6d400af5a764faf249f534e5ce00113700425"
+  },
+  {
+    "path": "server/tests/routes/plugin-uninstall.test.js",
+    "sha256": "a55461cef97e17c2c3d6cf988ea55514918dccad42af0bf0e3242f1998694e64"
+  },
+  {
+    "path": "server/tests/routes/plugins-admin.test.js",
+    "sha256": "2c66b0f15b4eb23709b14ec24309209a9b6dc6e9d89bb288f228437949975bd6"
+  },
+  {
+    "path": "server/tests/routes/save-observability.test.js",
+    "sha256": "7533a0a6b004cd1fa3865d7f33d9569693e54ff601501935d074388b9952180b"
+  },
+  {
+    "path": "server/tests/routes/slack-plugin.test.js",
+    "sha256": "d92c5c03abd9224f8a40e60c4da533b19d57ed8bfa5f6490a090955bcc1bacad"
+  },
+  {
+    "path": "server/tests/routes/sync.test.js",
+    "sha256": "a51b09df4a44098392dcd8837a1592b08ed1cbfec9101e2f345e03960142210b"
+  },
+  {
+    "path": "server/tests/routes/teacher-comments-plugin.test.js",
+    "sha256": "a0ffdc3e86043612fb5d07e00fedb1130cf7e7accd2d8dc50156b5c2e8e27e5a"
+  },
+  {
+    "path": "server/tests/routes/waitlist.test.js",
+    "sha256": "97f70bffd47f2a212c11cd720fbd1c621d6f430f443d75b071d582f117166842"
+  },
+  {
+    "path": "src/lib/plugins/sdk.js",
+    "sha256": "be762c7306d1e265da81d2ed69d14e0c3268895fd4288e34822d5427af35a739"
+  }
+]

@@ -1,0 +1,51 @@
+{
+  "host": "Codex API local terminal; host version not exposed",
+  "timestamp": "2026-11-01T12:32:27.951651+00:00",
+  "project": "/home/ubuntu/googleplato",
+  "runner_version": "2.0.7",
+  "impeccable_version": "4.8.0",
+  "loaded": {
+    "runner": {
+      "path": "/home/ubuntu/.codex/plugins/cache/created-by-me-remote/mobile-web-ux-runner/2.0.7/skills/mobile-web-ux-runner/SKILL.md",
+      "sha256": "565d9fc7d6d688de7c05504aaa045c6aef035645c5c7df392e58e8dc8b8cd8eb"
+    },
+    "impeccable": {
+      "path": "/home/ubuntu/.codex/plugins/cache/impeccable/impeccable/4.8.0/skills/impeccable/SKILL.md",
+      "sha256": "068987f99e59dfaa78288e0927b2a985a1237c4154de93baf03efbc544d06cb8"
+    },
+    "runner_manifest": {
+      "path": "/home/ubuntu/.codex/plugins/cache/created-by-me-remote/mobile-web-ux-runner/2.0.7/plugin.json",
+      "sha256": "30f43fbaa5f8188ba07c0b96ef8107e6c1ef3a3f5ade3cf91868fcb55566ef01"
+    },
+    "impeccable_manifest": {
+      "path": "/home/ubuntu/.codex/plugins/cache/impeccable/impeccable/4.8.0/.claude-plugin/plugin.json",
+      "sha256": "aa63d6b155b2633fff6375c3b9abd31a2326bec6771e90b95eb945e67d882190"
+    }
+  },
+  "discovery": "Runner absent from advertised skills list; explicitly requested by user, located installed created-by-me-remote cache and loaded directly. Normal host auto-resolution unverified. Impeccable 4.8.0 explicitly chosen from advertised skills and loaded by absolute path. No install or upgrade.",
+  "duplicate_candidates": [
+    "/home/ubuntu/.agents/skills/impeccable/SKILL.md (4.8.0)",
+    "/home/ubuntu/.codex/plugins/cache/openai-curated-remote/impeccable/4.3.1/skills/impeccable/SKILL.md (4.3.1)"
+  ],
+  "procedures": {
+    "audit": "/home/ubuntu/.codex/plugins/cache/impeccable/impeccable/4.8.0/skills/impeccable/reference/audit.md",
+    "craft_floor": "Not loaded: audit only, no UI edits"
+  },
+  "invocation": "User: Use Mobile Web UX Runner on /home/ubuntu/googleplato. Mode: audit only. Read Runner entry + references, Impeccable skill + audit procedure; executed bundled detector. Context launcher invoked once with target client/src/pages/Lesson.jsx (mistyped filename); output was truncated in combined tool response and no durable stdout receipt was saved. PRODUCT.md and DESIGN.md read directly; no surface-specific context completion claimed.",
+  "smoke_absence": "Separate clean-host/degraded-install smoke not run; not an installation acceptance task. Actual target runtime and source preservation receipts supplied.",
+  "tools": "Playwright 1.61.1 Node API via existing node:test suite and audit harness, needed for real fixture routes and fault interception. No @playwright/test specs installed. Node 24.21.0; Python 3; Chromium 149.0.7827.55, WebKit 26.5 run in Linux desktop headless; no Safari/iOS/Android device runtime.",
+  "environment_runtime": "Skill inspected. No cloud_environment.environment_status tool exposed and no /etc/codex/network-policy.json snapshot. No managed environment credential readiness claimed. Local test backend only.",
+  "continued_at": "2026-11-01T13:37:50.544405+00:00",
+  "mode": "audit_and_fix",
+  "additional_loaded_references": [
+    "/home/ubuntu/.codex/plugins/cache/impeccable/impeccable/4.8.0/skills/impeccable/reference/harden.md",
+    "/home/ubuntu/.codex/plugins/cache/impeccable/impeccable/4.8.0/skills/impeccable/reference/clarify.md",
+    "/home/ubuntu/.codex/plugins/cache/impeccable/impeccable/4.8.0/skills/impeccable/reference/craft-floor.md"
+  ],
+  "browser_results": [
+    "/home/ubuntu/googleplato/output/playwright/mobile-ux-fix-2026-11-01/20261101T131916Z/evidence/chromium-layout/chromium-checks.json",
+    "/home/ubuntu/googleplato/output/playwright/mobile-ux-fix-2026-11-01/20261101T131916Z/evidence/webkit-layout/webkit-checks.json"
+  ],
+  "context_reinvoked": false,
+  "note": "Original receipt/context limitations retained; no skill install, upgrade, OAuth login or production service used."
+}

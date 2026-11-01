@@ -113,10 +113,22 @@ function LessonConversation() {
   const objectivesTitleRef = useRef(null);
   const keyboardOffset = useVisualViewportKeyboardOffset();
   const [stickyTopRef, stickyBottomRef] = useStickyScrollPadding();
-  const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks, restore: restoreDraft } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
+  const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks, restore: restoreDraft, retentionStatus, retryRetention } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
   const { text: composeText, images: composeImages, links: composeLinks } = draft;
+  const draftStatusRef = useRef(null);
+  const [draftCopyNotice, setDraftCopyNotice] = useState(null);
   const readSubmission = useCallback(() => impersonating ? null : lessonSubmissions.read(user?.userId, lessonGroupId), [impersonating, user?.userId, lessonGroupId]);
   const submission = useSyncExternalStore(lessonSubmissions.subscribe, readSubmission, () => null);
+  const savingProgress = loading === 'saving' || submission?.status === 'saving';
+  const progressFeedback = savingProgress ? 'Saving progress…'
+    : submission?.status === 'sending' ? 'Waiting for the coach…'
+      : pendingSave ? 'Progress not confirmed saved.'
+        : submission ? 'Response not sent.'
+          : persistence?.status === 'saved' ? 'Progress saved.' : '';
+  const busyMessage = savingProgress ? 'Wait for progress to finish saving, then send.'
+    : pendingSave ? 'Save the retained reply before sending another response.'
+      : submission && submission.status !== 'sending' ? 'Recover the earlier response before sending another.'
+        : 'Wait for the reply to finish, then send.';
 
   const reloadForUpgrade = async () => {
     if (loading || resuming || savingRef.current || impersonating) return;
@@ -250,7 +262,7 @@ function LessonConversation() {
           setMessages(existing.messages);
           setLessonKB(existing.lessonKB);
           setPhase(existing.phase);
-          setPersistence(existing.persistence || null);
+          setPersistence(existing.persistence || { status: 'saved', message: '' });
         } else if (impersonating) {
           // Admin "View as User": the target hasn't started this lesson yet.
           // Don't auto-start (engine guard would throw, and we'd be writing
@@ -621,7 +633,7 @@ function LessonConversation() {
       )}
       <div className="flex-1">
       {resuming && !loading ? (
-        <p className="px-4 py-8 text-sm text-muted-foreground" role="status">Loading your saved conversation…</p>
+        <p className="px-4 py-8 text-sm text-muted-foreground" role="status">{savingProgress ? 'Saving progress…' : 'Loading your saved conversation…'}</p>
       ) : loading === 'starting' && !displayText ? (
         <LessonLoadingView step={loadingStep} enrichments={loadingEnrichments} />
       ) : (
@@ -636,7 +648,7 @@ function LessonConversation() {
             <AssistantMessage content={displayText} streaming />
           )}
           {loading === 'qa' && !submissionNotice && !displayText && <ThinkingSpinner />}
-          {submission && submission.status !== 'sending' && !resuming && !pendingSave && (
+          {submission && !['sending', 'saving'].includes(submission.status) && !resuming && !pendingSave && (
             <section aria-label="Unsent response" className="space-y-3 px-1 py-3">
               <p className="text-sm" role="status">Your earlier response is retained. Retry it, move it back to an empty draft to edit, or discard it.</p>
               {submission.draft.text && <p className="whitespace-pre-wrap wrap-anywhere text-sm">{submission.draft.text}</p>}
@@ -710,6 +722,34 @@ function LessonConversation() {
           )}
         </ChatArea>
       )}
+          {phase && !impersonating && (
+            <div className="mx-auto max-w-3xl space-y-2 px-4 py-2 text-sm">
+              {progressFeedback && <p role="status" className="text-muted-foreground">{progressFeedback}</p>}
+              <p ref={draftStatusRef} tabIndex={-1} role="status" className={retentionStatus === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
+                {retentionStatus === 'failed' ? 'Draft not kept for reload. Keep this tab open.'
+                  : retentionStatus === 'retained' ? (hasLessonDraft(draft) ? 'Unsent draft kept in this tab.' : 'No unsent draft.') : ''}
+              </p>
+              {retentionStatus === 'failed' && (
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={() => {
+                    if (retryRetention()) draftStatusRef.current?.focus();
+                  }}>Retry keeping draft</Button>
+                  {composeText && <Button variant="ghost" size="sm" onClick={async () => {
+                    const text = composeText;
+                    try {
+                      await navigator.clipboard.writeText(text);
+                      if (activeView.current === viewKey) setDraftCopyNotice({ text, message: 'Draft text copied.' });
+                    } catch {
+                      if (activeView.current === viewKey) setDraftCopyNotice({ text, message: 'Select your draft text to copy it.' });
+                    }
+                  }}>Copy draft text</Button>}
+                </div>
+              )}
+              {retentionStatus === 'failed' && draftCopyNotice?.text === composeText && (
+                <p role="status">{draftCopyNotice.message}</p>
+              )}
+            </div>
+          )}
       </div>
 
       {/* Single sticky compose bar — stays mounted across scroll/resize so virtual
@@ -725,6 +765,7 @@ function LessonConversation() {
             onSend={handleSend}
             disabled={impersonating}
             busy={busy}
+            busyMessage={busyMessage}
             allowImages
             allowLinks
             text={composeText}

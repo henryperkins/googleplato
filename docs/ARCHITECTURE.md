@@ -599,6 +599,13 @@ that owner's draft. Read-only impersonation never reads or writes a composer
 draft. Sign-out preserves these drafts for the owner's next login in the same
 tab. Older lesson-only draft keys have no reliable owner: they remain intact in
 storage but are never automatically restored or assigned to an account.
+The composer reports whether its current draft passed storage readback. A failed
+write keeps the exact draft in memory and shows a persistent warning to keep the
+tab open, with **Retry keeping draft** and **Copy draft text**. Retrying verifies
+the full draft, including attachments; copying text does not back up attachments.
+Only a verified retry or later successful edit clears the warning. This is tab
+recovery, not server persistence, and cannot protect a failed write if the page
+is reloaded or closed before recovery succeeds.
 
 A learner's chat history for a lesson lives in one `messages:<lessonId>`
 sync-data record; progress lives separately in `lessonKB:<lessonId>`.
@@ -633,6 +640,12 @@ After retrying a failed save, “Your reply is saved.” appears only on server
 acknowledgment and fades on the same timer. Starting another response clears
 the previous confirmation immediately. Reduced motion uses only the fade.
 Save failures, retry controls and changed-requirements notices stay visible.
+Separate composer feedback distinguishes waiting for the coach, **Saving
+progress…**, **Progress saved.**, and unconfirmed saves. The submission store's
+`saving` phase begins when the generated turn enters persistence, so a reopened
+view also observes it. Server acknowledgment drives the saved state; the
+local-input acknowledgment alone never does. This feedback is not transcript
+content and does not change generation, commit, or retry semantics.
 
 The local journal remains scoped to the current tab/session. The server also
 retains the latest generated result for each learner/lesson, recovered through

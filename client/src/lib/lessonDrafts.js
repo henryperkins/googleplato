@@ -6,7 +6,17 @@ const textKeyFor = (userId, lessonId) => `plato_compose_draft_v2:${encodeURIComp
 // Legacy lesson-only text keys are left untouched: their account is unknown.
 export function createLessonDraftStore({ storage = () => sessionStorage } = {}) {
   const memory = new Map();
+  const listeners = new Set();
   return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    retentionStatus(userId, lessonId) {
+      if (!userId || !lessonId) return 'unavailable';
+      const entry = memory.get(keyFor(userId, lessonId));
+      return entry ? (entry.retained ? 'retained' : 'failed') : 'pending';
+    },
     read(userId, lessonId) {
       if (!userId || !lessonId) return empty();
       const key = keyFor(userId, lessonId);
@@ -30,15 +40,21 @@ export function createLessonDraftStore({ storage = () => sessionStorage } = {}) 
     write(userId, lessonId, draft) {
       if (!userId || !lessonId) return false;
       const key = keyFor(userId, lessonId);
-      memory.set(key, { userId, lessonId, draft: structuredClone(draft) });
+      const entry = { userId, lessonId, draft: structuredClone(draft), retained: false };
+      memory.set(key, entry);
+      const finish = retained => {
+        entry.retained = retained;
+        listeners.forEach(listener => listener());
+        return retained;
+      };
       try {
         const serialized = JSON.stringify({ userId, lessonId, draft });
         const target = storage();
         target.setItem(key, serialized);
-        if (target.getItem(key) !== serialized) return false;
+        if (target.getItem(key) !== serialized) return finish(false);
         try { target.removeItem?.(textKeyFor(userId, lessonId)); } catch { /* The verified newer copy takes precedence. */ }
-        return true;
-      } catch { return false; }
+        return finish(true);
+      } catch { return finish(false); }
     },
     preserveAllForReload() {
       let safe = true;
