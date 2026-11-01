@@ -261,6 +261,8 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     await addAttachments(page, true, true);
     const warning = page.getByText('Draft not kept for reload. Keep this tab open.', { exact: true });
     await warning.waitFor();
+    assert.equal(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))), true,
+      'a memory-only draft activates the existing unload guard');
     await page.getByRole('button', { name: 'Retry keeping draft', exact: true }).click();
     assert.equal(await warning.isVisible(), true, 'an unsuccessful retry must not clear the warning');
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
@@ -279,6 +281,8 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     await page.keyboard.press('Enter');
     const retained = page.getByText('Unsent draft kept in this tab.', { exact: true });
     await retained.waitFor();
+    assert.equal(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))), false,
+      'verified retention removes the unload guard');
     assert.equal(await retained.evaluate(element => element === document.activeElement), true, 'removed retry control leaves focus on its result');
     const stored = await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_lesson_draft:a:feedback')).draft);
     assert.equal(stored.text, latest); assert.equal(stored.images.length, 1); assert.equal(stored.links.length, 1);
@@ -438,6 +442,56 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
       await page.getByText('Progress saved.', { exact: true }).waitFor();
       assert.ok((await page.getByRole('log').innerText()).includes(text));
       assert.equal(await composer(page).inputValue(), 'Keep this newer draft too.');
+    }));
+  }
+
+  for (const retryFails of [false, true]) {
+    it(`reopening during a save retry joins its ${retryFails ? 'failure' : 'success'}`, t => withPage(t, async page => {
+      await lesson(page);
+      const retryReached = deferred(), retryReleased = deferred();
+      let coachCalls = 0;
+      const attempts = [];
+      await page.route('**/v1/ai/coach/feedback', async route => {
+        if (route.request().method() === 'POST') coachCalls++;
+        return route.continue();
+      });
+      await page.route('**/v1/sync/lesson-turn/feedback', async route => {
+        if (route.request().method() !== 'POST') return route.continue();
+        attempts.push(route.request().postDataJSON());
+        if (attempts.length === 1) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+        if (attempts.length === 2) {
+          retryReached.resolve(); await retryReleased.promise;
+          if (retryFails) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }).catch(() => {});
+        }
+        return route.continue().catch(() => {});
+      });
+      try {
+        const text = `Keep the reply when reopening a ${retryFails ? 'failed' : 'successful'} save retry.`;
+        await composer(page).fill(text); await send(page);
+        await page.getByRole('button', { name: 'Retry saving', exact: true }).waitFor();
+        await composer(page).fill('Newer unsent work while retrying.');
+        await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+        await retryReached.promise;
+        await page.getByRole('button', { name: 'Back to lessons' }).click();
+        await page.getByRole('button', { name: /Open lesson Give constructive feedback/ }).click();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.getByText('Loading your saved conversation…', { exact: true }).isVisible(), true,
+          'the reopened view joins the held retry instead of publishing an obsolete failure');
+        retryReleased.resolve();
+        if (retryFails) {
+          await page.getByText('Progress not confirmed saved.', { exact: true }).waitFor();
+          await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+        }
+        await page.getByText('Progress saved.', { exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: 'Send', exact: true }).isEnabled(), true);
+        assert.equal(await composer(page).inputValue(), 'Newer unsent work while retrying.');
+        assert.ok((await page.getByRole('log').innerText()).includes(text));
+        assert.equal(coachCalls, 1);
+        assert.equal(attempts.length, retryFails ? 3 : 2);
+        assert.ok(attempts.every(attempt => attempt.turnId === attempts[0].turnId));
+        const saved = await api(page, '/v1/sync/lesson-turn/feedback');
+        assert.equal(saved.messages.data.filter(message => message.id === `${attempts[0].turnId}:0`).length, 1);
+      } finally { retryReleased.resolve(); }
     }));
   }
 

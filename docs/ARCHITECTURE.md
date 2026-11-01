@@ -606,6 +606,9 @@ the full draft, including attachments; copying text does not back up attachments
 Only a verified retry or later successful edit clears the warning. This is tab
 recovery, not server persistence, and cannot protect a failed write if the page
 is reloaded or closed before recovery succeeds.
+A nonempty draft whose retention failed also activates the existing unload
+warning. The warning clears after verified retention; browsers may suppress
+native prompts, and OS termination or mobile tab discard is not protected.
 
 A learner's chat history for a lesson lives in one `messages:<lessonId>`
 sync-data record; progress lives separately in `lessonKB:<lessonId>`.
@@ -630,6 +633,10 @@ model, reapplies tags, or rebuilds the reply. Unknown save outcomes retain the
 same IDs. Conflicts preserve the copy and require an explicit discard to load
 the current saved conversation. The browser cache receives a generated turn only
 after the authoritative API acknowledges it.
+Save retries share the account/lesson request registry with initial submissions.
+Reopening while a retry is in flight waits for its result, so the new view cannot
+keep an obsolete failure after a successful retry. A failed retry still exposes
+the retained turn and its persistence-only recovery action.
 
 Save confirmations are transient UI state, separate from transcript messages
 and coach request context. After the submitted input passes recovery-journal
@@ -704,7 +711,8 @@ reads back every retained reply and draft, including other visited lessons and
 accounts. Draft text, image data, and fetched link context use account/lesson
 scoped `sessionStorage`. Failure leaves the tab open with a copy-work warning.
 Only a verified upgrade reload bypasses the pending-work unload warning; ordinary
-navigation still warns while a reply or generation is pending.
+navigation still warns while a reply or generation is pending or a nonempty
+draft failed retention.
 After reload, the original turn IDs, base snapshot, reply, and progress restore;
 **Retry saving** only submits the original atomic commit. It neither generates
 a replacement nor runs optional profile/course models. A lost acknowledgement

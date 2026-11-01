@@ -115,6 +115,7 @@ function LessonConversation() {
   const [stickyTopRef, stickyBottomRef] = useStickyScrollPadding();
   const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks, restore: restoreDraft, retentionStatus, retryRetention } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
   const { text: composeText, images: composeImages, links: composeLinks } = draft;
+  const unretainedDraft = retentionStatus === 'failed' && hasLessonDraft(draft);
   const draftStatusRef = useRef(null);
   const [draftCopyNotice, setDraftCopyNotice] = useState(null);
   const readSubmission = useCallback(() => impersonating ? null : lessonSubmissions.read(user?.userId, lessonGroupId), [impersonating, user?.userId, lessonGroupId]);
@@ -192,7 +193,7 @@ function LessonConversation() {
   }, [displayText, submissionNotice]);
 
   useEffect(() => {
-    if (!pendingSave && !loading) return;
+    if (!pendingSave && !loading && !unretainedDraft) return;
     const warn = event => {
       if (reloadingRef.current) return;
       event.preventDefault();
@@ -200,7 +201,7 @@ function LessonConversation() {
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [pendingSave, loading]);
+  }, [pendingSave, loading, unretainedDraft]);
 
   // Save feedback belongs only to the UI, never the conversation. Dismiss the
   // routine success notice after its animation; recovery/reassessment stays.
