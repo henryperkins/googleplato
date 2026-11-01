@@ -1,0 +1,89 @@
+{
+  "inference": 1,
+  "saved": {
+    "status": 200,
+    "data": {
+      "generation": null,
+      "messages": {
+        "data": [
+          {
+            "id": "feedback:guide",
+            "role": "assistant",
+            "msgType": "guide",
+            "phase": "learning",
+            "content": "Draft a feedback message with one observation and a practical next step.",
+            "timestamp": 1000
+          },
+          {
+            "id": "d5f4c2fc-7479-45ca-8d8a-3bdd53501f47:0",
+            "role": "user",
+            "content": "One response pending during navigation",
+            "msgType": "user",
+            "phase": "learning",
+            "metadata": null,
+            "timestamp": 1793540021127,
+            "assessmentProvenance": "server-v1"
+          },
+          {
+            "id": "d5f4c2fc-7479-45ca-8d8a-3bdd53501f47:1",
+            "role": "assistant",
+            "content": "Add the impact on the team and propose a practical next step.",
+            "msgType": "guide",
+            "phase": "learning",
+            "timestamp": 1793540021127,
+            "assessmentProvenance": "server-v1"
+          }
+        ],
+        "version": 2
+      },
+      "lessonKB": {
+        "data": {
+          "lessonId": "feedback",
+          "name": "Give constructive feedback",
+          "status": "learning",
+          "progress": 4,
+          "startedAt": 1000,
+          "activitiesCompleted": 2,
+          "exemplar": "Write an observation and a practical next step.",
+          "learningObjectives": [
+            "State an observation."
+          ],
+          "evidence": [],
+          "exemplarEvidence": {
+            "status": "missing",
+            "observation": "",
+            "sourceIds": []
+          },
+          "sources": [
+            {
+              "id": "d5f4c2fc-7479-45ca-8d8a-3bdd53501f47:0",
+              "kind": "text",
+              "confirmed": true,
+              "text": "One response pending during navigation",
+              "truncated": false
+            }
+          ],
+          "insights": [],
+          "learnerPosition": "A next step is needed.",
+          "objectives": [
+            {
+              "id": "objective-9e0c3d85",
+              "objective": "Separate observations from assumptions.",
+              "evidence": "Separate observations from assumptions."
+            },
+            {
+              "id": "objective-c2110ec9",
+              "objective": "Request a concrete next step.",
+              "evidence": "Request a concrete next step."
+            }
+          ],
+          "criteriaHash": "35f448d4cc4b4008ec2c21650b958b66421d00e0694091365d93e3ac8af824a3",
+          "assessmentVersion": 1,
+          "lessonOrigin": "system",
+          "enrichments": []
+        },
+        "version": 2
+      }
+    }
+  }
+}

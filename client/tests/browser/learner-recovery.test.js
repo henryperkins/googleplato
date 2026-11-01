@@ -241,6 +241,260 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'), '0', 'A completed private lesson stays available without increasing progress');
   }));
 
+  it('warns on native draft storage exhaustion and retains exact work after retry and reload', t => withPage(t, async page => {
+    await lesson(page);
+    await composer(page).fill('Earlier retained draft');
+    await page.waitForFunction(() => sessionStorage.getItem('plato_lesson_draft:a:feedback')?.includes('Earlier retained draft'));
+    const quota = await page.evaluate(() => {
+      let filler = ''; const errors = [];
+      for (const size of [1048576, 65536, 4096, 256, 16, 1]) {
+        while (filler.length + size <= 25 * 1024 * 1024) {
+          try { sessionStorage.setItem('test-quota', filler + 'x'.repeat(size)); filler += 'x'.repeat(size); }
+          catch (error) { errors.push(error.name); break; }
+        }
+      }
+      return { chars: filler.length, errors };
+    });
+    assert.ok(quota.errors.includes('QuotaExceededError'), 'exercise native storage capacity, not a replaced Storage API');
+    const latest = '  Latest response 日本語 🌱\nA detailed next step.  '.repeat(8);
+    await composer(page).fill(latest);
+    await addAttachments(page, true, true);
+    const warning = page.getByText('Draft not kept for reload. Keep this tab open.', { exact: true });
+    await warning.waitFor();
+    assert.equal(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))), true,
+      'a memory-only draft activates the existing unload guard');
+    await page.getByRole('button', { name: 'Retry keeping draft', exact: true }).click();
+    assert.equal(await warning.isVisible(), true, 'an unsuccessful retry must not clear the warning');
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async text => { window.testCopiedDraft = text; },
+    } }));
+    await page.getByRole('button', { name: 'Copy draft text', exact: true }).click();
+    await page.getByText('Draft text copied.', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.testCopiedDraft), latest);
+    await page.screenshot({ path: join(evidence, `${engine}-draft-quota-warning.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Back to lessons' }).click();
+    await openFeedback(page);
+    await warning.waitFor();
+    assert.equal(await composer(page).inputValue(), latest, 'navigation keeps the newest in-memory work');
+    await page.evaluate(() => sessionStorage.removeItem('test-quota'));
+    await page.getByRole('button', { name: 'Retry keeping draft', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    const retained = page.getByText('Unsent draft kept in this tab.', { exact: true });
+    await retained.waitFor();
+    assert.equal(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))), false,
+      'verified retention removes the unload guard');
+    assert.equal(await retained.evaluate(element => element === document.activeElement), true, 'removed retry control leaves focus on its result');
+    const stored = await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_lesson_draft:a:feedback')).draft);
+    assert.equal(stored.text, latest); assert.equal(stored.images.length, 1); assert.equal(stored.links.length, 1);
+    await page.reload(); await composer(page).waitFor();
+    assert.equal(await composer(page).inputValue(), latest);
+    assert.equal(await page.getByRole('button', { name: 'Remove response.png', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: /Remove link/ }).count(), 1);
+    const restored = await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_lesson_draft:a:feedback')).draft);
+    assert.deepEqual(restored, stored);
+    await page.screenshot({ path: join(evidence, `${engine}-draft-quota-recovered.png`), fullPage: true });
+    await writeFile(join(evidence, `${engine}-draft-quota.json`), JSON.stringify({ quota, restored, clipboard: 'writeText substituted to verify exact text; OS clipboard untested' }, null, 2));
+  }));
+
+  it('keeps a draft warning until verified readback and handles unavailable copying', t => withPage(t, async page => {
+    await lesson(page, 'practice-9');
+    await composer(page).fill('Earlier retained draft');
+    await page.waitForFunction(() => sessionStorage.getItem('plato_lesson_draft:a:practice-9')?.includes('Earlier retained draft'));
+    await page.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      window.restoreDraftStorage = () => { Storage.prototype.setItem = original; };
+      Storage.prototype.setItem = function(key, value) {
+        if (key.startsWith('plato_lesson_draft:')) return;
+        return original.call(this, key, value);
+      };
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Clipboard unavailable'); } } });
+    });
+    await composer(page).fill('Keep this text when readback fails');
+    const warning = page.getByText('Draft not kept for reload. Keep this tab open.', { exact: true });
+    await warning.waitFor();
+    await page.getByRole('button', { name: 'Copy draft text', exact: true }).click();
+    await page.getByText('Select your draft text to copy it.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Retry keeping draft', exact: true }).click();
+    assert.equal(await warning.isVisible(), true);
+    await composer(page).fill('');
+    await warning.waitFor();
+    await page.evaluate(() => window.restoreDraftStorage());
+    await page.getByRole('button', { name: 'Retry keeping draft', exact: true }).click();
+    await warning.waitFor({ state: 'hidden' });
+    await page.reload(); await composer(page).waitFor();
+    assert.equal(await composer(page).inputValue(), '', 'a retained clear must not resurrect an earlier draft');
+  }));
+
+  for (const lostAcknowledgment of [false, true]) {
+    it(`distinguishes coach waiting, pending save and acknowledged progress${lostAcknowledgment ? ' after lost acknowledgment' : ''}`, t => withPage(t, async page => {
+      const id = lostAcknowledgment ? 'practice-8' : 'practice-7';
+      await lesson(page, id);
+      const coachReached = deferred(), coachReleased = deferred(), saveReached = deferred(), saveReleased = deferred();
+      let coachCalls = 0, saveCalls = 0;
+      await page.route(`**/v1/ai/coach/${id}`, async route => {
+        if (route.request().method() !== 'POST') return route.continue();
+        coachCalls++; coachReached.resolve(); await coachReleased.promise; await route.continue().catch(() => {});
+      });
+      await page.route(`**/v1/sync/lesson-turn/${id}`, async route => {
+        if (route.request().method() !== 'POST') return route.continue();
+        saveCalls++; saveReached.resolve(); await saveReleased.promise;
+        if (lostAcknowledgment && saveCalls === 1) { await route.fetch(); return route.abort('failed'); }
+        return route.continue().catch(() => {});
+      });
+      try {
+        const text = `Response with held save ${id}`;
+        await composer(page).fill(text); await send(page); await coachReached.promise;
+        await page.getByText('Waiting for the coach…', { exact: true }).waitFor();
+        assert.equal(await page.getByText('Progress saved.', { exact: true }).count(), 0);
+        coachReleased.resolve(); await saveReached.promise;
+        await page.getByText('Saving progress…', { exact: true }).waitFor();
+        await page.getByText('Your reply is saved in this tab.', { exact: true }).waitFor({ state: 'hidden' });
+        const first = await submission(page, 'a', id);
+        const pending = await api(page, `/v1/sync/lesson-turn/${id}`);
+        assert.equal(pending.messages.data.some(message => message.id === `${first.id}:0`), false);
+        await composer(page).fill('Newer unsent draft during saving');
+        await composer(page).press('Control+Enter');
+        await page.getByText('Wait for progress to finish saving, then send.', { exact: true }).waitFor();
+        assert.equal(await unsent(page).count(), 0);
+        assert.equal(await page.getByRole('button', { name: 'Send', exact: true }).isEnabled(), false);
+        await page.screenshot({ path: join(evidence, `${engine}-${id}-pending-progress.png`), fullPage: true });
+        saveReleased.resolve();
+        if (lostAcknowledgment) {
+          await page.getByText('Progress not confirmed saved.', { exact: true }).waitFor();
+          const committed = await api(page, `/v1/sync/lesson-turn/${id}`);
+          assert.equal(committed.messages.data.filter(message => message.id === `${first.id}:0`).length, 1);
+          const retryReached = deferred(), retryReleased = deferred();
+          await page.unroute(`**/v1/sync/lesson-turn/${id}`);
+          await page.route(`**/v1/sync/lesson-turn/${id}`, async route => {
+            if (route.request().method() !== 'POST') return route.continue();
+            saveCalls++; retryReached.resolve(); await retryReleased.promise; await route.continue().catch(() => {});
+          });
+          try {
+            await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+            await retryReached.promise;
+            await page.getByText('Saving progress…', { exact: true }).waitFor();
+          } finally { retryReleased.resolve(); }
+        }
+        await page.getByText('Progress saved.', { exact: true }).waitFor();
+        await waitForSavedSubmission(page, 'a', id);
+        const saved = await api(page, `/v1/sync/lesson-turn/${id}`);
+        assert.equal(saved.messages.data.filter(message => message.id === `${first.id}:0`).length, 1);
+        assert.equal(coachCalls, 1); assert.equal(saveCalls, lostAcknowledgment ? 2 : 1);
+        assert.equal(await composer(page).inputValue(), 'Newer unsent draft during saving');
+        assert.doesNotMatch(JSON.stringify(saved), /Progress saved|Saving progress/);
+        await page.reload(); await composer(page).waitFor();
+        await page.getByText('Progress saved.', { exact: true }).waitFor();
+        assert.ok((await page.getByRole('log').innerText()).includes(text));
+        assert.equal(await composer(page).inputValue(), 'Newer unsent draft during saving');
+        await page.screenshot({ path: join(evidence, `${engine}-${id}-saved-progress.png`), fullPage: true });
+        await writeFile(join(evidence, `${engine}-${id}-save-counts.json`), JSON.stringify({ coachCalls, saveCalls, turnId: first.id, committedMessages: saved.messages.data.filter(message => message.id.startsWith(first.id)), newerDraft: await composer(page).inputValue() }, null, 2));
+      } finally { coachReleased.resolve(); saveReleased.resolve(); }
+    }));
+  }
+
+  for (const failure of ['network failure', 'incomplete acknowledgment']) {
+    it(`keeps a failed save retry recoverable after ${failure}`, t => withPage(t, async page => {
+      const id = failure === 'network failure' ? 'practice-9' : 'practice-10';
+      await lesson(page, id);
+      let coachCalls = 0;
+      const attempts = [];
+      await page.route(`**/v1/ai/coach/${id}`, async route => {
+        if (route.request().method() === 'POST') coachCalls++;
+        return route.continue();
+      });
+      await page.route(`**/v1/sync/lesson-turn/${id}`, async route => {
+        if (route.request().method() !== 'POST') return route.continue();
+        attempts.push(route.request().postDataJSON());
+        if (attempts.length === 1) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+        if (attempts.length === 2) {
+          if (failure === 'network failure') return route.abort('failed');
+          const state = await (await route.fetch()).json();
+          delete state.lessonKB;
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state) });
+        }
+        return route.continue();
+      });
+
+      const text = `Preserve my response after ${failure}.`;
+      await composer(page).fill(text); await send(page);
+      const retry = page.getByRole('button', { name: 'Retry saving', exact: true });
+      await retry.waitFor();
+      await composer(page).fill('Keep this newer draft too.');
+      await retry.click();
+      await page.getByText('Progress not confirmed saved.', { exact: true }).waitFor();
+      assert.equal(attempts.length, 2);
+      assert.equal(await retry.isEnabled(), true, 'a failed retry remains available');
+      assert.equal(await page.getByText('Saving progress…', { exact: true }).count(), 0);
+      assert.equal(await page.getByText('Progress saved.', { exact: true }).count(), 0);
+      assert.ok((await page.getByRole('log').innerText()).includes(text));
+      if (failure === 'incomplete acknowledgment') {
+        await page.getByText('The save could not be confirmed. Your reply is retained; retry saving.', { exact: true }).waitFor();
+      }
+
+      await retry.click();
+      await page.getByText('Progress saved.', { exact: true }).waitFor();
+      assert.equal(coachCalls, 1, 'save retries never regenerate the coach reply');
+      assert.equal(attempts.length, 3);
+      assert.ok(attempts.every(attempt => attempt.turnId === attempts[0].turnId));
+      const saved = await api(page, `/v1/sync/lesson-turn/${id}`);
+      assert.equal(saved.messages.data.filter(message => message.id === `${attempts[0].turnId}:0`).length, 1);
+      await page.reload(); await composer(page).waitFor();
+      await page.getByText('Progress saved.', { exact: true }).waitFor();
+      assert.ok((await page.getByRole('log').innerText()).includes(text));
+      assert.equal(await composer(page).inputValue(), 'Keep this newer draft too.');
+    }));
+  }
+
+  for (const retryFails of [false, true]) {
+    it(`reopening during a save retry joins its ${retryFails ? 'failure' : 'success'}`, t => withPage(t, async page => {
+      await lesson(page);
+      const retryReached = deferred(), retryReleased = deferred();
+      let coachCalls = 0;
+      const attempts = [];
+      await page.route('**/v1/ai/coach/feedback', async route => {
+        if (route.request().method() === 'POST') coachCalls++;
+        return route.continue();
+      });
+      await page.route('**/v1/sync/lesson-turn/feedback', async route => {
+        if (route.request().method() !== 'POST') return route.continue();
+        attempts.push(route.request().postDataJSON());
+        if (attempts.length === 1) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+        if (attempts.length === 2) {
+          retryReached.resolve(); await retryReleased.promise;
+          if (retryFails) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }).catch(() => {});
+        }
+        return route.continue().catch(() => {});
+      });
+      try {
+        const text = `Keep the reply when reopening a ${retryFails ? 'failed' : 'successful'} save retry.`;
+        await composer(page).fill(text); await send(page);
+        await page.getByRole('button', { name: 'Retry saving', exact: true }).waitFor();
+        await composer(page).fill('Newer unsent work while retrying.');
+        await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+        await retryReached.promise;
+        await page.getByRole('button', { name: 'Back to lessons' }).click();
+        await page.getByRole('button', { name: /Open lesson Give constructive feedback/ }).click();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.getByText('Loading your saved conversation…', { exact: true }).isVisible(), true,
+          'the reopened view joins the held retry instead of publishing an obsolete failure');
+        retryReleased.resolve();
+        if (retryFails) {
+          await page.getByText('Progress not confirmed saved.', { exact: true }).waitFor();
+          await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+        }
+        await page.getByText('Progress saved.', { exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: 'Send', exact: true }).isEnabled(), true);
+        assert.equal(await composer(page).inputValue(), 'Newer unsent work while retrying.');
+        assert.ok((await page.getByRole('log').innerText()).includes(text));
+        assert.equal(coachCalls, 1);
+        assert.equal(attempts.length, retryFails ? 3 : 2);
+        assert.ok(attempts.every(attempt => attempt.turnId === attempts[0].turnId));
+        const saved = await api(page, '/v1/sync/lesson-turn/feedback');
+        assert.equal(saved.messages.data.filter(message => message.id === `${attempts[0].turnId}:0`).length, 1);
+      } finally { retryReleased.resolve(); }
+    }));
+  }
+
   for (const reducedMotion of ['no-preference', 'reduce']) {
     it(`saved reply confirmation fades before the coach with ${reducedMotion} motion`, t => withPage(t, async page => {
       await page.emulateMedia({ reducedMotion });

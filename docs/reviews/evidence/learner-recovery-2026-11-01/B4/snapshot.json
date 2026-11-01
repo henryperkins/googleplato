@@ -1,0 +1,41 @@
+{
+  "head": "8fbdac6824beed29b4050bead4b6c00e99102f43",
+  "files": [
+    {
+      "path": ".impeccable/design.json",
+      "sha256": "de3e1262bba0de445111febad975678436e340a8bfb8930a2ab6d3a76d13b389"
+    },
+    {
+      "path": "client/src/components/chat/ComposeBar.jsx",
+      "sha256": "918190f66c85679627a3a0df1af2c5ebcd86ac0bd9b2eb18f82fa4fd2308c977"
+    },
+    {
+      "path": "client/src/hooks/useLessonDraft.js",
+      "sha256": "83d7b15e65384a07b5f4be11704481848733959625af668fdf6d9f54cfbd40c1"
+    },
+    {
+      "path": "client/src/lib/lessonEngine.js",
+      "sha256": "4df97fb315fed1ea225d5da64c8961bb26f6ed54eff7c2a3b4604fd077f8d5dd"
+    },
+    {
+      "path": "client/src/pages/LessonChat.jsx",
+      "sha256": "8ef22281168c4e1b8361b1d3f3bd3cf844011ac57cc9884c1a9cb72fafc39414"
+    },
+    {
+      "path": "client/src/pages/Login.jsx",
+      "sha256": "d8880d70588c2308bf05f7aa802d52bdbdae9691f8592b12e88c52cf39b2d62d"
+    },
+    {
+      "path": "client/tests/browser/learner-recovery.test.js",
+      "sha256": "20ec6b89f35c9d48f74ed0beb791213ea31ffb2843d8252b1a41f59a48874510"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "85812b15fa0beeb5a66ed95f793a8f2b8b62d103ffb9f6a20e9ba66860bf214a"
+    },
+    {
+      "path": "docs/reviews/mobile-ux-fixes-2026-11-01.md",
+      "sha256": "58e754a352529b4f4ff4ae4917f6b0afee5453871a1b52673975149207fc77a2"
+    }
+  ]
+}
