@@ -53,6 +53,13 @@ function generateUsername() {
   return 'user-' + randomBytes(3).toString('hex');
 }
 
+// The operator's address (ADMIN_EMAIL) is the only Google identity that can
+// create its own account without an invitation, and the only one that is made
+// an admin when its account is created. Nothing else in the code names an admin.
+function isOperatorEmail(email) {
+  return Boolean(ADMIN_EMAIL) && email === ADMIN_EMAIL.trim().toLowerCase();
+}
+
 const auth = new Hono();
 
 // GET /v1/auth/setup-status — check if initial setup is needed
@@ -568,8 +575,10 @@ auth.post('/v1/auth/firebase', async (c) => {
     });
   }
 
-  // Case 3: New user onboarding — check explicit inviteToken, pending email invite, or auto-provision
+  // Case 3: A new account. Membership is by invitation, as for password signup:
+  // an invite token, or a pending email invite for this verified address.
   let invite = null;
+  let inviteExpired = false;
   if (inviteToken) {
     invite = await db.getInvite(inviteToken);
     if (!invite || invite.status !== 'pending' || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
@@ -580,14 +589,31 @@ auth.post('/v1/auth/firebase', async (c) => {
     }
   } else {
     const byEmail = await db.getInviteByEmail(email);
-    if (byEmail && byEmail.status === 'pending' && (!byEmail.ttl || byEmail.ttl >= Math.floor(Date.now() / 1000))) {
-      invite = byEmail;
+    if (byEmail && byEmail.status === 'pending') {
+      if (!byEmail.ttl || byEmail.ttl >= Math.floor(Date.now() / 1000)) invite = byEmail;
+      else inviteExpired = true;
     }
   }
 
+  const operator = isOperatorEmail(email);
   let waitlistEntry = null;
   if (!invite) {
     waitlistEntry = await db.getWaitlistEntryByEmail(email);
+  }
+
+  // No invitation: create nothing and leave any wait-list entry for an admin to
+  // invite. Google has verified this address, so telling its owner where they
+  // stand reveals nothing about anyone else.
+  if (!invite && !operator) {
+    return c.json({
+      error: 'Membership is by invitation only. Ask your program admin for an invitation.',
+      code: 'invite_required',
+      email,
+      // Google's name only (not the email-prefix fallback), to prefill the wait list.
+      name: typeof claims.name === 'string' ? claims.name.trim() : '',
+      waitlisted: Boolean(waitlistEntry),
+      inviteExpired,
+    }, 403);
   }
 
   let username = rawUsername ? rawUsername.toLowerCase() : null;
@@ -641,7 +667,7 @@ auth.post('/v1/auth/firebase', async (c) => {
   const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
   const finalName = displayName || profile?.name || email.split('@')[0];
 
-  const assignedRole = (email.toLowerCase() === 'henry@lakefrontdigital.io' || (ADMIN_EMAIL && email.toLowerCase() === ADMIN_EMAIL.toLowerCase())) ? 'admin' : 'user';
+  const assignedRole = operator ? 'admin' : 'user';
 
   await db.createUser({
     userId,

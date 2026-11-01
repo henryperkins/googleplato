@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import PublicFooter from '../components/PublicFooter.jsx';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
@@ -17,6 +17,7 @@ const WAITLIST_DRAFT_KEY = 'plato_waitlist_draft';
 // Join the wait list (#363). Asks for what signup asks, minus the password;
 // an admin invites the person later from Admin → Users.
 export default function Waitlist() {
+  const location = useLocation();
   const [savedDraft] = useState(() => {
     try {
       const raw = sessionStorage.getItem(WAITLIST_DRAFT_KEY);
@@ -25,9 +26,12 @@ export default function Waitlist() {
       return {};
     }
   });
+  // From the sign-in page after a Google account without an invitation:
+  // Google's verified email and name start the form.
+  const prefill = location.state?.prefill || {};
   const [open, setOpen] = useState(null);
-  const [email, setEmail] = useState(savedDraft.email || '');
-  const [name, setName] = useState(savedDraft.name || '');
+  const [email, setEmail] = useState((typeof prefill.email === 'string' && prefill.email) || savedDraft.email || '');
+  const [name, setName] = useState((typeof prefill.name === 'string' && prefill.name) || savedDraft.name || '');
   const [group, setGroup] = useState(savedDraft.group || '');
   const [groups, setGroups] = useState([]);
   const [userFields, setUserFields] = useState([]);

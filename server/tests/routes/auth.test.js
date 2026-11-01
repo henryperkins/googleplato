@@ -460,24 +460,24 @@ describe('POST /v1/auth/firebase', () => {
     assert.equal(data.user.userId, 'usr_existing');
   });
 
-  it('auto-provisions new verified Google user without prior invite', async () => {
+  it('refuses a new verified Google user without an invitation', async () => {
     setFirebaseTokenVerifier(async () => ({
       email: 'newlearner@example.com',
       email_verified: true,
       name: 'New Learner',
     }));
+    let storedTokens = 0;
+    db.storeRefreshToken = async () => { storedTokens += 1; };
     const app = new Hono();
     app.route('/', auth);
     const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'valid_token' });
-    assert.equal(res.status, 201);
+    assert.equal(res.status, 403);
     const data = await res.json();
-    assert.ok(data.accessToken);
-    assert.ok(data.refreshToken);
-    assert.equal(data.user.email, 'newlearner@example.com');
-    assert.equal(data.user.name, 'New Learner');
-    assert.equal(data.user.role, 'user');
-    assert.equal(createdUsers.length, 1);
-    assert.equal(createdUsers[0].email, 'newlearner@example.com');
+    assert.equal(data.code, 'invite_required');
+    assert.equal(data.email, 'newlearner@example.com');
+    assert.equal(data.accessToken, undefined);
+    assert.equal(createdUsers.length, 0);
+    assert.equal(storedTokens, 0);
   });
 });
 

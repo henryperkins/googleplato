@@ -103,9 +103,18 @@ abandoned attempts. Missing provider usage remains unknown. See
 
 Google sign-in uses Firebase Auth's popup. The server verifies the Firebase ID
 token at `POST /v1/auth/firebase` and returns plato access and refresh tokens.
-A verified email that matches an existing account signs in to it. Any other
-verified Google account gets a new learner account; a pending invite or wait-list
-entry for that email supplies its profile, but neither is required.
+A verified email that matches an existing account signs in to it. A new account
+needs an invitation, as password signup does: an invite token (email or link) or
+a pending email invite for that address, whose profile it takes. The one
+exception is the operator's `ADMIN_EMAIL`, which may create its own account and
+is the only address made an admin; no address is hard-coded anywhere. Anyone
+else gets `403 { code: 'invite_required', email, name, waitlisted, inviteExpired }`
+and nothing is created or consumed, so a wait-list entry stays for an admin to
+invite. Google has verified the address, so telling its owner where they stand
+reveals nothing about anyone else. The sign-in page then replaces its form with
+the invitation page (`InviteRequired`): it names the address, says whether the
+person is on the wait list or holds an expired invitation, and offers **Join the
+wait list**, prefilled with Google's email and name, when the list is open.
 
 Google and password sessions use the same server storage paths. `storage.js`
 only writes through the API and caches acknowledged atomic lesson commits.
@@ -955,9 +964,11 @@ async or something fails:
   and keep the submit button focusable with Base UI's `focusableWhenDisabled`
   (rendered as `aria-disabled`, which `button.jsx` styles like `disabled`).
   Handlers guard against double submits themselves.
-- **Confirmations that replace a form take focus** (Reset Password, Wait List),
-  and a failed lesson start offers Try again in place, parking focus on the
-  lesson heading while the loading view replaces the error.
+- **Confirmations that replace a form take focus** (Reset Password, Wait List,
+  and the invitation page that replaces sign-in, whose **Back to sign in**
+  returns focus to the Sign in heading), and a failed lesson start offers Try
+  again in place, parking focus on the lesson heading while the loading view
+  replaces the error.
 - **Page titles name the page.** `client/src/lib/routeTitles.js` names lesson
   routes after their lesson for the title and the "Navigated to …" announcement;
   admin views that share a route component set their title per view.
@@ -1008,7 +1019,7 @@ async or something fails:
 
 ## Invite system
 
-Admins invite users via email or shareable link. Invites expire after 7 days (TTL enforced in DynamoDB/SQLite). All invite operations are audit-logged.
+Admins invite users via email or shareable link. Every new account needs an invitation, whether the person signs up with a password or with Google (see [Google sign-in](#google-sign-in-and-canonical-server-storage)). Invites expire after 7 days (TTL enforced in DynamoDB/SQLite). All invite operations are audit-logged.
 
 ### Email invites
 
@@ -1040,6 +1051,7 @@ People ask to join; an admin invites them later. Integrator-facing API guide: [`
 - **Config:** `_system:waitlist` = `{ open, apiKeyHash }`, kept out of `_system:settings` so a stale settings save can't bring back a revoked key. The key is shown once; only its SHA-256 is stored.
 - **Admin:** Users → **Wait List** filter, with Invite and Remove per row; click a row to edit the entry (`/plato/users/waitlist/:token`: name, email, group, custom fields — same validation as joining, and a new email must not belong to a user, pending invite, or other entry). Users → **Wait List** button to open or close the form and make or revoke the key. Routes: `GET /v1/admin/waitlist`, `PUT /v1/admin/waitlist/settings`, `POST`/`DELETE /v1/admin/waitlist/key`, `PUT /v1/admin/waitlist/:token` (edit; conditional on the row still being an entry, so it can't race an Invite), `POST /v1/admin/waitlist/:token/invite`, `DELETE /v1/admin/waitlist/:token`.
 - **Invite:** creates a normal email invite that carries the entry's `profile`, sends the invite email, and deletes the entry. Resend keeps the profile.
+- **Not an invitation:** a Google sign-in from a wait-listed address creates no account and leaves the entry in place; the invitation page tells the person they're on the list (see [Google sign-in](#google-sign-in-and-canonical-server-storage)).
 - **Signup:** the form is prefilled from `GET /v1/auth/invite/:token`; values the person submits win. A stored group that has since been renamed or deleted is ignored rather than assigned.
 - **Custom fields:** deleting a custom user field also erases its answers from wait-list entries and the invites made from them (`setInviteProfile`), and `GET /v1/admin/waitlist` only returns answers to fields that still exist.
 - **No rate limit.** Like the rest of the public API, `POST /v1/waitlist` has none; an open list accepts any number of entries. The public form carries a **honeypot**: a hidden `website` input (off-screen, `aria-hidden`, out of the tab order). An unkeyed request that fills it gets the normal `202` and nothing is stored. Keyed requests skip the check, so an outside form may send any fields.
