@@ -10,7 +10,8 @@
     "test:browser:admin": "node --test tests/browser/admin-responsive.test.js",
     "test:browser:publishing": "node --test tests/browser/lesson-publishing.test.js",
     "test:browser:customizer": "node --test tests/browser/customizer.test.js",
-    "test:browser:learner": "node --test tests/browser/learner-recovery.test.js"
+    "test:browser:learner": "node --test tests/browser/learner-recovery.test.js",
+    "test:browser:invite": "node --test tests/browser/invite-required.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
