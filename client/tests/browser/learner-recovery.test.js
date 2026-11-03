@@ -210,6 +210,15 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     });
     await page.goto(`${base}/lessons`);
     const progress = page.getByRole('progressbar', { name: /progress: 1 of 14 public lessons completed$/ });
+    // While every status shows, this learner's 13 lessons in progress lead the
+    // list and fill page 1, so the course group and its progress start on page 2.
+    const inProgressPage = page.getByRole('list', { name: 'Lessons in progress' });
+    const nextPage = async () => {
+      await inProgressPage.waitFor();
+      await page.getByRole('button', { name: 'Next page', exact: true }).click();
+      await page.getByText('Page 2 of 2', { exact: true }).waitFor();
+    };
+    await nextPage();
     await progress.waitFor();
     await page.waitForLoadState('networkidle');
     assert.equal(await progress.getAttribute('aria-valuenow'), '7');
@@ -218,12 +227,11 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= width + 1);
       await page.screenshot({ path: join(evidence, `${engine}-public-course-progress-${width}.png`) });
     }
-    await page.getByRole('button', { name: 'Next page', exact: true }).click();
-    await page.getByText('Page 2 of 2', { exact: true }).waitFor();
-    await progress.waitFor();
     await page.getByRole('button', { name: /Open lesson Practice giving thoughtful/ }).waitFor();
+    // A status filter drops the In progress group, so the course leads page 1.
     for (const status of ['completed', 'in-progress', 'not-started', 'all']) {
       await page.getByLabel('Status', { exact: true }).selectOption(status);
+      if (status === 'all') await nextPage();
       await progress.waitFor();
       assert.equal(await progress.getAttribute('aria-valuenow'), '7');
     }
@@ -235,6 +243,7 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal(await page.getByRole('progressbar').count(), 0, 'Uncategorized lessons need no header');
     completedIsPrivate = true;
     await page.reload();
+    await nextPage();
     await page.getByRole('progressbar', { name: /progress: 0 of 13 public lessons completed$/ }).waitFor();
     await page.getByLabel('Status', { exact: true }).selectOption('completed');
     await page.getByRole('button', { name: /Open lesson Completed communication practice/ }).waitFor();
