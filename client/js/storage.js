@@ -161,6 +161,15 @@ export async function getLessonKB(lessonId) {
   return fetchSyncData(`lessonKB:${lessonId}`);
 }
 
+/**
+ * A lesson's progress record from the in-memory cache, without a network
+ * read: `undefined` when it isn't cached. sync.loadAll() caches every record
+ * the learner has, so after it a miss means the lesson hasn't been started.
+ */
+export function getCachedLessonKB(lessonId) {
+  return _cache.get(`lessonKB:${lessonId}`);
+}
+
 export async function saveLessonKB(lessonId, kb) {
   return putSyncData(`lessonKB:${lessonId}`, kb);
 }

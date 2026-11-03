@@ -353,7 +353,7 @@ The spacing unit is a quarter rem (4 px at the inspected root size). The app use
 | Surface | Container and responsive behavior |
 | --- | --- |
 | Learner shell and lesson list | Centered, up to 64 rem (1024 px), with 16 px page padding. The header bands pad inside the same column, so the classroom name lines up with the page heading. |
-| Lesson grid | One column initially, two from 40 rem (640 px), three from 64 rem (1024 px); 12 px gaps. Each visible course group has its own named list and progress header. |
+| Lesson grid | One column initially, two from 40 rem (640 px), three from 64 rem (1024 px); 12 px gaps. While every status is shown, the lessons in progress lead the whole list as their own named group under **In progress**, so a long course can't push them onto a later page. Each visible course group follows with its own named list and progress header; lessons without a course come last, under **Other lessons** whenever the list has other groups. |
 | Chat and composer | Centered, up to 48 rem (768 px); messages occupy at most 85% of the conversation width. |
 | User settings | Centered, up to 32 rem (512 px). |
 | Auth card | Up to 28 rem (448 px), within a full-height branded page. |
@@ -365,7 +365,7 @@ The spacing unit is a quarter rem (4 px at the inspected root size). The app use
 
 Filters stack on narrow screens and align horizontally from the small breakpoint; a filter select shrinks below its longest option instead of widening the page, and long course names wrap inside lesson cards. Dashboard grids vary by information density: summary cards use one then two columns; compact pacing statistics use two then three. Dialog actions stack in reverse order on small screens and align right in a row from the small breakpoint.
 
-Course headings use muted, semibold 14 px uppercase text with wider tracking. The completion count sits beside the title from the small breakpoint and below it on narrow screens; a 6 px rounded track follows, filled with the primary text shade like the lesson bars. Counts use all public, non-custom lessons available to the learner in that course, independently of the current filter and page. They describe course progress, not the number of cards currently shown. Lesson cards give metadata the full width on its own row before the right-aligned outline action, allowing long course names to wrap.
+Course headings use muted, semibold 14 px uppercase text with wider tracking. The completion count sits beside the title from the small breakpoint and below it on narrow screens; a 6 px rounded track follows, filled with the primary text shade like the lesson bars. Counts use all public, non-custom lessons available to the learner in that course, independently of the current filter and page. They describe course progress, not the number of cards currently shown. The **In progress** and **Other lessons** headings, and a course with no public lessons, use the same type without a count or track. Every group keeps a 12 px gap from its heading to its cards and 24 px between groups. A status filter drops the **In progress** group and keeps the plain course grouping. Lesson cards give metadata the full width on its own row before the right-aligned outline action, allowing long course names to wrap.
 
 The chat uses one accessible sticky header and document scrolling. The header shares the conversation's 48 rem column. The lesson title (16 px / 600) leads; **View outline** follows it on the same line and wraps beneath a long title, which itself wraps (up to three lines) instead of truncating. The outline action's 44 px touch area comes from an overlay, so it doesn't grow the row: the header is about 67 px tall on a phone. The lesson page fills the space between the shell's bars instead of assuming their height, so a short conversation's composer rests at the bottom without the page scrolling on open. Focused elements scroll clear of the sticky header and composer, whose measured heights set the page's scroll padding. On short viewports (under 34 em tall: landscape phones, 200% zoom, or enlarged default text) the header and composer scroll with the page rather than pinning. The composer retains inline and elevated variants; the inactive copy is inert and the elevated copy carries a stronger shadow. Admin action and filter rows wrap at narrow widths. Preserve scroll and focus behavior when altering this layout; [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) records the relevant constraints.
 
@@ -449,7 +449,7 @@ Password visibility controls remain centered through press states and disable wi
 
 Badges are compact (20 px high), medium-weight labels with highly rounded ends. Primary, secondary, outline, destructive, ghost, and link variants reuse the existing semantic colors. Anchor-rendered badges have their own hover behavior.
 
-Lesson status is a separate visual language: a completed check on an emerald wash (`completed-background` / `completed-foreground`), an active ring on an amber wash (`in-progress-background` / `in-progress-foreground`), and an unstarted neutral circle. Visible state and accessible status wording accompany these symbols.
+Lesson status is a separate visual language: a completed check on an emerald wash (`completed-background` / `completed-foreground`), an active ring and its percentage on an amber wash (`in-progress-background` / `in-progress-foreground`; the 12 px semibold number holds 4.5:1 on the wash, because 20% and 60% look alike as rings), and an unstarted neutral circle. Visible state and accessible status wording accompany these symbols.
 
 ### Cards and lesson cards
 
@@ -480,6 +480,8 @@ Lesson management retains the dense desktop table. Narrow rows show the full les
 ### Dialogs, menus, and empty states
 
 Dialogs and menus use popover surfaces, rounded containment, and compact spacing. Standard dialogs are centered; sheet variants dock to the bottom. Menus attach to their trigger. Dialog footers use a muted layer to group actions. The shared dialog wrapper uses native `<dialog>` and `showModal()`; dropdowns use the native Popover API with application-managed positioning and keyboard navigation. Preserve the wrappers' focus restoration, scroll locking, and dismissal behavior; Base UI supplies other controls, but does not own these overlay implementations.
+
+The lesson outline (**View outline**) is where a learner decides, so it ends with the lesson's next step as its primary action beside Close: **Start lesson**, **Continue lesson**, or **Open lesson** once completed. It closes before navigating, so its scroll lock is released before the lesson renders.
 
 Lesson-list loading and empty states use a dashed, rounded boundary, centered text, and roomy vertical padding. Distinguish an empty classroom, an empty filter result, and loading through their existing wording and status announcements. Load failures use the semantic danger surface and a **Try again** action, keeping previously loaded lessons visible. Pagination can wrap onto additional rows when text grows.
 

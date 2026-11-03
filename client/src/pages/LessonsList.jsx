@@ -1,11 +1,13 @@
 import { Fragment, useState, useEffect, useMemo, useId, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext.jsx';
-import { getLessonKB } from '../../js/storage.js';
+import { getCachedLessonKB, getLessonKB } from '../../js/storage.js';
 import { authenticatedFetch } from '../../js/auth.js';
 import { renderMd, renderInlineMd, stripInlineMd } from '../lib/helpers.js';
 import Check from 'lucide-react/dist/esm/icons/check';
-import { courseCompletion, groupByCourse } from '../lib/courseCompletion.js';
+import { courseCompletion } from '../lib/courseCompletion.js';
+import { groupLessonsForPage, needsOtherHeading, orderLessons } from '../lib/lessonListOrder.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +34,13 @@ const STATUS_COMPLETED = 'completed';
 
 // Learners can't create lessons, so the empty list explains where they come from.
 const EMPTY_MESSAGE = 'No lessons yet. Lessons appear here when they’re published or shared with you.';
+
+// Shared by every group heading on the page (courses, In progress, Other lessons).
+const GROUP_HEADING = 'min-w-0 [overflow-wrap:anywhere] text-sm font-semibold uppercase tracking-wider text-muted-foreground';
+
+function toLessonStatus(kb) {
+  return { status: kb?.status || null, progress: kb?.progress ?? null };
+}
 
 function lessonStatusKey(d) {
   if (d?.status === 'completed') return STATUS_COMPLETED;
@@ -65,25 +74,36 @@ export default function LessonsList() {
   const navigate = useNavigate();
   const { lessons, loaded, lessonsError, loadingLessons } = state;
   const headingRef = useRef(null);
-  const [lessonData, setLessonData] = useState({});
+  const [lessonData, setLessonData] = useState(null);
   const [timeStats, setTimeStats] = useState({});
   const [detailLesson, setDetailLesson] = useState(null);
   const [courseFilter, setCourseFilter] = useState(FILTER_ALL);
   const [statusFilter, setStatusFilter] = useState(STATUS_ALL);
   const [page, setPage] = useState(1);
 
+  // Progress as sync.loadAll() cached it before the lessons arrived, so the
+  // first render already knows which lessons are in progress. They lead the
+  // list, and reading progress over the network first would move the cards
+  // after they appear. The read below confirms it from the server.
+  const cachedStatuses = useMemo(
+    () => Object.fromEntries(lessons.map((l) => [l.lessonId, toLessonStatus(getCachedLessonKB(l.lessonId))])),
+    [lessons],
+  );
+  const statuses = useMemo(
+    () => (lessonData ? { ...cachedStatuses, ...lessonData } : cachedStatuses),
+    [cachedStatuses, lessonData],
+  );
+
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const data = {};
       for (const c of lessons) {
-        const kb = await getLessonKB(c.lessonId);
-        data[c.lessonId] = {
-          status: kb?.status || null,
-          progress: kb?.progress ?? null,
-        };
+        data[c.lessonId] = toLessonStatus(await getLessonKB(c.lessonId));
       }
-      setLessonData(data);
+      if (!cancelled) setLessonData(data);
     })();
+    return () => { cancelled = true; };
   }, [lessons]);
 
   // Listen for lesson completion events to immediately update the checkmark
@@ -91,13 +111,7 @@ export default function LessonsList() {
     const handleCompletion = async (e) => {
       const { lessonId } = e.detail;
       const kb = await getLessonKB(lessonId);
-      setLessonData(prev => ({
-        ...prev,
-        [lessonId]: {
-          status: kb?.status || null,
-          progress: kb?.progress ?? null,
-        },
-      }));
+      setLessonData(prev => ({ ...prev, [lessonId]: toLessonStatus(kb) }));
     };
     window.addEventListener('plato:lesson-completed', handleCompletion);
     return () => window.removeEventListener('plato:lesson-completed', handleCompletion);
@@ -151,35 +165,35 @@ export default function LessonsList() {
     }
   }, [hasCourseFilter, courseFilter, courseOptions.named]);
 
+  // While every status is shown, the lessons in progress lead the whole list
+  // under their own heading, ahead of the course groups. A status filter
+  // already sorts by status, so it keeps the plain course grouping.
+  const inProgressFirst = statusFilter === STATUS_ALL;
+
   // Apply both filters. Course narrows by taxonomy; status narrows by the
   // learner's progress on each lesson. Combined as logical AND so the grid
-  // only shows lessons matching every active filter.
+  // only shows lessons matching every active filter. Then catalog order:
+  // course name (lessons without a course last), then lesson name.
   const filtered = useMemo(() => {
     let result = lessons;
     if (courseFilter === FILTER_NONE) result = result.filter((l) => !l.course?.id);
     else if (courseFilter !== FILTER_ALL) result = result.filter((l) => l.course?.id === courseFilter);
     if (statusFilter !== STATUS_ALL) {
-      result = result.filter((l) => lessonStatusKey(lessonData[l.lessonId]) === statusFilter);
+      result = result.filter((l) => lessonStatusKey(statuses[l.lessonId]) === statusFilter);
     }
-    // Sort by course name first (uncategorized lessons last), then by lesson
-    // title within each course.
-    return result.slice().sort((a, b) => {
-      const courseA = a.course?.name || '';
-      const courseB = b.course?.name || '';
-      // Push lessons without courses to the end
-      if (!courseA && courseB) return 1;
-      if (courseA && !courseB) return -1;
-      // Compare course names alphabetically
-      const courseCompare = courseA.localeCompare(courseB, undefined, { numeric: true, sensitivity: 'base' });
-      if (courseCompare !== 0) return courseCompare;
-      // Within the same course (or both uncategorized), sort by lesson name
-      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-    });
-  }, [lessons, courseFilter, statusFilter, lessonData]);
+    return orderLessons(result, statuses, { inProgressFirst });
+  }, [lessons, courseFilter, statusFilter, statuses, inProgressFirst]);
+
+  // Lessons without a course get an "Other lessons" heading whenever the list
+  // also has named groups, even on a page that shows only them.
+  const showOtherHeading = useMemo(
+    () => needsOtherHeading(filtered, statuses, { inProgressFirst }),
+    [filtered, statuses, inProgressFirst],
+  );
 
   // Course progress counts public lessons from the full catalog, so a status
   // filter can't skew "N of M" (#395). Shared private lessons remain available.
-  const progressByCourse = useMemo(() => courseCompletion(lessons, lessonData), [lessons, lessonData]);
+  const progressByCourse = useMemo(() => courseCompletion(lessons, statuses), [lessons, statuses]);
 
   // Pagination math. We clamp the current page to the available range so a
   // filter that shrinks the list below the current page doesn't strand us.
@@ -325,29 +339,39 @@ export default function LessonsList() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* One progress header per course on this page; counts come from
-              progressByCourse (all lessons), not from what's visible. */}
-          {groupByCourse(visibleLessons).map((group) => {
-            const progress = group.courseId ? progressByCourse[group.courseId] : null;
+          {/* In reading order: the lessons in progress, then one group per
+              course with its progress header (counts come from
+              progressByCourse, all lessons, not from what's visible), then
+              lessons without a course. */}
+          {groupLessonsForPage(visibleLessons, statuses, { inProgressFirst }).map((group) => {
+            const progress = group.kind === 'course' ? progressByCourse[group.courseId] : null;
+            const heading = group.kind === 'in-progress' ? 'In progress'
+              : group.kind === 'course' ? group.courseName
+                : showOtherHeading ? 'Other lessons' : null;
+            const listLabel = group.kind === 'in-progress' ? 'Lessons in progress'
+              : group.kind === 'course' ? `${group.courseName} lessons`
+                : heading || 'Lessons';
             return (
-              <div key={group.courseId || 'uncategorized'}>
-                {group.courseName && progress && (
+              <div key={group.key}>
+                {progress?.total > 0 ? (
                   <CourseProgressHeader
                     courseName={group.courseName}
                     completed={progress.completed}
                     total={progress.total}
                   />
+                ) : heading && (
+                  <h2 className={`mb-3 ${GROUP_HEADING}`}>{heading}</h2>
                 )}
                 <ul
                   className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
                   role="list"
-                  aria-label={group.courseName ? `${group.courseName} lessons` : 'Lessons'}
+                  aria-label={listLabel}
                 >
                   {group.lessons.map((lesson) => (
                     <LessonCardItem
                       key={lesson.lessonId}
                       lesson={lesson}
-                      lessonData={lessonData}
+                      lessonData={statuses}
                       timeStats={timeStats}
                       navigate={navigate}
                       setDetailLesson={setDetailLesson}
@@ -391,10 +415,17 @@ export default function LessonsList() {
       {detailLesson && (
         <LessonDetailDialog
           lesson={detailLesson}
-          progress={lessonData[detailLesson.lessonId]}
+          progress={statuses[detailLesson.lessonId]}
           timeStats={timeStats[detailLesson.lessonId]}
           open={!!detailLesson}
           onOpenChange={(open) => { if (!open) setDetailLesson(null); }}
+          onOpenLesson={() => {
+            const { lessonId } = detailLesson;
+            // Close first, so the dialog releases its scroll lock (on iOS,
+            // restoring the list's scroll) before the lesson page renders.
+            flushSync(() => setDetailLesson(null));
+            navigate(`/lessons/${lessonId}`);
+          }}
         />
       )}
     </div>
@@ -409,7 +440,7 @@ function CourseProgressHeader({ courseName, completed, total }) {
   return (
     <div className="mb-3">
       <div className="flex min-w-0 flex-col gap-1 mb-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
-        <h2 className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        <h2 className={GROUP_HEADING}>
           {courseName}
         </h2>
         <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
@@ -563,12 +594,13 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
 // well-differentiated states with distinct hues so the icon is
 // glanceable in a grid without relying on shape alone:
 //   - not-started: muted gray outline ring
-//   - in-progress: amber arc on amber wash (warm "in flight" cue, kept
-//     out of the brand palette so it doesn't blend into themed UI)
+//   - in-progress: amber arc and its percentage on an amber wash (warm
+//     "in flight" cue, kept out of the brand palette so it doesn't blend
+//     into themed UI). The number says what the arc can't: 20% and 60%
+//     look alike at this size.
 //   - completed:   green check on green wash
 // The visual is aria-hidden — the matching status text is folded into
-// the open-lesson button's aria-label, and `title` gives sighted hover
-// users the precise % when the arc alone is hard to read.
+// the open-lesson button's aria-label, and `title` repeats it on hover.
 function StatusIndicator({ progress, statusText }) {
   const sharedClass = 'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full';
   if (progress?.status === 'completed') {
@@ -583,14 +615,23 @@ function StatusIndicator({ progress, statusText }) {
     );
   }
   if (progress?.status) {
-    const pct = progress.progress != null ? progress.progress * 10 : 0;
+    const pct = progress.progress != null ? progress.progress * 10 : null;
+    if (pct == null) {
+      return (
+        <span aria-hidden="true" title={statusText} className={`${sharedClass} bg-in-progress-background text-in-progress-foreground`}>
+          <ProgressRing pct={0} />
+        </span>
+      );
+    }
+    // The ring keeps the circle's 1px inset; the number holds 4.5:1 on the wash.
     return (
       <span
         aria-hidden="true"
         title={statusText}
-        className={`${sharedClass} bg-in-progress-background text-in-progress-foreground`}
+        className="mt-0.5 flex h-6 shrink-0 items-center gap-1 rounded-full bg-in-progress-background pl-px pr-2 text-in-progress-foreground"
       >
         <ProgressRing pct={pct} />
+        <span className="text-xs font-semibold tabular-nums">{pct}%</span>
       </span>
     );
   }
@@ -627,9 +668,12 @@ function ProgressRing({ pct, size = 22, stroke = 2.5 }) {
   );
 }
 
-function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange }) {
+function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange, onOpenLesson }) {
   const pct = progress?.status === 'completed' ? 100 : (progress?.progress != null ? progress.progress * 10 : null);
   const progressText = progress?.status === 'completed' ? 'Completed' : (pct != null ? `${pct}% complete` : null);
+  // The outline is where a learner decides, so it carries the next step.
+  const openLabel = progress?.status === 'completed' ? 'Open lesson'
+    : progress?.status ? 'Continue lesson' : 'Start lesson';
   const range = timeStats && (timeStats.sampleSize ?? 0) >= 3
     ? formatTimeRange(timeStats.p20, timeStats.p80)
     : null;
@@ -707,6 +751,7 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button onClick={onOpenLesson}>{openLabel}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

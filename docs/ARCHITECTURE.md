@@ -1272,6 +1272,23 @@ lessons remain visible and usable in the grid. Courses without public lessons
 have no progress bar. Purely informational; it reads `lessonKB.status` and never
 affects completion.
 
+While the status filter shows every status, the lessons the learner has started
+and not completed lead the whole list under an **In progress** heading, in
+catalog order among themselves, so a long first course can't push a returning
+learner's lesson onto page 2 (`orderLessons()` / `groupLessonsForPage()` in
+`client/src/lib/lessonListOrder.js`). A status filter keeps plain course
+grouping. Course groups follow in course-name order; lessons without a course
+come last, under **Other lessons** whenever the list has other groups.
+
+The first render takes each lesson's progress from the sync cache
+(`getCachedLessonKB()`), which `sync.loadAll()` fills with every record the
+learner has before the lessons arrive; a miss means not started. So the order is
+settled before the cards appear. The per-lesson `getLessonKB()` read that follows
+only confirms it (a not-started lesson has no record, so its read is a network
+miss). The **View outline** dialog ends with the lesson's next step (**Start
+lesson**, **Continue lesson**, or **Open lesson**) and closes before navigating,
+so its background scroll lock is released before the lesson page renders.
+
 Both learner lesson endpoints return normalized visibility in `status`, using
 the same `normalizeStatus()` helper as dashboard/activity stats: legacy
 `published` and status-less lessons with markdown become `public`, and legacy
