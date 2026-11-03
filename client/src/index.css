@@ -278,6 +278,20 @@
   outline-offset: 2px;
 }
 
+/* A lesson card clips to its rounded corners, which cut its open action's
+   ring down to one line under the description. The card takes the ring
+   instead, as it takes the hover shadow; View outline keeps its own. A
+   browser without :has() keeps the button's own ring. */
+@supports selector(:has(*)) {
+  .lesson-open:focus-visible {
+    outline: none;
+  }
+  .lesson-card:has(.lesson-open:focus-visible) {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
 /* A colored header draws focus in its own text color. Only the header's own
    controls take it: a menu opened from the header sits on the popover surface,
    where an inherited white ring on a white menu would vanish. */

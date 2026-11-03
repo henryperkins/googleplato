@@ -1299,6 +1299,16 @@ miss). The **View outline** dialog ends with the lesson's next step (**Start
 lesson**, **Continue lesson**, or **Open lesson**) and closes before navigating,
 so its background scroll lock is released before the lesson page renders.
 
+**Previous** and **Next** move focus to the page's `h1` (`goToPage()`), which
+scrolls the new page's top into view. Left on the button, focus would sit below
+cards the learner hasn't read, and on the last page, where Next is disabled, it
+fell to the document and the next Tab reached the footer. Both buttons are
+`focusableWhenDisabled`, and steps count from the page shown, which the stored
+page can outrun when the list shrinks. Filter changes reset the page without
+moving focus. Lesson titles, descriptions, course names and the outline's author
+text use `dir="auto"`, since admins can write lessons in a right-to-left
+language; the card's metadata isolates its course name in a `<bdi>`.
+
 Both learner lesson endpoints return normalized visibility in `status`, using
 the same `normalizeStatus()` helper as dashboard/activity stats: legacy
 `published` and status-less lessons with markdown become `public`, and legacy

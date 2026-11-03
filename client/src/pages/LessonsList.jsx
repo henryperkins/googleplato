@@ -213,6 +213,18 @@ export default function LessonsList() {
   // out-of-range page after a tighter filter.
   useEffect(() => { setPage(1); }, [courseFilter, statusFilter]);
 
+  // Previous and Next replace the cards, so the reader starts the new page at
+  // the top: focus moves to the page heading, which scrolls into view. Left on
+  // the button, focus would sit below cards not yet read, and on the last
+  // page, where Next is disabled, it would fall to the document. Steps count
+  // from the page shown, which `page` can outrun when the list shrinks.
+  const goToPage = (next) => {
+    const target = Math.min(Math.max(1, next), totalPages);
+    if (target === currentPage) return;
+    setPage(target);
+    headingRef.current?.focus();
+  };
+
   // Live announcement: assembled from filter + page state. Updates whenever
   // either changes, which is exactly the moment screen reader users need to
   // know the visible content shifted. Kept in an always-mounted sr-only
@@ -367,7 +379,7 @@ export default function LessonsList() {
                     total={progress.total}
                   />
                 ) : heading && (
-                  <h2 className={`mb-3 ${GROUP_HEADING}`}>{heading}</h2>
+                  <h2 dir="auto" className={`mb-3 ${GROUP_HEADING}`}>{heading}</h2>
                 )}
                 <ul
                   className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
@@ -399,7 +411,8 @@ export default function LessonsList() {
             size="sm"
             className="touch-manipulation"
             disabled={currentPage <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            focusableWhenDisabled
+            onClick={() => goToPage(currentPage - 1)}
             aria-label="Previous page"
           >
             &larr; Previous
@@ -412,7 +425,8 @@ export default function LessonsList() {
             size="sm"
             className="touch-manipulation"
             disabled={currentPage >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            focusableWhenDisabled
+            onClick={() => goToPage(currentPage + 1)}
             aria-label="Next page"
           >
             Next &rarr;
@@ -448,7 +462,7 @@ function CourseProgressHeader({ courseName, completed, total }) {
   return (
     <div className="mb-3">
       <div className="flex min-w-0 flex-col gap-1 mb-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
-        <h2 className={GROUP_HEADING}>
+        <h2 dir="auto" className={GROUP_HEADING}>
           {courseName}
         </h2>
         <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
@@ -524,7 +538,7 @@ function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOver
   const statusText = statusAnnouncement(progress);
 
   return (
-    <Card className="h-full transition-shadow [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-md group gap-0 p-0">
+    <Card className="lesson-card h-full transition-shadow [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-md group gap-0 p-0 forced-colors:outline-1">
       <button
         type="button"
         onClick={onOpen}
@@ -534,15 +548,18 @@ function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOver
         // wrapping an h3 inside the button (invalid HTML per WCAG 2.4.6).
         aria-label={`Open lesson ${lesson.name}. ${statusText}.${startHere ? ' Start here.' : ''}`}
         aria-describedby={parts.length > 0 ? metaId : undefined}
-        className="min-w-0 flex-1 text-left px-4 pt-4 pb-2 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+        // The card draws this button's focus ring (.lesson-card in
+        // index.css): the card clips to its corners, which cut the ring to a
+        // line. text-start lets a right-to-left title align right.
+        className="lesson-open min-w-0 flex-1 text-start px-4 pt-4 pb-2 cursor-pointer"
       >
         <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
           <div className="min-w-0 basis-48 flex-1 space-y-1.5">
-            <span className="wrap-anywhere text-base font-semibold leading-snug transition-colors group-hover:text-primary-text block">
+            <span dir="auto" className="wrap-anywhere text-base font-semibold leading-snug transition-colors group-hover:text-primary-text block">
               {lesson.name}
             </span>
             {lesson.description && (
-              <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+              <p dir="auto" className="wrap-anywhere text-sm text-muted-foreground line-clamp-2 leading-relaxed">
                 {stripInlineMd(lesson.description)}
               </p>
             )}
@@ -575,9 +592,9 @@ function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOver
               )}
               <span className="wrap-anywhere">
                 {idx > 0 && <span aria-hidden="true">· </span>}
-                {part.title ? (
-                  <span title={part.title}>{part.text}</span>
-                ) : part.text}
+                {/* Isolated, so a right-to-left course name keeps its own
+                    order without pulling the separators into it. */}
+                <bdi title={part.title}>{part.text}</bdi>
               </span>
             </Fragment>
           ))}
@@ -601,13 +618,14 @@ function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOver
 
 // The suggested first lesson's mark, in place of its not-started circle (with
 // nothing started, every circle is empty). It takes the classroom's action
-// fill, the one filled mark on the page. Hidden like the status icons: the
-// open action's accessible name ends with "Start here."
+// fill, the one filled mark on the page, and keeps its outline in forced
+// colors, which drop the fill. Hidden like the status icons: the open
+// action's accessible name ends with "Start here."
 function StartHereMark() {
   return (
     <span
       aria-hidden="true"
-      className="mt-0.5 flex h-6 shrink-0 items-center whitespace-nowrap rounded-full bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
+      className="mt-0.5 flex h-6 shrink-0 items-center whitespace-nowrap rounded-full bg-primary px-2.5 text-xs font-semibold text-primary-foreground forced-colors:outline-1"
     >
       Start here
     </span>
@@ -709,15 +727,15 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange, o
           {/* Course tag above the title — establishes scope before the
               learner reads the title, matches the card's visual order. */}
           {lesson.course?.name && (
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <p dir="auto" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {lesson.course.name}
             </p>
           )}
-          <DialogTitle>{lesson.name}</DialogTitle>
+          <DialogTitle dir="auto" className="wrap-anywhere leading-snug">{lesson.name}</DialogTitle>
           {/* Author-written markdown: inline formatting only, since the
               description is a <p>. The exemplar may hold lists. */}
           {lesson.description && (
-            <DialogDescription className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />
+            <DialogDescription dir="auto" className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />
           )}
         </DialogHeader>
 
@@ -760,12 +778,12 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange, o
 
           <div>
             <h3 className="text-sm font-medium mb-1">Exemplar</h3>
-            <div className="coach-copy text-sm text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(lesson.exemplar) }} />
+            <div dir="auto" className="coach-copy text-sm text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(lesson.exemplar) }} />
           </div>
 
           <div>
             <h3 className="text-sm font-medium mb-1">Learning objectives</h3>
-            <ul className="list-disc pl-5 text-sm text-muted-foreground leading-relaxed space-y-1">
+            <ul dir="auto" className="list-disc ps-5 text-sm text-muted-foreground leading-relaxed space-y-1">
               {lesson.learningObjectives.map((obj, i) => (
                 <li key={i} className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(obj) }} />
               ))}
