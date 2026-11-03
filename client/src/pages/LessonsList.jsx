@@ -7,7 +7,7 @@ import { authenticatedFetch } from '../../js/auth.js';
 import { renderMd, renderInlineMd, stripInlineMd } from '../lib/helpers.js';
 import Check from 'lucide-react/dist/esm/icons/check';
 import { courseCompletion } from '../lib/courseCompletion.js';
-import { groupLessonsForPage, needsOtherHeading, orderLessons } from '../lib/lessonListOrder.js';
+import { groupLessonsForPage, needsOtherHeading, orderLessons, startHereLessonId } from '../lib/lessonListOrder.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -189,6 +189,13 @@ export default function LessonsList() {
   const showOtherHeading = useMemo(
     () => needsOtherHeading(filtered, statuses, { inProgressFirst }),
     [filtered, statuses, inProgressFirst],
+  );
+
+  // A learner who hasn't started any lesson gets one suggested first lesson,
+  // so a grid of identical empty circles has a place to begin.
+  const startHereId = useMemo(
+    () => startHereLessonId(filtered, lessons, statuses),
+    [filtered, lessons, statuses],
   );
 
   // Course progress counts public lessons from the full catalog, so a status
@@ -373,6 +380,7 @@ export default function LessonsList() {
                       lesson={lesson}
                       lessonData={statuses}
                       timeStats={timeStats}
+                      startHere={lesson.lessonId === startHereId}
                       navigate={navigate}
                       setDetailLesson={setDetailLesson}
                     />
@@ -466,13 +474,14 @@ function CourseProgressHeader({ courseName, completed, total }) {
 
 // Wrapper for individual lesson cards in the grid. Extracted to avoid
 // duplicating the card rendering logic when grouping by course.
-function LessonCardItem({ lesson, lessonData, timeStats, navigate, setDetailLesson }) {
+function LessonCardItem({ lesson, lessonData, timeStats, startHere, navigate, setDetailLesson }) {
   return (
     <li className="list-none">
       <LessonCard
         lesson={lesson}
         progress={lessonData[lesson.lessonId]}
         timeStats={timeStats[lesson.lessonId]}
+        startHere={startHere}
         onOpen={() => navigate(`/lessons/${lesson.lessonId}`)}
         onShowOverview={() => setDetailLesson(lesson)}
       />
@@ -480,7 +489,7 @@ function LessonCardItem({ lesson, lessonData, timeStats, navigate, setDetailLess
   );
 }
 
-function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
+function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOverview }) {
   // Stable id per card so the open-lesson button can describe itself with
   // the meta strip — Tab navigation announces course + time as
   // supplementary context (status now lives in the indicator and the
@@ -523,7 +532,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
         // indicator is aria-hidden, so without this the icon's meaning
         // would be invisible to SR users. We use aria-label instead of
         // wrapping an h3 inside the button (invalid HTML per WCAG 2.4.6).
-        aria-label={`Open lesson ${lesson.name}. ${statusText}.`}
+        aria-label={`Open lesson ${lesson.name}. ${statusText}.${startHere ? ' Start here.' : ''}`}
         aria-describedby={parts.length > 0 ? metaId : undefined}
         className="min-w-0 flex-1 text-left px-4 pt-4 pb-2 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
       >
@@ -538,7 +547,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
               </p>
             )}
           </div>
-          <StatusIndicator progress={progress} statusText={statusText} />
+          {startHere ? <StartHereMark /> : <StatusIndicator progress={progress} statusText={statusText} />}
         </div>
       </button>
       <div className="px-4 pb-3 pt-1 flex flex-col items-start gap-2">
@@ -587,6 +596,21 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
         </Button>
       </div>
     </Card>
+  );
+}
+
+// The suggested first lesson's mark, in place of its not-started circle (with
+// nothing started, every circle is empty). It takes the classroom's action
+// fill, the one filled mark on the page. Hidden like the status icons: the
+// open action's accessible name ends with "Start here."
+function StartHereMark() {
+  return (
+    <span
+      aria-hidden="true"
+      className="mt-0.5 flex h-6 shrink-0 items-center whitespace-nowrap rounded-full bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
+    >
+      Start here
+    </span>
   );
 }
 

@@ -1,13 +1,14 @@
 /**
  * Order and grouping of the learner's lesson list: lessons in progress lead
- * the whole list, ahead of the course groups and pagination.
+ * the whole list, ahead of the course groups and pagination, and a learner
+ * who has started nothing gets one Start here lesson.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { groupLessonsForPage, isInProgress, needsOtherHeading, orderLessons } from '../src/lib/lessonListOrder.js';
+import { groupLessonsForPage, isInProgress, needsOtherHeading, orderLessons, startHereLessonId } from '../src/lib/lessonListOrder.js';
 import { _populateCache, clearCache, getCachedLessonKB } from '../js/storage.js';
 
 const A = { id: 'c_a', name: 'Alpha' };
@@ -108,6 +109,39 @@ describe('needsOtherHeading', () => {
   });
 });
 
+describe('startHereLessonId', () => {
+  const ordered = orderLessons(lessons);
+  const betaOnly = orderLessons(lessons.filter((l) => l.course?.id === 'c_b'));
+
+  it('marks the first lesson in the list for a learner who has started nothing', () => {
+    assert.equal(startHereLessonId(ordered, lessons), 'a2');
+    // The page's status map has an entry for every lesson, null until started.
+    const unstarted = Object.fromEntries(lessons.map((l) => [l.lessonId, { status: null, progress: null }]));
+    assert.equal(startHereLessonId(ordered, lessons, unstarted), 'a2');
+  });
+
+  it('follows the filtered list, so a course filter suggests that course\'s first lesson', () => {
+    assert.equal(startHereLessonId(betaOnly, lessons), 'b1');
+  });
+
+  it('marks nothing once any lesson has a status, including one the filter hides', () => {
+    assert.equal(startHereLessonId(ordered, lessons, { b2: { status: 'learning', progress: 1 } }), null);
+    assert.equal(startHereLessonId(ordered, lessons, { loose: { status: 'completed', progress: 10 } }), null);
+    assert.equal(startHereLessonId(betaOnly, lessons, { a2: { status: 'completed', progress: 10 } }), null);
+  });
+
+  it('marks nothing in a list of one, where there is nothing to choose between, or an empty one', () => {
+    assert.equal(startHereLessonId([lessons[1]], lessons), null);
+    assert.equal(startHereLessonId([], lessons), null);
+  });
+
+  it('never suggests an admin\'s own custom lesson', () => {
+    const withCustom = orderLessons([lesson('custom-draft', 'Aardvark draft', A), ...lessons]);
+    assert.equal(withCustom[0].lessonId, 'custom-draft');
+    assert.equal(startHereLessonId(withCustom, withCustom), 'a2');
+  });
+});
+
 describe('getCachedLessonKB', () => {
   it('reads a cached progress record without a network read, undefined when absent', () => {
     clearCache();
@@ -131,6 +165,13 @@ describe('LessonsList wiring', () => {
     assert.match(src, /'In progress'/);
     assert.match(src, /'Lessons in progress'/);
     assert.match(src, /'Other lessons'/);
+  });
+
+  it('marks Start here from the filtered list, in the card and its accessible name', () => {
+    assert.match(src, /startHereLessonId\(filtered, lessons, statuses\)/);
+    assert.match(src, /startHere=\{lesson\.lessonId === startHereId\}/);
+    assert.match(src, /aria-label=\{`Open lesson \$\{lesson\.name\}\. \$\{statusText\}\.\$\{startHere \? ' Start here\.' : ''\}`\}/);
+    assert.match(src, /\{startHere \? <StartHereMark \/> : <StatusIndicator progress=\{progress\} statusText=\{statusText\} \/>\}/);
   });
 
   it('gives the outline dialog the next step, named for the lesson status', () => {

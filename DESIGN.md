@@ -353,7 +353,7 @@ The spacing unit is a quarter rem (4 px at the inspected root size). The app use
 | Surface | Container and responsive behavior |
 | --- | --- |
 | Learner shell and lesson list | Centered, up to 64 rem (1024 px), with 16 px page padding. The header bands pad inside the same column, so the classroom name lines up with the page heading. |
-| Lesson grid | One column initially, two from 40 rem (640 px), three from 64 rem (1024 px); 12 px gaps. While every status is shown, the lessons in progress lead the whole list as their own named group under **In progress**, so a long course can't push them onto a later page. Each visible course group follows with its own named list and progress header; lessons without a course come last, under **Other lessons** whenever the list has other groups. |
+| Lesson grid | One column initially, two from 40 rem (640 px), three from 64 rem (1024 px); 12 px gaps. While every status is shown, the lessons in progress lead the whole list as their own named group under **In progress**, so a long course can't push them onto a later page. Each visible course group follows with its own named list and progress header; lessons without a course come last, under **Other lessons** whenever the list has other groups. A learner who hasn't started any lesson gets **Start here** on the first lesson in the list instead. |
 | Chat and composer | Centered, up to 48 rem (768 px); messages occupy at most 85% of the conversation width. |
 | User settings | Centered, up to 32 rem (512 px). |
 | Auth card | Up to 28 rem (448 px), within a full-height branded page. |
@@ -450,6 +450,8 @@ Password visibility controls remain centered through press states and disable wi
 Badges are compact (20 px high), medium-weight labels with highly rounded ends. Primary, secondary, outline, destructive, ghost, and link variants reuse the existing semantic colors. Anchor-rendered badges have their own hover behavior.
 
 Lesson status is a separate visual language: a completed check on an emerald wash (`completed-background` / `completed-foreground`), an active ring and its percentage on an amber wash (`in-progress-background` / `in-progress-foreground`; the 12 px semibold number holds 4.5:1 on the wash, because 20% and 60% look alike as rings), and an unstarted neutral circle. Visible state and accessible status wording accompany these symbols.
+
+**Start here** is a suggestion, not a status. For a learner who hasn't started any lesson, it replaces the first lesson's circle with a 24 px pill in the classroom's action fill (`primary` / `primary-foreground`, 12 px semibold), the button pair whose contrast the branding rules already hold. It is the one filled mark in the grid, so it's where the eye starts. The open action's accessible name ends with "Start here." It follows the filters, appears only when there is more than one lesson to choose from, and leaves once any lesson has a status. Where the title column is too narrow for it, as at 320 px, it wraps under the description.
 
 ### Cards and lesson cards
 

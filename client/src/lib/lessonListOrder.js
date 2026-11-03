@@ -59,3 +59,16 @@ export function needsOtherHeading(orderedLessons, lessonData = {}, { inProgressF
   return orderedLessons.some((lesson) => Boolean(lesson.course?.id)
     || (inProgressFirst && isInProgress(lessonData[lesson.lessonId])));
 }
+
+/**
+ * The lesson marked **Start here** for a learner who hasn't started any
+ * lesson: the first in the ordered list, so a course filter suggests that
+ * course's first lesson. Null once any lesson has a status, and for a list of
+ * one, where there's nothing to choose between. An admin's own `custom-`
+ * lessons are never the suggestion.
+ */
+export function startHereLessonId(orderedLessons, allLessons, lessonData = {}) {
+  if (orderedLessons.length < 2) return null;
+  if (allLessons.some((lesson) => lessonData[lesson.lessonId]?.status)) return null;
+  return orderedLessons.find((lesson) => !lesson.lessonId.startsWith('custom-'))?.lessonId ?? null;
+}

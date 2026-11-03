@@ -1280,6 +1280,16 @@ learner's lesson onto page 2 (`orderLessons()` / `groupLessonsForPage()` in
 grouping. Course groups follow in course-name order; lessons without a course
 come last, under **Other lessons** whenever the list has other groups.
 
+A learner who hasn't started any lesson gets one suggestion instead: the first
+lesson in the list shows **Start here** (`startHereLessonId()`), and its open
+action's accessible name ends with "Start here." It follows the filters, so a
+course filter moves it to that course's first lesson. It never marks an admin's
+own `custom-*` lesson and doesn't appear in a list of one. Catalog order has no
+authored sequence: course name, then lesson name, both with numeric collation,
+so an admin who wants a particular first lesson numbers the names ("1. …"). The
+mark leaves once any lesson has a status. It reads the same cached progress as
+the ordering below, so a returning learner never sees it flash.
+
 The first render takes each lesson's progress from the sync cache
 (`getCachedLessonKB()`), which `sync.loadAll()` fills with every record the
 learner has before the lessons arrive; a miss means not started. So the order is
