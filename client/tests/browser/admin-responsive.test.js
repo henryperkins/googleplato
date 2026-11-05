@@ -499,6 +499,111 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
     }
   });
 
+  it('copies wait-list answers once and names only the action that is running', async () => {
+    for (const width of [390, 1280]) {
+      const { context, page } = await openPage({ width, height: 844 });
+      let releaseRemove;
+      let releaseCopy;
+      const removed = new Promise(resolve => { releaseRemove = resolve; });
+      const copied = new Promise(resolve => { releaseCopy = resolve; });
+      try {
+        const fixture = await controlUsers(context);
+        fixture.entries[0].alreadyRegistered = 'account';
+        fixture.entries.push({ inviteToken: 'second-wait', name: 'Yuki East', email: 'yuki@example.test', createdAt: '2026-10-04T09:00:00Z' });
+        let copies = 0;
+        await context.route('**/v1/admin/waitlist/second-wait', async route => {
+          await removed;
+          fixture.entries.splice(fixture.entries.findIndex(entry => entry.inviteToken === 'second-wait'), 1);
+          await route.fulfill({ json: { ok: true } });
+        });
+        await context.route('**/v1/admin/waitlist/mobile-wait/apply', async route => {
+          copies++;
+          await copied;
+          fixture.entries.splice(fixture.entries.findIndex(entry => entry.inviteToken === 'mobile-wait'), 1);
+          await route.fulfill({ json: { userId: 'mobile-user-0', userGroup: 'Autumn cohort', fields: ['team'] } });
+        });
+        await navigate(page, 'users');
+        if (width < 768) await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');
+        else await page.getByRole('button', { name: 'Wait List 2', exact: true }).click();
+
+        // A removal holds the row without reading as an invite or a copy.
+        const remove = page.getByRole('button', { name: 'Remove yuki@example.test from the wait list', exact: true });
+        if (width < 768) await page.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Edit wait list entry for Yuki East', exact: true }) }).locator('summary').click();
+        await remove.click();
+        await page.getByRole('alertdialog').getByRole('button', { name: 'Remove', exact: true }).click();
+        const invite = page.getByRole('button', { name: 'Invite yuki@example.test', exact: true });
+        await page.waitForFunction(() => document.querySelector('[aria-label="Invite yuki@example.test"]')?.getAttribute('aria-disabled') === 'true');
+        assert.equal((await invite.textContent()).trim(), 'Invite', 'A removal does not read as sending an invite');
+        if (width < 768) assert.equal((await remove.textContent()).trim(), 'Removing…');
+        releaseRemove();
+        await invite.waitFor({ state: 'detached' });
+
+        // Copy to account is named by its visible label and runs once.
+        const copy = page.getByRole('button', { name: 'Copy to account for zoe@example.test', exact: true });
+        assert.equal((await copy.textContent()).trim(), 'Copy to account');
+        await copy.click();
+        await page.getByRole('alertdialog', { name: 'Copy to Account?', exact: true }).getByRole('button', { name: 'Copy to Account', exact: true }).click();
+        await page.waitForFunction(() => document.querySelector('[aria-label="Copy to account for zoe@example.test"]')?.textContent.trim() === 'Copying…');
+        assert.equal(await copy.getAttribute('aria-disabled'), 'true');
+        await copy.press('Enter');
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.getByRole('alertdialog').count(), 0, 'A running copy cannot be confirmed again');
+        assert.equal(copies, 1);
+        releaseCopy();
+        await page.getByRole('status').filter({ hasText: "Copied group and 1 field to zoe@example.test's account." }).waitFor();
+        await copy.waitFor({ state: 'detached' });
+        assert.equal(copies, 1);
+      } finally { releaseRemove(); releaseCopy(); await context.close(); }
+    }
+  });
+
+  it('keeps a newer wait-list editor open when an earlier copy finishes', async () => {
+    const { context, page } = await openPage({ width: 1280, height: 900 });
+    let release;
+    const response = new Promise(resolve => { release = resolve; });
+    try {
+      const fixture = await controlUsers(context);
+      fixture.entries[0].alreadyRegistered = 'account';
+      fixture.entries.push({ inviteToken: 'second-wait', name: 'Yuki East', email: 'yuki@example.test', createdAt: '2026-10-04T09:00:00Z' });
+      let copies = 0;
+      await context.route('**/v1/admin/waitlist/mobile-wait/apply', async route => {
+        copies++;
+        await response;
+        fixture.entries.splice(fixture.entries.findIndex(entry => entry.inviteToken === 'mobile-wait'), 1);
+        await route.fulfill({ json: { userId: 'mobile-user-0', userGroup: null, fields: ['team'] } });
+      });
+      await navigate(page, 'users');
+      await page.getByRole('button', { name: 'Wait List 2', exact: true }).click();
+      await page.getByRole('button', { name: 'Edit wait list entry for Zoe West', exact: true }).click();
+      await page.getByRole('heading', { name: 'Edit Wait List Entry', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Copy to account', exact: true }).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Copy to Account', exact: true }).click();
+      await page.getByRole('button', { name: 'Copying…', exact: true }).waitFor();
+      for (const name of ['Copying…', 'Save', 'Cancel', 'Back to users', 'Remove from wait list']) {
+        assert.equal(await page.getByRole('button', { name, exact: true }).getAttribute('aria-disabled'), 'true', `${name} waits for the copy`);
+      }
+      assert.equal(await page.getByLabel('Email', { exact: true }).getAttribute('readonly'), '', 'Nothing typed during the copy can be lost');
+      await page.getByRole('status').filter({ hasText: 'Copying answers to account…' }).waitFor();
+
+      // Leave through browser history and open another entry before the copy lands.
+      await page.goBack();
+      await page.getByRole('heading', { name: 'Users', exact: true }).waitFor();
+      assert.equal((await page.getByRole('button', { name: 'Copy to account for zoe@example.test', exact: true }).textContent()).trim(), 'Copying…');
+      await page.getByRole('button', { name: 'Edit wait list entry for Yuki East', exact: true }).click();
+      await page.getByRole('heading', { name: 'Edit Wait List Entry', exact: true }).waitFor();
+      assert.equal(await page.getByLabel('Email', { exact: true }).inputValue(), 'yuki@example.test');
+      const refreshed = page.waitForResponse(res => new URL(res.url()).pathname === '/v1/admin/waitlist' && res.request().method() === 'GET');
+      release();
+      await refreshed;
+      assert.equal(new URL(page.url()).pathname, '/plato/users/waitlist/second-wait', 'The finished copy leaves the newer editor open');
+      assert.equal(await page.getByLabel('Email', { exact: true }).inputValue(), 'yuki@example.test');
+      assert.equal(copies, 1);
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: "Copied 1 field to zoe@example.test's account." }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Copy to account for zoe@example.test', exact: true }).count(), 0);
+    } finally { release(); await context.close(); }
+  });
+
   it('shows readable waitlist timestamps in the viewer locale and timezone', async () => {
     const entries = [
       { inviteToken: 'waitlist-early', name: 'Avery North', email: 'avery@example.test', createdAt: '2026-10-26T01:35:07.000Z' },
