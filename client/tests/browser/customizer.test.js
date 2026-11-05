@@ -874,7 +874,11 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
     try {
       await navigate(page, 'customizer');
       await page.getByLabel('Primary color hex code', { exact: true }).fill('#fff');
-      const box = await page.getByRole('button', { name: 'Save', exact: true }).boundingBox();
+      const save = page.getByRole('button', { name: 'Save', exact: true });
+      // Save ends a tall page, often just below this viewport, and the raw press
+      // must land on it; scrolling leaves the hex field focused and uncommitted.
+      await save.scrollIntoViewIfNeeded();
+      const box = await save.boundingBox();
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await page.mouse.down();
       await delay(80);
