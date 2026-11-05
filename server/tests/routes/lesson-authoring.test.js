@@ -53,6 +53,27 @@ test('rejects a delayed draft save after finalization without changing the lesso
   assert.equal(writes, 1);
 });
 
+test('publishes reviewed draft content and visibility together and acknowledges the same retry', async () => {
+  const body = { expectedVersion: 1, operationId: 'publish-reviewed', markdown,
+    name: 'Reviewed lesson', status: 'public', sharedWith: ['author'] };
+  assert.equal((await request('PUT', body)).status, 200);
+  assert.equal(record.data.status, 'public');
+  assert.equal(record.data.markdown, markdown);
+  assert.deepEqual(record.data.sharedWith, ['author']);
+  assert.equal(record.version, 2);
+  assert.equal((await request('PUT', body)).status, 200);
+  assert.equal(writes, 1);
+});
+
+test('rejects invalid publishing without changing draft content or visibility', async () => {
+  const res = await request('PUT', { expectedVersion: 1, operationId: 'invalid-publish',
+    markdown: '# Incomplete lesson', status: 'public' });
+  assert.equal(res.status, 400);
+  assert.equal(record.data.status, 'draft');
+  assert.equal(record.data.markdown, '');
+  assert.equal(writes, 0);
+});
+
 test('rejects stale versions for content and conversation writes', async () => {
   for (const suffix of ['', '/conversation']) {
     const res = await request('PUT', { expectedVersion: 0, conversation: [] }, suffix);
@@ -69,6 +90,21 @@ test('retries a committed operation without writing it twice after a lost respon
   const retry = await request('PUT', body);
   assert.equal(retry.status, 200);
   assert.equal((await retry.json()).version, 2);
+  assert.equal(writes, 1);
+});
+
+test('rejects malformed share lists even when an operation was already committed', async () => {
+  const body = { expectedVersion: 1, operationId: 'save-shares', markdown, status: 'private', sharedWith: ['learner'] };
+  assert.equal((await request('PUT', body)).status, 200);
+  const saved = structuredClone(record);
+  for (const sharedWith of [null, {}, 42, true, '', ['learner', 42]]) {
+    const res = await request('PUT', { ...body, sharedWith });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /sharedWith must be an array/);
+  }
+  assert.equal(writes, 1);
+  assert.deepEqual(record, saved);
+  assert.equal((await request('PUT', body)).status, 200);
   assert.equal(writes, 1);
 });
 

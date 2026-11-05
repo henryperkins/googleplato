@@ -1,0 +1,44 @@
+{
+  "quota": {
+    "chars": 5242735,
+    "failures": [
+      {
+        "step": 1048576,
+        "name": "QuotaExceededError"
+      },
+      {
+        "step": 65536,
+        "name": "QuotaExceededError"
+      },
+      {
+        "step": 4096,
+        "name": "QuotaExceededError"
+      },
+      {
+        "step": 256,
+        "name": "QuotaExceededError"
+      },
+      {
+        "step": 16,
+        "name": "QuotaExceededError"
+      },
+      {
+        "step": 1,
+        "name": "QuotaExceededError"
+      }
+    ]
+  },
+  "before": {
+    "text": "Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. ",
+    "status": [
+      "Navigated to Practice communication 9",
+      "",
+      ""
+    ],
+    "alert": [],
+    "storage": "{\"userId\":\"a\",\"lessonId\":\"practice-9\",\"draft\":{\"text\":\"Earlier retained draft\",\"images\":[],\"links\":[]}}"
+  },
+  "after": "Earlier retained draft",
+  "latest": "Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. Latest response with a detailed observation and a practical next step. ",
+  "substitutions": "No Storage API replacement; synthetic filler exhausted this disposable origin sessionStorage."
+}

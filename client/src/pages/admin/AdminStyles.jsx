@@ -32,6 +32,7 @@ export default function AdminStyles({ initialData, onSaved }) {
   const [processingLogo, setProcessingLogo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [styleMessage, setStyleMessage] = useState(null);
+  const [previewMode, setPreviewMode] = useState('light');
   const fileInput = useRef(null);
   const saveButton = useRef(null);
   const uploadEpoch = useRef(0);
@@ -198,8 +199,43 @@ export default function AdminStyles({ initialData, onSaved }) {
   }
 
   return (
-    <>
+    <div className="customizer-appearance">
       <p className="text-sm text-muted-foreground mb-4">These settings affect the classroom, sign-in pages, and invitation and password reset emails.</p>
+      <Card className="mb-6">
+        <CardHeader><CardTitle as="h2">Classroom Identity</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="classroom-name">Classroom Name</Label>
+            <Input id="classroom-name" type="text" value={draft.classroomName} maxLength={MAX_CLASSROOM_NAME} readOnly={saving}
+              placeholder="e.g. AI Leaders Academy" onChange={event => change({ classroomName: event.target.value })} aria-describedby="classroom-name-hint" />
+            <p id="classroom-name-hint" className="text-xs text-muted-foreground">Up to 100 characters. Leave blank to use plato. Screen readers say the name in place of the logo.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="logo-file">Logo image (optional)</Label>
+            <Input ref={fileInput} id="logo-file" type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" disabled={saving} onMouseDown={holdHexFocus}
+              onChange={handleLogoUpload} aria-invalid={logoError ? true : undefined} aria-describedby={logoError ? 'logo-file-error logo-file-hint' : 'logo-file-hint'} />
+            <p id="logo-file-hint" className="text-xs text-muted-foreground">PNG, JPG, WebP, or SVG up to 5 MiB. Proportions and transparency are preserved; the logo is optimized to fit the header. Check both previews for visibility.</p>
+            {processingLogo && <p role="status" className="text-sm text-muted-foreground">Preparing logo...</p>}
+            {logoError && <p id="logo-file-error" className="text-sm text-destructive" role="alert">{logoError}</p>}
+          </div>
+          {blockedOriginal && (
+            <div className="space-y-2" role="note" aria-label="Saved logo unavailable">
+              <p className="text-sm text-warning-foreground">This saved logo can&apos;t be displayed safely. The original is preserved. Download it, choose a simpler image, or remove it.</p>
+              <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={() => downloadOriginalLogo(draft.logoBase64)}>Download original logo</Button>
+            </div>
+          )}
+          {showLegacyNotice && (
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="flex gap-2 text-sm text-muted-foreground">
+                <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <span>An earlier version of plato padded this logo into a square, so it can look small in the header. Optimize it to trim the padding, or choose the original file again.</span>
+              </p>
+              <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={optimizeLogo} disabled={busy} focusableWhenDisabled>Optimize logo</Button>
+            </div>
+          )}
+          {draft.logoBase64 && <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={removeLogo} disabled={saving} focusableWhenDisabled>Remove logo image</Button>}
+        </CardContent>
+      </Card>
       <Card className="mb-6">
         <CardHeader><CardTitle as="h2">Colors</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -235,9 +271,16 @@ export default function AdminStyles({ initialData, onSaved }) {
               );
             })}
           </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">Classroom preview</h3>
+            <div className="appearance-preview-selector flex gap-1" role="group" aria-label="Preview color scheme">
+              {['light', 'dark'].map(mode => <Button key={mode} size="sm" variant={previewMode === mode ? 'secondary' : 'ghost'}
+                aria-pressed={previewMode === mode} onClick={() => setPreviewMode(mode)}>{mode === 'light' ? 'Light preview' : 'Dark preview'}</Button>)}
+            </div>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {['light', 'dark'].map(mode => (
-              <figure key={mode} className="m-0 min-w-0 space-y-1.5" aria-label={`${mode === 'light' ? 'Light' : 'Dark'} mode preview`}>
+              <figure key={mode} className={`m-0 min-w-0 space-y-1.5 ${previewMode !== mode ? 'appearance-preview-inactive' : ''}`} aria-label={`${mode === 'light' ? 'Light' : 'Dark'} mode preview`}>
                 <div className={mode}>
                   <div className="classroom-theme rounded-lg overflow-hidden border" style={previewVars}>
                     <div className="px-4 py-2 flex min-h-12 items-center gap-2 text-sm bg-header text-header-foreground">
@@ -276,55 +319,22 @@ export default function AdminStyles({ initialData, onSaved }) {
           </div>
         </CardContent>
       </Card>
-      <Card className="mb-6">
-        <CardHeader><CardTitle as="h2">Classroom Identity</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="classroom-name">Classroom Name</Label>
-            <Input id="classroom-name" type="text" value={draft.classroomName} maxLength={MAX_CLASSROOM_NAME} readOnly={saving}
-              placeholder="e.g. AI Leaders Academy" onChange={event => change({ classroomName: event.target.value })} aria-describedby="classroom-name-hint" />
-            <p id="classroom-name-hint" className="text-xs text-muted-foreground">Up to 100 characters. Leave blank to use plato. Screen readers say the name in place of the logo.</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="logo-file">Logo image (optional)</Label>
-            <Input ref={fileInput} id="logo-file" type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" disabled={saving} onMouseDown={holdHexFocus}
-              onChange={handleLogoUpload} aria-invalid={logoError ? true : undefined} aria-describedby={logoError ? 'logo-file-error logo-file-hint' : 'logo-file-hint'} />
-            <p id="logo-file-hint" className="text-xs text-muted-foreground">PNG, JPG, WebP, or SVG up to 5 MiB. Proportions and transparency are preserved; the logo is optimized to fit the header. Check both previews for visibility.</p>
-            {processingLogo && <p role="status" className="text-sm text-muted-foreground">Preparing logo...</p>}
-            {logoError && <p id="logo-file-error" className="text-sm text-destructive" role="alert">{logoError}</p>}
-          </div>
-          {blockedOriginal && (
-            <div className="space-y-2" role="note" aria-label="Saved logo unavailable">
-              <p className="text-sm text-warning-foreground">This saved logo can&apos;t be displayed safely. The original is preserved. Download it, choose a simpler image, or remove it.</p>
-              <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={() => downloadOriginalLogo(draft.logoBase64)}>Download original logo</Button>
-            </div>
-          )}
-          {showLegacyNotice && (
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="flex gap-2 text-sm text-muted-foreground">
-                <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                <span>An earlier version of plato padded this logo into a square, so it can look small in the header. Optimize it to trim the padding, or choose the original file again.</span>
-              </p>
-              <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={optimizeLogo} disabled={busy} focusableWhenDisabled>Optimize logo</Button>
-            </div>
-          )}
-          {draft.logoBase64 && <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={removeLogo} disabled={saving} focusableWhenDisabled>Remove logo image</Button>}
-        </CardContent>
-      </Card>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="customizer-actions flex flex-wrap items-center gap-3">
         <Button ref={saveButton} onMouseDown={holdHexFocus} onClick={saveStyle} disabled={busy || !dirty} focusableWhenDisabled>{saving ? 'Saving...' : 'Save'}</Button>
         <Button variant="outline" onMouseDown={holdHexFocus} onClick={() => restore(saved, 'Changes discarded.')} disabled={saving || (!dirty && !processingLogo)} focusableWhenDisabled>Discard changes</Button>
-        <Button variant="ghost" onMouseDown={holdHexFocus} onClick={() => restore(DEFAULT_STYLES, Object.keys(changedStyles(DEFAULT_STYLES, saved)).length ? 'Defaults restored. Save to apply them.' : 'These are already the defaults.')} disabled={saving} focusableWhenDisabled>Reset to defaults</Button>
+        <Button variant="ghost" aria-label="Reset to defaults" onMouseDown={holdHexFocus} onClick={() => restore(DEFAULT_STYLES, Object.keys(changedStyles(DEFAULT_STYLES, saved)).length ? 'Defaults restored. Save to apply them.' : 'These are already the defaults.')} disabled={saving} focusableWhenDisabled>
+          <span className="hidden sm:inline">Reset to defaults</span><span className="sm:hidden">Reset</span>
+        </Button>
         <span role="status" aria-live="polite" className={`text-sm ${styleMessage?.type === 'error' ? 'text-destructive' : styleMessage?.type === 'success' ? 'text-success-foreground' : 'text-muted-foreground'}`}>
           {styleMessage ? <>{styleMessage.text}{styleMessage.type === 'success' && <> <Link to="/lessons" className="touch-target-inline underline underline-offset-4">Open the Classroom</Link> to see your changes.</>}</>
-            : dirty ? 'Unsaved changes' : ''}
+            : dirty ? 'Unsaved changes' : 'No unsaved changes'}
         </span>
       </div>
       <AlertDialog open={blocker.state === 'blocked'} onOpenChange={open => { if (!open) blocker.reset?.(); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
-            <AlertDialogDescription>{saving ? 'Your styles are still saving. Stay here until the save finishes.' : 'Your Styles edits have not been saved. Leaving discards these edits.'}</AlertDialogDescription>
+            <AlertDialogDescription>{saving ? 'Your appearance changes are still saving. Stay here until the save finishes.' : 'Your appearance changes have not been saved. Leaving discards these edits.'}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Stay here</AlertDialogCancel>
@@ -332,6 +342,6 @@ export default function AdminStyles({ initialData, onSaved }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </div>
   );
 }

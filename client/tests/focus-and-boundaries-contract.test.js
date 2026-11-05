@@ -79,6 +79,16 @@ describe('Focus survives async work', () => {
     assert.match(waitlist, /if \(done\) doneRef\.current\?\.focus\(\)/);
   });
 
+  it('hands focus to the invitation page and back to the sign-in heading', () => {
+    const invite = read('components/InviteRequired.jsx');
+    assert.match(invite, /useEffect\(\(\) => \{ headingRef\.current\?\.focus\(\); \}, \[\]\)/);
+    assert.match(invite, /<CardTitle as="h1" ref=\{headingRef\} tabIndex=\{-1\}/);
+    const login = read('pages/Login.jsx');
+    assert.match(login, /if \(e\?\.admission\) \{\s*setAdmission\(e\.admission\);\s*return;/);
+    assert.match(login, /<CardTitle as="h1" ref=\{headingRef\} tabIndex=\{-1\}/);
+    assert.match(login, /returningRef\.current = false;\s*headingRef\.current\?\.focus\(\);/);
+  });
+
   it('styles focusable disabled buttons as disabled', () => {
     assert.match(read('components/ui/button.jsx'), /aria-disabled:pointer-events-none aria-disabled:opacity-50/);
   });
@@ -96,6 +106,11 @@ describe('Content fidelity and semantics', () => {
       assert.match(src, /<CardTitle as="h1"/, `${name} title should be the page h1`);
       assert.equal(/<h1\b/.test(src), false, `${name} should not have a second h1`);
     }
+    // The invitation page replaces the sign-in card rather than joining it.
+    const invite = read('components/InviteRequired.jsx');
+    assert.match(invite, /<CardTitle as="h1"/);
+    assert.equal(/<h1\b/.test(invite), false);
+    assert.match(read('pages/Login.jsx'), /if \(admission\) \{\s*return \(/);
   });
 });
 

@@ -1,0 +1,149 @@
+.customizer-page,
+.knowledge-base-editor {
+  container-type: inline-size;
+}
+
+.knowledge-workspace {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.knowledge-text-input {
+  min-height: 22rem;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.knowledge-review .markdown-preview-pane {
+  background: transparent;
+  border-radius: var(--radius-xl);
+}
+
+.knowledge-review .markdown-preview-body {
+  max-height: none;
+  overflow: visible;
+}
+
+.knowledge-review .markdown-preview-heading {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.knowledge-review .markdown-preview-hint {
+  background: transparent;
+  padding-inline: 0;
+  color: var(--muted-foreground);
+}
+
+@container (min-width: 50rem) {
+  .knowledge-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 47.999rem) {
+  .customizer-page [data-slot="tabs-list"],
+  .knowledge-mode-tabs {
+    height: auto;
+    overflow: visible;
+  }
+
+  .customizer-page [data-slot="tabs-trigger"],
+  .knowledge-mode-tabs [data-slot="tabs-trigger"],
+  .customizer-appearance input[type="text"] {
+    min-height: 2.75rem;
+  }
+
+  .knowledge-save-actions,
+  .customizer-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    background: var(--background);
+    padding-block: 0.75rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .admin-main:has(.customizer-page) {
+    padding-bottom: 0;
+    scroll-padding-block: 1rem 10rem;
+  }
+
+  .admin-main > div:has(> .customizer-page) {
+    padding-bottom: 0;
+  }
+
+  .knowledge-save-actions [role="status"] {
+    flex-basis: 100%;
+  }
+
+  .knowledge-save-actions button {
+    width: 100%;
+    height: auto;
+    min-height: 2.75rem;
+    padding-block: 0.625rem;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 39.999rem) {
+  .appearance-preview-inactive {
+    display: none;
+  }
+
+  .customizer-actions [role="status"] {
+    flex-basis: 100%;
+    order: -1;
+  }
+
+  .customizer-actions {
+    gap: 0.5rem;
+  }
+
+  .customizer-actions > button {
+    padding-inline: 0.75rem;
+  }
+}
+
+@media (min-width: 40rem) {
+  .appearance-preview-selector {
+    display: none;
+  }
+}
+
+@media (max-height: 34em) {
+  .knowledge-save-actions,
+  .customizer-actions {
+    position: static;
+  }
+}
+
+/* Enlarged text on a phone. Unlike media queries, container rem units follow
+   the page's text size, and below 16rem no phone has default text. Tabs wrap
+   onto full-width rows instead of clipping both ends of a centered row, and
+   the action bars, whose buttons now stack, scroll with the page instead of
+   covering most of it. */
+@container (max-width: 16rem) {
+  .customizer-page [data-slot="tabs-list"],
+  .knowledge-mode-tabs {
+    width: 100%;
+    height: auto;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .customizer-page [data-slot="tabs-trigger"],
+  .knowledge-mode-tabs [data-slot="tabs-trigger"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: auto;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+
+  .knowledge-save-actions,
+  .customizer-actions {
+    position: static;
+  }
+}

@@ -142,8 +142,19 @@ export async function loginWithGoogle(options = {}) {
   if (!res.ok) {
     await signOutFirebase();
     const err = new Error(body.error || "Google sign-in didn't work. Try again.");
+    err.status = res.status;
     err.code = body.code;
     err.email = body.email;
+    if (body.code === 'invite_required') {
+      // Membership is by invitation and this Google account has none. The
+      // server created nothing; these say where the verified owner stands.
+      err.admission = {
+        email: typeof body.email === 'string' ? body.email : '',
+        name: typeof body.name === 'string' ? body.name : '',
+        waitlisted: body.waitlisted === true,
+        inviteExpired: body.inviteExpired === true,
+      };
+    }
     throw err;
   }
 

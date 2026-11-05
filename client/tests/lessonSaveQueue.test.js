@@ -152,3 +152,16 @@ test('a rejected preview can be revised, while an unknown save cannot be discard
   assert.equal(unknown.discardRejected(), false);
   assert.equal(unknown.getState().pending, 1);
 });
+
+test('a confirmed rejected visibility change can be corrected without discarding an unknown write', async () => {
+  const queue = setup({ write: async () => { throw Object.assign(new Error('Invalid lesson'), { status: 400 }); } });
+  await assert.rejects(queue.save({ status: 'public', sharedWith: ['author'] }));
+  assert.equal(queue.discardRejected(), true);
+  assert.equal(queue.getState().pending, 0);
+  assert.equal(queue.getState().error, null);
+
+  const unknown = setup({ write: async () => { throw new Error('Connection lost'); } });
+  await assert.rejects(unknown.save({ status: 'public', sharedWith: ['author'] }));
+  assert.equal(unknown.discardRejected(), false);
+  assert.equal(unknown.getState().pending, 1);
+});

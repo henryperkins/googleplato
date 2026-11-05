@@ -92,7 +92,9 @@ export function createLessonSaveQueue({ write, storage, storageKey, version = 0,
     async save(body) { enqueue(body); await flush(); },
     flush,
     discardRejected() {
-      if (running || error?.status !== 400 || !operations[0]?.body.markdown) return false;
+      // A confirmed validation rejection is safe to revise, including a
+      // visibility-only change. Unknown outcomes retain their operation ID.
+      if (running || error?.status !== 400 || !operations.length) return false;
       operations.shift();
       error = null;
       persist();

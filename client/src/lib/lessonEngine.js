@@ -98,8 +98,10 @@ async function generateTurn(lessonId, kind, generate, submission) {
 }
 
 async function saveGeneratedTurn(entry) {
-  const persistence = await persistLessonTurn(entry);
   const { turn } = entry;
+  const submission = lessonSubmissions.read(turn.userId, turn.lessonId);
+  if (submission?.id === turn.turnId) lessonSubmissions.setStatus(submission, 'saving');
+  const persistence = await persistLessonTurn(entry);
   if (persistence.status === 'saved' && persistence.state?.lessonKB.data?.assessmentReviewRequired) persistence.message = 'Your reply is saved. The lesson requirements changed, so the coach will reassess your work.';
   if (persistence.status === 'saved') generatedTurns.clear(turn.userId, turn.lessonId, turn.turnId);
   const conversation = await hydrateMessageImages(persistence.state?.messages.data || [...turn.base.messages.data, ...turn.messages]);
@@ -117,12 +119,19 @@ async function saveGeneratedTurn(entry) {
 export async function retryLessonSave(lessonId) {
   assertNotImpersonating('save a reply');
   const user = await getAuthUser();
+  const key = generationKey(user?.userId, lessonId);
+  if (submissionRequests.has(key)) return submissionRequests.get(key);
   const entry = generatedTurns.read(user?.userId, lessonId);
   if (!entry) throw new Error('There is no retained reply to save. Reload the conversation.');
-  const result = await saveGeneratedTurn(entry);
-  const submission = lessonSubmissions.read(user.userId, lessonId);
-  if (submission?.id === entry.turn.turnId) finishSubmission(submission);
-  return result;
+  const request = (async () => {
+    const result = await saveGeneratedTurn(entry);
+    const submission = lessonSubmissions.read(user.userId, lessonId);
+    if (submission?.id === entry.turn.turnId) finishSubmission(submission);
+    return result;
+  })().finally(() => submissionRequests.delete(key));
+  // A reopened view must join persistence-only retries as well as first sends.
+  submissionRequests.set(key, request);
+  return request;
 }
 
 // No reads from the API, inference, tag processing, or automatic save occurs

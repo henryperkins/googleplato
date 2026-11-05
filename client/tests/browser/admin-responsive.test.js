@@ -10,9 +10,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
+const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
+const browserType = { chromium, firefox, webkit }[browserName];
+assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
 const destinations = ['Home', 'Lessons', 'Users', 'Customizer', 'AI Settings', 'Plugins'];
 let browser;
 let server;
@@ -164,7 +167,7 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
       assert.ok(Date.now() - started < 15000, `Test server did not start: ${output}`);
       await delay(100);
     }
-    browser = await chromium.launch();
+    browser = await browserType.launch();
     const context = await browser.newContext();
     try {
       const page = await context.newPage();
@@ -190,6 +193,59 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
       try { await exited; } finally { clearTimeout(force); }
     }
     if (directory) await rm(directory, { recursive: true, force: true });
+  });
+
+  it('preserves lesson shares through a public/private round trip', async () => {
+    for (const width of [320, 1280]) {
+      const { context, page } = await openPage({ width, height: 844 });
+      try {
+        const sharedWith = ['share-avery', 'share-blair'];
+        let lesson = { lessonId: 'share-regression', name: 'Sharing Regression', status: 'private', sharedWith: [...sharedWith] };
+        await context.route('**/v1/admin/**', async route => {
+          const request = route.request();
+          const path = new URL(request.url()).pathname;
+          if (path === '/v1/admin/lessons/share-regression' && request.method() === 'PUT') {
+            lesson = { ...lesson, ...request.postDataJSON() };
+            return route.fulfill({ json: { ok: true } });
+          }
+          if (request.method() !== 'GET') return route.fallback();
+          if (path === '/v1/admin/lessons') return route.fulfill({ json: [lesson] });
+          if (path === '/v1/admin/courses') return route.fulfill({ json: [] });
+          if (path === '/v1/admin/stats/lessons') return route.fulfill({ json: { byLesson: {} } });
+          if (path === '/v1/admin/users') return route.fulfill({ json: [
+            { userId: 'share-avery', name: 'Avery North', email: 'avery@example.test', role: 'user' },
+            { userId: 'share-blair', name: 'Blair West', email: 'blair@example.test', role: 'user' },
+          ] });
+          return route.fallback();
+        });
+
+        await navigate(page, 'lessons');
+        const shareButton = page.getByRole('button', { name: /^Visibility and sharing for Sharing Regression:/ });
+        await shareButton.click();
+        const dialog = page.getByRole('dialog', { name: 'Visibility & Sharing' });
+        await dialog.getByRole('radio', { name: 'Public', exact: true }).focus();
+        await page.keyboard.press('Space');
+        await dialog.getByRole('button', { name: 'Make public', exact: true }).click();
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(lesson.status, 'public');
+        assert.deepEqual(lesson.sharedWith, sharedWith, 'making a lesson public must retain its share list');
+
+        await page.reload();
+        await shareButton.click();
+        await dialog.getByRole('radio', { name: 'Private', exact: true }).focus();
+        await page.keyboard.press('Space');
+        assert.equal(await dialog.getByRole('checkbox', { name: 'Share with Avery North', exact: true }).isChecked(), true);
+        assert.equal(await dialog.getByRole('checkbox', { name: 'Share with Blair West', exact: true }).isChecked(), true);
+        const confirm = dialog.getByRole('button', { name: 'Share with 2 users', exact: true });
+        assert.equal(await confirm.isEnabled(), true);
+        await confirm.click();
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(lesson.status, 'private');
+        assert.deepEqual(lesson.sharedWith, sharedWith);
+      } finally {
+        await context.close();
+      }
+    }
   });
 
   it('downloads the full searched and sorted user list from mobile and desktop', async () => {
@@ -525,7 +581,7 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
 
   it('keeps all six enlarged-text labels visible and inside their own targets', async () => {
     for (const theme of ['light', 'dark']) {
-      for (const width of [480, 768]) {
+      for (const width of [320, 390, 480, 768]) {
         const { context, page } = await openPage({ width, height: 900 }, theme);
         try {
           await navigate(page, 'customizer');
@@ -565,15 +621,16 @@ describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
     }
   });
 
-  it('preserves narrow-phone names, normal single-row labels, and page-change focus', async () => {
+  it('keeps navigation labels visible in narrow rows and preserves page-change focus', async () => {
     for (const width of [320, 390, 480, 768]) {
       const { context, page } = await openPage({ width, height: 900 });
       try {
         await navigate(page, 'customizer');
         const tabs = await tabGeometry(page);
         assert.deepEqual(tabs.map(tab => tab.name), destinations);
-        assert.deepEqual(tabs.map(tab => tab.visible), Array(6).fill(width >= 480));
-        assert.equal(new Set(tabs.map(tab => Math.round(tab.target.top))).size, 1, `${width}px: normal tabs stay in one row`);
+        assert.deepEqual(tabs.map(tab => tab.visible), Array(6).fill(true));
+        assert.equal(new Set(tabs.map(tab => Math.round(tab.target.top))).size, width < 480 ? 2 : 1,
+          `${width}px: names determine whether tabs use one or two rows`);
         const users = page.locator('.admin-bottom-nav').getByRole('link', { name: 'Users', exact: true });
         await users.focus();
         await page.keyboard.press('Enter');

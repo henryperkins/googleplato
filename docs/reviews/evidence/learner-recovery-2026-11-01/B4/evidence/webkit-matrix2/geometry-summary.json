@@ -1,0 +1,6 @@
+{
+  "samples": 72,
+  "overflow": [],
+  "unreachable": [],
+  "method": "Scroll each target into view to measure its viewport box and hit target. This is a layout/reachability probe, not direct-pointer focus/scroll attribution. Root-font scaling is not OS larger text. No actual software keyboard."
+}

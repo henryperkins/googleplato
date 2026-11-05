@@ -1,0 +1,22 @@
+{
+  "active_run_node_processes": [],
+  "owned_source_matches_B4": true,
+  "untouched_preexisting_files": [
+    {
+      "path": ".impeccable/design.json",
+      "unchanged": true
+    },
+    {
+      "path": "client/src/pages/Login.jsx",
+      "unchanged": true
+    },
+    {
+      "path": "docs/reviews/mobile-ux-fixes-2026-11-01.md",
+      "unchanged": true
+    }
+  ],
+  "fixture_cleanup": "Each harness closes browsers, terminates only its spawned fixture server, and removes only its disposable temporary SQLite directory in finally. Exit results retained.",
+  "other_work": "PRODUCT.md changed independently after the baseline; preserved. Existing ComposeBar link-focus and learner-test changes are retained in before snapshots and excluded from owned-changes.patch.",
+  "git_diff_check": 0,
+  "git_head": "8fbdac6824beed29b4050bead4b6c00e99102f43"
+}

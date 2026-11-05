@@ -799,6 +799,54 @@ describe('PUT /v1/admin/lessons/:lessonId — sharedWith + public/private', () =
     db.putSyncData = async () => {};
   });
 
+  it('keeps new lessons private when status is omitted', async () => {
+    let savedData;
+    db.putSyncData = async (uid, key, data) => { savedData = data; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/lessons/new-lesson', {
+      markdown: validMarkdown, name: 'New Lesson',
+    });
+    assert.equal(res.status, 200);
+    assert.equal(savedData.status, 'private');
+    assert.deepEqual(savedData.sharedWith, []);
+  });
+
+  it('keeps incomplete status-less records private when adding markdown', async () => {
+    let savedData;
+    db.getSyncData = async () => ({ data: { name: 'Incomplete' }, version: 1 });
+    db.putSyncData = async (uid, key, data) => { savedData = data; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/lessons/incomplete', { markdown: validMarkdown });
+    assert.equal(res.status, 200);
+    assert.equal(savedData.status, 'private');
+  });
+
+  it('preserves public visibility when renaming a legacy status-less lesson', async () => {
+    let savedData;
+    db.getSyncData = async () => ({
+      data: { markdown: validMarkdown, name: 'Seeded', isBuiltIn: true, updatedBy: 'setup' },
+      version: 1,
+    });
+    db.putSyncData = async (uid, key, data) => { savedData = data; };
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'PUT', '/v1/admin/lessons/seeded', { name: 'Renamed' });
+    assert.equal(res.status, 200);
+    assert.equal(savedData.status, 'public');
+    assert.equal(savedData.name, 'Renamed');
+    assert.equal(savedData.markdown, validMarkdown);
+    assert.equal(savedData.isBuiltIn, true);
+  });
+
+  it('shows legacy status-less lessons as public in the admin lesson list', async () => {
+    db.getAllSyncData = async () => [{
+      dataKey: 'lesson:seeded', data: { markdown: validMarkdown, name: 'Seeded', isBuiltIn: true },
+    }];
+    const app = new Hono(); app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/lessons');
+    assert.equal(res.status, 200);
+    assert.equal((await res.json())[0].status, 'public');
+  });
+
   it('persists sharedWith on a private lesson', async () => {
     let savedData;
     db.putSyncData = async (uid, key, data) => { savedData = data; };
@@ -846,6 +894,31 @@ describe('PUT /v1/admin/lessons/:lessonId — sharedWith + public/private', () =
     assert.equal(res.status, 200);
     assert.deepEqual(savedData.sharedWith, []);
   });
+
+  for (const [label, sharedWith] of [
+    ['object', {}],
+    ['number', 42],
+    ['boolean', true],
+    ['empty string', ''],
+    ['user ID string', 'usr_1'],
+    ['null', null],
+    ['array with non-string IDs', ['usr_1', 42]],
+    ['object with zero length', { length: 0 }],
+  ]) {
+    it(`rejects ${label} sharedWith without persisting`, async () => {
+      const writes = [];
+      db.putSyncData = async (...args) => { writes.push(args); };
+      const app = new Hono(); app.route('/', admin);
+      for (const status of ['private', 'public']) {
+        const res = await adminReq(app, 'PUT', '/v1/admin/lessons/test-share', {
+          markdown: validMarkdown, status, sharedWith,
+        });
+        assert.equal(res.status, 400);
+        assert.match((await res.json()).error, /sharedWith must be an array/);
+      }
+      assert.deepEqual(writes, []);
+    });
+  }
 
   it('normalizes legacy status=draft records with markdown to private', async () => {
     // A legacy record left behind before drafts became first-class:

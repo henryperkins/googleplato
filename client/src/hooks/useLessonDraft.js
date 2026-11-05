@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { lessonDrafts } from '../lib/lessonDrafts.js';
 
 export function useLessonDraft(userId, lessonId) {
   const scope = JSON.stringify([userId, lessonId]);
   const [state, setState] = useState(() => ({ scope, draft: lessonDrafts.read(userId, lessonId) }));
+  const readRetention = useCallback(() => lessonDrafts.retentionStatus(userId, lessonId), [userId, lessonId]);
+  const retentionStatus = useSyncExternalStore(lessonDrafts.subscribe, readRetention, () => 'pending');
   // Never render or persist the previous account's state while effects catch up.
   const draft = useMemo(() => state.scope === scope ? state.draft : lessonDrafts.read(userId, lessonId), [state, scope, userId, lessonId]);
   const update = useCallback((field, value) => {
@@ -15,6 +17,9 @@ export function useLessonDraft(userId, lessonId) {
   useEffect(() => {
     if (state.scope === scope) lessonDrafts.write(userId, lessonId, state.draft);
   }, [state, scope, userId, lessonId]);
+  const retryRetention = useCallback(() => {
+    return lessonDrafts.write(userId, lessonId, draft);
+  }, [userId, lessonId, draft]);
   const setText = useCallback(value => update('text', value), [update]);
   const setImages = useCallback(value => update('images', value), [update]);
   const setLinks = useCallback(value => update('links', value), [update]);
@@ -24,5 +29,5 @@ export function useLessonDraft(userId, lessonId) {
     setState({ scope, draft: value });
     return true;
   }, [scope, userId, lessonId]);
-  return { draft, setText, setImages, setLinks, restore };
+  return { draft, setText, setImages, setLinks, restore, retentionStatus, retryRetention };
 }

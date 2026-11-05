@@ -10,6 +10,7 @@ import { recordLessonAttemptSaved } from '../lib/inference-telemetry.js';
 import { MAX_SCREENSHOT_RECORD_BYTES } from '../lib/sync-limits.js';
 import { verifyCoachTurn } from '../lib/coach-receipt.js';
 import { resolveCoachLesson, lessonCriteriaHash, collectLessonEnrichments } from '../lib/lesson-coaching.js';
+import { reconcileConversationState } from '../shared/coachConversation.js';
 
 const sync = new Hono();
 
@@ -210,7 +211,9 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
     try { currentCriteria = lessonCriteriaHash(await resolveCoachLesson(userId, lessonId)); }
     catch (error) { if (![404, 422].includes(error.status)) throw error; }
     if (lessonKB.criteriaHash !== currentCriteria) {
-      lessonKB = { ...(current.lessonKB.data || lessonKB), progress: 0, status: 'active', evidence: [], exemplarEvidence: { status: 'missing', observation: '', sourceIds: [] }, assessmentReviewRequired: true };
+      const conversationState = reconcileConversationState(lessonKB.conversationState || current.lessonKB.data?.conversationState,
+        [...current.messages.data, ...messages]);
+      lessonKB = { ...(current.lessonKB.data || lessonKB), conversationState, progress: 0, status: 'active', evidence: [], exemplarEvidence: { status: 'missing', observation: '', sourceIds: [] }, assessmentReviewRequired: true };
     }
   }
   const desired = { messages: [...current.messages.data, ...messages], lessonKB };

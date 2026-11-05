@@ -1,0 +1,27 @@
+{
+  "coachCalls": 1,
+  "saveCalls": 2,
+  "turnId": "171484a9-3954-45ab-8a83-6107a36ba38d",
+  "committedMessages": [
+    {
+      "id": "171484a9-3954-45ab-8a83-6107a36ba38d:0",
+      "role": "user",
+      "content": "Response with held save practice-8",
+      "msgType": "user",
+      "phase": "learning",
+      "metadata": null,
+      "timestamp": 1793539932016,
+      "assessmentProvenance": "server-v1"
+    },
+    {
+      "id": "171484a9-3954-45ab-8a83-6107a36ba38d:1",
+      "role": "assistant",
+      "content": "Add the impact on the team and propose a practical next step.",
+      "msgType": "guide",
+      "phase": "learning",
+      "timestamp": 1793539932016,
+      "assessmentProvenance": "server-v1"
+    }
+  ],
+  "newerDraft": "Newer unsent draft during saving"
+}

@@ -54,6 +54,7 @@
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
     --color-muted: var(--muted);
+    --color-track: var(--track);
     --color-secondary-foreground: var(--secondary-foreground);
     --color-secondary: var(--secondary);
     --color-primary-foreground: var(--primary-foreground);
@@ -122,6 +123,11 @@
        against white and the workspace (WCAG 1.4.11). --border stays light
        for decorative separators. */
     --input: oklch(0.62 0 0);
+    /* A progress bar's empty length. A step darker than the workspace and
+       white cards, so the whole bar shows (--muted matched the workspace),
+       and light enough that every classroom's progress fill holds 3:1 on
+       it. */
+    --track: oklch(0.88 0 0);
     --ring: oklch(0.336 0.182 285);
     --chart-1: oklch(0.336 0.182 285);
     --chart-2: oklch(0.556 0.15 285);
@@ -174,6 +180,9 @@
     --in-progress-foreground: oklch(0.85 0.14 80);
     --border: oklch(1 0 0 / 13%);
     --input: oklch(1 0 0 / 45%);
+    /* Translucent like the borders and a step above them, so a track rises
+       the same step off the page, a card, or a dialog. */
+    --track: oklch(1 0 0 / 14%);
     --ring: oklch(0.74 0.12 285);
     --chart-1: oklch(0.565 0.17 285);
     --chart-2: oklch(0.72 0.13 285);
@@ -278,6 +287,20 @@
   outline-offset: 2px;
 }
 
+/* A lesson card clips to its rounded corners, which cut its open action's
+   ring down to one line under the description. The card takes the ring
+   instead, as it takes the hover shadow; View outline keeps its own. A
+   browser without :has() keeps the button's own ring. */
+@supports selector(:has(*)) {
+  .lesson-open:focus-visible {
+    outline: none;
+  }
+  .lesson-card:has(.lesson-open:focus-visible) {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
 /* A colored header draws focus in its own text color. Only the header's own
    controls take it: a menu opened from the header sits on the popover surface,
    where an inherited white ring on a white menu would vanish. */
@@ -302,17 +325,14 @@
   outline-offset: -3px;
 }
 
-/* Labelled tabs keep their names when text grows: use two rows rather than
-   letting a label paint over its neighbour. Container rem units follow the
-   current root text size, unlike the viewport label-visibility breakpoint. */
+/* Keep every admin destination visibly named. Container rem units let narrow
+   phones and enlarged text use two rows without clipping the labels. */
 .admin-bottom-nav {
   container: admin-tabs / inline-size;
 }
-@media (min-width: 30rem) {
-  @container admin-tabs (max-width: 29rem) {
-    .admin-bottom-nav > a {
-      flex-basis: calc(100% / 3);
-    }
+@container admin-tabs (max-width: 29rem) {
+  .admin-bottom-nav > a {
+    flex-basis: calc(100% / 3);
   }
 }
 
@@ -459,19 +479,222 @@ html {
 
 /* Authoring adapts to usable space, including enlarged text beside the sidebar. */
 .lesson-editor {
-  container-type: inline-size;
+  container: lesson-editor / inline-size;
 }
 
-@container (max-width: 32rem) {
-  .lesson-editor-actions {
-    position: static;
+.lesson-editor-title {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.lesson-editor-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-block: 1.25rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.lesson-editor-tabs [role="tab"] {
+  min-block-size: 2.75rem;
+  padding: 0.625rem 0.5rem;
+  border-block-end: 3px solid transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.lesson-editor-tabs [aria-selected="true"] {
+  border-block-end-color: var(--primary-text);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+.lesson-editor-tabs [role="tab"]:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: -3px;
+}
+
+.lesson-editor-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1.5rem;
+}
+
+.lesson-editor-setup {
+  row-gap: 1rem;
+  margin-block-end: 1.25rem;
+  padding-block-end: 1.25rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.lesson-editor-readiness-toggle {
+  display: flex;
+}
+
+@container lesson-editor (min-width: 52rem) {
+  .lesson-editor-title {
+    font-size: 2.25rem;
   }
-  .lesson-editor-chat,
-  .lesson-editor-chat [role="log"] {
-    padding: 0.5rem;
+  .lesson-editor-tabs,
+  .lesson-editor-view-preview,
+  .lesson-editor-readiness-toggle {
+    display: none;
   }
-  .lesson-editor-composer {
-    padding-inline: 0;
+  .lesson-editor-columns {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+  .lesson-editor-refine {
+    display: contents;
+  }
+  .lesson-editor-setup {
+    grid-column: 1 / -1;
+    margin-block: 0.5rem 0;
+    padding-block-end: 1.25rem;
+  }
+  .lesson-editor-preview {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+.lesson-editor-chat [role="log"] {
+  padding: 1rem 0;
+}
+
+.lesson-editor-composer {
+  padding: 0;
+}
+
+.lesson-editor-composer textarea {
+  min-block-size: 4.25rem;
+}
+
+.lesson-editor-chat [data-chat-message="assistant"] > .coach-copy {
+  max-inline-size: 100%;
+  padding-inline: 0;
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+
+.lesson-editor-actions > button {
+  min-block-size: 2.5rem;
+}
+
+/* The lesson has one review boundary. Shared knowledge-base previews retain
+   their existing surface, hint and scrolling styles. */
+.lesson-editor-preview .markdown-preview-pane {
+  background: transparent;
+}
+
+.lesson-editor-preview .markdown-preview-heading {
+  font-size: 1.25rem;
+  line-height: 1.5;
+}
+
+.lesson-editor-preview .markdown-preview-refresh {
+  padding-inline: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.lesson-editor-preview .markdown-preview-hint {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.lesson-editor-preview .coach-copy {
+  max-inline-size: 65ch;
+  line-height: 1.625;
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+}
+
+.lesson-editor-preview .coach-copy :is(h2, h3, h4) {
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+
+.lesson-editor-preview .coach-copy h2 {
+  font-size: 1.375rem;
+  font-weight: 700;
+}
+
+.lesson-editor-preview .coach-copy h3 {
+  font-size: 1.125rem;
+}
+
+@container lesson-editor (width < 52rem) {
+  .lesson-editor-setup {
+    row-gap: 0.5rem;
+    padding-block-end: 0.5rem;
+    margin-block-end: 0.75rem;
+  }
+  .lesson-editor-setup > div:first-child {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .lesson-editor-readiness[open] > summary {
+    margin-block-end: 0.5rem;
+  }
+  .lesson-editor-preview .markdown-preview-body {
+    max-height: none;
+    overflow: visible;
+  }
+  .lesson-editor-preview .markdown-preview-pane {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem 0.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .lesson-editor-preview .markdown-preview-header {
+    grid-column: 2;
+    grid-row: 1;
+    margin: 0;
+  }
+  .lesson-editor-preview .markdown-preview-heading {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .lesson-editor-preview .markdown-preview-refresh-label {
+    display: none;
+  }
+  .lesson-editor-preview .markdown-preview-refresh {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+  .lesson-editor-preview .markdown-preview-hint {
+    grid-column: 1;
+    grid-row: 1;
+    margin: 0;
+  }
+  .lesson-editor-preview #md-preview-stale-hint {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin: 0;
+  }
+  .lesson-editor-preview .markdown-preview-body {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .lesson-editor-preview .markdown-preview-pane:has(#md-preview-stale-hint) .markdown-preview-body {
+    grid-row: 3;
+  }
+  .lesson-editor-actions > button {
+    flex-basis: 100%;
+    min-block-size: 2.75rem;
+  }
+  .lesson-editor-shortcut {
+    display: none;
   }
 }
 

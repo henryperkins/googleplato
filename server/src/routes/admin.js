@@ -17,6 +17,7 @@ import { classifyCache, kickoffAsyncRefresh, refreshStaleLessonStats } from '../
 import { mapWithConcurrency } from '../lib/concurrency.js';
 import { normalizeStatus, publicLessonIds } from '../lib/lesson-visibility.js';
 import aiSettings from './ai-settings.js';
+import { repairCoachContinuity } from '../lib/coach-continuity-repair.js';
 import {
   readWaitlistConfig, writeWaitlistConfig, generateWaitlistApiKey, validateWaitlistEntry,
 } from '../lib/waitlist.js';
@@ -88,6 +89,31 @@ function validateLessonMarkdown(markdown) {
 
 admin.use('/v1/admin/*', authenticate, requireAdmin);
 admin.route('/', aiSettings);
+
+admin.post('/v1/admin/users/:userId/lessons/:lessonId/continuity-repair', bodyLimit({ maxSize: 2 * 1024 * 1024 }), async (c) => {
+  if (c.req.query('asUserId')) return c.json({ error: 'Repair is unavailable while viewing another user.' }, 403);
+  let input;
+  try { input = await c.req.json(); }
+  catch { return c.json({ error: 'Invalid JSON repair request.' }, 400); }
+  try {
+    const state = await repairCoachContinuity(c.req.param('userId'), c.req.param('lessonId'), input);
+    // The repair is already committed. An audit outage must not report it as a
+    // failed repair and invite a retry against the now-stale snapshot.
+    try {
+      await db.createAuditLog({ action: 'lesson_continuity_repaired', userId: c.req.param('userId'), performedBy: c.get('userId'),
+        details: { lessonId: c.req.param('lessonId'), assignmentMessageId: input.assignmentMessageId,
+          learnerMessageId: input.learnerMessageId, removedInsightCount: input.misleadingInsights.length } });
+      c.header('X-Plato-Audit-Status', 'recorded');
+    } catch {
+      c.header('X-Plato-Audit-Status', 'failed');
+      logger.error('lesson_continuity_audit_failed', { committed: true });
+    }
+    return c.json(state);
+  } catch (error) {
+    if (error.status) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+});
 
 // GET /v1/admin/users
 // Pass `?include=stats` to enrich each row with `lessonsCompleted`,
@@ -985,6 +1011,11 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   const body = await c.req.json();
   const adminUser = c.get('user');
   const current = await db.getSyncData('_system', `lesson:${lessonId}`, { consistentRead: true });
+  // Validate the independent share list before acknowledging a retried write.
+  const sharedWith = body.sharedWith !== undefined ? body.sharedWith : (current?.data?.sharedWith || []);
+  if (!Array.isArray(sharedWith) || !sharedWith.every(id => typeof id === 'string')) {
+    return c.json({ error: 'sharedWith must be an array of user ID strings' }, 400);
+  }
   const rejected = checkLessonWrite(c, body, current);
   if (rejected) return rejected;
   // Also protect against delayed autosaves from clients without revision metadata.
@@ -993,8 +1024,8 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   }
   const markdownToValidate = body.markdown || current?.data?.markdown;
   const hasMarkdown = !!markdownToValidate;
-  const newStatus = normalizeStatus(body.status || current?.data?.status, hasMarkdown);
   const currentStatus = normalizeStatus(current?.data?.status, !!current?.data?.markdown);
+  const newStatus = normalizeStatus(body.status || currentStatus, hasMarkdown);
   // Drafts are allowed without markdown (they hold a mid-creation conversation).
   // Any non-draft lesson must have markdown.
   if (newStatus !== 'draft' && !hasMarkdown) {
@@ -1006,11 +1037,6 @@ admin.put('/v1/admin/lessons/:lessonId', async (c) => {
   if ((markdownChanged || isGoingPublic || isLeavingDraft) && hasMarkdown) {
     const mdError = validateLessonMarkdown(markdownToValidate);
     if (mdError) return c.json({ error: mdError }, 400);
-  }
-  // sharedWith is independent of status — validate format if provided
-  const sharedWith = body.sharedWith !== undefined ? body.sharedWith : (current?.data?.sharedWith || []);
-  if (sharedWith.length > 0 && (!Array.isArray(sharedWith) || !sharedWith.every(id => typeof id === 'string'))) {
-    return c.json({ error: 'sharedWith must be an array of user ID strings' }, 400);
   }
   // course is an optional string courseId or null. Don't validate that the
   // courseId points to an existing course — DELETE on a course cascades to

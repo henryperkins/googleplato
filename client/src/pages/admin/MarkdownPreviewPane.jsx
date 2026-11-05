@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { RotateCcw, TriangleAlert } from 'lucide-react';
 import { renderMd } from '../../lib/helpers.js';
 
 /**
@@ -26,6 +28,10 @@ export default function MarkdownPreviewPane({
   ariaLabel = 'Lesson markdown preview',
   noun = 'lesson',
   emptyHint = 'Describe the skill and intended outcome, then generate a preview.',
+  statusLabel,
+  staleLabel,
+  staleHint = 'The conversation has changed. Refresh the preview to include your changes.',
+  preserveContent = false,
 }) {
   const hasContent = !!markdown?.trim();
   // Before the first extraction there is nothing to refresh — it's a generate.
@@ -51,40 +57,46 @@ export default function MarkdownPreviewPane({
   return (
     <aside
       aria-label={ariaLabel}
-      className="flex min-w-0 flex-col rounded-2xl bg-muted/40 border border-border p-4"
+      className="markdown-preview-pane flex min-w-0 flex-col rounded-2xl bg-muted/40 border border-border p-4"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <Button
-          variant="outline"
+      <div className="markdown-preview-header flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h2 className="markdown-preview-heading text-sm font-semibold">{title}</h2>
+        {showStaleHint && staleLabel && <Badge className="border-warning-border bg-warning text-warning-foreground">
+          <TriangleAlert className="size-3.5" aria-hidden="true" /> {staleLabel}
+        </Badge>}
+        {onRefresh && <Button
+          variant={stale && staleLabel ? 'default' : 'outline'}
           size="sm"
-          className="h-auto min-h-9 max-w-full whitespace-normal py-2"
+          className="markdown-preview-refresh h-auto min-h-9 max-w-full whitespace-normal py-2"
           onClick={onRefresh}
           disabled={refreshDisabled}
           focusableWhenDisabled
-          aria-describedby={showStaleHint ? 'md-preview-stale-hint' : undefined}
+          aria-label={refreshLabel}
+          aria-describedby={[showStaleHint && 'md-preview-stale-hint', error && 'md-preview-error'].filter(Boolean).join(' ') || undefined}
         >
-          {refreshLabel}
-        </Button>
+          {statusLabel && <RotateCcw aria-hidden="true" />} <span className="markdown-preview-refresh-label">{refreshLabel}</span>
+        </Button>}
       </div>
 
       {/* Staleness hint — the conversation has advanced past the last refresh.
           Linked to the refresh button via aria-describedby so a screen-reader
           user hears why a refresh is worthwhile when the button is focused. */}
       {showStaleHint && (
-        <p id="md-preview-stale-hint" className="text-sm text-muted-foreground mb-3">
-          The conversation has changed. Refresh the preview to include your changes.
+        <p id="md-preview-stale-hint" className={staleLabel
+          ? 'text-sm rounded-md border border-warning-border bg-warning text-warning-foreground px-3 py-2 mb-3'
+          : 'text-sm text-muted-foreground mb-3'}>
+          {staleHint}
         </p>
       )}
 
-      {hasContent && !stale && !loading && (
+      {hasContent && (statusLabel || (!stale && !loading)) && (
         <p
           role="note"
-          className={saved
+          className={`markdown-preview-hint ${saved
             ? 'text-sm text-muted-foreground mb-3'
-            : 'text-sm rounded-md bg-warning text-warning-foreground px-3 py-2 mb-3'}
+            : 'text-sm rounded-md bg-warning text-warning-foreground px-3 py-2 mb-3'}`}
         >
-          {saveHint}
+          {statusLabel || saveHint}
         </p>
       )}
 
@@ -93,22 +105,23 @@ export default function MarkdownPreviewPane({
         {announcement}
       </div>
 
-      <div className="flex-1 max-h-[70dvh] overflow-auto overscroll-contain" aria-busy={loading}>
-        {error ? (
+      <div className="markdown-preview-body flex-1 max-h-[70dvh] overflow-auto overscroll-contain" aria-busy={loading}>
+        {error && (
           <div
+            id="md-preview-error"
             role="alert"
             className="rounded-lg bg-destructive/10 text-destructive px-4 py-3 text-sm"
           >
             {error}
           </div>
-        ) : loading ? (
-          <div className="text-sm text-muted-foreground">{hasContent ? 'Refreshing preview…' : 'Generating preview…'}</div>
-        ) : hasContent ? (
+        )}
+        {loading && <p className="mb-3 text-sm text-muted-foreground">{hasContent ? 'Refreshing preview…' : 'Generating preview…'}</p>}
+        {hasContent && (preserveContent || (!loading && !error)) ? (
           <div
             className="coach-copy"
             dangerouslySetInnerHTML={{ __html: renderMd(markdown) }}
           />
-        ) : (
+        ) : !loading && !error && (
           <div className="text-sm text-muted-foreground py-12 text-center">
             {emptyHint}
           </div>

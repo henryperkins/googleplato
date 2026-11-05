@@ -83,3 +83,25 @@ test('unavailable session storage preserves the current in-memory editing path',
   assert.equal(drafts.read('learner-a', 'lesson-1').text, '');
   assert.doesNotThrow(() => drafts.write('learner-a', 'lesson-1', { text: 'Still editable in React state', images: [], links: [] }));
 });
+
+test('failed readback retains the exact latest draft in memory until a verified retry', () => {
+  const { storage, drafts } = fixture();
+  const observed = [];
+  const unsubscribe = drafts.subscribe(() => observed.push(drafts.retentionStatus('a', 'lesson')));
+  const earlier = { text: 'Earlier draft', images: [], links: [] };
+  const latest = { text: '  Latest 日本語 🌱\nSecond line  ', images: [{ name: 'work.png', dataUrl: 'data:image/png;base64,synthetic' }], links: [{ url: 'https://example.test', title: 'Reference', text: 'Context' }] };
+  assert.equal(drafts.write('a', 'lesson', earlier), true);
+  const setItem = storage.setItem;
+  storage.setItem = () => {};
+  assert.equal(drafts.write('a', 'lesson', latest), false);
+  assert.deepEqual(drafts.read('a', 'lesson'), latest);
+  assert.deepEqual(createLessonDraftStore({ storage: () => storage }).read('a', 'lesson'), earlier);
+  storage.setItem = setItem;
+  assert.equal(drafts.write('a', 'lesson', latest), true);
+  assert.deepEqual(observed, ['retained', 'failed', 'retained']);
+  assert.equal(drafts.retentionStatus('b', 'lesson'), 'pending');
+  assert.equal(drafts.retentionStatus(null, 'lesson'), 'unavailable');
+  unsubscribe();
+  assert.deepEqual(createLessonDraftStore({ storage: () => storage }).read('a', 'lesson'), latest);
+  assert.equal(drafts.read('b', 'lesson').text, '');
+});

@@ -103,9 +103,18 @@ abandoned attempts. Missing provider usage remains unknown. See
 
 Google sign-in uses Firebase Auth's popup. The server verifies the Firebase ID
 token at `POST /v1/auth/firebase` and returns plato access and refresh tokens.
-A verified email that matches an existing account signs in to it. Any other
-verified Google account gets a new learner account; a pending invite or wait-list
-entry for that email supplies its profile, but neither is required.
+A verified email that matches an existing account signs in to it. A new account
+needs an invitation, as password signup does: an invite token (email or link) or
+a pending email invite for that address, whose profile it takes. The one
+exception is the operator's `ADMIN_EMAIL`, which may create its own account and
+is the only address made an admin; no address is hard-coded anywhere. Anyone
+else gets `403 { code: 'invite_required', email, name, waitlisted, inviteExpired }`
+and nothing is created or consumed, so a wait-list entry stays for an admin to
+invite. Google has verified the address, so telling its owner where they stand
+reveals nothing about anyone else. The sign-in page then replaces its form with
+the invitation page (`InviteRequired`): it names the address, says whether the
+person is on the wait list or holds an expired invitation, and offers **Join the
+wait list**, prefilled with Google's email and name, when the list is open.
 
 Google and password sessions use the same server storage paths. `storage.js`
 only writes through the API and caches acknowledged atomic lesson commits.
@@ -186,12 +195,13 @@ replaces the cache with the acknowledged metadata. A request generation prevents
 older in-flight requests, including their original callers, from restoring stale
 branding after a save. Logo loading no longer delays the metadata response.
 
-The Customizer loads Styles and Knowledge independently, with per-tab retry.
-Styles tracks edits against its last acknowledged save; discard restores that
+The Customizer loads Appearance and Program knowledge independently, with per-tab retry.
+Appearance tracks edits against its last acknowledged save; discard restores that
 snapshot, and reset stages the seeded defaults for an explicit Save. A data-router
 navigation blocker protects links and browser history, and `beforeunload` protects
 reloads/closing the page. The existing route tree remains in `App`. Knowledge
-editor mode is derived from `/plato/customizer/knowledge/edit`, never local state.
+viewer/editor state is derived from `/plato/customizer/knowledge/edit`; `?mode=text`
+opens direct text editing without starting an assistant request.
 An omitted accent, or one equal to the primary, means “Match primary”; new
 classrooms use that mode, while a different saved accent stays independent.
 Unmatching starts the accent from the color it was showing, and an accent equal
@@ -599,6 +609,16 @@ that owner's draft. Read-only impersonation never reads or writes a composer
 draft. Sign-out preserves these drafts for the owner's next login in the same
 tab. Older lesson-only draft keys have no reliable owner: they remain intact in
 storage but are never automatically restored or assigned to an account.
+The composer reports whether its current draft passed storage readback. A failed
+write keeps the exact draft in memory and shows a persistent warning to keep the
+tab open, with **Retry keeping draft** and **Copy draft text**. Retrying verifies
+the full draft, including attachments; copying text does not back up attachments.
+Only a verified retry or later successful edit clears the warning. This is tab
+recovery, not server persistence, and cannot protect a failed write if the page
+is reloaded or closed before recovery succeeds.
+A nonempty draft whose retention failed also activates the existing unload
+warning. The warning clears after verified retention; browsers may suppress
+native prompts, and OS termination or mobile tab discard is not protected.
 
 A learner's chat history for a lesson lives in one `messages:<lessonId>`
 sync-data record; progress lives separately in `lessonKB:<lessonId>`.
@@ -623,6 +643,10 @@ model, reapplies tags, or rebuilds the reply. Unknown save outcomes retain the
 same IDs. Conflicts preserve the copy and require an explicit discard to load
 the current saved conversation. The browser cache receives a generated turn only
 after the authoritative API acknowledges it.
+Save retries share the account/lesson request registry with initial submissions.
+Reopening while a retry is in flight waits for its result, so the new view cannot
+keep an obsolete failure after a successful retry. A failed retry still exposes
+the retained turn and its persistence-only recovery action.
 
 Save confirmations are transient UI state, separate from transcript messages
 and coach request context. After the submitted input passes recovery-journal
@@ -633,6 +657,12 @@ After retrying a failed save, “Your reply is saved.” appears only on server
 acknowledgment and fades on the same timer. Starting another response clears
 the previous confirmation immediately. Reduced motion uses only the fade.
 Save failures, retry controls and changed-requirements notices stay visible.
+Separate composer feedback distinguishes waiting for the coach, **Saving
+progress…**, **Progress saved.**, and unconfirmed saves. The submission store's
+`saving` phase begins when the generated turn enters persistence, so a reopened
+view also observes it. Server acknowledgment drives the saved state; the
+local-input acknowledgment alone never does. This feedback is not transcript
+content and does not change generation, commit, or retry semantics.
 
 The local journal remains scoped to the current tab/session. The server also
 retains the latest generated result for each learner/lesson, recovered through
@@ -691,7 +721,8 @@ reads back every retained reply and draft, including other visited lessons and
 accounts. Draft text, image data, and fetched link context use account/lesson
 scoped `sessionStorage`. Failure leaves the tab open with a copy-work warning.
 Only a verified upgrade reload bypasses the pending-work unload warning; ordinary
-navigation still warns while a reply or generation is pending.
+navigation still warns while a reply or generation is pending or a nonempty
+draft failed retention.
 After reload, the original turn IDs, base snapshot, reply, and progress restore;
 **Retry saving** only submits the original atomic commit. It neither generates
 a replacement nor runs optional profile/course models. A lost acknowledgement
@@ -887,9 +918,21 @@ inline at the end of a short one); `client/tests/stickToBottom.test.js` covers
 only the decision layer.
 
 The admin lesson editor passes an explicit `scrollTargetRef` at the end of its
-inline composer. On narrow screens the markdown preview follows the chat, so
-scrolling that admin container to its absolute bottom would hide the composer.
-The optional target changes both pinning and the "at bottom" calculation.
+inline composer. Scrolling its container to the absolute bottom can instead
+land at the end of the adjacent preview. The optional target changes both
+pinning and the "at bottom" calculation. `scrollOnMount` defaults to true;
+authoring passes false so opening an editor preserves its title, saved status
+and workspace tabs. Explicit submission still resumes following. Hidden chat logs
+never scroll their ancestors, including when a reply arrives behind the mobile Preview tab.
+When a hidden log reappears, its pin state is recomputed from the current
+position and its offset snapshot is refreshed before mutation, resize or
+animation callbacks can follow it again.
+Returning to Refine therefore keeps the selected tab in view; a new submitted
+message still explicitly resumes following the conversation.
+For the explicit authoring endpoint, scroll events with unchanged offsets do
+not stop following: WebKit can emit them when content grows. Programmatic pins
+record their resulting offsets, and a newly active scrollport is measured from
+zero so its first actual movement can resume following after a layout change.
 Learner chat continues to use full-scrollport pinning.
 
 The lesson page fills `<main>` (`#main-content:has(> .lesson-page)` is a flex
@@ -922,9 +965,11 @@ async or something fails:
   and keep the submit button focusable with Base UI's `focusableWhenDisabled`
   (rendered as `aria-disabled`, which `button.jsx` styles like `disabled`).
   Handlers guard against double submits themselves.
-- **Confirmations that replace a form take focus** (Reset Password, Wait List),
-  and a failed lesson start offers Try again in place, parking focus on the
-  lesson heading while the loading view replaces the error.
+- **Confirmations that replace a form take focus** (Reset Password, Wait List,
+  and the invitation page that replaces sign-in, whose **Back to sign in**
+  returns focus to the Sign in heading), and a failed lesson start offers Try
+  again in place, parking focus on the lesson heading while the loading view
+  replaces the error.
 - **Page titles name the page.** `client/src/lib/routeTitles.js` names lesson
   routes after their lesson for the title and the "Navigated to …" announcement;
   admin views that share a route component set their title per view.
@@ -975,7 +1020,7 @@ async or something fails:
 
 ## Invite system
 
-Admins invite users via email or shareable link. Invites expire after 7 days (TTL enforced in DynamoDB/SQLite). All invite operations are audit-logged.
+Admins invite users via email or shareable link. Every new account needs an invitation, whether the person signs up with a password or with Google (see [Google sign-in](#google-sign-in-and-canonical-server-storage)). Invites expire after 7 days (TTL enforced in DynamoDB/SQLite). All invite operations are audit-logged.
 
 ### Email invites
 
@@ -1007,6 +1052,7 @@ People ask to join; an admin invites them later. Integrator-facing API guide: [`
 - **Config:** `_system:waitlist` = `{ open, apiKeyHash }`, kept out of `_system:settings` so a stale settings save can't bring back a revoked key. The key is shown once; only its SHA-256 is stored.
 - **Admin:** Users → **Wait List** filter, with Invite and Remove per row; click a row to edit the entry (`/plato/users/waitlist/:token`: name, email, group, custom fields — same validation as joining, and a new email must not belong to a user, pending invite, or other entry). Users → **Wait List** button to open or close the form and make or revoke the key. Routes: `GET /v1/admin/waitlist`, `PUT /v1/admin/waitlist/settings`, `POST`/`DELETE /v1/admin/waitlist/key`, `PUT /v1/admin/waitlist/:token` (edit; conditional on the row still being an entry, so it can't race an Invite), `POST /v1/admin/waitlist/:token/invite`, `DELETE /v1/admin/waitlist/:token`.
 - **Invite:** creates a normal email invite that carries the entry's `profile`, sends the invite email, and deletes the entry. Resend keeps the profile.
+- **Not an invitation:** a Google sign-in from a wait-listed address creates no account and leaves the entry in place; the invitation page tells the person they're on the list (see [Google sign-in](#google-sign-in-and-canonical-server-storage)).
 - **Signup:** the form is prefilled from `GET /v1/auth/invite/:token`; values the person submits win. A stored group that has since been renamed or deleted is ignored rather than assigned.
 - **Custom fields:** deleting a custom user field also erases its answers from wait-list entries and the invites made from them (`setInviteProfile`), and `GET /v1/admin/waitlist` only returns answers to fields that still exist.
 - **No rate limit.** Like the rest of the public API, `POST /v1/waitlist` has none; an open list accepts any number of entries. The public form carries a **honeypot**: a hidden `website` input (off-screen, `aria-hidden`, out of the tab order). An unkeyed request that fills it gets the normal `202` and nothing is stored. Keyed requests skip the check, so an outside form may send any fields.
@@ -1166,7 +1212,7 @@ return enrichment object or `null`.
 
 Lessons have three statuses:
 
-- `public` — visible to all (legacy `published` normalizes to `public`).
+- `public` — visible to all (legacy `published`, and legacy lessons with markdown but no status, normalize to `public`).
 - `private` — visible only to users in `sharedWith`.
 - `draft` — in-progress, admin-only, no markdown yet.
 
@@ -1175,13 +1221,33 @@ legacy `status: 'draft'` records that *do* have markdown are treated as
 `private` to preserve pre-rework semantics. Drafts surface as a `Draft` pill in
 Admin → Lessons and are never exposed to learner-facing endpoints.
 
+Missing status on an existing lesson with markdown preserves the public visibility
+it had before statuses were introduced, including during an admin edit. Unknown
+statuses and incomplete status-less records remain private. Creating a new lesson
+through the admin API without an explicit status defaults to private.
+
 New lessons start as `draft` the moment the Lesson Creator conversation begins
 (one `lesson:<id>` record per draft in `_system` sync-data), so admins can pause
-and resume drafts or work on several in parallel. Clicking "Create Lesson"
-finalizes the same record with extracted markdown and flips status
-`draft` → `private` (shared only with author). Admins toggle public/private on
-finalized lessons and manage shared users via the Share modal. Drafts hide the
-Share icon (nothing shareable yet).
+and resume drafts or work on several in parallel. After reviewing the preview,
+admins choose **Save privately** (shared only with the author) or **Save & make
+public** (visible to all learners in the classroom). Both finalize the same
+record, saving the reviewed markdown and chosen visibility together.
+
+The finalized lesson's **Private/Public** button opens **Visibility & Sharing**
+from either the lesson list or the editor. A saved private lesson also offers
+**Make public** directly in the editor. This changes only visibility, preserving
+the saved content, shares and any unsaved preview. Drafts retain a noninteractive
+Draft badge until finalized. Visibility success is shown after acknowledgement;
+failed dialog saves keep their selection and show the error inside the dialog.
+An empty share list is valid: **Make Private** removes classroom-wide visibility
+without adding recipients. During an unknown visibility save, the editor header
+keeps the last confirmed status while the dialog shows the pending choice that
+**Retry saving** will resend, including when reopened or recovered after reload.
+
+The share list is independent of visibility and survives a public/private round
+trip in the Share modal. Public lessons ignore the list for access checks.
+The admin API requires `sharedWith` to be an array of user ID strings; omitting
+it preserves the current list, and an explicit empty array clears it.
 
 ### Courses
 
@@ -1219,11 +1285,71 @@ lessons remain visible and usable in the grid. Courses without public lessons
 have no progress bar. Purely informational; it reads `lessonKB.status` and never
 affects completion.
 
+While the status filter shows every status, the lessons the learner has started
+and not completed lead the whole list under an **In progress** heading, in
+catalog order among themselves, so a long first course can't push a returning
+learner's lesson onto page 2 (`orderLessons()` / `groupLessonsForPage()` in
+`client/src/lib/lessonListOrder.js`). A status filter keeps plain course
+grouping. Course groups follow in course-name order; lessons without a course
+come last, under **Other lessons** whenever the list has other groups.
+
+A learner who hasn't started any lesson gets one suggestion instead: the first
+lesson in the list shows **Start here** (`startHereLessonId()`), and its open
+action's accessible name ends with "Start here." It follows the filters, so a
+course filter moves it to that course's first lesson. It never marks an admin's
+own `custom-*` lesson and doesn't appear in a list of one. Catalog order has no
+authored sequence: course name, then lesson name, both with numeric collation,
+so an admin who wants a particular first lesson numbers the names ("1. …"). The
+mark leaves once any lesson has a status. It uses the verified progress snapshot
+that orders the list; unknown progress never qualifies a learner for the mark.
+
+`useLessonListProgress()` publishes a catalog and its progress together.
+`lessonCatalogLoaded` distinguishes a successful catalog response from a failed
+initial attempt. Until a catalog succeeds, its initial empty array cannot become
+a retained snapshot or produce an empty-state announcement during retry.
+`sync.loadAll()` returns true only after a complete, current response populates
+the cache, and `AppContext` publishes that result with the catalog as
+`lessonProgressHydrated`. Only this successful bulk read proves that an absent
+cache record means not started. No confirming per-lesson requests are needed
+after a successful bulk sync. The first render uses the cache immediately;
+previous component statuses cannot override a newer catalog's snapshot.
+
+If bulk sync fails and some progress is unknown, `loadLessonStatuses()` reads
+the catalog's progress records before the first cards appear. A missing record
+must be confirmed by a successful response with `data: null`; HTTP failures,
+network errors and malformed responses do not become "not started." An initial
+load shows **Loading lessons…**, then a retryable progress error if needed.
+A foreground refresh retains the last verified catalog, status filters, paging
+and keyboard focus while fallback reads are pending or failed. The existing
+**Try again** action retries the catalog and progress together.
+
+Fallback requests are aborted on unmount or when a newer catalog arrives, and
+their results never write the shared sync cache. Completion-event reads have the
+same lifetime guard; completion updates received during a fallback take precedence
+over that fallback's older status. Sign-out resets the app catalog and its
+hydration flag before another account signs in. These are read-path changes;
+lesson completion and persistence writes are unchanged.
+
+The **View outline** dialog ends with the lesson's next step (**Start
+lesson**, **Continue lesson**, or **Open lesson**) and closes before navigating,
+so its background scroll lock is released before the lesson page renders.
+
+**Previous** and **Next** move focus to the page's `h1` (`goToPage()`), which
+scrolls the new page's top into view. Left on the button, focus would sit below
+cards the learner hasn't read, and on the last page, where Next is disabled, it
+fell to the document and the next Tab reached the footer. Both buttons are
+`focusableWhenDisabled`, and steps count from the page shown, which the stored
+page can outrun when the list shrinks. Filter changes reset the page without
+moving focus. Lesson titles, descriptions, course names and the outline's author
+text use `dir="auto"`, since admins can write lessons in a right-to-left
+language; the card's metadata isolates its course name in a `<bdi>`.
+
 Both learner lesson endpoints return normalized visibility in `status`, using
 the same `normalizeStatus()` helper as dashboard/activity stats: legacy
-`published` becomes `public`, and legacy drafts with markdown become `private`.
-`loadLessons()` preserves this field alongside course metadata. Only an explicit
-`public` status contributes to progress; missing or unknown visibility does not.
+`published` and status-less lessons with markdown become `public`, and legacy
+drafts with markdown become `private`. `loadLessons()` preserves this field
+alongside course metadata. Only the normalized `public` status contributes to
+progress; unknown visibility and incomplete status-less records do not.
 
 `loadLessons()` merges system lessons (`/v1/lessons`) with user lessons from
 sync-data. To preview a lesson as a learner sees it (the live coach experience),
@@ -1242,7 +1368,43 @@ unsaved recovery copy opens create mode. Other load failures offer retry in
 place, without starting an agent or writing a draft. `AdminLessons` keys
 `LessonEditor` on the lesson and load attempt so switching lessons remounts cleanly.
 
-`lessonSaveQueue` serializes conversation, course and final markdown writes.
+Authoring stays on one page. The conversation and preview sit side by side when
+the editor container is at least 52rem wide; course and readiness sit above both
+columns. Narrower containers show keyboard-operated **Refine / Preview** tabs,
+including when enlarged text reduces the available space. Both panels remain
+mounted so switching tabs preserves the composer and in-flight requests. Arrow
+keys, Home and End select tabs; **View preview** opens and focuses the review.
+When widening hides a focused mobile tab, readiness summary or View preview
+control, focus moves to its visible content after the layout updates. Narrowing
+keeps focused readiness guidance expanded. Ordinary blur and focus outside the
+editor do not restore an abandoned control.
+Both save choices follow the preview in reading order at every width, with
+full-width buttons on narrow screens. The mobile preview uses the page's
+scrolling flow. **Start over** stays with the conversation and keeps its
+confirmation dialog. Unknown final-save recovery opens the Preview tab.
+
+Existing preview content has one Refresh preview control in its header, including
+when stale. Authors can refresh before scrolling through the old content; empty
+previews keep Generate preview after their explanation. Final save/update choices
+remain after the preview. Refresh errors describe the initiating control and
+come into view while Preview is visible and focus remains on that control or
+has not changed since activation. Recording the activated control separately
+also handles browsers that leave focus elsewhere when a button is tapped.
+Focus stays unchanged; background failures preserve Refine's focus and scroll.
+
+Readiness describes how fully the conversation has defined the lesson. Its
+native disclosure explains the exemplar, objectives and scope rubric and the
+existing 3/10 creation minimum. Mobile shows the score in a disclosure that
+expands to the bar, explanation and rubric. The score and its color do not
+replace review or preview validation; the underlying thresholds are unchanged.
+
+The lesson directory uses compact rows below the medium breakpoint and the
+existing table at wider sizes. Both share filtering, pagination, visibility
+controls and edit/delete handlers. Mobile rows expose named actions and optional
+metrics. Search stays visible; a native **Filters** disclosure contains the
+course and visibility choices, indicates active filters and offers clearing.
+
+`lessonSaveQueue` serializes conversation, course, visibility and final markdown writes.
 Each write carries the last acknowledged `expectedVersion` and a stable
 `operationId`. Authoring reads are consistent on DynamoDB; both database
 adapters enforce strict compare-and-set, including first creation and deletion.
@@ -1262,7 +1424,10 @@ warns while writes are pending, and storage failure is visible. Departed editors
 cannot overwrite a newer recovery copy or navigate after their requests finish.
 Conflicts preserve local work until the admin explicitly chooses to discard it
 and load the saved lesson. A confirmed 400 rejecting final markdown permits
-**Revise lesson**; unknown write outcomes retain the same operation for retry.
+**Revise lesson**; a rejected visibility-only request can also be corrected.
+Unknown write outcomes retain the same operation and chosen visibility for
+retry. The editor's confirmed status and acknowledged version advance together
+after a visibility-only save, so later content saves do not conflict with it.
 
 **Markdown preview pane** (`client/src/pages/admin/MarkdownPreviewPane.jsx`):
 chat left, rendered markdown right, wrapping according to available space and
@@ -1271,20 +1436,36 @@ text size. Headers and action groups wrap at narrow widths. The preview is
 re-runs the relevant extractor agent — it does NOT auto-update per message and
 runs no AI call on editor open. On open the pane shows the already-saved markdown
 (edit) or a quiet empty-state (new). Once the conversation advances past the last
-refresh a hint explains that the conversation has changed. Conversation and
-markdown revision IDs preserve that distinction across sessions.
+refresh, a **Needs refresh** badge and notice explain that the conversation has
+changed. The saved or previous content stays visible during extraction and
+after a failure. Conversation and markdown revision IDs preserve that
+distinction across sessions. A late extraction remains stale if the author has
+continued the conversation. Refresh completion does not move focus away from
+the conversation or another panel.
 **Generate preview / Refresh preview** generates and validates a preview;
-**Create/Update Lesson** saves that exact
-markdown, after pending autosaves finish. Failed finalization retains the
-preview for persistence-only retry. Restart clears it and invalidates outstanding
+**Save privately / Save & make public / Update Lesson** saves that exact
+markdown, after pending autosaves finish. Refresh is a separate action; final
+save controls stay disabled while the preview is missing, stale or refreshing.
+Conversation-save status, currently saved content, and a current but unapplied
+preview have separate labels. Failed finalization retains the preview and visibility
+choice for persistence-only retry, including after a same-tab reload. Restart clears it and invalidates outstanding
 extractions. Preview markdown is kept in the tab's recovery copy, but is not
 published as lesson content until the save button is used.
 `buildConversationText` (`client/src/lib/lessonCreationEngine.js`) is the shared
 builder for the extractor input. The same pane (copy parametrized via props) backs both the lesson editor
 (`extractLessonMarkdown`) and the **knowledge base editor**
 (`AdminCustomizer` + `AdminKBSetup`, `extractKBMarkdown`). The knowledge base
-editor likewise saves a current preview verbatim and extracts only when the
-preview is missing or stale. Its conversation auto-saves as a draft; turns
+editor saves only a current reviewed preview, verbatim, and never invokes
+extraction while saving. Conversation and direct text editing share a document
+draft. Text changes require **Review text changes**; conversation changes require
+a separately generated/refreshed preview. Extraction starts from the current
+text draft so manual corrections carry into guided work. The assistant
+estimates readiness on a visible 0–10 scale, with a 3/10 generation minimum;
+direct text review and saving do not depend on that estimate. Failed generation
+retains the previous document, and failed or unconfirmed saves keep the reviewed
+bytes available for persistence-only retry. Document edits remain in the mounted
+editor until saved or explicitly abandoned; the navigation/reload guard protects
+them, while the conversation auto-saves as a server draft. Conversation turns
 after the last save carry `unpublished: true` until the knowledge base is saved
 (`client/src/lib/knowledgeBaseDraft.js`).
 
@@ -1730,7 +1911,7 @@ Generic single/batch sync writes cannot create or replace assessment/transcripts
 
 Unsigned retained pre-upgrade replies can save their exact transcript, explicitly
 marked legacy-unverified, while preserving only previously saved assessment.
-Their assistant assertions are excluded from future assessment history. Active
+Their assistant text is retained as bounded, explicitly unverified conversation reference data; it cannot become learner evidence or completion authority. Active
 legacy assessment is reconciled to authored criteria without carrying unverified
 evidence forward; historical completed lessons remain complete. A changed rubric
 invalidates active evidence. If criteria change between generation and save, the
@@ -1745,7 +1926,7 @@ objective text, excluding raw sources and incidental disclosures. Optional model
 updates run only after the acknowledged assessment confirms new completion.
 
 `coach_assessment` telemetry records only validity, response class, completion and
-fixed issue codes. `scripts/evaluate-coach.js` defaults to 15 authored offline
+fixed issue codes. `scripts/evaluate-coach.js` includes assessment and conversation-continuity offline
 fixtures. Explicit live mode requires a call budget, records the selected provider
 and model plus prompt/fixture hashes, and never writes synthetic lesson progress.
 It evaluates the bundled prompt in isolation; server assembly is covered by route
@@ -1767,3 +1948,101 @@ Model context separates authored `assessmentRequirements` from generated
 `evidenceGuidance`; guidance cannot create new mandatory criteria. See
 `docs/reviews/coach-live-evaluation-2026-10-25.md` for live results, exact prompt
 identities, the latency/call tradeoff, earlier failures and preservation evidence.
+
+
+### Resumed coaching conversation continuity (2026-11-05)
+
+`server/src/shared/coachConversation.js` builds provider history and source-backed
+`lessonKB.conversationState`. Legacy assistant messages are quoted as JSON
+`unverifiedCoachMessage` in a user-role reference message, with old terminal
+control metadata removed. They remain available to explain what the learner is
+answering, but never enter learner `sources` or assessment evidence. Recent history
+is limited to 40 usable messages and 6,000 characters per message.
+
+Conversation state separately retains the original assignment, explicit
+learner directions, and the latest coach prompt. Each anchor carries its saved
+message ID, exact bounded text, role and provenance; the server rehydrates anchors
+from saved messages rather than accepting generated summaries. These anchors
+survive history-window limits and assessment-criteria reconciliation, including a
+criteria edit between generation and save. Earlier additive directions are not
+discarded when later directions arrive: the existing whole-record save limit
+bounds storage and rejects an oversized save instead of forgetting active work.
+Duplicate message IDs cannot select one ambiguous occurrence as an anchor;
+`sourceAmbiguity` tells the coach to clarify any affected task detail. Optional
+KB_UPDATE `taskChangeSourceId` can retain only the current nonempty learner text;
+attachments and coach-generated URLs cannot replace the assignment. The prompt
+requires an explicit learner selection/change, and interprets the retained exact
+text rather than treating an arbitrary link as permission to switch.
+
+Version 3 migrates pre-existing transcripts (including version 1 continuity
+records) into chronological `legacyLearnerContext` and bounds version 2 migrations.
+It retains the saved learner
+statements without guessing which ones are task changes; the prompt resolves
+explicit selections from their actual words and asks for clarification if needed.
+This migration happens once, and later observations are not added to that
+historical collection. It is conversation context only and never repopulates
+assessment sources or evidence. The serialized collection is limited to 48 KiB
+of UTF-8, retaining whole recent anchors in chronological order. The existing
+whole-record size checks still apply to the transcript and KB.
+
+If this limit omits history, or retained task text or links are incomplete,
+`legacyContextTruncated` survives reloads. For an
+active lesson, the server generates a fixed clarification without calling either
+the coach or metadata-repair model. It preserves assessment and observations and
+asks for a complete task restatement beginning with `Continue with:`. The normal
+signed-turn save, stream and recovery paths carry this clarification. A unique
+saved `confirmationPromptId` must identify that exact preceding prompt before a
+complete current learner reply can clear the flag. Empty, oversized, incomplete
+link-dependent or unrelated replies do not clear it.
+
+The same clarification also covers incomplete original assignments and selected
+learner directions, including directions selected after an earlier complete
+restatement. A prior confirmed task never hides a newer incomplete direction.
+
+The restatement becomes a source-backed `confirmedTask`, rehydrated from the
+unique saved learner message and its links. It replaces earlier task directions
+and legacy context; future explicit directions remain additive. The original
+assignment and transcript remain in storage, while model context hides the old
+assignment and history begins at the restatement. Missing or ambiguous saved
+confirmation sources require clarification again. This avoids relying on a model
+to honor an omission warning while still seeing the obsolete opening. Completed
+lessons continue in feedback mode with bounded context and unchanged completion.
+The model evaluator refuses unresolved overflow fixtures; the route tests cover
+this deterministic path instead.
+
+Learner anchors and recent history also preserve up to four HTTP(S) link URLs and
+bounded titles from saved `metadata.links`, so a direction such as "Audit this
+site instead" survives source-list eviction. Page excerpts are not imported as
+conversation instructions or evidence. Invalid/excessive links are marked
+`linksIncomplete`; ambiguous references require clarification. A link without
+explicit task-selection wording does not become a retained learner direction.
+
+The continuity evaluator declares allowed target URLs per fixture, rejects
+unapproved URLs (including Markdown destinations and bare domains), grades
+explicitly forbidden diagnostic claims in the resulting `insights` and
+`learnerPosition`, and requires task-change markers to be absent unless the case
+expects one. These are conservative checks for the tested failure classes, not a
+general semantic proof; agent editorial review is still recorded separately.
+
+`POST /v1/admin/users/:userId/lessons/:lessonId/continuity-repair` is an admin-only
+operational repair. It accepts the complete current `base` from the lesson-turn
+GET, `assignmentMessageId`, the latest `learnerMessageId`, and a bounded
+`misleadingInsights` list of exact existing notes to remove. The operation refuses
+impersonation mode, stale snapshots, missing/empty or duplicate source identities,
+and completed lessons.
+It uses `commitLessonTurn` to preserve the entire transcript and all assessment
+fields while restoring the chosen assignment, retaining the actual learner
+observation without a guessed diagnosis, and marking the earlier coach switch for
+acknowledgement. The audit write follows the atomic repair. The response returns
+the committed snapshot with `X-Plato-Audit-Status: recorded` when logging succeeds.
+If the audit write fails, it still returns HTTP 200 with that snapshot and
+`X-Plato-Audit-Status: failed`, and emits `lesson_continuity_audit_failed` with
+`committed: true` and no transcript, account or exception details. This is a
+best-effort audit write; a failed audit entry is not durably queued for retry.
+Back up the exact snapshot before an operational repair; a failed/stale request
+must be investigated against a new read, not retried with guessed versions.
+
+Recovery returns only a result whose base is still current or whose exact messages
+and KB are already saved. A repaired KB makes an old generated result unavailable;
+replaying an already saved receipt acknowledges the current repaired state, while
+an unsaved stale reply conflicts. Neither repair nor replay calls a model.

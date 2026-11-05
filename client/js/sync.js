@@ -11,19 +11,25 @@ import { clearCache, _populateCache } from './storage.js';
  * Load all data from the server and populate the in-memory cache.
  * Compatible clients hydrate writable state only from the canonical server.
  * A superseded load must not replace the active session's cached data.
+ * Return true only when the complete response populated the current cache.
  */
 export async function loadAll({ isCurrent = () => true } = {}) {
   flushSaveEvents();
   const res = await authenticatedFetch('/v1/sync');
-  if (!res.ok || !isCurrent()) return;
+  if (!res.ok || !isCurrent()) return false;
 
   const items = await res.json();
-  if (!isCurrent()) return;
+  if (!isCurrent()) return false;
+  if (!Array.isArray(items) || items.some(item => !item || typeof item.dataKey !== 'string'
+    || !Object.hasOwn(item, 'data'))) {
+    throw new Error('Sync response is incomplete.');
+  }
   clearCache();
 
   for (const { dataKey, data, version } of items) {
     _populateCache(dataKey, data, version);
   }
+  return true;
 }
 
 /**

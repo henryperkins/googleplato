@@ -144,11 +144,11 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(layoutSrc, /overflow-y-auto/);
     assert.match(layoutSrc, /admin-bottom-nav/);
     assert.equal(/admin-bottom-nav[^"]*fixed bottom-0/.test(layoutSrc), false);
-    // Tabs show their labels from 30rem, where six fit; narrower, the label is
-    // screen-reader text beside an aria-hidden icon. The active icon uses the
-    // contrast-safe token (plain --primary is dimmer than inactive icons in dark mode).
+    // Tabs keep visible names beside aria-hidden icons at every mobile width.
+    // The active icon and label use the contrast-safe token. Browser coverage
+    // verifies narrow two-row labels and their enlarged-text geometry.
     const bottomNavSrc = layoutSrc.slice(layoutSrc.indexOf('admin-bottom-nav'));
-    assert.match(bottomNavSrc, /<span className=\{`sr-only min-\[30rem\]:not-sr-only /);
+    assert.doesNotMatch(bottomNavSrc, /<span className=\{`sr-only\b/, 'mobile destination labels stay visible');
     assert.match(bottomNavSrc, /<Icon aria-hidden="true"/);
     assert.match(bottomNavSrc, /border-primary text-primary-text/);
     assert.equal(/\btitle=\{label\}/.test(bottomNavSrc), false, 'no hover-only tooltips standing in for labels');

@@ -1,0 +1,39 @@
+{
+  "build_id": "B5",
+  "base_revision": "8fbdac6824beed29b4050bead4b6c00e99102f43",
+  "description": "Publication candidate excluding unrelated primary edits. Source patch applies only the eight listed files. Build substitutes synthetic Firebase config; all other source comes from base plus this patch.",
+  "owned_files": [
+    {
+      "path": "client/src/components/chat/ComposeBar.jsx",
+      "sha256": "70ccdecec6691eb243e6b73661e9b155218062b5a08d6c216620f5686fb56584"
+    },
+    {
+      "path": "client/src/hooks/useLessonDraft.js",
+      "sha256": "8210bc9650f53ba6206837666e99ec2e2f1d8bd3c9b0bcd2c919096bc62df6c3"
+    },
+    {
+      "path": "client/src/lib/lessonDrafts.js",
+      "sha256": "7d88902c9ff8e375963a6b328df6a5216e3a69fedc6ce141e34c92cb87828a24"
+    },
+    {
+      "path": "client/src/lib/lessonEngine.js",
+      "sha256": "75bff38fb565550c3dc3b0fdcecea62c16aa6890c6962e73a70a36d5b7cdaef4"
+    },
+    {
+      "path": "client/src/pages/LessonChat.jsx",
+      "sha256": "04fd1a58852b132c8ed3cf3b7953f0b9da6581a63a9b98883a44380bfc122351"
+    },
+    {
+      "path": "client/tests/browser/learner-recovery.test.js",
+      "sha256": "5c7bbccb5b0ad201df5e67c2dff1f74a0252fdef434a4eac3f3cb7a6cd8b364d"
+    },
+    {
+      "path": "client/tests/lessonDrafts.test.js",
+      "sha256": "da5956922244f840bb64659b2fafb509a8e281f695d172e5faaf180ab11a2c3a"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "315b3f99e2aa0a88f4f4360d369071a934cc96d76f72fd9cc3546a5b831e5844"
+    }
+  ]
+}

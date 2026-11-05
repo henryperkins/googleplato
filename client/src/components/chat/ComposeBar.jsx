@@ -30,6 +30,7 @@ function ComposeBar({
   // the next message can be drafted and the mobile keyboard stays open.
   disabled = false,
   busy = false,
+  busyMessage = 'Wait for the reply to finish, then send.',
   allowImages = false,
   allowLinks = false,
   elevated = false,
@@ -79,7 +80,7 @@ function ComposeBar({
   const [linkValue, setLinkValue] = useState('');
   const [fetchingLink, setFetchingLink] = useState(false);
   const [linkError, setLinkError] = useState('');
-  const [busyNotice, setBusyNotice] = useState('');
+  const [busyNotice, setBusyNotice] = useState(false);
 
   useEffect(() => {
     if (linkOpen) linkInputRef.current?.focus();
@@ -114,7 +115,7 @@ function ComposeBar({
     const val = text.trim();
     if ((!val && images.length === 0 && links.length === 0) || disabled || loadingImages || fetchingLink) return;
     if (busy) {
-      setBusyNotice('Wait for the reply to finish, then send.');
+      setBusyNotice(true);
       return;
     }
     const imageDataUrls = images.length > 0 ? images.map(i => i.dataUrl) : null;
@@ -123,7 +124,7 @@ function ComposeBar({
     // A controlled owner can synchronously retain the exact draft before it is
     // cleared, or refuse the submission without losing text or attachments.
     if (onSend(payload, { text, images, links }) === false) return;
-    setBusyNotice('');
+    setBusyNotice(false);
     setText('');
     setImages([]);
     setLinks([]);
@@ -269,7 +270,7 @@ function ComposeBar({
   const attaching = loadingImages || fetchingLink;
   const status = loadingImages
     ? `Loading ${loadingCount} image${loadingCount === 1 ? '' : 's'}…`
-    : (fetchingLink ? 'Fetching link…' : (busy ? busyNotice : ''));
+    : (fetchingLink ? 'Fetching link…' : (busy && busyNotice ? busyMessage : ''));
 
   return (
     <div className={`px-4 pb-4 pt-2 ${className}`}>
@@ -369,14 +370,19 @@ function ComposeBar({
                 onChange={(e) => setLinkValue(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); addLink(); }
-                  if (e.key === 'Escape') { e.preventDefault(); closeLinkInput('button'); }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    if (!fetchingLink) closeLinkInput('button');
+                  }
                 }}
-                disabled={fetchingLink}
+                // Keep keyboard focus for correction if fetching the link fails.
+                readOnly={fetchingLink}
+                aria-busy={fetchingLink || undefined}
                 aria-describedby={linkError ? `${linkInputId}-err` : undefined}
                 aria-invalid={linkError ? true : undefined}
-                className="min-w-0 basis-full sm:basis-0 flex-1 rounded-md border border-input bg-background px-2 py-2 text-base md:text-sm focus:ring-1 focus:ring-ring disabled:opacity-50"
+                className="min-w-0 basis-full sm:basis-0 flex-1 rounded-md border border-input bg-background px-2 py-2 text-base md:text-sm focus:ring-1 focus:ring-ring read-only:opacity-50"
               />
-              <Button variant="default" size="sm" onClick={addLink} disabled={!linkValue.trim() || fetchingLink}>
+              <Button variant="default" size="sm" onClick={addLink} disabled={!linkValue.trim() || fetchingLink} focusableWhenDisabled={fetchingLink}>
                 {fetchingLink ? 'Adding…' : 'Add'}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => closeLinkInput('button')} disabled={fetchingLink}>

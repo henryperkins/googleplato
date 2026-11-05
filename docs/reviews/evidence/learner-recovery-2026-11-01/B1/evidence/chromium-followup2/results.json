@@ -1,0 +1,18 @@
+{
+  "engine": "chromium",
+  "version": "149.0.7827.55",
+  "base": "http://127.0.0.1:40039",
+  "results": [
+    {
+      "id": "C-SAVE-STATUS-KEYBOARD",
+      "status": "fail",
+      "actual": "No visible Saving status during held POST; no server-saved confirmation after success. Early Send says wait for reply although coach text is already visible.",
+      "evidence": [
+        "pending-vs-saved.json",
+        "pending-save-with-next-draft.png",
+        "pending-save-early-send.png",
+        "saved-with-next-draft.png"
+      ]
+    }
+  ]
+}

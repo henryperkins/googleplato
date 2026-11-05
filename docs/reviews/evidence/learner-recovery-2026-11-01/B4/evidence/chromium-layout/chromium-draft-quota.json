@@ -1,0 +1,31 @@
+{
+  "quota": {
+    "chars": 5242740,
+    "errors": [
+      "QuotaExceededError",
+      "QuotaExceededError",
+      "QuotaExceededError",
+      "QuotaExceededError",
+      "QuotaExceededError",
+      "QuotaExceededError"
+    ]
+  },
+  "restored": {
+    "text": "  Latest response 日本語 🌱\nA detailed next step.    Latest response 日本語 🌱\nA detailed next step.    Latest response 日本語 🌱\nA detailed next step.    Latest response 日本語 🌱\nA detailed next step.    Latest response 日本語 🌱\nA detailed next step.    Latest response 日本語 🌱\nA detailed next step.    Latest response 日本語 🌱\nA detailed next step.    Latest response 日本語 🌱\nA detailed next step.  ",
+    "images": [
+      {
+        "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j3ioAAAAASUVORK5CYII=",
+        "name": "response.png"
+      }
+    ],
+    "links": [
+      {
+        "url": "https://example.test/reference",
+        "title": "Test reference",
+        "siteName": "Example",
+        "text": "A synthetic reference for the coach."
+      }
+    ]
+  },
+  "clipboard": "writeText substituted to verify exact text; OS clipboard untested"
+}
