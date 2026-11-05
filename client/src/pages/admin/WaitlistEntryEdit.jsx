@@ -14,7 +14,7 @@ import UsersFeedback from './UsersFeedback.jsx';
  * group, and custom field answers before inviting them. Deep-linked at
  * /plato/users/waitlist/:token, same shape as the Edit User view.
  */
-export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, onSaved, onInvite, onApply, onRemove, isMobile = false }) {
+export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, onSaved, onInvite, onApply, onRemove, applying = false, removing = false, isMobile = false }) {
   const [form, setForm] = useState({
     name: entry.name || '',
     email: entry.email || '',
@@ -25,6 +25,10 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
   const [saving, setSaving] = useState(false);
   const [inviting, setInviting] = useState(false);
   const busyRef = useRef(false);
+  // Copy to account and Remove run in AdminUsers, which owns the row guard.
+  // Any running action holds every control and field, so nothing typed now is
+  // lost when the entry closes, and nothing else can start.
+  const busy = saving || inviting || applying || removing;
 
   // Invite emails the saved entry, so it waits until edits are saved rather
   // than silently sending the old answers (or the old address).
@@ -75,23 +79,25 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
     {isMobile && message && <UsersFeedback message={message} />}
     {dirty && <p id="wl-edit-invite-hint" className="text-sm text-muted-foreground">{entry.alreadyRegistered === 'account' ? 'Save your changes before copying. Copy uses the saved answers.' : 'Save your changes before inviting. The invite uses the saved answers.'}</p>}
     <div className="flex flex-wrap items-center gap-2">
-      <Button onClick={save} disabled={saving || inviting} focusableWhenDisabled className="flex-1 md:flex-none">
+      <Button onClick={save} disabled={busy} focusableWhenDisabled className="flex-1 md:flex-none">
         {saving && <LoaderCircle aria-hidden="true" className="animate-spin" />}{saving ? 'Saving…' : 'Save'}
       </Button>
-      <Button variant="outline" onClick={onBack} disabled={saving || inviting} focusableWhenDisabled>Cancel</Button>
+      <Button variant="outline" onClick={onBack} disabled={busy} focusableWhenDisabled>Cancel</Button>
       {entry.alreadyRegistered === 'account'
-        ? <Button variant="outline" onClick={() => onApply(entry, e => setMessage({ text: e.message || 'The answers could not be copied. Try again.', type: 'error' }))} disabled={saving || dirty || inviting} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>Copy to account</Button>
-        : <Button variant="outline" onClick={invite} disabled={saving || dirty || inviting} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>
+        ? <Button variant="outline" onClick={() => onApply(entry, e => setMessage({ text: e.message || 'The answers could not be copied. Try again.', type: 'error' }))} disabled={busy || dirty} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>
+          {applying && <LoaderCircle aria-hidden="true" className="animate-spin" />}{applying ? 'Copying…' : 'Copy to account'}
+        </Button>
+        : <Button variant="outline" onClick={invite} disabled={busy || dirty} focusableWhenDisabled aria-describedby={dirty ? 'wl-edit-invite-hint' : undefined}>
           {inviting && <LoaderCircle aria-hidden="true" className="animate-spin" />}{inviting ? 'Sending…' : 'Invite'}
         </Button>}
     </div>
-    <span role="status" className="sr-only">{saving ? 'Saving entry…' : inviting ? 'Sending invite…' : ''}</span>
+    <span role="status" className="sr-only">{saving ? 'Saving entry…' : inviting ? 'Sending invite…' : applying ? 'Copying answers to account…' : removing ? 'Removing entry…' : ''}</span>
   </div>;
 
   return (
     <div className="users-page users-editor">
       <div className="flex items-center gap-3 mb-4">
-        <Button variant="ghost" size="sm" onClick={onBack} disabled={saving || inviting} focusableWhenDisabled aria-label="Back to users">&larr; Back</Button>
+        <Button variant="ghost" size="sm" onClick={onBack} disabled={busy} focusableWhenDisabled aria-label="Back to users">&larr; Back</Button>
         <h1 tabIndex={-1} className="text-2xl font-bold outline-none">Edit Wait List Entry</h1>
       </div>
       {!isMobile && message && (
@@ -108,16 +114,16 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
           </p>
           <div className="space-y-2">
             <Label htmlFor="wl-edit-name">Name</Label>
-            <Input id="wl-edit-name" type="text" autoComplete="name" enterKeyHint="next" readOnly={saving || inviting} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <Input id="wl-edit-name" type="text" autoComplete="name" enterKeyHint="next" readOnly={busy} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="wl-edit-email">Email</Label>
-            <Input id="wl-edit-email" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="email" enterKeyHint="done" readOnly={saving || inviting} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+            <Input id="wl-edit-email" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="email" enterKeyHint="done" readOnly={busy} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="wl-edit-group">User Group</Label>
-            <select id="wl-edit-group" value={form.userGroup} aria-readonly={saving || inviting || undefined}
-              onChange={e => { if (!saving && !inviting) setForm({ ...form, userGroup: e.target.value }); }}
+            <select id="wl-edit-group" value={form.userGroup} aria-readonly={busy || undefined}
+              onChange={e => { if (!busy) setForm({ ...form, userGroup: e.target.value }); }}
               className="h-10 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-base md:text-sm">
               <option value="">None</option>
               {/* Keep a group that's since been renamed/deleted visible rather than silently blanking it. */}
@@ -132,11 +138,13 @@ export default function WaitlistEntryEdit({ entry, groups, userFields, onBack, o
               idPrefix="wl-edit-field"
               value={form.customFields[f.id]}
               onChange={(v) => setForm(prev => ({ ...prev, customFields: { ...prev.customFields, [f.id]: v } }))}
-              readOnly={saving || inviting}
+              readOnly={busy}
             />
           ))}
           {!isMobile && actions}
-          <div className="border-t pt-4"><Button variant="destructive" onClick={() => onRemove(entry, e => setMessage({ text: e.message || 'The entry could not be removed. Try again.', type: 'error' }))} disabled={saving || inviting} focusableWhenDisabled>Remove from wait list</Button></div>
+          <div className="border-t pt-4"><Button variant="destructive" onClick={() => onRemove(entry, e => setMessage({ text: e.message || 'The entry could not be removed. Try again.', type: 'error' }))} disabled={busy} focusableWhenDisabled>
+            {removing && <LoaderCircle aria-hidden="true" className="animate-spin" />}{removing ? 'Removing…' : 'Remove from wait list'}
+          </Button></div>
         </CardContent>
       </Card>
       {isMobile && actions}

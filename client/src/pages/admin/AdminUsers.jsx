@@ -141,8 +141,15 @@ export default function AdminUsers() {
   const [linkLoadFailed, setLinkLoadFailed] = useState(false);
   const [waitlistLoadFailed, setWaitlistLoadFailed] = useState(false);
   const [message, setMessage] = useState(null);
+  // Row key -> the action running on it ('invite', 'copy', 'remove' or
+  // 'resend'). Every control on the row waits, but only the control whose
+  // action is running says so: a removal must not read "Copying…".
   const [pendingRows, setPendingRows] = useState({});
   const pendingRowsRef = useRef(new Set());
+  // Which wait-list entry the URL currently shows; async completions compare
+  // against it so a slow success never navigates away from another editor.
+  const editTokenRef = useRef(waitlistToken);
+  useEffect(() => { editTokenRef.current = waitlistToken; }, [waitlistToken]);
   const headingRef = useRef(null);
   const editorHeadingRef = useRef(null);
   const returnToRowRef = useRef(null);
@@ -498,7 +505,7 @@ export default function AdminUsers() {
   async function resendInvite(email, key = email) {
     if (pendingRowsRef.current.has(key)) return;
     pendingRowsRef.current.add(key);
-    setPendingRows(prev => ({ ...prev, [key]: true }));
+    setPendingRows(prev => ({ ...prev, [key]: 'resend' }));
     try {
       const data = await adminApi('POST', '/v1/admin/invites/resend', { email });
       const outcome = describeSingleInvite(email, data);
@@ -515,7 +522,7 @@ export default function AdminUsers() {
   async function inviteFromWaitlist(token, email) {
     if (pendingRowsRef.current.has(token)) return false;
     pendingRowsRef.current.add(token);
-    setPendingRows(prev => ({ ...prev, [token]: true }));
+    setPendingRows(prev => ({ ...prev, [token]: 'invite' }));
     try {
       const data = await adminApi('POST', `/v1/admin/waitlist/${token}/invite`);
       const outcome = describeSingleInvite(email, data);
@@ -533,12 +540,16 @@ export default function AdminUsers() {
   // The email already has an account: copy the entry's group and answers onto
   // it (only what the account is missing), then the entry is removed.
   function applyFromWaitlist(token, email, onApplied, onError) {
+    if (pendingRowsRef.current.has(token)) return;
     setConfirmModal({
       title: 'Copy to Account?',
       message: `Copy ${email}'s wait-list answers to their account and remove the entry? Nothing already on the account is replaced.`,
       confirmLabel: 'Copy to Account',
       variant: 'default',
       onConfirm: async () => {
+        if (pendingRowsRef.current.has(token)) return;
+        pendingRowsRef.current.add(token);
+        setPendingRows(prev => ({ ...prev, [token]: 'copy' }));
         try {
           const r = await adminApi('POST', `/v1/admin/waitlist/${token}/apply`);
           const copied = [r.userGroup && 'group', r.fields.length && `${r.fields.length} ${r.fields.length === 1 ? 'field' : 'fields'}`].filter(Boolean);
@@ -548,18 +559,25 @@ export default function AdminUsers() {
         } catch (e) {
           if (onError) onError(e);
           else setMessage({ text: e.message, type: 'error' });
+        } finally {
+          pendingRowsRef.current.delete(token);
+          setPendingRows(prev => { const next = { ...prev }; delete next[token]; return next; });
         }
       },
     });
   }
 
   function removeFromWaitlist(token, email, onRemoved, onError) {
+    if (pendingRowsRef.current.has(token)) return;
     setConfirmModal({
       title: 'Remove from Wait List?',
       message: `Remove ${email} from the wait list?`,
       confirmLabel: 'Remove',
       variant: 'destructive',
       onConfirm: async () => {
+        if (pendingRowsRef.current.has(token)) return;
+        pendingRowsRef.current.add(token);
+        setPendingRows(prev => ({ ...prev, [token]: 'remove' }));
         try {
           await adminApi('DELETE', `/v1/admin/waitlist/${token}`);
           loadData();
@@ -567,6 +585,9 @@ export default function AdminUsers() {
         } catch (e) {
           if (onError) onError(e);
           else setMessage({ text: e.message, type: 'error' });
+        } finally {
+          pendingRowsRef.current.delete(token);
+          setPendingRows(prev => { const next = { ...prev }; delete next[token]; return next; });
         }
       },
     });
@@ -948,10 +969,12 @@ export default function AdminUsers() {
           userFields={userFields}
           isMobile={isMobile}
           onBack={back}
-          onSaved={(text) => { setMessage({ text, type: 'success' }); back(); loadData(); }}
-          onInvite={async (e) => { const ok = await inviteFromWaitlist(e.inviteToken, e.email); if (ok) back(); return ok; }}
-          onApply={(e, onError) => { applyFromWaitlist(e.inviteToken, e.email, back, onError); }}
-          onRemove={(e, onError) => { removeFromWaitlist(e.inviteToken, e.email, back, onError); }}
+          applying={pendingRows[editEntry.inviteToken] === 'copy'}
+          removing={pendingRows[editEntry.inviteToken] === 'remove'}
+          onSaved={(text) => { setMessage({ text, type: 'success' }); if (editTokenRef.current === editEntry.inviteToken) back(); loadData(); }}
+          onInvite={async (e) => { const ok = await inviteFromWaitlist(e.inviteToken, e.email); if (ok && editTokenRef.current === e.inviteToken) back(); return ok; }}
+          onApply={(e, onError) => { applyFromWaitlist(e.inviteToken, e.email, () => { if (editTokenRef.current === e.inviteToken) back(); }, onError); }}
+          onRemove={(e, onError) => { removeFromWaitlist(e.inviteToken, e.email, () => { if (editTokenRef.current === e.inviteToken) back(); }, onError); }}
         />
         {confirmModalElement}
       </>
@@ -1268,8 +1291,8 @@ export default function AdminUsers() {
                   <TableCell>
                     <div className="flex gap-1">
                       {item._entry.alreadyRegistered === 'account'
-                        ? <Button variant="outline" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Copy ${item.email}'s wait-list answers to their account`} onClick={() => applyFromWaitlist(item._key, item.email)}>Copy to account</Button>
-                        : <Button variant="outline" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>{pendingRows[item._key] ? 'Sending…' : 'Invite'}</Button>}
+                        ? <Button variant="outline" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Copy to account for ${item.email}`} onClick={() => applyFromWaitlist(item._key, item.email)}>{pendingRows[item._key] === 'copy' ? 'Copying…' : 'Copy to account'}</Button>
+                        : <Button variant="outline" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Invite ${item.email}`} onClick={() => inviteFromWaitlist(item._key, item.email)}>{pendingRows[item._key] === 'invite' ? 'Sending…' : 'Invite'}</Button>}
                       <Button variant="ghost" size="icon-xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled title="Remove" aria-label={`Remove ${item.email} from the wait list`} onClick={() => removeFromWaitlist(item._key, item.email)}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                       </Button>
