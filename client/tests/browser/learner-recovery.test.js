@@ -192,8 +192,11 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
               ['Continue with Google', 'Sign in', 'or sign in with password', 'Forgot password?'].includes(el.textContent.trim()));
             const texts = targets.map(el => {
               const range = document.createRange(); range.selectNodeContents(el);
-              return { text: el.textContent.trim(), fits: [...range.getClientRects()].every(r =>
-                r.left >= card.left - 1 && r.right <= card.right + 1 && r.top >= card.top - 1 && r.bottom <= card.bottom + 1) };
+              const bounds = [card];
+              const button = el.closest('button');
+              if (button) bounds.push(button.getBoundingClientRect());
+              return { text: el.textContent.trim(), fits: bounds.every(bound => [...range.getClientRects()].every(r =>
+                r.left >= bound.left - 1 && r.right <= bound.right + 1 && r.top >= bound.top - 1 && r.bottom <= bound.bottom + 1)) };
             });
             const label = document.querySelector('label[for="login-password"]').getBoundingClientRect();
             const link = document.querySelector('a[href="/forgot-password"]').getBoundingClientRect();
@@ -250,6 +253,56 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
       released.resolve();
       await page.unroute('**/v1/links/fetch', handler);
     }
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Remove link Test reference', exact: true }).waitFor();
+    await page.waitForFunction(() => document.activeElement?.matches('textarea.compose-input'));
+    assert.equal(await page.getByRole('button', { name: 'Remove link Test reference', exact: true }).count(), 1);
+    assert.equal(await input.count(), 0);
+  }));
+
+  it('keeps the Add button focused during keyboard link submission', t => withPage(t, async page => {
+    await lesson(page);
+    await page.getByRole('button', { name: 'Attach a link', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    const input = page.getByRole('textbox', { name: 'Link URL', exact: true });
+    const add = page.getByRole('group', { name: 'Attach a link', exact: true })
+      .getByRole('button', { name: /^(Add|Adding…)$/ });
+    await input.fill('https://example.test/unavailable');
+    await page.keyboard.press('Tab');
+    assert.ok(await add.evaluate(el => document.activeElement === el), 'Tab reaches Add');
+    const reached = deferred(), released = deferred();
+    let requests = 0;
+    const handler = async route => {
+      requests++;
+      reached.resolve();
+      await released.promise;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Could not load the reference. Try again."}' }).catch(() => {});
+    };
+    await page.route('**/v1/links/fetch', handler);
+    try {
+      await page.keyboard.press('Space'); await reached.promise;
+      await page.getByRole('button', { name: 'Adding…', exact: true }).waitFor();
+      assert.ok(await add.evaluate(el => document.activeElement === el), 'pending keyboard activation keeps Add focus');
+      assert.ok(await add.isDisabled(), 'pending Add is unavailable for another submission');
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Space');
+      assert.equal(requests, 1, 'pending keyboard activation does not start another request');
+      await page.screenshot({ path: join(evidence, engine + '-link-add-button-pending.png'), fullPage: true });
+      released.resolve();
+      await page.getByText('Could not load the reference. Try again.', { exact: true }).waitFor();
+      assert.ok(await add.evaluate(el => document.activeElement === el), 'failed fetch preserves Add focus');
+      assert.equal(await add.isDisabled(), false, 'Add becomes available after rejection');
+      await page.screenshot({ path: join(evidence, engine + '-link-add-button-rejected.png'), fullPage: true });
+      await page.keyboard.press('Shift+Tab');
+      assert.ok(await input.evaluate(el => document.activeElement === el), 'Shift+Tab returns to URL correction');
+      await page.keyboard.press('ControlOrMeta+A');
+      await page.keyboard.insertText('https://example.test/reference');
+    } finally {
+      released.resolve();
+      await page.unroute('**/v1/links/fetch', handler);
+    }
+    await page.keyboard.press('Tab');
+    assert.ok(await add.evaluate(el => document.activeElement === el), 'Tab returns to Add for retry');
     await page.keyboard.press('Enter');
     await page.getByRole('button', { name: 'Remove link Test reference', exact: true }).waitFor();
     await page.waitForFunction(() => document.activeElement?.matches('textarea.compose-input'));

@@ -382,7 +382,7 @@ function ComposeBar({
                 aria-invalid={linkError ? true : undefined}
                 className="min-w-0 basis-full sm:basis-0 flex-1 rounded-md border border-input bg-background px-2 py-2 text-base md:text-sm focus:ring-1 focus:ring-ring read-only:opacity-50"
               />
-              <Button variant="default" size="sm" onClick={addLink} disabled={!linkValue.trim() || fetchingLink}>
+              <Button variant="default" size="sm" onClick={addLink} disabled={!linkValue.trim() || fetchingLink} focusableWhenDisabled={fetchingLink}>
                 {fetchingLink ? 'Adding…' : 'Add'}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => closeLinkInput('button')} disabled={fetchingLink}>
