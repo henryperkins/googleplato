@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -164,6 +164,45 @@ describe('Invitation-only Google sign-in', { timeout: 90000 }, () => {
       assert.equal(await page.getByRole('button', { name: 'Join the wait list' }).count(), 0);
       await page.screenshot({ path: join(evidence, 'desktop-dark-closed.png'), fullPage: true });
     } finally { await context.close(); }
+  });
+
+  // The same bar the sign-in form meets: nothing clips inside the card (which
+  // hides overflow) or its buttons, at 320 px and with 200% text, in both themes.
+  it('keeps the invitation page readable at narrow widths and with enlarged text', async () => {
+    const geometry = [];
+    for (const theme of ['light', 'dark']) {
+      for (const [width, height, scale] of [[320, 760, 1], [320, 760, 2], [390, 844, 2], [1440, 900, 1]]) {
+        const { context, page } = await signInWithGoogle({
+          width, height, theme,
+          reply: inviteRequired({ email: 'someone.with.a.long.address@department.example.test', name: 'Long Address', waitlisted: false, inviteExpired: false }),
+        });
+        try {
+          await page.getByRole('heading', { level: 1, name: 'Membership is by invitation only' }).waitFor();
+          await page.getByRole('button', { name: 'Join the wait list', exact: true }).waitFor();
+          await page.evaluate(value => { document.documentElement.style.fontSize = `${value * 100}%`; }, scale);
+          await page.evaluate(() => document.fonts.ready);
+          const measured = await page.evaluate(() => {
+            const cardElement = document.querySelector('[data-slot="card"]');
+            const card = cardElement.getBoundingClientRect();
+            const inside = (rects, bound) => rects.every(r =>
+              r.left >= bound.left - 1 && r.right <= bound.right + 1 && r.top >= bound.top - 1 && r.bottom <= bound.bottom + 1);
+            const texts = [...cardElement.querySelectorAll('h1, [data-slot="card-description"], p, button')].map(el => {
+              const range = document.createRange(); range.selectNodeContents(el);
+              const bounds = el.tagName === 'BUTTON' ? [card, el.getBoundingClientRect()] : [card];
+              return { text: el.textContent.trim(), fits: bounds.every(bound => inside([...range.getClientRects()], bound)) };
+            });
+            return { texts, width: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth };
+          });
+          geometry.push({ theme, width, height, scale, ...measured });
+          assert.deepEqual(measured.texts.filter(text => /^(Join the wait list|Back to sign in)$/.test(text.text)).map(text => text.text),
+            ['Join the wait list', 'Back to sign in']);
+          assert.ok(measured.texts.every(text => text.fits), JSON.stringify(geometry.at(-1)));
+          assert.ok(measured.scrollWidth <= measured.width + 1, JSON.stringify(geometry.at(-1)));
+          if (width === 320 && scale === 2) await page.screenshot({ path: join(evidence, `${theme}-320-text200.png`), fullPage: true });
+        } finally { await context.close(); }
+      }
+    }
+    await writeFile(join(evidence, 'layout.json'), JSON.stringify(geometry, null, 2));
   });
 
   it('keeps other Google sign-in failures on the form', async () => {

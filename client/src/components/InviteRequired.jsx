@@ -34,7 +34,9 @@ export default function InviteRequired({ classroomName, admission, waitlistOpen,
         <span aria-hidden="true" className="mb-2 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground">
           <LockKeyhole className="size-7" />
         </span>
-        <CardTitle as="h1" ref={headingRef} tabIndex={-1} className="text-2xl text-balance">
+        {/* At 320 px with enlarged text, "Membership" is wider than the card,
+            which hides overflow; let the heading break inside a word instead. */}
+        <CardTitle as="h1" ref={headingRef} tabIndex={-1} className="text-2xl text-balance [overflow-wrap:anywhere]">
           Membership is by invitation only
         </CardTitle>
         <CardDescription className="text-pretty">
