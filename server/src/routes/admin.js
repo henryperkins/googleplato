@@ -97,9 +97,17 @@ admin.post('/v1/admin/users/:userId/lessons/:lessonId/continuity-repair', bodyLi
   catch { return c.json({ error: 'Invalid JSON repair request.' }, 400); }
   try {
     const state = await repairCoachContinuity(c.req.param('userId'), c.req.param('lessonId'), input);
-    await db.createAuditLog({ action: 'lesson_continuity_repaired', userId: c.req.param('userId'), performedBy: c.get('userId'),
-      details: { lessonId: c.req.param('lessonId'), assignmentMessageId: input.assignmentMessageId,
-        learnerMessageId: input.learnerMessageId, removedInsightCount: input.misleadingInsights.length } });
+    // The repair is already committed. An audit outage must not report it as a
+    // failed repair and invite a retry against the now-stale snapshot.
+    try {
+      await db.createAuditLog({ action: 'lesson_continuity_repaired', userId: c.req.param('userId'), performedBy: c.get('userId'),
+        details: { lessonId: c.req.param('lessonId'), assignmentMessageId: input.assignmentMessageId,
+          learnerMessageId: input.learnerMessageId, removedInsightCount: input.misleadingInsights.length } });
+      c.header('X-Plato-Audit-Status', 'recorded');
+    } catch {
+      c.header('X-Plato-Audit-Status', 'failed');
+      logger.error('lesson_continuity_audit_failed', { committed: true });
+    }
     return c.json(state);
   } catch (error) {
     if (error.status) return c.json({ error: error.message }, error.status);

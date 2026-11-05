@@ -150,3 +150,51 @@ or unsupported claim. Additional provider behavior still requires editorial revi
 
 This follow-up changes the PR branch only. Deployment and the backed-up repair
 remain pending hosted checks and an approving review.
+
+## Bounded migration and post-commit audit follow-ups
+
+The subsequent review of `532ded9` found no blocking defects and identified two
+follow-ups. Both reproduced locally. A transcript of 314,409 bytes with a KB of
+90,976 bytes produced a 407,379-byte KB after unbounded migration, exceeding the
+389,120-byte saved-record limit. Separately, an injected audit-write exception
+returned HTTP 500 even though the repair had already committed.
+
+Version 3 limits `legacyLearnerContext` to 48 KiB of serialized UTF-8 and retains
+whole recent anchors. If any history is omitted, active coaching returns a fixed
+task-restatement prompt without invoking a model. The unresolved flag persists
+across saves and reloads. A complete learner response beginning with `Continue
+with:` after the unique saved server prompt establishes `confirmedTask`, including
+saved links. Earlier task directions and history are then excluded from model
+instructions, while the original transcript, assignment and assessment remain in
+storage. The model still clarifies semantically ambiguous restatements; the prefix
+alone does not prove that the learner supplied an actionable task. Completed
+lessons continue in feedback mode with bounded historical context.
+
+The repair route now returns the committed snapshot if the subsequent audit write
+fails. `X-Plato-Audit-Status` distinguishes `recorded` from `failed`; a failure emits
+`lesson_continuity_audit_failed` without account, transcript or exception details.
+Audit writes remain best effort and are not durably queued for retry.
+
+Fresh validation: **763 client tests and 941 server tests pass**, including
+PostgreSQL integration, with zero failures or skips. The focused continuity,
+repair, recovery and evaluator set passes **68 tests**. All **21 offline fixtures**
+pass without provider calls. Lint has zero errors and 19 existing warnings; the
+client build passes with its existing chunk-size advisory. The original five new
+regressions failed before implementation and now pass, covering UTF-8 limits,
+inference-free clarification/save/recovery, explicit linked restatement/reload,
+completed feedback, and committed-repair acknowledgement after audit failure.
+Additional tests reject incomplete confirmations and ambiguous or missing saved
+sources and verify that restatements survive history rollover.
+
+No new live model calls were made for these follow-ups. The earlier live reports
+remain evidence for their captured requests and prompts, not a new qualification
+of this prompt revision. The deterministic overflow path is tested through the
+server; the model-only evaluator refuses to bypass that clarification. Normal
+coaching after a confirmed restatement still depends on model instruction
+following. Explicit task directions and the full transcript remain subject to
+the existing whole-record limits; the new cap addresses migrated legacy context.
+
+The unrelated primary working files, HEAD, status and staged contents are
+unchanged. Its index metadata was refreshed, so the index is not byte-identical
+to the earlier recovery snapshot. These follow-ups do not merge, deploy, or modify
+the production learner conversation.

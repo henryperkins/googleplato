@@ -11,6 +11,7 @@ const { default: ai } = await import('../../src/lib/ai-provider.js');
 const { signAccessToken } = await import('../../src/lib/jwt.js');
 const { signCoachTurn } = await import('../../src/lib/coach-receipt.js');
 const { retainSources, submissionSources } = await import('../../src/shared/coachContract.js');
+const { generateCoachTurn } = await import('../../src/lib/lesson-coaching.js');
 const app = new Hono().route('/', route).route('/', sync);
 const userId = 'usr_coach';
 const markdown = '# Compare\nMake a choice.\n## Exemplar\nCompare two options and justify a choice.\n## Learning Objectives\n- Can compare options\n- Can justify a choice\n## Coach Directive\nRequire a reason for the choice.';
@@ -125,6 +126,85 @@ async function send(turnId, submission) {
   assert.equal(response.status, 200);
   return response.json();
 }
+
+async function seedLargeLegacyLesson(completed = false) {
+  await saveOpening();
+  const current = await db.getLessonState(userId, 'l');
+  const history = [{ ...current.messages.data[0], content: 'Audit https://www.berkshirehathaway.com.' },
+    ...Array.from({ length: 52 }, (_, i) => ({ id: `long-${i}:0`, role: 'user', content: 'x'.repeat(6000) }))];
+  const kb = { ...current.lessonKB.data, progress: completed ? 10 : 3, status: completed ? 'completed' : 'active',
+    sources: history.slice(-15).map(item => ({ id: item.id, kind: 'text', text: item.content, confirmed: true })),
+    learnerPosition: 'A prior observation to preserve.' };
+  delete kb.conversationState;
+  assert.ok(Buffer.byteLength(JSON.stringify(history)) < 380 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(kb)) < 380 * 1024);
+  await db.putSyncData(userId, 'messages:l', history);
+  await db.putSyncData(userId, 'lessonKB:l', kb);
+  return { history, kb };
+}
+
+test('oversized migration asks a deterministic clarification and saves without inference or assessment loss', async () => {
+  const { history, kb } = await seedLargeLegacyLesson();
+  const beforeCalls = calls;
+  ai.invoke = ai.invokeStream = () => { throw new Error('Unresolved continuity must never reach a model.'); };
+  const streamed = [];
+  const turn = await generateCoachTurn(userId, 'l', { turnId: 'bounded', kind: 'send',
+    base: await db.getLessonState(userId, 'l'), submission: { text: 'Which site are we auditing?' } }, text => streamed.push(text));
+  assert.equal(calls, beforeCalls);
+  assert.match(turn.messages.at(-1).content, /Continue with:/);
+  assert.equal(streamed.at(-1), turn.messages.at(-1).content);
+  assert.equal(turn.lessonKB.conversationState.legacyContextTruncated, true);
+  assert.equal(turn.lessonKB.conversationState.confirmationPromptId, 'bounded:1');
+  for (const key of ['progress', 'evidence', 'exemplarEvidence', 'insights', 'learnerPosition']) assert.deepEqual(turn.lessonKB[key], kb[key]);
+  assert.ok(Buffer.byteLength(JSON.stringify(turn.lessonKB)) < 380 * 1024);
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 200);
+  assert.deepEqual((await db.getLessonState(userId, 'l')).messages.data.slice(0, history.length), history);
+  assert.deepEqual(await (await request('/v1/ai/coach/l?turnId=bounded')).json(), turn);
+  const unanswered = await send('still-unclear', { text: 'I do not remember.' });
+  assert.equal(unanswered.messages.at(-1).content, turn.messages.at(-1).content);
+  assert.equal(unanswered.lessonKB.conversationState.legacyContextTruncated, true);
+  assert.equal((await request('/v1/sync/lesson-turn/l', unanswered)).status, 200);
+});
+
+test('an explicit task restatement exits clarification and survives reload without restoring obsolete history', async () => {
+  await seedLargeLegacyLesson();
+  respond(() => ({ progress: 0, kb: { responseType: 'clarification' } }));
+  const question = await send('confirm-task', { text: 'What is the current task?' });
+  assert.match(question.messages.at(-1).content, /Continue with:/);
+  assert.equal((await request('/v1/sync/lesson-turn/l', question)).status, 200);
+  const text = 'Continue with: audit the attached homepage, keyboard access first.';
+  const target = 'https://news.ycombinator.com/';
+  respond((context, body) => {
+    assert.equal(context.conversationState.assignment, null);
+    assert.equal(context.conversationState.confirmedTask.text, text);
+    assert.equal(context.conversationState.confirmedTask.links[0].url, target);
+    assert.deepEqual(context.conversationState.legacyLearnerContext, []);
+    assert.equal(context.conversationState.legacyContextTruncated, undefined);
+    assert.equal(JSON.stringify(body.messages).includes('berkshirehathaway.com'), false);
+    return { progress: 3, kb: { responseType: 'clarification' } };
+  });
+  const confirmed = await send('restated', { text, links: [{ url: target, title: 'Hacker News', text: 'Reference only.' }] });
+  assert.equal(confirmed.lessonKB.conversationState.confirmedTask.sourceMessageId, 'restated:0');
+  assert.equal((await request('/v1/sync/lesson-turn/l', confirmed)).status, 200);
+  const next = await send('after-restatement', { text: 'Where should I start?' });
+  assert.equal(next.lessonKB.conversationState.confirmedTask.sourceMessageId, 'restated:0');
+  assert.equal(next.lessonKB.progress, 3);
+});
+
+test('completed large legacy lessons remain in feedback mode instead of requiring a task restatement', async () => {
+  await seedLargeLegacyLesson(true);
+  const before = calls;
+  respond(context => {
+    assert.equal(context.lessonStatus, 'completed');
+    assert.ok(Buffer.byteLength(JSON.stringify(context.conversationState.legacyLearnerContext)) <= 48 * 1024);
+    return { progress: 10, kb: { responseType: 'feedback' } };
+  });
+  const turn = await send('completed-feedback', { text: 'That was useful.' });
+  assert.equal(calls, before + 1);
+  assert.equal(turn.lessonKB.progress, 10);
+  assert.equal(turn.lessonKB.status, 'completed');
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 200);
+});
 
 for (const legacy of [true, false]) test(`${legacy ? 'legacy' : 'linked'} target changes survive both source and history rotation in actual coach requests`, async () => {
   await saveOpening();

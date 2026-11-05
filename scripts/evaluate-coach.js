@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { parseCoachResponse, applyCoachResponseToKB, buildContext, submissionSources, retainSources } from '../server/src/shared/coachContract.js';
 import { assessCoachResponse, ASSESSMENT_REPAIR_PROMPT } from '../server/src/lib/coach-assessment.js';
-import { buildCoachHistory, reconcileConversationState } from '../server/src/shared/coachConversation.js';
+import { buildCoachHistory, reconcileConversationState, confirmConversationTask } from '../server/src/shared/coachConversation.js';
 import { classifyAiError } from '../server/src/lib/ai-errors.js';
 import { coachFixtures } from './coach-fixtures.js';
 
@@ -11,11 +11,16 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const currentSources = fixture => fixture.opening ? [] : submissionSources({ turnId: 'fixture', text: fixture.input });
 export function buildCoachEvaluationRequest(fixture, prompt) {
   const sources = retainSources(fixture.kb.sources, [...(fixture.sources || []), ...currentSources(fixture)]);
-  const conversationState = reconcileConversationState(fixture.kb.conversationState, fixture.history || []);
+  let conversationState = reconcileConversationState(fixture.kb.conversationState, fixture.history || []);
+  if (!fixture.opening && fixture.kb.status !== 'completed') conversationState = confirmConversationTask(conversationState,
+    { id: 'fixture:0', role: 'user', content: fixture.input });
+  if (fixture.kb.status !== 'completed' && conversationState.legacyContextTruncated) {
+    throw new Error('This fixture requires server continuity clarification, not model inference. Exercise it through the coach route.');
+  }
   const context = buildContext(fixture.lesson, { ...fixture.kb, sources, conversationState }, 'Synthetic learner; no profile facts.', 'Ada');
   return { system: prompt, max_tokens: 3072, messages: [
     { role: 'user', content: context }, { role: 'assistant', content: 'Ready.' },
-    ...buildCoachHistory(fixture.history || []),
+    ...buildCoachHistory(fixture.history || [], conversationState),
     { role: 'user', content: fixture.opening ? 'Start the lesson.' : JSON.stringify({ learnerSubmission: fixture.input, currentSourceIds: currentSources(fixture).map(item => item.id) }) },
   ] };
 }

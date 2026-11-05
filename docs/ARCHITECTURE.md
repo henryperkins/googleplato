@@ -1952,14 +1952,36 @@ attachments and coach-generated URLs cannot replace the assignment. The prompt
 requires an explicit learner selection/change, and interprets the retained exact
 text rather than treating an arbitrary link as permission to switch.
 
-Version 2 migrates pre-existing transcripts (including version 1 continuity
-records) into chronological `legacyLearnerContext`. It retains the saved learner
+Version 3 migrates pre-existing transcripts (including version 1 continuity
+records) into chronological `legacyLearnerContext` and bounds version 2 migrations.
+It retains the saved learner
 statements without guessing which ones are task changes; the prompt resolves
 explicit selections from their actual words and asks for clarification if needed.
 This migration happens once, and later observations are not added to that
 historical collection. It is conversation context only and never repopulates
-assessment sources or evidence. It can use more context in long legacy threads;
-the existing record-size checks remain enforced.
+assessment sources or evidence. The serialized collection is limited to 48 KiB
+of UTF-8, retaining whole recent anchors in chronological order. The existing
+whole-record size checks still apply to the transcript and KB.
+
+If this limit omits history, `legacyContextTruncated` survives reloads. For an
+active lesson, the server generates a fixed clarification without calling either
+the coach or metadata-repair model. It preserves assessment and observations and
+asks for a complete task restatement beginning with `Continue with:`. The normal
+signed-turn save, stream and recovery paths carry this clarification. A unique
+saved `confirmationPromptId` must identify that exact preceding prompt before a
+complete current learner reply can clear the flag. Empty, oversized, incomplete
+link-dependent or unrelated replies do not clear it.
+
+The restatement becomes a source-backed `confirmedTask`, rehydrated from the
+unique saved learner message and its links. It replaces earlier task directions
+and legacy context; future explicit directions remain additive. The original
+assignment and transcript remain in storage, while model context hides the old
+assignment and history begins at the restatement. Missing or ambiguous saved
+confirmation sources require clarification again. This avoids relying on a model
+to honor an omission warning while still seeing the obsolete opening. Completed
+lessons continue in feedback mode with bounded context and unchanged completion.
+The model evaluator refuses unresolved overflow fixtures; the route tests cover
+this deterministic path instead.
 
 Learner anchors and recent history also preserve up to four HTTP(S) link URLs and
 bounded titles from saved `metadata.links`, so a direction such as "Audit this
@@ -1984,7 +2006,12 @@ and completed lessons.
 It uses `commitLessonTurn` to preserve the entire transcript and all assessment
 fields while restoring the chosen assignment, retaining the actual learner
 observation without a guessed diagnosis, and marking the earlier coach switch for
-acknowledgement. Successful repairs are audit-logged without transcript contents.
+acknowledgement. The audit write follows the atomic repair. The response returns
+the committed snapshot with `X-Plato-Audit-Status: recorded` when logging succeeds.
+If the audit write fails, it still returns HTTP 200 with that snapshot and
+`X-Plato-Audit-Status: failed`, and emits `lesson_continuity_audit_failed` with
+`committed: true` and no transcript, account or exception details. This is a
+best-effort audit write; a failed audit entry is not durably queued for retry.
 Back up the exact snapshot before an operational repair; a failed/stale request
 must be investigated against a new read, not retried with guessed versions.
 

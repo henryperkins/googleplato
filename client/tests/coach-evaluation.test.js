@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as evaluation from '../../scripts/evaluate-coach.js';
 const { evaluateCoach, evaluateCoachReply } = evaluation;
 import { coachFixtures } from '../../scripts/coach-fixtures.js';
+import { TASK_CONFIRMATION_PROMPT } from '../../server/src/shared/coachConversation.js';
 test('fixed offline suite uses the production contract without any provider calls', async () => {
   const report = await evaluateCoach();
   assert.equal(report.calls, 0);
@@ -23,6 +24,23 @@ test('live evaluation preserves legacy history and assignment anchors using the 
   assert.equal(body.messages.length, 43);
   const short = evaluation.buildCoachEvaluationRequest({ ...fixture, history: fixture.history.slice(0, 1) }, 'prompt');
   assert.equal(JSON.parse(short.messages[2].content).unverifiedCoachMessage.sourceMessageId, 'old:0');
+});
+
+test('evaluation refuses inference for unresolved oversized history and uses the learner restatement after confirmation', () => {
+  const fixture = { ...coachFixtures.find(item => item.id === 'legacy-audit-resume'), history: [
+    { id: 'old:0', role: 'assistant', content: 'Audit https://www.berkshirehathaway.com.' },
+    ...Array.from({ length: 20 }, (_, i) => ({ id: `long-${i}`, role: 'user', content: 'x'.repeat(6000) })),
+  ] };
+  fixture.kb = { ...fixture.kb, conversationState: undefined };
+  assert.throws(() => evaluation.buildCoachEvaluationRequest(fixture, 'prompt'), /server continuity clarification/);
+  fixture.history.push({ id: 'confirm:1', role: 'assistant', content: TASK_CONFIRMATION_PROMPT });
+  fixture.kb = { ...fixture.kb, conversationState: { version: 3, legacyLearnerContext: [], legacyContextTruncated: true, confirmationPromptId: 'confirm:1' } };
+  fixture.input = 'Continue with: audit https://example.org.';
+  const body = evaluation.buildCoachEvaluationRequest(fixture, 'prompt');
+  const state = JSON.parse(body.messages[0].content).conversationState;
+  assert.equal(state.confirmedTask.text, fixture.input);
+  assert.equal(state.assignment, null);
+  assert.equal(body.messages.length, 3);
 });
 
 test('continuity qualification rejects a substituted target and missing task-change reference', () => {

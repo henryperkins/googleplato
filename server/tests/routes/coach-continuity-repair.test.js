@@ -12,6 +12,7 @@ const { signAccessToken } = await import('../../src/lib/jwt.js');
 const { signCoachTurn } = await import('../../src/lib/coach-receipt.js');
 const { storeCoachResult } = await import('../../src/lib/coach-recovery.js');
 const { recoverCoachTurn } = await import('../../src/lib/lesson-coaching.js');
+const { logger } = await import('../../src/lib/logger.js');
 const app = new Hono().route('/', admin).route('/', sync);
 const learner = 'usr_continuity';
 const operator = 'usr_operator';
@@ -64,6 +65,26 @@ test('admin repair preserves transcript and assessment while correcting only nam
   assert.equal(audit.performedBy, operator);
   assert.equal(audit.details.assignmentMessageId, 'opening:0');
   assert.equal(JSON.stringify(audit).includes('css is ignored'), false);
+  assert.equal(inferenceCalls, 0);
+});
+
+test('an audit failure after repair still acknowledges the committed snapshot and reports a safe warning', async t => {
+  const body = await input();
+  const auditRows = (await db.listAuditLogsForUser(learner)).length;
+  const logEntries = [];
+  const audit = t.mock.method(db, 'createAuditLog', async () => { throw new Error('Private database details and learner content.'); });
+  t.mock.method(logger, 'error', (code, meta) => logEntries.push({ code, meta }));
+  const response = await request(body);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('X-Plato-Audit-Status'), 'failed');
+  const saved = await response.json();
+  assert.deepEqual(saved, await db.getLessonState(learner, 'audit'));
+  assert.deepEqual(saved.messages.data, body.base.messages.data);
+  assert.equal(saved.lessonKB.data.progress, body.base.lessonKB.data.progress);
+  assert.equal((await db.listAuditLogsForUser(learner)).length, auditRows);
+  assert.equal(audit.mock.callCount(), 1);
+  assert.equal(logEntries[0].code, 'lesson_continuity_audit_failed');
+  assert.doesNotMatch(JSON.stringify(logEntries), /Private database|learner content|css is ignored/);
   assert.equal(inferenceCalls, 0);
 });
 

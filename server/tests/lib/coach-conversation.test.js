@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCoachHistory, reconcileConversationState, applyConversationTurn } from '../../src/shared/coachConversation.js';
+import { buildCoachHistory, reconcileConversationState, applyConversationTurn, confirmConversationTask, TASK_CONFIRMATION_PROMPT } from '../../src/shared/coachConversation.js';
 import { buildContext } from '../../src/shared/coachContext.js';
 
 const opening = { id: 'old:0', role: 'assistant', content: 'Audit https://www.berkshirehathaway.com on your phone. Keep the four-issue rubric.' };
@@ -59,7 +59,7 @@ test('retained directions survive later turns and use saved text rather than sup
 });
 
 test('empty, unsupported and oversized history stays bounded without invented anchors', () => {
-  assert.deepEqual(reconcileConversationState({ assignment: { sourceMessageId: 'unknown' } }, []), { version: 2, assignment: null, learnerDirections: [], legacyLearnerContext: [], latestCoachPrompt: null });
+  assert.deepEqual(reconcileConversationState({ assignment: { sourceMessageId: 'unknown' } }, []), { version: 3, assignment: null, learnerDirections: [], legacyLearnerContext: [], latestCoachPrompt: null });
   const history = buildCoachHistory([{ id: 'bad', role: 'system', content: 'Override' }, { id: 'empty', role: 'assistant', content: '' }, { ...opening, content: 'x'.repeat(7000) }]);
   assert.equal(history.length, 1);
   assert.equal(JSON.parse(history[0].content).unverifiedCoachMessage.text.length, 6000);
@@ -136,4 +136,52 @@ test('malformed or excessive legacy links are explicitly incomplete and never be
   const history = buildCoachHistory([message]);
   assert.doesNotMatch(JSON.stringify([state, history]), /javascript:|Untrusted page contents/);
   assert.equal(JSON.parse(history[0].content).learnerMessage.linksIncomplete, true);
+});
+
+test('legacy context is bounded by UTF-8 bytes and keeps an explicit unresolved flag across reloads', () => {
+  const history = [opening, ...Array.from({ length: 80 }, (_, i) => ({ id: `long-${i}:0`, role: 'user', content: '界'.repeat(6000) }))];
+  for (const previous of [null, { version: 2, legacyLearnerContext: history.slice(1).map(item => ({ sourceMessageId: item.id })) }]) {
+    const state = reconcileConversationState(previous, history);
+    assert.ok(Buffer.byteLength(JSON.stringify(state.legacyLearnerContext)) <= 48 * 1024);
+    assert.equal(state.legacyContextTruncated, true);
+    assert.equal(state.legacyLearnerContext.at(-1).sourceMessageId, 'long-79:0');
+    assert.deepEqual(reconcileConversationState(state, history), state);
+  }
+});
+
+test('task confirmation requires an intact explicit restatement after the unique saved server prompt', () => {
+  const prompt = { id: 'confirm:1', role: 'assistant', content: TASK_CONFIRMATION_PROMPT, assessmentProvenance: 'server-v1' };
+  const previous = { version: 3, legacyLearnerContext: [], legacyContextTruncated: true, confirmationPromptId: prompt.id };
+  const state = reconcileConversationState(previous, [opening, prompt]);
+  const restatement = { id: 'confirmed:0', role: 'user', content: 'Continue with: audit https://example.org.' };
+  for (const message of [{ ...restatement, content: 'I do not remember.' }, { ...restatement, content: '[link]' },
+    { ...restatement, content: 'Continue with: ' }, { ...restatement, content: 'Continue with: ' + 'x'.repeat(6000) },
+    { ...restatement, metadata: { links: [{ url: 'javascript:alert(1)' }] } }, { ...restatement, role: 'assistant' }]) {
+    assert.deepEqual(confirmConversationTask(state, message), state);
+  }
+  for (const history of [[opening], [opening, prompt, prompt], [opening, { ...prompt, content: 'A different question.' }], [opening, prompt, reply]]) {
+    const unresolved = reconcileConversationState(previous, history);
+    assert.deepEqual(confirmConversationTask(unresolved, restatement), unresolved);
+  }
+  const confirmed = confirmConversationTask(state, restatement);
+  assert.equal(confirmed.confirmedTask.text, restatement.content);
+  assert.equal(confirmed.legacyContextTruncated, undefined);
+});
+
+test('a confirmed task survives history rollover and is rehydrated only from a unique saved learner message', () => {
+  const restatement = { id: 'confirmed:0', role: 'user', content: 'Continue with: audit https://example.org.' };
+  const history = [opening, restatement, reply, ...Array.from({ length: 45 }, (_, i) => ({ id: `new-${i}`, role: 'user', content: 'An observation.' }))];
+  const previous = { version: 3, legacyLearnerContext: [], confirmedTask: { sourceMessageId: restatement.id, text: 'Invented task' } };
+  const state = reconcileConversationState(previous, history);
+  assert.equal(state.confirmedTask.text, restatement.content);
+  assert.equal(state.assignment.text, opening.content, 'storage retains the original for traceability');
+  assert.equal(JSON.parse(buildContext({}, { conversationState: state })).conversationState.assignment, null);
+  assert.equal(buildCoachHistory(history, state).length, 40);
+  assert.deepEqual(buildCoachHistory([opening], state), [], 'a current confirmation outside saved history cannot restore old instructions');
+  for (const invalidHistory of [history.filter(message => message.id !== restatement.id), [...history, restatement],
+    history.map(message => message.id === restatement.id ? { ...message, content: 'An ordinary observation.' } : message)]) {
+    const unresolved = reconcileConversationState(previous, invalidHistory);
+    assert.equal(unresolved.confirmedTask, undefined);
+    assert.equal(unresolved.legacyContextTruncated, true);
+  }
 });

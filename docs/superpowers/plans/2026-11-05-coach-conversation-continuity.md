@@ -47,3 +47,10 @@
 - [ ] Publish reviewed branch, satisfy repository review/check gates, merge and observe the existing Cloud Build release. Expected: serving commit matches the merge and deployment checks pass.
 - [ ] Back up the exact affected lesson snapshot, perform the admin continuity repair with source IDs, verify unchanged transcript/assessment and neutral notes; verify reload/recovery. Review future-start lesson guidance without altering the ongoing assignment.
 - [ ] Verify primary checkout preservation and report exact tests, review, release and repair evidence.
+
+### Approved follow-ups to the review of `532ded9`
+- [x] Reproduce valid-sized legacy records becoming oversized during migration, and an audit failure returning 500 after a committed repair.
+- [x] Bound migrated legacy context to 48 KiB of serialized UTF-8; persist an unresolved flag and generate clarification without inference until an explicit complete learner restatement is supplied.
+- [x] Rehydrate the confirmed task from saved text and links, exclude obsolete task history from later model requests, and preserve normal save/recovery/assessment behavior and completed feedback.
+- [x] Return the committed repair snapshot even if audit logging fails, exposing the audit outcome through a header and content-free error log.
+- [x] Complete focused/full PostgreSQL-enabled tests, lint, build, documentation and primary-checkout preservation; prepare the follow-up for commit and push to PR #40.

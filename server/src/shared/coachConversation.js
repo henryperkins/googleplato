@@ -1,6 +1,9 @@
 import { visibleCoachText } from './coachProtocol.js';
 
 const MAX_TEXT = 6000;
+const MAX_LEGACY_BYTES = 48 * 1024;
+const encoder = new TextEncoder();
+export const TASK_CONFIRMATION_PROMPT = 'Please restate the task we should continue, including any website or link and constraints you want to keep. Start your reply with “Continue with:”.';
 const usable = message => message && ['user', 'assistant'].includes(message.role)
   && typeof message.content === 'string' && message.content.trim();
 
@@ -25,6 +28,21 @@ function anchor(message) {
     ...(text.length > MAX_TEXT ? { truncated: true } : {}) };
 }
 
+function boundedLegacyContext(anchors) {
+  const retained = [];
+  let bytes = 2; // JSON array brackets, plus a comma between each entry.
+  for (let i = anchors.length - 1; i >= 0; i--) {
+    const size = encoder.encode(JSON.stringify(anchors[i])).byteLength + (retained.length ? 1 : 0);
+    if (bytes + size > MAX_LEGACY_BYTES) break;
+    retained.push(anchors[i]);
+    bytes += size;
+  }
+  return retained.reverse();
+}
+
+const completeRestatement = item => item?.role === 'user' && !item.truncated && !item.linksIncomplete
+  && /^Continue with:\s*\S/i.test(item.text);
+
 // Conversation anchors preserve what was asked, not what was demonstrated.
 // Always rehydrate their exact text from saved messages; model summaries and
 // legacy KB fields cannot invent a new assignment or evidence identifier.
@@ -45,16 +63,25 @@ export function reconcileConversationState(previous, messages = []) {
   // Legacy transcripts have no reliable task-change markers. Preserve their
   // learner statements as chronological, unclassified context instead of
   // assuming the opening is still current or guessing intent from keywords.
-  const legacyReferences = previous?.version === 2 && Array.isArray(previous.legacyLearnerContext)
+  const legacyReferences = [2, 3].includes(previous?.version) && Array.isArray(previous.legacyLearnerContext)
     ? previous.legacyLearnerContext : anchors.filter(item => item.role === 'user');
-  const legacyLearnerContext = legacyReferences.map(item => byId.get(item?.sourceMessageId)).filter(item => item?.role === 'user');
-  // Preserve earlier additive changes, including a target selected before later
-  // format/scope directions. The existing whole-record save limit bounds state;
-  // exceeding it must reject the save rather than silently forget active work.
-  const state = { version: 2, assignment,
+  const legacyAnchors = [...new Map(legacyReferences.map(item => byId.get(item?.sourceMessageId))
+    .filter(item => item?.role === 'user').map(item => [item.sourceMessageId, item])).values()];
+  const confirmedTask = byId.get(previous?.confirmedTask?.sourceMessageId);
+  const confirmed = completeRestatement(confirmedTask);
+  const legacyLearnerContext = confirmed ? [] : boundedLegacyContext(legacyAnchors);
+  const state = { version: 3, assignment,
     learnerDirections: [...new Map(learnerDirections.map(item => [item.sourceMessageId, item])).values()],
-    legacyLearnerContext: [...new Map(legacyLearnerContext.map(item => [item.sourceMessageId, item])).values()],
+    legacyLearnerContext,
     latestCoachPrompt: byId.get(anchors.findLast(item => item.role === 'assistant')?.sourceMessageId) || null };
+  if (confirmed) state.confirmedTask = confirmedTask;
+  // Omitted history can contain the active target. Never silently fall back to
+  // the opening: the server requests a complete restatement before inference.
+  if (!confirmed && (previous?.legacyContextTruncated || previous?.confirmedTask
+    || legacyLearnerContext.length < legacyAnchors.length)) state.legacyContextTruncated = true;
+  const confirmationPrompt = byId.get(previous?.confirmationPromptId);
+  if (state.legacyContextTruncated && confirmationPrompt?.role === 'assistant'
+    && confirmationPrompt.text === TASK_CONFIRMATION_PROMPT) state.confirmationPromptId = confirmationPrompt.sourceMessageId;
   if ([...counts.values()].some(count => count > 1)) state.sourceAmbiguity = true;
   if (previous?.correction?.reason === 'assignment-drift'
     && byId.get(previous.correction.afterMessageId)?.role === 'assistant'
@@ -62,6 +89,19 @@ export function reconcileConversationState(previous, messages = []) {
     state.correction = { reason: 'assignment-drift', afterMessageId: previous.correction.afterMessageId,
       learnerMessageId: previous.correction.learnerMessageId };
   }
+  return state;
+}
+
+// Only an explicit reply to the server's saved clarification can replace the
+// omitted historical task. A normal observation or attachment alone cannot.
+export function confirmConversationTask(previous, message) {
+  const item = anchor(message);
+  if (!previous?.legacyContextTruncated || !previous.confirmationPromptId
+    || previous.latestCoachPrompt?.sourceMessageId !== previous.confirmationPromptId
+    || previous.latestCoachPrompt.text !== TASK_CONFIRMATION_PROMPT || !completeRestatement(item)) return previous;
+  const state = { ...previous, confirmedTask: item, legacyLearnerContext: [], learnerDirections: [] };
+  delete state.legacyContextTruncated;
+  delete state.confirmationPromptId;
   return state;
 }
 
@@ -80,7 +120,11 @@ export function applyConversationTurn(previous, messages, taskChangeSourceId) {
   return state;
 }
 
-export function buildCoachHistory(messages = []) {
+export function buildCoachHistory(messages = [], state) {
+  if (state?.confirmedTask) {
+    const start = messages.findIndex(message => message.id === state.confirmedTask.sourceMessageId);
+    messages = start < 0 ? [] : messages.slice(start);
+  }
   return messages.filter(usable).slice(-40).flatMap(message => {
     const text = message.role === 'assistant' ? visibleCoachText(message.content) : message.content.trim();
     if (!text) return [];
