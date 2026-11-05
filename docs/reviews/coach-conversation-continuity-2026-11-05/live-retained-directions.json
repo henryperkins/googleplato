@@ -1,0 +1,465 @@
+{
+  "startedAt": "2026-11-05T08:00:20.621Z",
+  "mode": "synthetic-live-continuity",
+  "maxCalls": 2,
+  "calls": 1,
+  "priorCalls": 8,
+  "totalBoundedBudget": 10,
+  "results": [
+    {
+      "id": "audit-retained-directions",
+      "passed": false,
+      "failures": [
+        "target_continuity",
+        "target_continuity"
+      ],
+      "metadataValid": true,
+      "issues": [],
+      "progress": 0,
+      "reportedProgress": 0,
+      "reportedResponseType": "question",
+      "evidence": [],
+      "exemplarEvidence": {
+        "status": "missing",
+        "observation": "",
+        "sourceIds": []
+      },
+      "profileUpdate": null,
+      "rawReply": "We're auditing **https://www.berkshirehathaway.com** — `replacement.example` is a placeholder domain with no live page, so there's nothing to inspect there. Stay on the **homepage** and start with **keyboard access**: load it, then press Tab once from the address bar. Reply in two plain-text sentences: **where does focus land first, and can you see where it is?**\n\n[PROGRESS: 0]\n[KB_UPDATE: {\"responseType\":\"question\",\"insights\":[\"Asked to confirm the audit target; the placeholder domain in earlier directions has no live page, so the real public site remains the target.\"],\"learnerPosition\":\"Target confirmed as https://www.berkshirehathaway.com, homepage only, keyboard access first. No issue collected yet; findings constrained to two plain-text sentences.\",\"evidence\":[],\"exemplarEvidence\":{\"status\":\"missing\",\"observation\":\"\",\"sourceIds\":[]}}]",
+      "visibleReply": "We're auditing **https://www.berkshirehathaway.com** — `replacement.example` is a placeholder domain with no live page, so there's nothing to inspect there. Stay on the **homepage** and start with **keyboard access**: load it, then press Tab once from the address bar. Reply in two plain-text sentences: **where does focus land first, and can you see where it is?**",
+      "editorialReview": "pending",
+      "originalRawReply": "We're auditing **https://www.berkshirehathaway.com** — `replacement.example` is a placeholder domain with no live page, so there's nothing to inspect there. Stay on the **homepage** and start with **keyboard access**: load it, then press Tab once from the address bar. Reply in two plain-text sentences: **where does focus land first, and can you see where it is?**\n\n[PROGRESS: 0]\n[KB_UPDATE: {\"responseType\":\"question\",\"insights\":[\"Asked to confirm the audit target; the placeholder domain in earlier directions has no live page, so the real public site remains the target.\"],\"learnerPosition\":\"Target confirmed as https://www.berkshirehathaway.com, homepage only, keyboard access first. No issue collected yet; findings constrained to two plain-text sentences.\",\"evidence\":[],\"exemplarEvidence\":{\"status\":\"missing\",\"observation\":\"\",\"sourceIds\":[]}}]",
+      "repair": {
+        "attempted": false,
+        "succeeded": false,
+        "originalIssues": []
+      },
+      "usage": {
+        "input_tokens": 10950,
+        "output_tokens": 895
+      },
+      "stopReason": "end_turn",
+      "latencyMs": 9118,
+      "requestHash": "d82b644a4a684561b74fa048525f5e20d6ba657cd9d720d06503d46eb809a912"
+    }
+  ],
+  "scope": "Candidate bundled prompt plus current stored teaching prompt; production-selected provider via generic messages API; synthetic state only; no lesson generation/save endpoint called.",
+  "identity": {
+    "provider": "workers-ai",
+    "model": "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+    "settingsVersion": 1
+  },
+  "promptHash": "9f55ff1efa7ae536689503ad135d03fff5c506c6e1a4cc0d7404e36e471991b1",
+  "bundledPromptHash": "a55c91cdeea805d89573aecbb893620819d1c777321cecdaeb62da87606a4aea",
+  "repairPromptHash": "5d9c046a3307fa94cfb63f349f16fb14cfa88c0f30754e94e6b9d574f1db5e61",
+  "fixtureHash": "70324549810be09b6b1b4ef30c5aa1fddce6134f6b66ed8a23d01d718572af22",
+  "fixture": {
+    "id": "audit-retained-directions",
+    "lesson": {
+      "name": "The Looks Fine Audit",
+      "description": "Inspect a public site on mobile and for accessibility.",
+      "exemplar": "A prioritized audit of at least four mobile and accessibility issues, each with evidence, severity and a specific fix, and a justified remediation order.",
+      "learningObjectives": [
+        "Can identify mobile and accessibility failures with evidence",
+        "Can rate severity and propose a viable fix",
+        "Can justify a remediation order"
+      ],
+      "coachDirective": "The Coach supplies a real public URL for the learner to inspect on their own device."
+    },
+    "kb": {
+      "lessonId": "fixture",
+      "status": "active",
+      "progress": 0,
+      "activitiesCompleted": 1,
+      "exemplar": "A prioritized audit of at least four mobile and accessibility issues, each with evidence, severity and a specific fix, and a justified remediation order.",
+      "objectives": [
+        {
+          "id": "objective-f8d2906c",
+          "objective": "Can identify mobile and accessibility failures with evidence",
+          "evidence": "Can identify mobile and accessibility failures with evidence"
+        },
+        {
+          "id": "objective-ee60ad22",
+          "objective": "Can rate severity and propose a viable fix",
+          "evidence": "Can rate severity and propose a viable fix"
+        },
+        {
+          "id": "objective-a98c50e3",
+          "objective": "Can justify a remediation order",
+          "evidence": "Can justify a remediation order"
+        }
+      ],
+      "evidence": [],
+      "exemplarEvidence": {
+        "status": "missing",
+        "observation": "",
+        "sourceIds": []
+      },
+      "sources": [],
+      "insights": [],
+      "learnerPosition": "The learner has not yet described a concrete barrier.",
+      "conversationState": {
+        "version": 1,
+        "assignment": {
+          "sourceMessageId": "old:0",
+          "role": "assistant",
+          "text": "Your target is https://www.berkshirehathaway.com. Open it on your phone and tell me which element breaks and what you had to do to cope with it. One specific observation is enough to start.",
+          "provenance": "legacy-unverified"
+        },
+        "learnerDirections": [
+          {
+            "sourceMessageId": "change-0:0",
+            "role": "user",
+            "text": "Use https://replacement.example instead.",
+            "provenance": "learner"
+          },
+          {
+            "sourceMessageId": "change-1:0",
+            "role": "user",
+            "text": "Focus on the homepage only.",
+            "provenance": "learner"
+          },
+          {
+            "sourceMessageId": "change-2:0",
+            "role": "user",
+            "text": "Start with keyboard access.",
+            "provenance": "learner"
+          },
+          {
+            "sourceMessageId": "change-3:0",
+            "role": "user",
+            "text": "Use plain text instead of a table.",
+            "provenance": "learner"
+          },
+          {
+            "sourceMessageId": "change-4:0",
+            "role": "user",
+            "text": "Keep findings to two sentences.",
+            "provenance": "learner"
+          }
+        ],
+        "latestCoachPrompt": {
+          "sourceMessageId": "change-4:1",
+          "role": "assistant",
+          "text": "Describe your next observation.",
+          "provenance": "server-v1"
+        }
+      }
+    },
+    "history": [
+      {
+        "id": "old:0",
+        "role": "assistant",
+        "content": "Your target is https://www.berkshirehathaway.com. Open it on your phone and tell me which element breaks and what you had to do to cope with it. One specific observation is enough to start."
+      },
+      {
+        "id": "change-0:0",
+        "role": "user",
+        "content": "Use https://replacement.example instead."
+      },
+      {
+        "id": "change-0:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "change-1:0",
+        "role": "user",
+        "content": "Focus on the homepage only."
+      },
+      {
+        "id": "change-1:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "change-2:0",
+        "role": "user",
+        "content": "Start with keyboard access."
+      },
+      {
+        "id": "change-2:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "change-3:0",
+        "role": "user",
+        "content": "Use plain text instead of a table."
+      },
+      {
+        "id": "change-3:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "change-4:0",
+        "role": "user",
+        "content": "Keep findings to two sentences."
+      },
+      {
+        "id": "change-4:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "filler-0",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-1",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-2",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-3",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-4",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-5",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-6",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-7",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-8",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-9",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-10",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-11",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-12",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-13",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-14",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-15",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-16",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-17",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-18",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-19",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-20",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-21",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-22",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-23",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-24",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-25",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-26",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-27",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-28",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-29",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-30",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-31",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-32",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-33",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-34",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-35",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-36",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-37",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-38",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-39",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-40",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-41",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-42",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-43",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-44",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      }
+    ],
+    "input": "Which website are we auditing now?",
+    "expectedType": "clarification",
+    "allowedTypes": [
+      "clarification",
+      "question",
+      "uncertainty",
+      "feedback",
+      "correction",
+      "work"
+    ],
+    "expectedProgress": 0,
+    "expectedComplete": false,
+    "expectedAssessmentUnchanged": true,
+    "expectedNoProfile": true,
+    "expectedTargetMentions": [
+      "https://replacement.example"
+    ],
+    "raw": "We are working on Berkshire Hathaway. Which visible element looks unstyled, and how does that affect using it on your phone?\n[PROGRESS: 0]\n[KB_UPDATE: {\"responseType\":\"clarification\",\"insights\":[],\"learnerPosition\":\"The learner has not yet described a concrete barrier.\",\"evidence\":[],\"exemplarEvidence\":{\"status\":\"missing\",\"observation\":\"\",\"sourceIds\":[]}}]",
+    "forbiddenTargetMentions": [
+      "berkshirehathaway.com",
+      "Berkshire Hathaway",
+      "news.ycombinator.com",
+      "Hacker News"
+    ]
+  },
+  "budgetReason": "One additional two-call qualification after live omission handling failed; exact source retention replaced the omission design.",
+  "state": "complete",
+  "passed": false,
+  "finishedAt": "2026-11-05T08:00:29.900Z"
+}

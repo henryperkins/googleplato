@@ -1,0 +1,114 @@
+{
+  "mode": "historical-response-regrade",
+  "calls": 0,
+  "source": "live-evaluation.json",
+  "startedAt": "2026-11-05T08:52:57.815Z",
+  "passed": true,
+  "results": [
+    {
+      "id": "legacy-audit-resume",
+      "passed": true,
+      "failures": [],
+      "metadataValid": true,
+      "issues": [],
+      "progress": 0,
+      "reportedProgress": 0,
+      "reportedResponseType": "clarification",
+      "evidence": [],
+      "exemplarEvidence": {
+        "status": "missing",
+        "observation": "",
+        "sourceIds": []
+      },
+      "insights": [
+        "Reports CSS appearing ignored on the mobile view; no specific element, effect, or coping action named yet."
+      ],
+      "learnerPosition": "Opened the target site and reported a vague impression that styling is missing on mobile. Still needs to identify a specific element, its visible behavior, and the coping action taken before any mobile or accessibility failure can be assessed.",
+      "profileUpdate": null,
+      "rawReply": "\"CSS is ignored\" could mean a few different things — a broken stylesheet, a page that only *looks* plain, or a layout that doesn't fit your screen. **Name one concrete element** you're looking at on your phone (e.g., the top navigation links, the list of subsidiary companies, the disclaimer text at the bottom) and describe what it actually looks like versus what you'd expect.\n\nThen tell me **what you had to do** to read or use it — pinch-zoom, scroll sideways, rotate the phone, or give up.\n\n[PROGRESS: 0]\n[KB_UPDATE: {\"responseType\":\"clarification\",\"insights\":[\"Reports CSS appearing ignored on the mobile view; no specific element, effect, or coping action named yet.\"],\"learnerPosition\":\"Opened the target site and reported a vague impression that styling is missing on mobile. Still needs to identify a specific element, its visible behavior, and the coping action taken before any mobile or accessibility failure can be assessed.\",\"evidence\":[],\"exemplarEvidence\":{\"status\":\"missing\",\"observation\":\"\",\"sourceIds\":[]}}]",
+      "visibleReply": "\"CSS is ignored\" could mean a few different things — a broken stylesheet, a page that only *looks* plain, or a layout that doesn't fit your screen. **Name one concrete element** you're looking at on your phone (e.g., the top navigation links, the list of subsidiary companies, the disclaimer text at the bottom) and describe what it actually looks like versus what you'd expect.\n\nThen tell me **what you had to do** to read or use it — pinch-zoom, scroll sideways, rotate the phone, or give up.",
+      "editorialReview": "pending",
+      "sourceRequestHash": "61ab04b0a8383ceb4e9196f5cfdccbe7e8a3e7a8c8b03c0b662a74862eaffbb5",
+      "qualification": "Regraded captured response only; request and model were not rerun."
+    },
+    {
+      "id": "audit-drift-correction",
+      "passed": true,
+      "failures": [],
+      "metadataValid": true,
+      "issues": [],
+      "progress": 0,
+      "reportedProgress": 0,
+      "reportedResponseType": "question",
+      "evidence": [],
+      "exemplarEvidence": {
+        "status": "missing",
+        "observation": "",
+        "sourceIds": []
+      },
+      "insights": [
+        "Learner questioned why the audit target changed and said she had followed the original link.",
+        "No concrete mobile or accessibility failure, severity, fix, or remediation order has been provided yet."
+      ],
+      "learnerPosition": "Ada asked why the website was changed and noted that she followed the original link. She has not yet described a specific mobile or accessibility issue, rated its severity, proposed a fix, or justified a remediation order.",
+      "profileUpdate": null,
+      "rawReply": "You're right — I switched targets and I shouldn't have. **Stick with https://www.berkshirehathaway.com**, your original link.\n\nOn that page, which element looked unstyled to you, and what did that look like on your phone — for example, a wall of plain left-aligned text, links with no spacing, or a table that ran off the screen? Name the specific spot you saw it.\n[PROGRESS: 0]\n[KB_UPDATE: {\"responseType\":\"question\",\"insights\":[\"Learner questioned why the audit target changed and said she had followed the original link.\",\"No concrete mobile or accessibility failure, severity, fix, or remediation order has been provided yet.\"],\"learnerPosition\":\"Ada asked why the website was changed and noted that she followed the original link. She has not yet described a specific mobile or accessibility issue, rated its severity, proposed a fix, or justified a remediation order.\",\"evidence\":[],\"exemplarEvidence\":{\"status\":\"missing\",\"observation\":\"\",\"sourceIds\":[]}}]",
+      "visibleReply": "You're right — I switched targets and I shouldn't have. **Stick with https://www.berkshirehathaway.com**, your original link.\n\nOn that page, which element looked unstyled to you, and what did that look like on your phone — for example, a wall of plain left-aligned text, links with no spacing, or a table that ran off the screen? Name the specific spot you saw it.",
+      "editorialReview": "pending",
+      "sourceRequestHash": "dfdacc9049316b18c3055d3a7ff40ff284094c3c41ee8af676f90e9f91c10782",
+      "qualification": "Regraded captured response only; request and model were not rerun."
+    },
+    {
+      "id": "long-audit-resume",
+      "passed": true,
+      "failures": [],
+      "metadataValid": true,
+      "issues": [],
+      "progress": 0,
+      "reportedProgress": 0,
+      "reportedResponseType": "question",
+      "evidence": [],
+      "exemplarEvidence": {
+        "status": "missing",
+        "observation": "",
+        "sourceIds": []
+      },
+      "insights": [
+        "Asked which site to audit; restated the retained target (berkshirehathaway.com) and what a usable first observation looks like."
+      ],
+      "learnerPosition": "No audit observations yet. The learner has the target URL but has not yet reported a specific mobile or accessibility issue, so all three objectives remain unevidenced.",
+      "profileUpdate": null,
+      "rawReply": "The target is **https://www.berkshirehathaway.com** — open that on your phone (not desktop) and look at how it behaves on a small screen.\n\nPick one thing that goes wrong and describe it concretely: for example, text that's too small to read without pinching, a link that's too small to tap, or content that runs off the edge so you have to scroll sideways. Tell me **which element** and **what you had to do to cope with it** — that one observation is enough to start.\n\n[PROGRESS: 0]\n[KB_UPDATE: {\"responseType\":\"question\",\"insights\":[\"Asked which site to audit; restated the retained target (berkshirehathaway.com) and what a usable first observation looks like.\"],\"learnerPosition\":\"No audit observations yet. The learner has the target URL but has not yet reported a specific mobile or accessibility issue, so all three objectives remain unevidenced.\",\"evidence\":[],\"exemplarEvidence\":{\"status\":\"missing\",\"observation\":\"\",\"sourceIds\":[]}}]",
+      "visibleReply": "The target is **https://www.berkshirehathaway.com** — open that on your phone (not desktop) and look at how it behaves on a small screen.\n\nPick one thing that goes wrong and describe it concretely: for example, text that's too small to read without pinching, a link that's too small to tap, or content that runs off the edge so you have to scroll sideways. Tell me **which element** and **what you had to do to cope with it** — that one observation is enough to start.",
+      "editorialReview": "pending",
+      "sourceRequestHash": "a17e80e25344eca9025436001f59b8fb4fefbd0d1862363cd769f5eb4e21f7c3",
+      "qualification": "Regraded captured response only; request and model were not rerun."
+    },
+    {
+      "id": "audit-target-change",
+      "passed": true,
+      "failures": [],
+      "metadataValid": true,
+      "issues": [],
+      "progress": 0,
+      "reportedProgress": 0,
+      "reportedResponseType": "clarification",
+      "evidence": [],
+      "exemplarEvidence": {
+        "status": "missing",
+        "observation": "",
+        "sourceIds": []
+      },
+      "insights": [
+        "Learner explicitly redirected the audit target to news.ycombinator.com while keeping the same rubric."
+      ],
+      "learnerPosition": "Target changed to news.ycombinator.com at the learner's request; no inspection findings submitted yet.",
+      "profileUpdate": null,
+      "rawReply": "Switching the target — the audit now runs against **https://news.ycombinator.com**, same rubric. Open it on your phone and look for one thing that doesn't work well at that size: text you had to pinch-zoom, a tap target you missed, something cut off, or a contrast problem.\n\nTell me **which element** it is and **what you had to do to cope with it** (e.g., \"the comment links are too small so I had to zoom in twice\"). One concrete observation is enough to start.\n[PROGRESS: 0]\n[KB_UPDATE: {\"responseType\":\"clarification\",\"insights\":[\"Learner explicitly redirected the audit target to news.ycombinator.com while keeping the same rubric.\"],\"learnerPosition\":\"Target changed to news.ycombinator.com at the learner's request; no inspection findings submitted yet.\",\"evidence\":[],\"exemplarEvidence\":{\"status\":\"missing\",\"observation\":\"\",\"sourceIds\":[]},\"taskChangeSourceId\":\"fixture:0\"}]",
+      "visibleReply": "Switching the target — the audit now runs against **https://news.ycombinator.com**, same rubric. Open it on your phone and look for one thing that doesn't work well at that size: text you had to pinch-zoom, a tap target you missed, something cut off, or a contrast problem.\n\nTell me **which element** it is and **what you had to do to cope with it** (e.g., \"the comment links are too small so I had to zoom in twice\"). One concrete observation is enough to start.",
+      "editorialReview": "pending",
+      "sourceRequestHash": "42a09658a9716920098e34c97bb5d310cdb079fbb7f4062fa5f146a72754724f",
+      "qualification": "Regraded captured response only; request and model were not rerun."
+    }
+  ]
+}

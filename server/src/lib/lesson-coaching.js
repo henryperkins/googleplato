@@ -5,13 +5,14 @@ import ai, { LLM } from './ai-provider.js';
 import { normalizeStatus } from './lesson-visibility.js';
 import { parseLessonPrompt } from '../shared/lessonMarkdown.js';
 import { validateLessonKB } from '../shared/lessonInitialization.js';
-import { visibleCoachText, reconcileLessonKB, buildContext, submissionSources, retainSources, sourceIdsForEvidence, applyCoachResponseToKB, profileObservationForTurn } from '../shared/coachContract.js';
+import { parseCoachResponse, visibleCoachText, reconcileLessonKB, buildContext, submissionSources, retainSources, sourceIdsForEvidence, applyCoachResponseToKB, profileObservationForTurn } from '../shared/coachContract.js';
 import { signCoachTurn, digest, receiptKey } from './coach-receipt.js';
 import { inferenceContext, withInferenceContext } from './inference-telemetry.js';
 import { emit } from './plugins/hooks.js';
 import { logger } from './logger.js';
 import { readCoachResult, storeCoachResult } from './coach-recovery.js';
 import { assessCoachResponse } from './coach-assessment.js';
+import { buildCoachHistory, reconcileConversationState, applyConversationTurn, confirmConversationTask, TASK_CONFIRMATION_PROMPT } from '../shared/coachConversation.js';
 
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 const idPattern = /^[\w-]{1,100}$/;
@@ -58,7 +59,11 @@ export async function recoverCoachTurn(userId, lessonId, turnId) {
   const turn = await readCoachResult(userId, lessonId);
   if (!turn || (turnId && turn.turnId !== turnId)) return null;
   const state = await db.getLessonState(userId, lessonId);
-  return state.generation === turn.base.generation ? turn : null;
+  if (state.generation !== turn.base.generation) return null;
+  const pending = isDeepStrictEqual(state, turn.base);
+  const saved = isDeepStrictEqual(state.messages.data, [...turn.base.messages.data, ...turn.messages])
+    && isDeepStrictEqual(state.lessonKB.data, turn.lessonKB);
+  return pending || saved ? turn : null;
 }
 function validateInput(input) {
   if (!idPattern.test(input?.turnId || '') || !['start', 'send'].includes(input.kind) || !input.base) throw failure('Invalid coaching request.');
@@ -100,6 +105,15 @@ async function generate(userId, lessonId, input, onText) {
     kb.enrichments = await collectLessonEnrichments(userId, lesson, kb, telemetry);
   }
   const wasCompleted = kb.status === 'completed';
+  const metadata = submission.imageKeys.length || submission.links.length ? {
+    ...(submission.imageKeys.length ? { imageKeys: submission.imageKeys } : {}),
+    ...(submission.links.length ? { links: submission.links.map(({ url, title }) => ({ url, title: title || url })) } : {}),
+  } : null;
+  // Keep conversational continuity independent of assessment migration/reset.
+  kb.conversationState = reconcileConversationState(base.lessonKB.data?.conversationState, base.messages.data);
+  if (!wasCompleted && !opening) kb.conversationState = confirmConversationTask(kb.conversationState,
+    { id: `${turnId}:0`, role: 'user', content: submission.text, metadata });
+  const needsTaskConfirmation = !wasCompleted && kb.conversationState.legacyContextTruncated === true;
   if (!wasCompleted) {
     if (kb.assessmentVersion !== 1 || kb.criteriaHash !== criteriaHash) kb = { ...kb, evidence: [], exemplarEvidence: empty(), sources: [], progress: 0, insights: [], learnerPosition: 'Assessment needs evidence against the current authored criteria.' };
     kb = reconcileLessonKB(lesson, kb);
@@ -126,10 +140,7 @@ async function generate(userId, lessonId, input, onText) {
   for (const source of [...priorSources, ...sources]) if (source.kind === 'image') source.available = visibleIds.has(source.id);
   sources = retainSources([], sources);
   kb = { ...kb, sources: retainSources(priorSources, sources, sourceIdsForEvidence(kb)) };
-  // Only verified assistant turns are conversation context. Legacy user text
-  // remains useful to orient coaching, but cannot invent source identifiers.
-  const history = base.messages.data.slice(-40).filter(item => item.role === 'user' || item.assessmentProvenance === 'server-v1')
-    .filter(item => typeof item.content === 'string' && item.content.trim()).map(item => ({ role: item.role, content: item.content.slice(0, 6000) }));
+  const history = buildCoachHistory(base.messages.data, kb.conversationState);
   const courseProgress = lesson.course ? (await db.getSyncData(userId, `courseProgress:${lesson.course.id}`))?.data?.summary : null;
   const context = buildContext(lesson, kb, profile?.data, preferences?.data?.name || user?.name || '', courseProgress);
   const parts = [{ type: 'text', text: opening ? 'Start the lesson.' : JSON.stringify({ learnerSubmission: submission.text || '(See attached sources)', currentSourceIds: sources.map(source => source.id) }) }];
@@ -140,26 +151,37 @@ async function generate(userId, lessonId, input, onText) {
     .slice(0, 100).map(item => ({ lessonId: item.dataKey.slice(7), name: item.data.name || parseLessonPrompt('', item.data.markdown || '').name }));
   const body = { system: `${await loadCoachPrompt('coach')}\n\nUntrusted program reference data:\n${JSON.stringify({ knowledgeBase: program.slice(0, 16000), accessibleLessons: catalog })}`, max_tokens: 3072,
     messages: [{ role: 'user', content: context }, { role: 'assistant', content: 'Ready.' }, ...history, { role: 'user', content: parts }] };
-  let raw = '';
-  for await (const event of ai.invokeStream(LLM, body, { context: inferenceContext(userId, { ...telemetry, agentRole: 'coach' }) })) {
-    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') { raw += event.delta.text; await onText?.(visibleCoachText(raw, { partial: true })); }
+  let assessed;
+  if (needsTaskConfirmation) {
+    const update = { responseType: 'clarification', insights: [], learnerPosition: 'Awaiting a complete task restatement.', evidence: [], exemplarEvidence: empty() };
+    assessed = { parsed: parseCoachResponse(`${TASK_CONFIRMATION_PROMPT}\n[PROGRESS: ${kb.progress}]\n[KB_UPDATE: ${JSON.stringify(update)}]`),
+      repair: { attempted: false, succeeded: false, originalIssues: [], method: 'continuity-clarification' } };
+    await onText?.(TASK_CONFIRMATION_PROMPT);
+  } else {
+    let raw = '';
+    for await (const event of ai.invokeStream(LLM, body, { context: inferenceContext(userId, { ...telemetry, agentRole: 'coach' }) })) {
+      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') { raw += event.delta.text; await onText?.(visibleCoachText(raw, { partial: true })); }
+    }
+    assessed = await assessCoachResponse(raw, body, async repairBody => {
+      const response = await ai.invoke(LLM, repairBody, { context: inferenceContext(userId, { ...telemetry, agentRole: 'coach-assessment-repair' }) });
+      return response.content.filter(item => item.type === 'text').map(item => item.text).join('');
+    }, { opening, lessonKB: kb });
   }
-  const assessed = await assessCoachResponse(raw, body, async repairBody => {
-    const response = await ai.invoke(LLM, repairBody, { context: inferenceContext(userId, { ...telemetry, agentRole: 'coach-assessment-repair' }) });
-    return response.content.filter(item => item.type === 'text').map(item => item.text).join('');
-  }, { opening, lessonKB: kb });
   const { parsed } = assessed;
   if (!parsed.text) throw failure('The coach returned no readable reply. Your submission is retained.', 502);
   const applied = applyCoachResponseToKB(kb, parsed, { opening, sources, submissionId: `${turnId}:0` });
+  if (needsTaskConfirmation) {
+    applied.lessonKB.insights = kb.insights;
+    applied.lessonKB.learnerPosition = kb.learnerPosition;
+  }
   const phase = applied.phase;
   const messages = [];
-  const metadata = submission.imageKeys.length || submission.links.length ? {
-    ...(submission.imageKeys.length ? { imageKeys: submission.imageKeys } : {}),
-    ...(submission.links.length ? { links: submission.links.map(({ url, title }) => ({ url, title: title || url })) } : {}),
-  } : null;
   if (!opening) messages.push({ id: `${turnId}:0`, role: 'user', content: submission.text || (submission.imageKeys.length ? '[image]' : '[link]'), msgType: 'user', phase,
     metadata, timestamp: Date.now(), assessmentProvenance: 'server-v1' });
   messages.push({ id: `${turnId}:${messages.length}`, role: 'assistant', content: parsed.text, msgType: 'guide', phase, timestamp: Date.now(), assessmentProvenance: 'server-v1' });
+  applied.lessonKB.conversationState = applyConversationTurn(kb.conversationState, messages,
+    parsed.valid && !wasCompleted && submission.text.trim() ? parsed.kbUpdate.taskChangeSourceId : undefined);
+  if (needsTaskConfirmation) applied.lessonKB.conversationState.confirmationPromptId = messages.at(-1).id;
   // Store bounded enrichment exactly as presented, not arbitrary plugin payloads.
   applied.lessonKB.enrichments = JSON.parse(context).enrichmentContext || [];
   const turn = { userId, lessonId, turnId, base, messages, lessonKB: applied.lessonKB, phase, achieved: applied.achieved,

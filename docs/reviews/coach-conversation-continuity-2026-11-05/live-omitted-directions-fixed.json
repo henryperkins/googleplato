@@ -1,0 +1,420 @@
+{
+  "startedAt": "2026-11-05T07:56:03.850Z",
+  "mode": "synthetic-live-continuity",
+  "maxCalls": 2,
+  "calls": 1,
+  "priorCalls": 6,
+  "totalApprovedBudget": 8,
+  "results": [],
+  "scope": "Candidate bundled prompt plus current stored teaching prompt; production-selected provider via generic messages API; synthetic state only; no lesson generation/save endpoint called.",
+  "identity": {
+    "provider": "workers-ai",
+    "model": "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+    "settingsVersion": 1
+  },
+  "promptHash": "38569515ebc4806b92d131d70e3845033056f576b66ab2bd4ec16199d96233b9",
+  "bundledPromptHash": "0a29b3a7c0f6af8f1536a61be22e60140fd4892dcef48fe77bc776abd9db9af0",
+  "repairPromptHash": "5d9c046a3307fa94cfb63f349f16fb14cfa88c0f30754e94e6b9d574f1db5e61",
+  "fixtureHash": "371b99e5d241bb6b79204f44ca998dbf61a29fddf6d8a30370b68b6d9bac9a4f",
+  "fixture": {
+    "id": "audit-omitted-directions",
+    "lesson": {
+      "name": "The Looks Fine Audit",
+      "description": "Inspect a public site on mobile and for accessibility.",
+      "exemplar": "A prioritized audit of at least four mobile and accessibility issues, each with evidence, severity and a specific fix, and a justified remediation order.",
+      "learningObjectives": [
+        "Can identify mobile and accessibility failures with evidence",
+        "Can rate severity and propose a viable fix",
+        "Can justify a remediation order"
+      ],
+      "coachDirective": "The Coach supplies a real public URL for the learner to inspect on their own device."
+    },
+    "kb": {
+      "lessonId": "fixture",
+      "status": "active",
+      "progress": 0,
+      "activitiesCompleted": 1,
+      "exemplar": "A prioritized audit of at least four mobile and accessibility issues, each with evidence, severity and a specific fix, and a justified remediation order.",
+      "objectives": [
+        {
+          "id": "objective-f8d2906c",
+          "objective": "Can identify mobile and accessibility failures with evidence",
+          "evidence": "Can identify mobile and accessibility failures with evidence"
+        },
+        {
+          "id": "objective-ee60ad22",
+          "objective": "Can rate severity and propose a viable fix",
+          "evidence": "Can rate severity and propose a viable fix"
+        },
+        {
+          "id": "objective-a98c50e3",
+          "objective": "Can justify a remediation order",
+          "evidence": "Can justify a remediation order"
+        }
+      ],
+      "evidence": [],
+      "exemplarEvidence": {
+        "status": "missing",
+        "observation": "",
+        "sourceIds": []
+      },
+      "sources": [],
+      "insights": [],
+      "learnerPosition": "The learner has not yet described a concrete barrier.",
+      "conversationState": {
+        "version": 1,
+        "assignment": {
+          "sourceMessageId": "old:0",
+          "role": "assistant",
+          "text": "Your target is https://www.berkshirehathaway.com. Open it on your phone and tell me which element breaks and what you had to do to cope with it. One specific observation is enough to start.",
+          "provenance": "legacy-unverified"
+        },
+        "learnerDirections": [
+          {
+            "sourceMessageId": "change-1:0",
+            "role": "user",
+            "text": "Focus on the homepage only.",
+            "provenance": "learner"
+          },
+          {
+            "sourceMessageId": "change-2:0",
+            "role": "user",
+            "text": "Start with keyboard access.",
+            "provenance": "learner"
+          },
+          {
+            "sourceMessageId": "change-3:0",
+            "role": "user",
+            "text": "Use plain text instead of a table.",
+            "provenance": "learner"
+          },
+          {
+            "sourceMessageId": "change-4:0",
+            "role": "user",
+            "text": "Keep findings to two sentences.",
+            "provenance": "learner"
+          }
+        ],
+        "latestCoachPrompt": {
+          "sourceMessageId": "change-4:1",
+          "role": "assistant",
+          "text": "Describe your next observation.",
+          "provenance": "server-v1"
+        },
+        "directionsOmitted": true
+      }
+    },
+    "history": [
+      {
+        "id": "old:0",
+        "role": "assistant",
+        "content": "Your target is https://www.berkshirehathaway.com. Open it on your phone and tell me which element breaks and what you had to do to cope with it. One specific observation is enough to start."
+      },
+      {
+        "id": "change-0:0",
+        "role": "user",
+        "content": "Use https://replacement.example instead."
+      },
+      {
+        "id": "change-0:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "change-1:0",
+        "role": "user",
+        "content": "Focus on the homepage only."
+      },
+      {
+        "id": "change-1:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "change-2:0",
+        "role": "user",
+        "content": "Start with keyboard access."
+      },
+      {
+        "id": "change-2:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "change-3:0",
+        "role": "user",
+        "content": "Use plain text instead of a table."
+      },
+      {
+        "id": "change-3:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "change-4:0",
+        "role": "user",
+        "content": "Keep findings to two sentences."
+      },
+      {
+        "id": "change-4:1",
+        "role": "assistant",
+        "content": "Describe your next observation.",
+        "assessmentProvenance": "server-v1"
+      },
+      {
+        "id": "filler-0",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-1",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-2",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-3",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-4",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-5",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-6",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-7",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-8",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-9",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-10",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-11",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-12",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-13",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-14",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-15",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-16",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-17",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-18",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-19",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-20",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-21",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-22",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-23",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-24",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-25",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-26",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-27",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-28",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-29",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-30",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-31",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-32",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-33",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-34",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-35",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-36",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-37",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-38",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-39",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-40",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-41",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-42",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-43",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      },
+      {
+        "id": "filler-44",
+        "role": "user",
+        "content": "I have not collected a specific issue yet."
+      }
+    ],
+    "input": "Which website are we auditing now?",
+    "expectedType": "clarification",
+    "allowedTypes": [
+      "clarification",
+      "question",
+      "uncertainty",
+      "feedback",
+      "correction",
+      "work"
+    ],
+    "expectedProgress": 0,
+    "expectedComplete": false,
+    "expectedAssessmentUnchanged": true,
+    "expectedNoProfile": true,
+    "raw": "We are working on Berkshire Hathaway. Which visible element looks unstyled, and how does that affect using it on your phone?\n[PROGRESS: 0]\n[KB_UPDATE: {\"responseType\":\"clarification\",\"insights\":[],\"learnerPosition\":\"The learner has not yet described a concrete barrier.\",\"evidence\":[],\"exemplarEvidence\":{\"status\":\"missing\",\"observation\":\"\",\"sourceIds\":[]}}]",
+    "forbiddenTargetMentions": [
+      "berkshirehathaway.com",
+      "Berkshire Hathaway",
+      "news.ycombinator.com",
+      "Hacker News"
+    ]
+  },
+  "state": "failed",
+  "error": "Application request failed: /v1/ai/messages HTTP 503",
+  "passed": false,
+  "finishedAt": "2026-11-05T07:56:04.751Z"
+}

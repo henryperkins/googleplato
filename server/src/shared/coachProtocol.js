@@ -23,14 +23,15 @@ export function validProfileObservation(value) {
 }
 
 export function validKBUpdate(value) {
-  return object(value) && keys(value, ['responseType', 'insights', 'learnerPosition', 'evidence', 'exemplarEvidence', 'confirmedSourceIds'])
+  return object(value) && keys(value, ['responseType', 'insights', 'learnerPosition', 'evidence', 'exemplarEvidence', 'confirmedSourceIds', 'taskChangeSourceId'])
     && RESPONSE_TYPES.includes(value.responseType)
     && list(value.insights, 2, item => string(item, 300))
     && string(value.learnerPosition, 1500)
     && list(value.evidence, 4, item => validEvidence(item, true))
     && new Set(value.evidence.map(item => item.objectiveId)).size === value.evidence.length
     && validEvidence(value.exemplarEvidence)
-    && (value.confirmedSourceIds === undefined || list(value.confirmedSourceIds, 8, item => string(item, 160)));
+    && (value.confirmedSourceIds === undefined || list(value.confirmedSourceIds, 8, item => string(item, 160)))
+    && (value.taskChangeSourceId === undefined || string(value.taskChangeSourceId, 160));
 }
 
 function unwrap(raw) {

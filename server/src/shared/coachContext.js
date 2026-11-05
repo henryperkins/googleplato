@@ -12,6 +12,10 @@ export function buildContext(lesson, lessonKB, profileSummary, learnerName, cour
     activitiesCompleted: completed, evidence: lessonKB?.evidence || [],
     exemplarEvidence: lessonKB?.exemplarEvidence || { status: 'missing', observation: '', sourceIds: [] },
     sources: lessonKB?.sources || [],
+    // Keep the original assignment in storage for traceability, but do not
+    // present it as current after the learner has restated the complete task.
+    conversationState: lessonKB?.conversationState?.confirmedTask
+      ? { ...lessonKB.conversationState, assignment: null } : lessonKB?.conversationState || null,
   };
   if (lesson.coachDirective) context.coachDirective = lesson.coachDirective;
   if (lesson.course?.name) context.course = { name: lesson.course.name, ...(courseProgress ? { progress: courseProgress } : {}) };

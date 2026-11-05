@@ -20,6 +20,7 @@ save failures use `WARNING`; unhandled errors use `ERROR`. Cloud Run promotes
 | `sync_validation_failure` | A sync mutation was rejected, including invalid input, oversize data, forbidden writes, or `client_upgrade_required` | Server |
 | `client_save_unconfirmed` | The browser could not confirm a generic record or generated-turn save | Authenticated client report |
 | `client_save_recovered` | A previously unconfirmed save was subsequently acknowledged and validated by the client | Authenticated client report |
+| `lesson_continuity_audit_failed` | An admin continuity repair committed, but its subsequent audit write failed; the HTTP 200 snapshot and `X-Plato-Audit-Status: failed` report that outcome | Server |
 | `unhandled_error` | Existing unexpected-error signal; the monitor selects PUT/POST/DELETE paths at `/v1/sync` | Server |
 
 Server handled-failure metadata includes operation, method, status, reason, and
@@ -31,6 +32,11 @@ position, not its content. Stale-client rejections use validation failure with
 reason `client_upgrade_required`, rather than masquerading as version conflicts.
 Successful first saves and exact server replay acknowledgements are not failures.
 Existing unhandled-error logs retain their existing diagnostic format.
+
+The continuity audit failure event is an `ERROR` with only `committed: true` as
+metadata. It excludes account IDs, lesson IDs, transcript and exception details.
+It does not mean that the lesson repair failed and must not trigger an automatic
+repair retry. The missing audit row is not durably retried by this endpoint.
 
 Client reports carry a random `eventId`, a random `incidentId` shared across a
 failure/recovery sequence, operation, bounded reason, and HTTP status (zero for
