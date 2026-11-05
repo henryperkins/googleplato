@@ -127,7 +127,9 @@ async function controlUsers(context, count = 4) {
   return { users, entries, invites };
 }
 
-describe('Rendered admin responsive regressions', { timeout: 90000 }, () => {
+// The timeout covers the whole suite. Cloud Build ran its 24 tests in 89 of the
+// former 90 seconds (build 6bf6dd9a, 2026-11-05), so leave room for growth.
+describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(root, 'client/dist/index.html')), 'Run npm run build:client before browser tests');
     directory = await mkdtemp(join(tmpdir(), 'plato-admin-responsive-'));
