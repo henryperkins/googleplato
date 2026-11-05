@@ -1272,6 +1272,65 @@ lessons remain visible and usable in the grid. Courses without public lessons
 have no progress bar. Purely informational; it reads `lessonKB.status` and never
 affects completion.
 
+While the status filter shows every status, the lessons the learner has started
+and not completed lead the whole list under an **In progress** heading, in
+catalog order among themselves, so a long first course can't push a returning
+learner's lesson onto page 2 (`orderLessons()` / `groupLessonsForPage()` in
+`client/src/lib/lessonListOrder.js`). A status filter keeps plain course
+grouping. Course groups follow in course-name order; lessons without a course
+come last, under **Other lessons** whenever the list has other groups.
+
+A learner who hasn't started any lesson gets one suggestion instead: the first
+lesson in the list shows **Start here** (`startHereLessonId()`), and its open
+action's accessible name ends with "Start here." It follows the filters, so a
+course filter moves it to that course's first lesson. It never marks an admin's
+own `custom-*` lesson and doesn't appear in a list of one. Catalog order has no
+authored sequence: course name, then lesson name, both with numeric collation,
+so an admin who wants a particular first lesson numbers the names ("1. …"). The
+mark leaves once any lesson has a status. It uses the verified progress snapshot
+that orders the list; unknown progress never qualifies a learner for the mark.
+
+`useLessonListProgress()` publishes a catalog and its progress together.
+`lessonCatalogLoaded` distinguishes a successful catalog response from a failed
+initial attempt. Until a catalog succeeds, its initial empty array cannot become
+a retained snapshot or produce an empty-state announcement during retry.
+`sync.loadAll()` returns true only after a complete, current response populates
+the cache, and `AppContext` publishes that result with the catalog as
+`lessonProgressHydrated`. Only this successful bulk read proves that an absent
+cache record means not started. No confirming per-lesson requests are needed
+after a successful bulk sync. The first render uses the cache immediately;
+previous component statuses cannot override a newer catalog's snapshot.
+
+If bulk sync fails and some progress is unknown, `loadLessonStatuses()` reads
+the catalog's progress records before the first cards appear. A missing record
+must be confirmed by a successful response with `data: null`; HTTP failures,
+network errors and malformed responses do not become "not started." An initial
+load shows **Loading lessons…**, then a retryable progress error if needed.
+A foreground refresh retains the last verified catalog, status filters, paging
+and keyboard focus while fallback reads are pending or failed. The existing
+**Try again** action retries the catalog and progress together.
+
+Fallback requests are aborted on unmount or when a newer catalog arrives, and
+their results never write the shared sync cache. Completion-event reads have the
+same lifetime guard; completion updates received during a fallback take precedence
+over that fallback's older status. Sign-out resets the app catalog and its
+hydration flag before another account signs in. These are read-path changes;
+lesson completion and persistence writes are unchanged.
+
+The **View outline** dialog ends with the lesson's next step (**Start
+lesson**, **Continue lesson**, or **Open lesson**) and closes before navigating,
+so its background scroll lock is released before the lesson page renders.
+
+**Previous** and **Next** move focus to the page's `h1` (`goToPage()`), which
+scrolls the new page's top into view. Left on the button, focus would sit below
+cards the learner hasn't read, and on the last page, where Next is disabled, it
+fell to the document and the next Tab reached the footer. Both buttons are
+`focusableWhenDisabled`, and steps count from the page shown, which the stored
+page can outrun when the list shrinks. Filter changes reset the page without
+moving focus. Lesson titles, descriptions, course names and the outline's author
+text use `dir="auto"`, since admins can write lessons in a right-to-left
+language; the card's metadata isolates its course name in a `<bdi>`.
+
 Both learner lesson endpoints return normalized visibility in `status`, using
 the same `normalizeStatus()` helper as dashboard/activity stats: legacy
 `published` and status-less lessons with markdown become `public`, and legacy

@@ -37,8 +37,9 @@ describe('lesson markdown on learner surfaces', () => {
     it(`renders lesson markdown in the ${rel} outline dialog`, () => {
       const src = read(rel);
       // DialogDescription is a <p>, so it only ever gets inline HTML.
-      assert.match(src, /<DialogDescription className="coach-copy" dangerouslySetInnerHTML=\{\{ __html: renderInlineMd\(lesson\.description\) \}\} \/>/);
-      assert.match(src, /<div className="coach-copy [^"]*" dangerouslySetInnerHTML=\{\{ __html: renderMd\(lesson\.exemplar\) \}\} \/>/);
+      // dir="auto" lets right-to-left author text set its own direction.
+      assert.match(src, /<DialogDescription (?:dir="auto" )?className="coach-copy" dangerouslySetInnerHTML=\{\{ __html: renderInlineMd\(lesson\.description\) \}\} \/>/);
+      assert.match(src, /<div (?:dir="auto" )?className="coach-copy [^"]*" dangerouslySetInnerHTML=\{\{ __html: renderMd\(lesson\.exemplar\) \}\} \/>/);
       assert.match(src, /<li key=\{i\} className="coach-copy" dangerouslySetInnerHTML=\{\{ __html: renderInlineMd\(obj\) \}\} \/>/);
       assert.doesNotMatch(src, /\{lesson\.(description|exemplar)\}|<li key=\{i\}>\{obj\}<\/li>/, 'no raw author markdown as a text child');
     });
