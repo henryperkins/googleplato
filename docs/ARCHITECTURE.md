@@ -1963,7 +1963,8 @@ assessment sources or evidence. The serialized collection is limited to 48 KiB
 of UTF-8, retaining whole recent anchors in chronological order. The existing
 whole-record size checks still apply to the transcript and KB.
 
-If this limit omits history, `legacyContextTruncated` survives reloads. For an
+If this limit omits history, or retained task text or links are incomplete,
+`legacyContextTruncated` survives reloads. For an
 active lesson, the server generates a fixed clarification without calling either
 the coach or metadata-repair model. It preserves assessment and observations and
 asks for a complete task restatement beginning with `Continue with:`. The normal
@@ -1971,6 +1972,10 @@ signed-turn save, stream and recovery paths carry this clarification. A unique
 saved `confirmationPromptId` must identify that exact preceding prompt before a
 complete current learner reply can clear the flag. Empty, oversized, incomplete
 link-dependent or unrelated replies do not clear it.
+
+The same clarification also covers incomplete original assignments and selected
+learner directions, including directions selected after an earlier complete
+restatement. A prior confirmed task never hides a newer incomplete direction.
 
 The restatement becomes a source-backed `confirmedTask`, rehydrated from the
 unique saved learner message and its links. It replaces earlier task directions

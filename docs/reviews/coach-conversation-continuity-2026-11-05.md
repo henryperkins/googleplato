@@ -198,3 +198,31 @@ The unrelated primary working files, HEAD, status and staged contents are
 unchanged. Its index metadata was refreshed, so the index is not byte-identical
 to the earlier recovery snapshot. These follow-ups do not merge, deploy, or modify
 the production learner conversation.
+
+## Pre-merge clipped-history regression
+
+A new review on `d4afdd3` reproduced a task change hidden after the 6,000-character
+limit of one historical learner statement. The 48 KiB collection could remain
+within budget even though that individual statement was incomplete. Migration
+now also requires the same server clarification when a legacy anchor has clipped
+text or incomplete links. Unit and real-route regressions failed before the
+change and now pass, including save preservation with no model invocation.
+
+Independent pre-merge review reproduced the same loss in a selected current
+learner direction. The clarification guard also covers clipped/incomplete or
+missing selected directions, even after an earlier task confirmation, and a
+clipped original assignment until a complete task restatement supersedes it.
+Those three additional regressions also failed before correction and now pass.
+Final local validation passes **763 client and 946 server tests**, including
+PostgreSQL with zero skips, plus **73 focused tests** and all **21 offline cases**.
+Lint has zero errors and 19 existing warnings; the client build passes. Independent
+review found no remaining Critical defect or Important regression and approved
+merging within the original opening-assignment continuity scope.
+
+Two pre-existing limitations are recorded separately: a target first selected by
+the coach after a target-free diagnostic opening is not retained once that later
+coach message leaves the history window; and the narrow administrative repair
+accepts word/hyphen lesson IDs but rejects dotted IDs accepted by general lesson
+routes. Neither changes the reported Berkshire opening or its exact repair.
+The former needs a separate design for retaining later coach-selected tasks
+without allowing an unsolicited coach switch to overwrite the assignment.

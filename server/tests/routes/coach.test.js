@@ -166,6 +166,37 @@ test('oversized migration asks a deterministic clarification and saves without i
   assert.equal((await request('/v1/sync/lesson-turn/l', unanswered)).status, 200);
 });
 
+test('a task change in the clipped suffix of legacy text triggers clarification without inference', async () => {
+  await saveOpening();
+  const current = await db.getLessonState(userId, 'l');
+  const history = [current.messages.data[0], { id: 'old-change:0', role: 'user',
+    content: 'x'.repeat(6500) + ' Please switch to https://replacement.example instead.' },
+  ...Array.from({ length: 45 }, (_, i) => ({ id: `later-${i}`, role: 'user', content: 'Another observation.' }))];
+  const kb = { ...current.lessonKB.data };
+  delete kb.conversationState;
+  await db.putSyncData(userId, 'messages:l', history);
+  await db.putSyncData(userId, 'lessonKB:l', kb);
+  ai.invoke = ai.invokeStream = () => { throw new Error('Clipped task changes must not reach a model.'); };
+  const turn = await send('clipped-history', { text: 'Which site should I use?' });
+  assert.match(turn.messages.at(-1).content, /Continue with:/);
+  assert.equal(turn.lessonKB.conversationState.legacyContextTruncated, true);
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 200);
+  assert.deepEqual((await db.getLessonState(userId, 'l')).messages.data.slice(0, history.length), history);
+});
+
+test('a clipped current learner direction requires restatement on the next saved turn', async () => {
+  await saveOpening();
+  respond(() => ({ progress: 0, kb: { responseType: 'clarification', taskChangeSourceId: 'long-direction:0' } }));
+  const change = await send('long-direction', { text: 'x'.repeat(6500) + ' Switch to https://news.ycombinator.com instead.' });
+  assert.equal(change.lessonKB.conversationState.learnerDirections[0].truncated, true);
+  assert.equal((await request('/v1/sync/lesson-turn/l', change)).status, 200);
+  ai.invoke = ai.invokeStream = () => { throw new Error('An incomplete selected direction must not reach a model.'); };
+  const next = await send('after-long-direction', { text: 'What should I inspect first?' });
+  assert.match(next.messages.at(-1).content, /Continue with:/);
+  assert.equal(next.lessonKB.conversationState.legacyContextTruncated, true);
+  assert.equal((await request('/v1/sync/lesson-turn/l', next)).status, 200);
+});
+
 test('an explicit task restatement exits clarification and survives reload without restoring obsolete history', async () => {
   await seedLargeLegacyLesson();
   respond(() => ({ progress: 0, kb: { responseType: 'clarification' } }));

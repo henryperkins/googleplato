@@ -75,10 +75,15 @@ export function reconcileConversationState(previous, messages = []) {
     legacyLearnerContext,
     latestCoachPrompt: byId.get(anchors.findLast(item => item.role === 'assistant')?.sourceMessageId) || null };
   if (confirmed) state.confirmedTask = confirmedTask;
-  // Omitted history can contain the active target. Never silently fall back to
-  // the opening: the server requests a complete restatement before inference.
-  if (!confirmed && (previous?.legacyContextTruncated || previous?.confirmedTask
-    || legacyLearnerContext.length < legacyAnchors.length)) state.legacyContextTruncated = true;
+  // Omitted history or incomplete task anchors can hide the active target.
+  // Even a previously confirmed task cannot supersede a newer incomplete
+  // direction: request a complete restatement before inference.
+  const incomplete = item => item?.truncated || item?.linksIncomplete;
+  const incompleteDirections = learnerDirections.some(incomplete)
+    || previousDirections.some(item => byId.get(item?.sourceMessageId)?.role !== 'user');
+  if (incompleteDirections || (!confirmed && (previous?.legacyContextTruncated || previous?.confirmedTask
+    || incomplete(assignment) || legacyAnchors.some(incomplete)
+    || legacyLearnerContext.length < legacyAnchors.length))) state.legacyContextTruncated = true;
   const confirmationPrompt = byId.get(previous?.confirmationPromptId);
   if (state.legacyContextTruncated && confirmationPrompt?.role === 'assistant'
     && confirmationPrompt.text === TASK_CONFIRMATION_PROMPT) state.confirmationPromptId = confirmationPrompt.sourceMessageId;

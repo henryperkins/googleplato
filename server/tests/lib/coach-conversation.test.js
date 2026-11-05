@@ -149,6 +149,47 @@ test('legacy context is bounded by UTF-8 bytes and keeps an explicit unresolved 
   }
 });
 
+test('a clipped legacy statement or incomplete saved links require task confirmation even within the byte budget', () => {
+  const hiddenChange = 'x'.repeat(6000) + ' Please switch to https://replacement.example instead.';
+  for (const change of [
+    { id: 'change:0', role: 'user', content: hiddenChange },
+    { id: 'change:0', role: 'user', content: 'Audit the attached site instead.', metadata: { links: [{ url: 'https://' }] } },
+  ]) {
+    const history = [opening, change, ...Array.from({ length: 45 }, (_, i) => ({ id: `later-${i}`, role: 'user', content: 'Another observation.' }))];
+    for (const previous of [null, { version: 2, legacyLearnerContext: [{ sourceMessageId: change.id }] }]) {
+      const state = reconcileConversationState(previous, history);
+      assert.ok(Buffer.byteLength(JSON.stringify(state.legacyLearnerContext)) < 48 * 1024);
+      assert.equal(state.legacyContextTruncated, true);
+      assert.equal(reconcileConversationState(state, history).legacyContextTruncated, true);
+    }
+  }
+});
+
+test('incomplete selected directions require restatement even after a previous complete task confirmation', () => {
+  for (const confirmed of [false, true]) {
+    const restatement = { id: 'confirmed:0', role: 'user', content: 'Continue with: audit https://www.berkshirehathaway.com.' };
+    const history = confirmed ? [opening, restatement, reply] : [opening];
+    const state = reconcileConversationState(confirmed ? { version: 3, legacyLearnerContext: [], confirmedTask: { sourceMessageId: restatement.id } } : null, history);
+    for (const change of [
+      { id: 'changed:0', role: 'user', content: 'x'.repeat(6500) + ' Switch to https://news.ycombinator.com instead.' },
+      { id: 'changed:0', role: 'user', content: 'Audit the attached site instead.', metadata: { links: [{ url: 'https://' }] } },
+    ]) {
+      const next = applyConversationTurn(state, [change], change.id);
+      const messages = [...history, change, ...Array.from({ length: 45 }, (_, i) => ({ id: `filler-${i}`, role: 'user', content: 'Another observation.' }))];
+      assert.equal(reconcileConversationState(next, messages).legacyContextTruncated, true);
+    }
+  }
+});
+
+test('a clipped opening requires restatement until a complete confirmed task supersedes it', () => {
+  const messages = [{ ...opening, content: 'x'.repeat(6500) + ' Audit https://example.org.' }];
+  const state = reconcileConversationState(null, messages);
+  assert.equal(state.legacyContextTruncated, true);
+  const restatement = { id: 'confirmed:0', role: 'user', content: 'Continue with: audit https://example.org.' };
+  const confirmed = reconcileConversationState({ ...state, confirmedTask: { sourceMessageId: restatement.id } }, [...messages, restatement]);
+  assert.equal(confirmed.legacyContextTruncated, undefined);
+});
+
 test('task confirmation requires an intact explicit restatement after the unique saved server prompt', () => {
   const prompt = { id: 'confirm:1', role: 'assistant', content: TASK_CONFIRMATION_PROMPT, assessmentProvenance: 'server-v1' };
   const previous = { version: 3, legacyLearnerContext: [], legacyContextTruncated: true, confirmationPromptId: prompt.id };
