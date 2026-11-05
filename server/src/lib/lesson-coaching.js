@@ -12,6 +12,7 @@ import { emit } from './plugins/hooks.js';
 import { logger } from './logger.js';
 import { readCoachResult, storeCoachResult } from './coach-recovery.js';
 import { assessCoachResponse } from './coach-assessment.js';
+import { buildCoachHistory, reconcileConversationState, applyConversationTurn } from '../shared/coachConversation.js';
 
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 const idPattern = /^[\w-]{1,100}$/;
@@ -100,6 +101,8 @@ async function generate(userId, lessonId, input, onText) {
     kb.enrichments = await collectLessonEnrichments(userId, lesson, kb, telemetry);
   }
   const wasCompleted = kb.status === 'completed';
+  // Keep conversational continuity independent of assessment migration/reset.
+  kb.conversationState = reconcileConversationState(base.lessonKB.data?.conversationState, base.messages.data);
   if (!wasCompleted) {
     if (kb.assessmentVersion !== 1 || kb.criteriaHash !== criteriaHash) kb = { ...kb, evidence: [], exemplarEvidence: empty(), sources: [], progress: 0, insights: [], learnerPosition: 'Assessment needs evidence against the current authored criteria.' };
     kb = reconcileLessonKB(lesson, kb);
@@ -126,10 +129,7 @@ async function generate(userId, lessonId, input, onText) {
   for (const source of [...priorSources, ...sources]) if (source.kind === 'image') source.available = visibleIds.has(source.id);
   sources = retainSources([], sources);
   kb = { ...kb, sources: retainSources(priorSources, sources, sourceIdsForEvidence(kb)) };
-  // Only verified assistant turns are conversation context. Legacy user text
-  // remains useful to orient coaching, but cannot invent source identifiers.
-  const history = base.messages.data.slice(-40).filter(item => item.role === 'user' || item.assessmentProvenance === 'server-v1')
-    .filter(item => typeof item.content === 'string' && item.content.trim()).map(item => ({ role: item.role, content: item.content.slice(0, 6000) }));
+  const history = buildCoachHistory(base.messages.data);
   const courseProgress = lesson.course ? (await db.getSyncData(userId, `courseProgress:${lesson.course.id}`))?.data?.summary : null;
   const context = buildContext(lesson, kb, profile?.data, preferences?.data?.name || user?.name || '', courseProgress);
   const parts = [{ type: 'text', text: opening ? 'Start the lesson.' : JSON.stringify({ learnerSubmission: submission.text || '(See attached sources)', currentSourceIds: sources.map(source => source.id) }) }];
@@ -160,6 +160,8 @@ async function generate(userId, lessonId, input, onText) {
   if (!opening) messages.push({ id: `${turnId}:0`, role: 'user', content: submission.text || (submission.imageKeys.length ? '[image]' : '[link]'), msgType: 'user', phase,
     metadata, timestamp: Date.now(), assessmentProvenance: 'server-v1' });
   messages.push({ id: `${turnId}:${messages.length}`, role: 'assistant', content: parsed.text, msgType: 'guide', phase, timestamp: Date.now(), assessmentProvenance: 'server-v1' });
+  applied.lessonKB.conversationState = applyConversationTurn(kb.conversationState, messages,
+    parsed.valid && !wasCompleted && submission.text.trim() ? parsed.kbUpdate.taskChangeSourceId : undefined);
   // Store bounded enrichment exactly as presented, not arbitrary plugin payloads.
   applied.lessonKB.enrichments = JSON.parse(context).enrichmentContext || [];
   const turn = { userId, lessonId, turnId, base, messages, lessonKB: applied.lessonKB, phase, achieved: applied.achieved,

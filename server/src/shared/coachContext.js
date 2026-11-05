@@ -12,6 +12,7 @@ export function buildContext(lesson, lessonKB, profileSummary, learnerName, cour
     activitiesCompleted: completed, evidence: lessonKB?.evidence || [],
     exemplarEvidence: lessonKB?.exemplarEvidence || { status: 'missing', observation: '', sourceIds: [] },
     sources: lessonKB?.sources || [],
+    conversationState: lessonKB?.conversationState || null,
   };
   if (lesson.coachDirective) context.coachDirective = lesson.coachDirective;
   if (lesson.course?.name) context.course = { name: lesson.course.name, ...(courseProgress ? { progress: courseProgress } : {}) };
