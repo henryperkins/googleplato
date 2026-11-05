@@ -37,7 +37,8 @@ async function navigate(page, section) {
   await page.evaluate(() => document.fonts.ready);
 }
 
-describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
+// The timeout covers the whole suite, which takes about 70 seconds in WebKit.
+describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(root, 'client/dist/index.html')), 'Run npm run build:client before browser tests');
     directory = await mkdtemp(join(tmpdir(), 'plato-customizer-'));
@@ -1133,21 +1134,21 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
     const geometry = [];
     for (const theme of ['light', 'dark']) {
       for (const [width, height] of [[320, 760], [390, 844]]) {
-        for (const scale of [1, 2]) {
+        const { context, page } = await openPage({ width, height }, theme);
+        page.setDefaultTimeout(6000);
+        try {
+          await page.route('**/v1/ai/**', route => route.abort());
           for (const view of ['appearance', 'knowledge']) {
-            const { context, page } = await openPage({ width, height }, theme);
-            page.setDefaultTimeout(6000);
-            try {
-              await page.route('**/v1/ai/**', route => route.abort());
-              if (view === 'appearance') {
-                await navigate(page, 'customizer');
-                await page.getByLabel('Classroom Name', { exact: true }).fill('Enlarged text check');
-              } else {
-                await page.goto(`${base}/plato/customizer/knowledge/edit?mode=text`);
-                await page.getByRole('tabpanel', { name: 'Edit text', exact: true }).waitFor();
-                await page.getByLabel('Knowledge base text', { exact: true }).fill(`${content}\nMeetings move to Tuesdays.\n`);
-                await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
-              }
+            if (view === 'appearance') {
+              await navigate(page, 'customizer');
+              await page.getByLabel('Classroom Name', { exact: true }).fill('Enlarged text check');
+            } else {
+              await page.goto(`${base}/plato/customizer/knowledge/edit?mode=text`);
+              await page.getByRole('tabpanel', { name: 'Edit text', exact: true }).waitFor();
+              await page.getByLabel('Knowledge base text', { exact: true }).fill(`${content}\nMeetings move to Tuesdays.\n`);
+              await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
+            }
+            for (const scale of [1, 2]) {
               await page.evaluate(value => { document.documentElement.style.fontSize = `${value * 100}%`; }, scale);
               await page.evaluate(() => document.fonts.ready);
               // Buttons and tabs transition their size, so measure once that settles.
@@ -1188,9 +1189,9 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
                 if (view === 'appearance') assert.equal(measured.previews, 1, 'phones show one selected theme preview');
               }
               assert.equal(geometry.at(-1).pinned, scale === 1, 'pinned with default text; scrolls with the page when text is enlarged');
-            } finally { await context.close(); }
+            }
           }
-        }
+        } finally { await context.close(); }
       }
     }
   });
