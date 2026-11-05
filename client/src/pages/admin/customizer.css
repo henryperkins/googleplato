@@ -118,3 +118,32 @@
     position: static;
   }
 }
+
+/* Enlarged text on a phone. Unlike media queries, container rem units follow
+   the page's text size, and below 16rem no phone has default text. Tabs wrap
+   onto full-width rows instead of clipping both ends of a centered row, and
+   the action bars, whose buttons now stack, scroll with the page instead of
+   covering most of it. */
+@container (max-width: 16rem) {
+  .customizer-page [data-slot="tabs-list"],
+  .knowledge-mode-tabs {
+    width: 100%;
+    height: auto;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .customizer-page [data-slot="tabs-trigger"],
+  .knowledge-mode-tabs [data-slot="tabs-trigger"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: auto;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+
+  .knowledge-save-actions,
+  .customizer-actions {
+    position: static;
+  }
+}

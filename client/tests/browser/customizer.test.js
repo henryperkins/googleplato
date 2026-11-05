@@ -1115,4 +1115,79 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       assert.ok(branding.logoUrl, 'the stored SVG is still shown');
     } finally { await context.close(); }
   });
+
+  // Phones with default and 200% text, in both themes. Nothing clips sideways,
+  // every tab keeps its whole label in view, and an action bar that stays pinned
+  // leaves most of the page visible with Save inside it.
+  it('keeps Appearance and Program knowledge usable on phones with enlarged text', { timeout: 60000 }, async () => {
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}`, 'Content-Type': 'application/json' };
+    const content = `# Program reference\n\n${'Learners bring examples from their work to each session. '.repeat(12)}`;
+    assert.equal((await fetch(`${base}/v1/admin/knowledge-base`, {
+      method: 'PUT', headers, body: JSON.stringify({ content, conversation: null, readiness: 6 }),
+    })).status, 200);
+    const geometry = [];
+    for (const theme of ['light', 'dark']) {
+      for (const [width, height] of [[320, 760], [390, 844]]) {
+        for (const scale of [1, 2]) {
+          for (const view of ['appearance', 'knowledge']) {
+            const { context, page } = await openPage({ width, height }, theme);
+            page.setDefaultTimeout(6000);
+            try {
+              await page.route('**/v1/ai/**', route => route.abort());
+              if (view === 'appearance') {
+                await navigate(page, 'customizer');
+                await page.getByLabel('Classroom Name', { exact: true }).fill('Enlarged text check');
+              } else {
+                await page.goto(`${base}/plato/customizer/knowledge/edit?mode=text`);
+                await page.getByRole('tabpanel', { name: 'Edit text', exact: true }).waitFor();
+                await page.getByLabel('Knowledge base text', { exact: true }).fill(`${content}\nMeetings move to Tuesdays.\n`);
+                await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
+              }
+              await page.evaluate(value => { document.documentElement.style.fontSize = `${value * 100}%`; }, scale);
+              await page.evaluate(() => document.fonts.ready);
+              // Buttons and tabs transition their size, so measure once that settles.
+              await page.evaluate(() => Promise.all(document.getAnimations()
+                .filter(animation => animation instanceof CSSTransition)
+                .map(animation => animation.finished.catch(() => {}))));
+              for (const position of ['top', 'middle']) {
+                const measured = await page.evaluate(where => {
+                  const main = document.querySelector('#main-content');
+                  main.scrollTop = where === 'top' ? 0 : (main.scrollHeight - main.clientHeight) / 2;
+                  const box = main.getBoundingClientRect();
+                  const inside = (rect, bound) => rect.left >= bound.left - 1 && rect.right <= bound.right + 1
+                    && rect.top >= bound.top - 1 && rect.bottom <= bound.bottom + 1;
+                  const tabs = [...main.querySelectorAll('[role="tab"]')].map(tab => {
+                    const rect = tab.getBoundingClientRect();
+                    const range = document.createRange(); range.selectNodeContents(tab);
+                    return { name: tab.textContent.trim(), fits: rect.left >= box.left - 1 && rect.right <= box.right + 1
+                      && [...range.getClientRects()].every(line => inside(line, rect)) };
+                  });
+                  const bar = main.querySelector('.customizer-actions, .knowledge-save-actions');
+                  const save = bar.querySelector('button');
+                  const previews = [...main.querySelectorAll('.customizer-appearance figure')].filter(figure => getComputedStyle(figure).display !== 'none');
+                  return {
+                    tabs, pinned: getComputedStyle(bar).position === 'sticky',
+                    barShare: bar.getBoundingClientRect().height / box.height,
+                    saveVisible: inside(save.getBoundingClientRect(), box), save: save.textContent.trim(), previews: previews.length,
+                    width: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth,
+                  };
+                }, position);
+                const state = { theme, width, height, scale, view, position, ...measured };
+                geometry.push(state);
+                assert.ok(measured.scrollWidth <= measured.width + 1, JSON.stringify(state));
+                assert.ok(measured.tabs.length >= (view === 'knowledge' ? 4 : 2) && measured.tabs.every(tab => tab.fits), JSON.stringify(state));
+                if (measured.pinned) {
+                  assert.ok(measured.barShare <= 0.4, `a pinned action bar covers ${Math.round(measured.barShare * 100)}% of the page: ${JSON.stringify(state)}`);
+                  assert.ok(measured.saveVisible, `${measured.save} is hidden under the pinned bar: ${JSON.stringify(state)}`);
+                }
+                if (view === 'appearance') assert.equal(measured.previews, 1, 'phones show one selected theme preview');
+              }
+              assert.equal(geometry.at(-1).pinned, scale === 1, 'pinned with default text; scrolls with the page when text is enlarged');
+            } finally { await context.close(); }
+          }
+        }
+      }
+    }
+  });
 });
