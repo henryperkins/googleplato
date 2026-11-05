@@ -13,7 +13,7 @@ export const MIN_KNOWLEDGE_BASE_LENGTH = 50;
 
 /** Markdown that may be saved. The saved knowledge base can always be saved again. */
 export function savableKnowledgeBase(markdown, savedMarkdown = '') {
-  if (typeof markdown !== 'string' || !markdown) return false;
+  if (typeof markdown !== 'string' || !markdown.trim()) return false;
   return markdown.length >= MIN_KNOWLEDGE_BASE_LENGTH || markdown === savedMarkdown;
 }
 
@@ -44,10 +44,10 @@ export function conversationForStorage(messages, savedThrough = messages.length)
  */
 export function knowledgeBaseEditorState({
   messageCount, savedMarkdown = '', savedThrough = 0, previewMarkdown = '', previewSyncedAt = 0,
-  saving = false, working = false,
+  draftMarkdown = previewMarkdown, saving = false, working = false,
 }) {
-  const previewCurrent = !!previewMarkdown && messageCount <= previewSyncedAt;
-  const dirty = messageCount > savedThrough || previewMarkdown !== savedMarkdown;
+  const previewCurrent = !!previewMarkdown && messageCount <= previewSyncedAt && draftMarkdown === previewMarkdown;
+  const dirty = messageCount > savedThrough || previewMarkdown !== savedMarkdown || draftMarkdown !== savedMarkdown;
   return {
     previewCurrent,
     previewStale: !!previewMarkdown && !previewCurrent,
@@ -58,12 +58,12 @@ export function knowledgeBaseEditorState({
 }
 
 /**
- * The Markdown to save. A current preview is what the admin reviewed, so it is
- * saved verbatim; only a missing or stale preview needs a new extraction.
+ * Saving is persistence-only. Generation and text review happen separately,
+ * so no save path can publish a document the administrator has not seen.
  */
-export async function knowledgeBaseMarkdownForSave({ previewMarkdown, previewCurrent, extract }) {
-  if (previewCurrent) return { markdown: previewMarkdown, extracted: false };
-  return { markdown: await extract(), extracted: true };
+export async function knowledgeBaseMarkdownForSave({ previewMarkdown, previewCurrent }) {
+  if (!previewCurrent || !previewMarkdown?.trim()) throw new Error('Review a current preview before saving the knowledge base.');
+  return { markdown: previewMarkdown, extracted: false };
 }
 
 /**

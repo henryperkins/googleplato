@@ -30,6 +30,7 @@ export default function MarkdownPreviewPane({
   emptyHint = 'Describe the skill and intended outcome, then generate a preview.',
   statusLabel,
   staleLabel,
+  staleHint = 'The conversation has changed. Refresh the preview to include your changes.',
   preserveContent = false,
 }) {
   const hasContent = !!markdown?.trim();
@@ -84,7 +85,7 @@ export default function MarkdownPreviewPane({
         <p id="md-preview-stale-hint" className={staleLabel
           ? 'text-sm rounded-md border border-warning-border bg-warning text-warning-foreground px-3 py-2 mb-3'
           : 'text-sm text-muted-foreground mb-3'}>
-          The conversation has changed. Refresh the preview to include your changes.
+          {staleHint}
         </p>
       )}
 
