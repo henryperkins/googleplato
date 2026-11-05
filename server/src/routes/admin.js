@@ -17,6 +17,7 @@ import { classifyCache, kickoffAsyncRefresh, refreshStaleLessonStats } from '../
 import { mapWithConcurrency } from '../lib/concurrency.js';
 import { normalizeStatus, publicLessonIds } from '../lib/lesson-visibility.js';
 import aiSettings from './ai-settings.js';
+import { repairCoachContinuity } from '../lib/coach-continuity-repair.js';
 import {
   readWaitlistConfig, writeWaitlistConfig, generateWaitlistApiKey, validateWaitlistEntry,
 } from '../lib/waitlist.js';
@@ -88,6 +89,23 @@ function validateLessonMarkdown(markdown) {
 
 admin.use('/v1/admin/*', authenticate, requireAdmin);
 admin.route('/', aiSettings);
+
+admin.post('/v1/admin/users/:userId/lessons/:lessonId/continuity-repair', bodyLimit({ maxSize: 2 * 1024 * 1024 }), async (c) => {
+  if (c.req.query('asUserId')) return c.json({ error: 'Repair is unavailable while viewing another user.' }, 403);
+  let input;
+  try { input = await c.req.json(); }
+  catch { return c.json({ error: 'Invalid JSON repair request.' }, 400); }
+  try {
+    const state = await repairCoachContinuity(c.req.param('userId'), c.req.param('lessonId'), input);
+    await db.createAuditLog({ action: 'lesson_continuity_repaired', userId: c.req.param('userId'), performedBy: c.get('userId'),
+      details: { lessonId: c.req.param('lessonId'), assignmentMessageId: input.assignmentMessageId,
+        learnerMessageId: input.learnerMessageId, removedInsightCount: input.misleadingInsights.length } });
+    return c.json(state);
+  } catch (error) {
+    if (error.status) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+});
 
 // GET /v1/admin/users
 // Pass `?include=stats` to enrich each row with `lessonsCompleted`,

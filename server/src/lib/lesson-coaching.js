@@ -59,7 +59,11 @@ export async function recoverCoachTurn(userId, lessonId, turnId) {
   const turn = await readCoachResult(userId, lessonId);
   if (!turn || (turnId && turn.turnId !== turnId)) return null;
   const state = await db.getLessonState(userId, lessonId);
-  return state.generation === turn.base.generation ? turn : null;
+  if (state.generation !== turn.base.generation) return null;
+  const pending = isDeepStrictEqual(state, turn.base);
+  const saved = isDeepStrictEqual(state.messages.data, [...turn.base.messages.data, ...turn.messages])
+    && isDeepStrictEqual(state.lessonKB.data, turn.lessonKB);
+  return pending || saved ? turn : null;
 }
 function validateInput(input) {
   if (!idPattern.test(input?.turnId || '') || !['start', 'send'].includes(input.kind) || !input.base) throw failure('Invalid coaching request.');
