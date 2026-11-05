@@ -1,0 +1,30 @@
+▶ Learner recovery and responsive layout (chromium)
+  ✖ keeps the Add button focused during keyboard link submission (845.384935ms)
+✖ Learner recovery and responsive layout (chromium) (1870.919921ms)
+ℹ tests 1
+ℹ suites 1
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2184.424816
+
+✖ failing tests:
+
+test at client/tests/browser/learner-recovery.test.js:260:3
+✖ keeps the Add button focused during keyboard link submission (845.384935ms)
+  AssertionError [ERR_ASSERTION]: pending keyboard activation keeps Add focus
+      at file://<candidate>/client/tests/browser/learner-recovery.test.js:282:14
+      at async withPage (file://<candidate>/client/tests/browser/learner-recovery.test.js:112:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Promise.all (index 2)
+      at async Suite.run (node:internal/test_runner/test:1905:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

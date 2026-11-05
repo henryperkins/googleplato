@@ -1,0 +1,41 @@
+▶ Learner recovery and responsive layout (webkit)
+  ✔ keeps sign-in guidance and password recovery readable with enlarged text (1895.742405ms)
+  ✔ keeps keyboard focus through link rejection, correction and retry without duplicate requests (1254.758049ms)
+  ✔ keeps the Add button focused during keyboard link submission (1292.356616ms)
+  ✔ preserves deliberately moved focus on link failure and restores the trigger after cancellation (1232.316552ms)
+  ✔ shows lesson choices immediately on load, filtering, and pagination with either motion preference (811.596741ms)
+  ✔ counts only public lessons across status filters and pages while keeping private lessons available (1532.238485ms)
+  ✔ warns on native draft storage exhaustion and retains exact work after retry and reload (2478.890608ms)
+  ✔ keeps a draft warning until verified readback and handles unavailable copying (1405.168028ms)
+  ✔ distinguishes coach waiting, pending save and acknowledged progress (3143.473016ms)
+  ✔ distinguishes coach waiting, pending save and acknowledged progress after lost acknowledgment (3259.373157ms)
+  ✔ keeps a failed save retry recoverable after network failure (2333.533052ms)
+  ✔ keeps a failed save retry recoverable after incomplete acknowledgment (2314.285093ms)
+  ✔ reopening during a save retry joins its success (2262.910107ms)
+  ✔ reopening during a save retry joins its failure (2325.758843ms)
+  ✔ saved reply confirmation fades before the coach with no-preference motion (3177.887015ms)
+  ✔ saved reply confirmation fades before the coach with reduce motion (3070.829887ms)
+  ✔ clears the previous save confirmation before the next coach request (3162.075831ms)
+  ✔ keeps save failures and reassessment notices visible (7710.762704ms)
+  ✔ retains a failed response and newer draft through navigation and reload (1601.493028ms)
+  ✔ reopening a pending request joins its late success without generating twice (1354.764718ms)
+  ✔ provider failure while staying in the lesson preserves newer text and attachments (1456.973141ms)
+  ✔ reload during generation retains input without automatically repeating inference (1255.229232ms)
+  ✔ pending submission remains with account A after switching to B and back (1970.614125ms)
+  ✔ text and optional attachments survive failure, reload and lost acknowledgement (4899.039884ms)
+  ✔ failed local retention refuses Send without clearing the only draft copy (1287.316033ms)
+  ✔ reload reconciles a committed turn when the generated journal could not be stored (1364.045628ms)
+  ✔ restore and confirmed discard preserve attachments and newer drafts (1659.900533ms)
+  ✔ Settings fields and feedback stay with their owner through A B A and reload (2608.480681ms)
+  ✔ acknowledges unchanged profile feedback without writes and still retains malformed responses (794.847402ms)
+  ✔ delayed feedback generation cannot save into the next account (2057.179ms)
+  ✔ lesson titles and metadata fit narrow enlarged text in both themes (1295.949609ms)
+✔ Learner recovery and responsive layout (webkit) (69554.086942ms)
+ℹ tests 31
+ℹ suites 1
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 69901.092049

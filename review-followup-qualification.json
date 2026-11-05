@@ -1,0 +1,136 @@
+{
+  "source_commit": "1bcc8c0d88c61fe79d4a0f1169e83335b9e12463",
+  "previous_source_commit": "ebab465a9a1bf00d67faf0f892f739e5dcd3f804",
+  "base": "6377a9d2182f4915709fb2fbf72da85c14c5ffa0",
+  "source_files": [
+    "PRODUCT.md",
+    "client/src/components/chat/ComposeBar.jsx",
+    "client/src/pages/Login.jsx",
+    "client/tests/browser/learner-recovery.test.js"
+  ],
+  "patch_sha256": "cf84e00994b00da6955bad1c8c9daa1ff771596d07f784b78684fc705a5e6cd3",
+  "checks": {
+    "build": {
+      "started_at": "2026-11-05T16:35:15.054621+00:00",
+      "completed_at": "2026-11-05T16:35:16.191947+00:00",
+      "elapsed_seconds": 1.137,
+      "exit_code": 0,
+      "log_sha256": "71222b0fb83e2a4f9110a92cd3506333f8366e6c700e77ae811255aa276d84e0"
+    },
+    "unit-client": {
+      "started_at": "2026-11-05T16:35:15.056274+00:00",
+      "completed_at": "2026-11-05T16:35:20.661495+00:00",
+      "elapsed_seconds": 5.605,
+      "exit_code": 0,
+      "log_sha256": "7b280af4abb4da1fb2b5e5e77d5826d79183115eaff5e92201adc622ab7ac074",
+      "totals": {
+        "tests": 763,
+        "pass": 763,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "lint-client": {
+      "started_at": "2026-11-05T16:35:15.055109+00:00",
+      "completed_at": "2026-11-05T16:35:23.638107+00:00",
+      "elapsed_seconds": 8.583,
+      "exit_code": 0,
+      "log_sha256": "59c33a3dfb0b8df5c1b82d51f855756f025d339c8eb136c7dfb9e3a1655fe13b"
+    },
+    "browser-chromium": {
+      "started_at": "2026-11-05T16:36:31.267930+00:00",
+      "completed_at": "2026-11-05T16:37:33.586315+00:00",
+      "elapsed_seconds": 62.318,
+      "exit_code": 0,
+      "log_sha256": "b268629db60d70d10eabffafa6754f17a4b86f0982199c8e67481b5d3485976e",
+      "totals": {
+        "tests": 31,
+        "pass": 31,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "browser-webkit": {
+      "started_at": "2026-11-05T16:36:31.267842+00:00",
+      "completed_at": "2026-11-05T16:37:41.200759+00:00",
+      "elapsed_seconds": 69.933,
+      "exit_code": 0,
+      "log_sha256": "2570acc448b97b6b6bcffbefecf4aac2ff7c5321f5179a37fb716b2a8200bf8b",
+      "totals": {
+        "tests": 31,
+        "pass": 31,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "design-detector": {
+      "started_at": "2026-11-05T16:36:31.269808+00:00",
+      "completed_at": "2026-11-05T16:36:31.324583+00:00",
+      "elapsed_seconds": 0.055,
+      "exit_code": 0,
+      "log_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    }
+  },
+  "red_test": {
+    "exit_code": 1,
+    "assertion": "pending keyboard activation keeps Add focus",
+    "log_sha256": "a99f71ace10d1946c7e076d4d1de8be7424a1e69607070b64ae424d000c76eb0"
+  },
+  "browser_observations": {
+    "chromium": {
+      "version": "149.0.7827.55",
+      "pages": 32,
+      "snapshots": 58,
+      "layout_states": 24,
+      "page_errors": 0,
+      "framework_overlays": 0,
+      "capture_errors": 0,
+      "console_categories": {
+        "fixture has no retained coach result": 28,
+        "intentional response failure": 20,
+        "intentional network failure or lost response": 7,
+        "fixture omits optional telemetry endpoint": 47
+      },
+      "failed_request_categories": {
+        "request cancelled by navigation or context closing": 26,
+        "intentional network failure or lost response": 7
+      },
+      "button_focus_pending_and_after_rejection": true
+    },
+    "webkit": {
+      "version": "26.5",
+      "pages": 32,
+      "snapshots": 58,
+      "layout_states": 24,
+      "page_errors": 0,
+      "framework_overlays": 0,
+      "capture_errors": 0,
+      "console_categories": {
+        "existing WebKit viewport directive warning": 68,
+        "fixture has no retained coach result": 28,
+        "intentional response failure": 19,
+        "fixture omits optional telemetry endpoint": 47
+      },
+      "failed_request_categories": {
+        "intentional network failure or lost response": 7,
+        "request cancelled by navigation or context closing": 1,
+        "external request blocked by fixture origin rule": 2
+      },
+      "button_focus_pending_and_after_rejection": true
+    }
+  },
+  "server_and_dependencies_unchanged_since_original_qualification": true,
+  "postgres_qualification": "postgres-qualification.json",
+  "source_diff_matches_tested_patch": true,
+  "limits": [
+    "Local synthetic fixtures, not production or Cloud SQL",
+    "No physical-device, screen-reader, live OAuth, live AI, or browser telemetry delivery qualification",
+    "Hosted Actions remain unavailable because of account billing"
+  ]
+}

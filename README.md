@@ -1,119 +1,112 @@
 # Login reflow and link-fetch focus evidence
 
-Review artifacts for source commit `ebab465a9a1bf00d67faf0f892f739e5dcd3f804` on
-`fix/local-login-link-reconciliation-20261105`. The screenshots contain synthetic
-local fixture data. This branch contains no application changes or private
-recovery material.
+Review artifacts for [PR #42](https://github.com/henryperkins/googleplato/pull/42),
+source commit `1bcc8c0d88c61fe79d4a0f1169e83335b9e12463`. Screenshots contain synthetic local fixture data.
+This evidence branch is separate from the four-file application change.
 
 ## Source identity
 
 - Base: `6377a9d2182f4915709fb2fbf72da85c14c5ffa0`
-- Source commit: `ebab465a9a1bf00d67faf0f892f739e5dcd3f804`
+- Current source: `1bcc8c0d88c61fe79d4a0f1169e83335b9e12463`
+- Initial source: `ebab465a9a1bf00d67faf0f892f739e5dcd3f804`
 - Files: `PRODUCT.md`, `client/src/pages/Login.jsx`,
   `client/src/components/chat/ComposeBar.jsx`, and
   `client/tests/browser/learner-recovery.test.js`
-- Diff: 147 insertions and 13 deletions
+- Combined diff: 201 insertions and 14 deletions
 - SHA-256 of the full-index binary Git diff from the base:
-  `9195b8b7357c88d41a155f5c297b5adecfe56ef3a7fc51c5926c2dca0dfb44bd`
+  `cf84e00994b00da6955bad1c8c9daa1ff771596d07f784b78684fc705a5e6cd3`
 
-The source diff was qualified before its commit on 2026-11-05. Byte-for-byte
-identity with that tested patch was checked again before publication. Publication
-reused those complete runs and did not repeat unchanged suites. A separate
-read-only code review found no actionable Critical, Important, or Minor issue.
-That technical review does not replace independent GitHub approval.
+The committed diff matches the tested patch byte for byte. A separate read-only
+review found no actionable issue in the follow-up. This technical review does not
+replace formal GitHub approval.
 
-## Recorded local checks
+## Review follow-up
+
+Keyboard activation of Add dropped focus when the button became disabled during
+a link fetch. A real browser regression first failed at the pending-focus
+assertion on the initial source build. The button now uses its existing
+`focusableWhenDisabled` option only while fetching. The test covers Tab, Space,
+pending Enter/Space suppression, rejection, keyboard correction, Enter retry,
+and one successful attachment with focus restored to the composer.
+
+The login geometry check now requires labels to fit within their own buttons as
+well as the card. PRODUCT.md also records the empty-database bootstrap condition,
+Google onboarding's configured and legacy admin-role exceptions, and the
+password-reset-before-invitation path. Authentication behavior is unchanged.
+
+## Local qualification
 
 | Check | Result |
 | --- | --- |
-| Client unit suite | 763 passed, no failures or skips |
-| Server unit suite | 927 passed, no failures, three PostgreSQL-dependent skips |
-| Client lint | No errors; 19 existing warnings in unchanged files |
-| Server lint | No errors or warnings |
-| Production client build | Passed; existing chunk-size advisory also occurs on the base |
-| Chromium 149.0.7827.55 learner suite | 30/30 passed |
-| WebKit 26.5 learner suite | 30/30 passed |
+| Fresh client tests | 763 passed; no failures or skips |
+| Fresh client lint | No errors; 19 existing warnings in unchanged files |
+| Fresh client production build | Passed; existing chunk-size advisory |
+| Chromium 149.0.7827.55 learner suite | 31/31 passed |
+| WebKit 26.5 learner suite | 31/31 passed |
 | Impeccable detector | No findings in the two changed UI files |
-| Diff, baseline reconstruction, and protected-worktree preservation | Passed |
+| Original full server run | 927 passed; no failures; three PostgreSQL-dependent skips covered below |
+| Focused PostgreSQL follow-up | 27 passed; no failures or skips |
+| Original server lint | No errors or warnings |
+| Diff identity and protected current-main files | Passed |
 
-Environment: Node 24.21.0, npm 11.19.0, and Playwright 1.61.1.
-Chromium ran at 2026-11-05 15:50:27–15:51:27 UTC; WebKit ran at
-15:50:27–15:51:35 UTC.
+The fresh client checks ran on 2026-11-05. Chromium ran at 16:36:31–16:37:33 UTC;
+WebKit ran at 16:36:31–16:37:41 UTC. Environment: Node 24.21.0, npm 11.19.0,
+Playwright 1.61.1. Server code and package manifests/locks are unchanged since the
+server and PostgreSQL checks, so those completed runs remain applicable.
 
-The enlarged-text and pending-link-focus regressions failed against the baseline
-build for the intended reasons. The deliberate-focus-movement control already
-passed on the baseline. All three new cases passed in both candidate suites.
-Existing retry deduplication, failed-draft unload protection, account isolation,
-pagination, and learner recovery coverage remained in place.
+The PostgreSQL 17.11 run exercised all three previously skipped groups:
+persistence/concurrent writers, branding transactions, and save-event reports
+through the production HTTP entrypoint. Its three selected files also contain
+SQLite, DynamoDB, and development-entrypoint checks. The 27 passes are a focused
+follow-up; do not add them to 927 as if the cases were disjoint. The digest-pinned,
+loopback-only, disposable database used synthetic fixtures. Its temporary schemas
+and task-owned container were removed after testing.
 
-Login measurements covered 24 states per browser: clean and invalid forms, both
-themes, widths of 320/390/430/844/1440 CSS px, and root text at 100% or 200% for the
-selected viewport scenarios. The link flow used a 390 × 844 CSS px viewport. The
-fixtures used mobile/touch contexts, including at wider widths.
+Both browser suites include all 27 original learner cases and four added cases.
+Login checks cover 24 states per engine across clean/invalid forms, light/dark
+themes, widths from 320 to 1440 CSS px, and 100%/200% root text for the selected
+scenarios. Both runs captured 58 DOM snapshots across 32 pages: meaningful content,
+no framework error overlays, no unhandled page exceptions, and no capture errors.
+Console output was accounted for: expected absent retained-coach lookups,
+injected response/network failures, omitted fixture telemetry, and WebKit's
+existing unsupported viewport directive. External Google script requests were
+blocked by the fixture's origin rule. Console output was not empty.
 
-Each browser run recorded 55 DOM snapshots with meaningful content, no framework
-error overlays, and no unhandled page exceptions. Console messages were accounted
-for: expected missing retained-coach lookups, injected request/network failures,
-the existing fixture's missing optional client-events endpoint, and WebKit's
-existing unsupported interactive-widget viewport directive. Console output was
-not empty.
+## Logs and screenshots
 
-## Screenshot provenance
+- [Qualification details and original log hashes](review-followup-qualification.json)
+- [Expected failure before the Add-button fix](button-focus-before-fix.log)
+- [Chromium follow-up run](browser-chromium-followup.log)
+- [WebKit follow-up run](browser-webkit-followup.log)
+- [PostgreSQL test output](postgres-tests.log)
+- [PostgreSQL source, image, isolation, and cleanup record](postgres-qualification.json)
 
-[login-before-after.png](login-before-after.png) combines two Chromium screenshots:
-the baseline failure and passing candidate at 320 CSS px and 200% root text.
-Shared branding above the card is cropped out; full viewport width is retained.
-Labels were added during composition. Document heights differ because text wraps.
+The browser logs replace local filesystem roots with placeholders; their test
+results and assertions are unchanged. The JSON records hashes of the original
+local logs. The PostgreSQL record retains the exact initial source identity;
+no server or dependency file changed in the later source commit.
 
-[link-focus-detail.png](link-focus-detail.png) crops the candidate's Chromium URL
-validation failure screenshot to the composer. It shows retained input focus,
-the invalid-URL message, and correction/cancellation controls. Pending focus was
-also checked through assertions while the request was held.
+[add-button-pending.png](add-button-pending.png) and
+[add-button-rejected.png](add-button-rejected.png) are unedited 390 × 844 CSS px
+Chromium screenshots from the fresh follow-up. Both show the focused Add button;
+pending/rejected focus and disabled behavior were also checked by assertions.
+Matching WebKit screenshots were inspected and are retained locally.
+
+The earlier [login-before-after.png](login-before-after.png) and
+[link-focus-detail.png](link-focus-detail.png) remain unchanged. They were captured
+for the initial source commit. The login comparison crops shared branding above
+the card and adds baseline/candidate labels; the link image crops the composer.
+Current follow-up checks revalidated both behaviors. These older screenshots are
+not represented as captures of the later source commit.
 
 ## Limits
 
 Browser fixtures used isolated temporary SQLite databases and deterministic AI
-and link responses. They did not make live provider calls. The three server skips
-cover PostgreSQL persistence/concurrent writers, PostgreSQL branding transactions,
-and the production entrypoint's save-event integration, because no
-`POSTGRES_TEST_URL` was supplied.
+and link responses. No live provider calls were made. Local PostgreSQL results do
+not establish Cloud SQL or production behavior. Physical devices, native
+keyboards, screen readers, live OAuth, live AI, and browser telemetry delivery
+remain unqualified. Hosted Actions remain unavailable because of account billing;
+consult the PR for current check and review status.
 
-These results do not qualify physical devices, native keyboards, screen readers,
-live OAuth, live AI, Cloud SQL, production, or browser telemetry delivery. Hosted
-CI is separate from these local results; consult the PR for its current status.
-
-Private recovery archives, original dirty work, and local Impeccable configuration
-remain outside this evidence branch.
-
-
-
-## PostgreSQL follow-up
-
-On 2026-11-05, the three previously skipped PostgreSQL-dependent groups were run
-against a disposable local PostgreSQL 17.11 database on the unchanged source commit
-`ebab465a9a1bf00d67faf0f892f739e5dcd3f804`.
-
-The three selected test files produced **27 passes, zero failures, and zero skips**.
-This covers PostgreSQL persistence and concurrent writers; PostgreSQL branding
-transactions and rollback; and authenticated save-event reports through the
-production HTTP entrypoint. The selected files also include their existing
-SQLite, DynamoDB, and development-entrypoint checks. This was a focused follow-up,
-not a second full server-suite run; its count should not be added to the earlier
-927 passes as if the cases were disjoint.
-
-The official PostgreSQL image was pinned by digest. The database listened only on
-loopback, used synthetic fixtures and disposable schemas, and inherited no live
-provider credentials. Tests removed their schemas, and the task-owned database
-container was stopped and removed. Application source and its qualified diff are
-unchanged.
-
-- [Exact test output](postgres-tests.log)
-- [Sanitized qualification record and image identity](postgres-qualification.json)
-
-A post-test fixture cleanup assertion initially expected Docker's older missing
-object wording. Docker 29 reported a missing container instead; direct inspection
-and listing confirmed cleanup. The test process itself exited successfully, and
-no application change or test rerun was needed.
-
-This closes the three local PostgreSQL skips in the earlier report. It does not
-qualify production Cloud SQL, live providers, physical devices, or hosted CI.
+Original dirty work, private recovery archives, local hook configuration, and
+unrelated fork/upstream work remain outside this branch and application PR.
