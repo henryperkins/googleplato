@@ -167,6 +167,31 @@ describe(`lesson list (${engine})`, () => {
     await returning.context.close();
   });
 
+  it("lines up card titles across a row, each status mark on its title's first line", async () => {
+    // With nothing started, Start here sits beside the first title, which wraps.
+    const { context, page } = await signIn('admin');
+    const rows = await page.evaluate(() => {
+      const byRow = new Map();
+      for (const item of document.querySelectorAll('ul[role=list] > li')) {
+        const title = item.querySelector('.lesson-open span[dir=auto]');
+        const mark = title.parentElement.nextElementSibling;
+        const box = title.getBoundingClientRect();
+        const key = `${item.parentElement.getAttribute('aria-label')} ${Math.round(item.getBoundingClientRect().top)}`;
+        if (!byRow.has(key)) byRow.set(key, []);
+        byRow.get(key).push({ title: box.top, mark: mark.getBoundingClientRect().top,
+          lines: Math.round(box.height / parseFloat(getComputedStyle(title).lineHeight)) });
+      }
+      return [...byRow.values()];
+    });
+    assert.ok(rows.some(row => row.length > 1 && row.some(card => card.lines > 1)), 'a row with a wrapped title');
+    for (const row of rows) {
+      const tops = row.map(card => card.title);
+      assert.ok(Math.max(...tops) - Math.min(...tops) < 0.5, `titles share a top line: ${tops.join(', ')}`);
+      for (const card of row) assert.ok(Math.abs(card.mark - card.title) < 0.5, `mark ${card.mark} on the title's first line ${card.title}`);
+    }
+    await context.close();
+  });
+
   it('shows each progress bar whole in both themes, and keeps the bars in forced colors', async () => {
     const courseBar = page => page.getByRole('progressbar', { name: /progress: 1 of 14 public lessons completed$/ });
     // A status filter keeps the course grouping, so the course's bar leads.

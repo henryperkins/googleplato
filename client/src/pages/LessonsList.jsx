@@ -5,6 +5,8 @@ import { useApp } from '../contexts/AppContext.jsx';
 import { getCachedLessonKB, getLessonKB } from '../../js/storage.js';
 import { authenticatedFetch } from '../../js/auth.js';
 import { renderMd, renderInlineMd, stripInlineMd } from '../lib/helpers.js';
+import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import Check from 'lucide-react/dist/esm/icons/check';
 import { courseCompletion } from '../lib/courseCompletion.js';
 import { groupLessonsForPage, needsOtherHeading, orderLessons, startHereLessonId } from '../lib/lessonListOrder.js';
@@ -415,7 +417,8 @@ export default function LessonsList() {
             onClick={() => goToPage(currentPage - 1)}
             aria-label="Previous page"
           >
-            &larr; Previous
+            <ArrowLeft aria-hidden="true" data-icon="inline-start" />
+            Previous
           </Button>
           <span className="text-sm text-muted-foreground tabular-nums whitespace-nowrap" aria-current="page">
             Page {currentPage} of {totalPages}
@@ -429,7 +432,8 @@ export default function LessonsList() {
             onClick={() => goToPage(currentPage + 1)}
             aria-label="Next page"
           >
-            Next &rarr;
+            Next
+            <ArrowRight aria-hidden="true" data-icon="inline-end" />
           </Button>
         </nav>
       )}
@@ -552,8 +556,10 @@ function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOver
         aria-describedby={parts.length > 0 ? metaId : undefined}
         // The card draws this button's focus ring (.lesson-card in
         // index.css): the card clips to its corners, which cut the ring to a
-        // line. text-start lets a right-to-left title align right.
-        className="lesson-open min-w-0 flex-1 text-start px-4 pt-4 pb-2 cursor-pointer"
+        // line. text-start lets a right-to-left title align right. A button
+        // centers its content, so a short title sat lower than a long one
+        // beside it; as a column it starts every title on the row's top line.
+        className="lesson-open flex min-w-0 flex-1 flex-col justify-start text-start px-4 pt-4 pb-2 cursor-pointer"
       >
         <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
           <div className="min-w-0 basis-48 flex-1 space-y-1.5">
@@ -627,7 +633,7 @@ function StartHereMark() {
   return (
     <span
       aria-hidden="true"
-      className="mt-0.5 flex h-6 shrink-0 items-center whitespace-nowrap rounded-full bg-primary px-2.5 text-xs font-semibold text-primary-foreground forced-colors:outline-1"
+      className="flex h-6 shrink-0 items-center whitespace-nowrap rounded-full bg-primary px-2.5 text-xs font-semibold text-primary-foreground forced-colors:outline-1"
     >
       Start here
     </span>
@@ -645,8 +651,10 @@ function StartHereMark() {
 //   - completed:   green check on green wash
 // The visual is aria-hidden — the matching status text is folded into
 // the open-lesson button's aria-label, and `title` repeats it on hover.
+// Marks are 24px, top-aligned with the title's 22px first line: that centers
+// them on its x-height and sets a chip's 12px label on the title's baseline.
 function StatusIndicator({ progress, statusText }) {
-  const sharedClass = 'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full';
+  const sharedClass = 'flex h-6 w-6 shrink-0 items-center justify-center rounded-full';
   if (progress?.status === 'completed') {
     return (
       <span
@@ -672,7 +680,7 @@ function StatusIndicator({ progress, statusText }) {
       <span
         aria-hidden="true"
         title={statusText}
-        className="mt-0.5 flex h-6 shrink-0 items-center gap-1 rounded-full bg-in-progress-background pl-px pr-2 text-in-progress-foreground"
+        className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-in-progress-background pl-px pr-2 text-in-progress-foreground"
       >
         <ProgressRing pct={pct} />
         <span className="text-xs font-semibold tabular-nums">{pct}%</span>
@@ -726,18 +734,18 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange, o
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent variant="sheet">
         <DialogHeader>
-          {/* Course tag above the title — establishes scope before the
-              learner reads the title, matches the card's visual order. */}
-          {lesson.course?.name && (
-            <p dir="auto" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {lesson.course.name}
-            </p>
-          )}
           <DialogTitle dir="auto" className="wrap-anywhere leading-snug">{lesson.name}</DialogTitle>
           {/* Author-written markdown: inline formatting only, since the
               description is a <p>. The exemplar may hold lists. */}
           {lesson.description && (
             <DialogDescription dir="auto" className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />
+          )}
+          {/* The course follows in the card's order and metadata style,
+              rather than as a label above the title. */}
+          {lesson.course?.name && (
+            <p dir="auto" className="wrap-anywhere text-xs leading-relaxed text-muted-foreground">
+              {lesson.course.name}
+            </p>
           )}
         </DialogHeader>
 

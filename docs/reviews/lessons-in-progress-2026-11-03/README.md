@@ -1,4 +1,4 @@
-# Lesson list: lessons in progress first, Start here, hardening, and progress colors
+# Lesson list: lessons in progress first, Start here, hardening, progress colors, and polish
 
 A 2026-11-03 design critique of `/lessons` found that the screen didn't answer "what next?". Lessons sorted alphabetically by course. A returning learner's 20% lesson sat on page 2, behind a 14-lesson course. The outline dialog, the one place a learner decides, ended in a lone Close.
 
@@ -69,12 +69,26 @@ The critique also found progress under-signalled in light mode. A colorize pass 
   - The track is neutral, like the borders. The brand stays in the fill, and a green or amber classroom's track can't be mistaken for a status.
 - **High contrast.** Forced colors drop background fills, so both bars vanished and only the count remained. The track now keeps a 1 px outline, and the fill takes the text color.
 
+## Polish
+
+A final polish pass looked at the page at 1280, 768, 390, and 320 px in both themes. It fixed four things:
+
+- **Titles share a row's top line.**
+  - A button centers its content, so a card's title sat lower than a longer title beside it: 11 px beside a two-line title, and 44 px beside the five-line title on page 2.
+  - The open action is now a column that starts at the top.
+  - Metadata and View outline still line up along the bottom of the row.
+- **Status marks sit on their title.**
+  - Each 24 px mark had a 2 px top margin, which hung it 3 px below the middle of the title's first line.
+  - Top-aligned with that 22 px line, a mark now centers on the title's x-height. The labels in the in-progress chip and in Start here sit on the title's baseline.
+- **The outline opens on its title.** The course name was an uppercase label above the title, three lines of it on a phone. It now follows the description, in the card's 12 px metadata style.
+- **The paging arrows are icons.** Previous and Next used the text glyphs ← and →. They now use lucide's arrows, as the lesson page's back button does.
+
 ## Validation
 
 | Check | Result |
 | --- | --- |
-| Client suite | 740 passed. That includes 22 new tests in `client/tests/lessonListOrder.test.js`, covering ordering, page grouping, the Other-lessons rule, Start here, the cache accessor, and the page wiring. It also includes 8 in `client/tests/lessons-list-hardening.test.js`. The track's contrast in both themes, swept across classroom colors, is in `design-tokens-contract.test.js` and `branding.test.js`. |
-| Browser suites (Chromium, local) | All passed: 4 in the new `npm --prefix client run test:browser:lessons` (paging focus, the card ring, Start here, and the progress bars' colors in both themes and in forced colors); 27 in the learner suite, after updating its course-progress test; and 24 in the admin suite, the one CI runs. The progress-color test fails against the build from before the colorize pass. |
+| Client suite | 745 passed. That includes 22 new tests in `client/tests/lessonListOrder.test.js`, covering ordering, page grouping, the Other-lessons rule, Start here, the cache accessor, and the page wiring. It also includes 8 in `client/tests/lessons-list-hardening.test.js` and 5 in `client/tests/lessons-list-polish.test.js`. The track's contrast in both themes, swept across classroom colors, is in `design-tokens-contract.test.js` and `branding.test.js`. |
+| Browser suites (Chromium, local) | All passed: 5 in the new `npm --prefix client run test:browser:lessons` (paging focus, the card ring, Start here, row alignment, and the progress bars' colors in both themes and in forced colors); 27 in the learner suite, after updating its course-progress test; and 24 in the admin suite, the one CI runs. The progress-color and row-alignment tests each fail against the build from before their pass. |
 | Lint | Passed: 0 errors, 19 existing client warnings. |
 | Client build | Passed; existing bundle-size advisory. |
 | Design detector | `detect --scope layout` and the full rule set found nothing on `LessonsList.jsx`. On `index.css` it repeats findings about older rules elsewhere in the file. |
@@ -100,6 +114,11 @@ The browser check covered:
   - The outline's track went from 1.09:1 to 1.44:1 by day, and from 1.11:1 to 1.55:1 at night.
   - The maroon fill holds 6.45:1 on the day track and 3.75:1 on the night track inside a dialog.
   - In forced colors, both tracks show a solid 1 px outline and both fills paint in the text color.
+- **Polish.** Measured in builds from before and after the polish pass:
+  - Card titles within a row went from up to 11 px apart (44 px beside the five-line title) to level, at 1280 and 768 px, in both themes.
+  - Every status mark's center went from 3 px to 1 px below the middle of its title's first line, which puts it on the title's x-height.
+  - The outline's header reads title, description, then course.
+  - No horizontal overflow at 320, 390, 768, or 1280 px, and no page errors.
 
 All browser records are synthetic. Server code is unchanged.
 
@@ -120,20 +139,21 @@ All browser records are synthetic. Server code is unchanged.
 - `screenshots/colorize-outline-in-progress-before.png` and `screenshots/colorize-outline-in-progress-after.png`: the outline's bar at 60%, its remaining length faint and then visible.
 - `screenshots/colorize-course-dark-after.png`: the course bar at night.
 - `screenshots/colorize-forced-colors-before.png` and `screenshots/colorize-forced-colors-after.png`: forced colors, with no bar and then an outlined track and its fill.
+- `screenshots/polish-row-alignment-before.png` and `screenshots/polish-row-alignment-after.png`: page 2's rows, with titles dropping beside longer ones and then level.
+- `screenshots/polish-marks-before.png` and `screenshots/polish-marks-after.png`: Start here, the in-progress chip, the completed check, and the empty circle, hanging low and then centered on their titles.
+- `screenshots/polish-outline-390-before.png` and `screenshots/polish-outline-390-after.png`: the outline on a phone, with the uppercase course label above the title and then the course after the description.
+- `screenshots/polish-pagination-before.png` and `screenshots/polish-pagination-after.png`: the paging arrows as text glyphs and then as icons.
 
 ## Not in this change
 
-The same critique's other items are queued as separate passes:
+The critique's remaining items stay out of scope unless the owner asks for them: the "public lessons" wording, the course name repeated in each card's metadata, and quieter View outline buttons.
 
-- **Polish:**
-  - Top-align card titles, which still drop beside a wrapped neighbor. Start here doesn't change that: the first title in the fixture wrapped before it too.
-  - Move the outline's course label out from above its title.
+Outline progress colors are out of scope too. The outline still draws a completed lesson's bar in the brand color while its card shows a green check. The critique suggested green, as on the lesson page.
 
-Outline progress colors stay out of scope unless the owner asks for them. The outline still draws a completed lesson's bar in the brand color while its card shows a green check. The critique suggested green, as on the lesson page.
-
-The harden and colorize passes also found these, outside this page:
+The harden, colorize, and polish passes also found these, outside this page:
 
 - **Right-to-left text on the lesson page.** The conversation and its outline don't set text direction either.
 - **Shared card outline.** The shared `Card` loses its outline in forced colors everywhere else, such as administration and settings. The fix here is scoped to lesson cards.
 - **Other progress bars.** The lesson page's bar and the admin readiness meters still sit on `--muted`, at 1.09:1 on white by day. Moving each to `--track` is one class. The readiness fills hold at least 6:1 on it, and the lesson bar's fill holds 3:1 for every classroom, as the list's do.
+- **Text arrows in administration.** The back buttons in Users and the wait-list editor read "← Back" with a text glyph rather than an icon.
 - **Repeated progress reads.** After every tab refocus, `sync.loadAll()` clears the cache. The list's confirming read then makes one request per unstarted lesson, in sequence. It is cheap, but it grows with the catalog. `/impeccable optimize` could skip it when the bulk load succeeded.

@@ -45,7 +45,7 @@ describe('author text direction', () => {
       /<h2 dir="auto" className=\{GROUP_HEADING\}>/,
       /<h2 dir="auto" className=\{`mb-3 \$\{GROUP_HEADING\}`\}>/,
       /<bdi title=\{part\.title\}>\{part\.text\}<\/bdi>/,
-      /<p dir="auto" className="text-xs font-semibold uppercase/,
+      /<p dir="auto" className="wrap-anywhere text-xs leading-relaxed text-muted-foreground">/,
       /<DialogTitle dir="auto" /,
       /<DialogDescription dir="auto" /,
       /<ul dir="auto" className="list-disc ps-5 /,
