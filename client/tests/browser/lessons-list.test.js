@@ -1,7 +1,7 @@
 // Browser checks for the learner's lesson list (/lessons): where focus goes
-// when paging, the lesson card's focus ring, and Start here. Runs against the
-// isolated learner fixture (SQLite, synthetic learners); build the client
-// first with `npm run build:client`.
+// when paging, the lesson card's focus ring, Start here, and the progress
+// bars' colors. Runs against the isolated learner fixture (SQLite, synthetic
+// learners); build the client first with `npm run build:client`.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, webkit } from 'playwright';
+import { contrastRatio } from '../../src/lib/branding.js';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const engine = process.env.PLATO_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
@@ -22,10 +23,10 @@ const assets = process.env.PLATO_TEST_CLIENT_DIST || join(root, 'client/dist');
 const password = randomBytes(24).toString('base64url');
 let browser, server, directory, base;
 
-// The fixture's learner a has 13 of 14 lessons in progress (two pages); its
-// admin has started none.
-async function signIn(who) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+// The fixture's learner a has 13 of 14 lessons in progress (two pages) and
+// one completed; its admin has started none.
+async function signIn(who, options = {}) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...options });
   const page = await context.newPage();
   await page.goto(`${base}/login`);
   await page.getByRole('textbox', { name: 'Email or Username' }).fill(`learner-${who}@example.test`);
@@ -40,6 +41,37 @@ const focused = page => page.evaluate(() => {
   return { tag: element.tagName, name: element.getAttribute('aria-label') || element.textContent.trim() };
 });
 const pageLabel = page => page.getByRole('navigation', { name: 'Lessons pagination' }).locator('span').textContent();
+// A progress bar's colors as painted: its surface, then the track and fill
+// over it. CanvasText and the completed green are resolved for comparison.
+const barColors = bar => bar.evaluate((track) => {
+  const paint = (...layers) => {
+    const context = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
+    for (const color of layers) { context.fillStyle = color; context.fillRect(0, 0, 1, 1); }
+    return '#' + [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)].map(c => c.toString(16).padStart(2, '0')).join('');
+  };
+  let surface = 'white';
+  for (let node = track.parentElement; node; node = node.parentElement) {
+    const background = getComputedStyle(node).backgroundColor;
+    if (background !== 'rgba(0, 0, 0, 0)') { surface = background; break; }
+  }
+  const probe = document.body.appendChild(document.createElement('span'));
+  const resolve = (color) => { probe.style.color = color; return getComputedStyle(probe).color; };
+  const colors = {
+    surface: paint(surface),
+    track: paint(surface, getComputedStyle(track).backgroundColor),
+    fill: paint(surface, getComputedStyle(track.firstElementChild).backgroundColor),
+    green: paint(resolve('var(--success-foreground)')),
+    text: paint(resolve('CanvasText')),
+    outline: getComputedStyle(track).outlineStyle,
+  };
+  probe.remove();
+  return colors;
+});
+// The track stands off its surface and the fill off the track.
+const assertVisible = (colors, where) => {
+  assert.ok(contrastRatio(colors.track, colors.surface) >= 1.3, `${where}: track ${colors.track} on ${colors.surface}`);
+  assert.ok(contrastRatio(colors.fill, colors.track) >= 3, `${where}: fill ${colors.fill} on ${colors.track}`);
+};
 
 describe(`lesson list (${engine})`, () => {
   before(async () => {
@@ -134,5 +166,43 @@ describe(`lesson list (${engine})`, () => {
     const returning = await signIn('a');
     assert.equal(await returning.page.getByRole('button', { name: /Start here\.$/ }).count(), 0);
     await returning.context.close();
+  });
+
+  it('shows each progress bar whole in both themes, greens a completed lesson, and keeps the bars in forced colors', async () => {
+    const courseBar = page => page.getByRole('progressbar', { name: /progress: 1 of 14 public lessons completed$/ });
+    const outlineBar = async (page) => {
+      await page.getByRole('button', { name: 'View outline' }).click();
+      return page.getByRole('dialog').getByRole('progressbar', { name: 'Completed' });
+    };
+    // Only the completed lesson, under its course's bar.
+    const showCompleted = page => page.locator('#status-filter').selectOption('completed');
+
+    for (const theme of ['light', 'dark']) {
+      const { context, page } = await signIn('a');
+      if (theme === 'dark') {
+        await page.evaluate(() => localStorage.setItem('plato_theme', 'dark'));
+        await page.reload();
+        await page.getByRole('button', { name: /^Open lesson / }).first().waitFor();
+      }
+      await showCompleted(page);
+      assertVisible(await barColors(courseBar(page)), `${theme} course bar`);
+      const outline = await barColors(await outlineBar(page));
+      assertVisible(outline, `${theme} outline bar`);
+      assert.equal(outline.fill, outline.green, `${theme}: a completed lesson's bar is green`);
+      await context.close();
+    }
+
+    // Forced colors drop fills: the track keeps an outline, the fill takes
+    // the text color. WebKit has no forced colors mode.
+    if (engine === 'webkit') return;
+    const { context, page } = await signIn('a', { forcedColors: 'active' });
+    await showCompleted(page);
+    for (const bar of [courseBar(page), await outlineBar(page)]) {
+      const colors = await barColors(bar);
+      assert.equal(colors.outline, 'solid');
+      assert.equal(colors.fill, colors.text);
+      assert.notEqual(colors.fill, colors.track);
+    }
+    await context.close();
   });
 });

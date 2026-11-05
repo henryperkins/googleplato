@@ -64,6 +64,15 @@ describe('forced colors and unbroken words', () => {
     assert.match(page, /\bbg-primary [^"]*\bforced-colors:outline-1\b/);
   });
 
+  it('keeps both progress bars when forced colors drop their fills: an outlined track, a fill in the text color', () => {
+    const bars = [...page.matchAll(/className="([^"]*\bbg-track\b[^"]*)"\s*>\s*<div\s+className=\{`([^`]*)`\}/g)];
+    assert.equal(bars.length, 2, 'the course summary and outline progress bars');
+    for (const [, track, fill] of bars) {
+      assert.match(track, /\bforced-colors:outline-1\b/);
+      assert.match(fill, /\bforced-colors:bg-\[color:CanvasText\]/);
+    }
+  });
+
   it('wraps an unbroken word in the outline title, with leading for a long one', () => {
     assert.match(page, /<DialogTitle dir="auto" className="wrap-anywhere leading-snug">/);
   });

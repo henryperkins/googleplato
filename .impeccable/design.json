@@ -154,6 +154,21 @@
           "oklch(0.950 0.000 0)"
         ]
       },
+      "track": {
+        "role": "neutral",
+        "displayName": "Progress Track",
+        "canonical": "oklch(0.88 0 0)",
+        "tonalRamp": [
+          "oklch(0.150 0.000 0)",
+          "oklch(0.264 0.000 0)",
+          "oklch(0.379 0.000 0)",
+          "oklch(0.493 0.000 0)",
+          "oklch(0.607 0.000 0)",
+          "oklch(0.721 0.000 0)",
+          "oklch(0.836 0.000 0)",
+          "oklch(0.950 0.000 0)"
+        ]
+      },
       "accent": {
         "role": "neutral",
         "displayName": "Interaction Wash",
@@ -647,6 +662,21 @@
           "oklch(0.721 0.004 285)",
           "oklch(0.836 0.003 285)",
           "oklch(0.950 0.001 285)"
+        ]
+      },
+      "dark-track": {
+        "role": "neutral",
+        "displayName": "Dark Progress Track",
+        "canonical": "oklch(1 0 0 / 14%)",
+        "tonalRamp": [
+          "oklch(0.150 0.000 0)",
+          "oklch(0.264 0.000 0)",
+          "oklch(0.379 0.000 0)",
+          "oklch(0.493 0.000 0)",
+          "oklch(0.607 0.000 0)",
+          "oklch(0.721 0.000 0)",
+          "oklch(0.836 0.000 0)",
+          "oklch(0.950 0.000 0)"
         ]
       },
       "dark-accent": {

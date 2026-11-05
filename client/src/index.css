@@ -54,6 +54,7 @@
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
     --color-muted: var(--muted);
+    --color-track: var(--track);
     --color-secondary-foreground: var(--secondary-foreground);
     --color-secondary: var(--secondary);
     --color-primary-foreground: var(--primary-foreground);
@@ -122,6 +123,11 @@
        against white and the workspace (WCAG 1.4.11). --border stays light
        for decorative separators. */
     --input: oklch(0.62 0 0);
+    /* A progress bar's empty length. A step darker than the workspace and
+       white cards, so the whole bar shows (--muted matched the workspace),
+       and light enough that every classroom's progress fill and the
+       completed green hold 3:1 on it. */
+    --track: oklch(0.88 0 0);
     --ring: oklch(0.336 0.182 285);
     --chart-1: oklch(0.336 0.182 285);
     --chart-2: oklch(0.556 0.15 285);
@@ -174,6 +180,9 @@
     --in-progress-foreground: oklch(0.85 0.14 80);
     --border: oklch(1 0 0 / 13%);
     --input: oklch(1 0 0 / 45%);
+    /* Translucent like the borders and a step above them, so a track rises
+       the same step off the page, a card, or a dialog. */
+    --track: oklch(1 0 0 / 14%);
     --ring: oklch(0.74 0.12 285);
     --chart-1: oklch(0.565 0.17 285);
     --chart-2: oklch(0.72 0.13 285);

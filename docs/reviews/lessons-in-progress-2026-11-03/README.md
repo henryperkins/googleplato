@@ -1,4 +1,4 @@
-# Lesson list: lessons in progress first, Start here, and hardening
+# Lesson list: lessons in progress first, Start here, hardening, and progress colors
 
 A 2026-11-03 design critique of `/lessons` found that the screen didn't answer "what next?". Lessons sorted alphabetically by course. A returning learner's 20% lesson sat on page 2, behind a 14-lesson course. The outline dialog, the one place a learner decides, ended in a lone Close.
 
@@ -56,12 +56,28 @@ Some checks passed without changes:
 - A Chinese title with an emoji.
 - Losing the network mid-session. A refresh keeps the loaded lessons and shows Try again, paging still works, and Try again recovers once the connection returns.
 
+## Progress colors
+
+The critique also found progress under-signalled in light mode. A colorize pass fixed the two bars on this page, the course summaries and the outline's:
+
+- **A track that shows.**
+  - The course bar's track used `--muted`, the same lightness as the workspace behind it (1.00:1). One of 14 read as a short maroon underline, and 0 of 14 showed no bar at all.
+  - A new `--track` token is a step darker: 1.32:1 on the workspace and 1.44:1 on the outline's white, where `--muted` stood 1.09:1.
+  - At night it is 14% white, a step above the borders. It rises 1.43:1 off the page and 1.55:1 off a dialog, where `--muted` stood 1.11:1.
+- **Fills still read on it.**
+  - Across the 223 classroom colors the contrast tests sweep, every progress fill holds at least 3.48:1 on the day track and 3.72:1 on the night track. The completed green holds at least 6.29:1.
+  - The track is neutral, like the borders. The brand stays in the fill, and a green or amber classroom's track can't be mistaken for a status.
+- **Green when complete.**
+  - The outline drew a completed lesson's bar in the brand color while its card showed a green check. Its bar and its **Completed** label are now green, as on the lesson page.
+  - A course's bar also turns green once every lesson it counts is complete.
+- **High contrast.** Forced colors drop background fills, so both bars vanished and only the count remained. The track now keeps a 1 px outline, and the fill takes the text color.
+
 ## Validation
 
 | Check | Result |
 | --- | --- |
-| Client suite | 738 passed. That includes 22 new tests in `client/tests/lessonListOrder.test.js`, covering ordering, page grouping, the Other-lessons rule, Start here, the cache accessor, and the page wiring. It also includes 7 in `client/tests/lessons-list-hardening.test.js`. |
-| Browser suites (Chromium, local) | All passed: 3 in the new `npm --prefix client run test:browser:lessons` (paging focus, the card ring, Start here); 27 in the learner suite, after updating its course-progress test; and 24 in the admin suite, the one CI runs. |
+| Client suite | 740 passed. That includes 22 new tests in `client/tests/lessonListOrder.test.js`, covering ordering, page grouping, the Other-lessons rule, Start here, the cache accessor, and the page wiring. It also includes 8 in `client/tests/lessons-list-hardening.test.js`. The track's contrast in both themes, swept across classroom colors, is in `design-tokens-contract.test.js` and `branding.test.js`. |
+| Browser suites (Chromium, local) | All passed: 4 in the new `npm --prefix client run test:browser:lessons` (paging focus, the card ring, Start here, and the progress bars' colors in both themes and in forced colors); 27 in the learner suite, after updating its course-progress test; and 24 in the admin suite, the one CI runs. The progress-color test fails against the build from before the colorize pass. |
 | Lint | Passed: 0 errors, 19 existing client warnings. |
 | Client build | Passed; existing bundle-size advisory. |
 | Design detector | `detect --scope layout` and the full rule set found nothing on `LessonsList.jsx`. On `index.css` it repeats findings about older rules elsewhere in the file. |
@@ -82,6 +98,12 @@ The browser check covered:
 - **Outline footers.** They read Continue lesson, Start lesson, and Open lesson.
 - **Continue lesson.** It reaches `/lessons/feedback` with the scroll lock released.
 - **Layout.** No horizontal overflow at 320 and 390 px, and no page errors. At 320 px the Start here pill wraps under the description.
+- **Progress colors.** Measured as painted, in builds from before and after the colorize pass:
+  - The course track went from 1.00:1 to 1.32:1 on the workspace by day, and from 1.30:1 to 1.43:1 at night.
+  - The outline's track went from 1.09:1 to 1.44:1 by day, and from 1.11:1 to 1.55:1 at night.
+  - The maroon fill holds 6.45:1 on the day track and 3.75:1 on the night track inside a dialog.
+  - A completed lesson's outline bar, and a finished course's bar, paint the completed green in both themes.
+  - In forced colors, both tracks show a solid 1 px outline and both fills paint in the text color.
 
 All browser records are synthetic. Server code is unchanged.
 
@@ -97,20 +119,25 @@ All browser records are synthetic. Server code is unchanged.
 - `screenshots/harden-paging-focus-after.png`: after Next by keyboard, focus is on the page heading at the top of page 2.
 - `screenshots/harden-forced-colors-before.png` and `screenshots/harden-forced-colors-after.png`: forced colors, without and with the card and Start here outlines.
 - `screenshots/harden-rtl-outline-before.png` and `screenshots/harden-rtl-outline-after.png`: an Arabic lesson's outline, left-aligned and out of order, then right-aligned and in order.
+- `screenshots/colorize-course-light-before.png` and `screenshots/colorize-course-light-after.png`: a returning learner's course bar at 1 of 14, as a short underline and then on its track.
+- `screenshots/colorize-first-run-390-before.png` and `screenshots/colorize-first-run-390-after.png`: a new learner's course at 0 of 14 on a phone, with no bar and then an empty track.
+- `screenshots/colorize-outline-in-progress-before.png` and `screenshots/colorize-outline-in-progress-after.png`: the outline's bar at 60%, its remaining length faint and then visible.
+- `screenshots/colorize-outline-completed-before.png` and `screenshots/colorize-outline-completed-after.png`: a completed lesson's outline, in the brand color and then green.
+- `screenshots/colorize-course-complete-light-before.png` and `screenshots/colorize-course-complete-light-after.png`: a finished course, in the brand color and then green.
+- `screenshots/colorize-course-dark-after.png` and `screenshots/colorize-course-complete-dark-after.png`: the same bars at night.
+- `screenshots/colorize-forced-colors-before.png` and `screenshots/colorize-forced-colors-after.png`: forced colors, with no bar and then an outlined track and its fill.
 
 ## Not in this change
 
 The same critique's other items are queued as separate passes:
 
-- **Colorize:**
-  - A visible light-mode course track.
-  - The track also disappears in forced colors, which drop its fills. Only its count remains.
 - **Polish:**
   - Top-align card titles, which still drop beside a wrapped neighbor. Start here doesn't change that: the first title in the fixture wrapped before it too.
   - Move the outline's course label out from above its title.
 
-The harden pass also found these, outside this page:
+The harden and colorize passes also found these, outside this page:
 
 - **Right-to-left text on the lesson page.** The conversation and its outline don't set text direction either.
 - **Shared card outline.** The shared `Card` loses its outline in forced colors everywhere else, such as administration and settings. The fix here is scoped to lesson cards.
+- **Other progress bars.** The lesson page's bar and the admin readiness meters still sit on `--muted`, at 1.09:1 on white by day. Moving each to `--track` is one class. The readiness fills hold at least 6:1 on it, and the lesson bar's fill holds 3:1 for every classroom, as the list's do.
 - **Repeated progress reads.** After every tab refocus, `sync.loadAll()` clears the cache. The list's confirming read then makes one request per unstarted lesson, in sequence. It is cheap, but it grows with the catalog. `/impeccable optimize` could skip it when the bulk load succeeded.

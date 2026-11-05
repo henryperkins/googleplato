@@ -455,6 +455,10 @@ export default function LessonsList() {
 }
 
 // Course progress header — completed / total public lessons in the course.
+// The track shows the bar's whole length, even at 0, and the fill turns green
+// once every lesson is complete, as the lesson page's bar does. Forced colors
+// drop both fills, so the track keeps an outline and the fill takes the text
+// color.
 function CourseProgressHeader({ courseName, completed, total }) {
   if (total === 0) return null;
   const pct = Math.round((completed / total) * 100);
@@ -475,10 +479,10 @@ function CourseProgressHeader({ courseName, completed, total }) {
         aria-valuemax={100}
         aria-valuenow={pct}
         aria-label={`${courseName} progress: ${completed} of ${total} public lessons completed`}
-        className="h-1.5 rounded-full bg-muted overflow-hidden"
+        className="h-1.5 rounded-full bg-track overflow-hidden forced-colors:outline-1"
       >
         <div
-          className="h-full rounded-full bg-primary-text transition-all"
+          className={`h-full rounded-full transition-all forced-colors:bg-[color:CanvasText] ${completed >= total ? 'bg-success-foreground' : 'bg-primary-text'}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -711,10 +715,11 @@ function ProgressRing({ pct, size = 22, stroke = 2.5 }) {
 }
 
 function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange, onOpenLesson }) {
-  const pct = progress?.status === 'completed' ? 100 : (progress?.progress != null ? progress.progress * 10 : null);
-  const progressText = progress?.status === 'completed' ? 'Completed' : (pct != null ? `${pct}% complete` : null);
+  const completed = progress?.status === 'completed';
+  const pct = completed ? 100 : (progress?.progress != null ? progress.progress * 10 : null);
+  const progressText = completed ? 'Completed' : (pct != null ? `${pct}% complete` : null);
   // The outline is where a learner decides, so it carries the next step.
-  const openLabel = progress?.status === 'completed' ? 'Open lesson'
+  const openLabel = completed ? 'Open lesson'
     : progress?.status ? 'Continue lesson' : 'Start lesson';
   const range = timeStats && (timeStats.sampleSize ?? 0) >= 3
     ? formatTimeRange(timeStats.p20, timeStats.p80)
@@ -747,7 +752,8 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange, o
             <div>
               <div className="flex items-baseline justify-between gap-3 mb-2">
                 <h3 className="text-sm font-medium">Your progress</h3>
-                <span aria-hidden="true" className="text-sm tabular-nums text-muted-foreground">
+                {/* Completed reads in green, as on the lesson page's bar. */}
+                <span aria-hidden="true" className={`text-sm tabular-nums ${completed ? 'font-medium text-success-foreground' : 'text-muted-foreground'}`}>
                   {progressText}
                 </span>
               </div>
@@ -757,10 +763,10 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange, o
                 aria-valuemax={100}
                 aria-valuenow={pct}
                 aria-label={progressText}
-                className="h-2 rounded-full bg-muted overflow-hidden"
+                className="h-2 rounded-full bg-track overflow-hidden forced-colors:outline-1"
               >
                 <div
-                  className="progress-fill h-full rounded-full bg-primary-text"
+                  className={`progress-fill h-full rounded-full forced-colors:bg-[color:CanvasText] ${completed ? 'bg-success-foreground' : 'bg-primary-text'}`}
                   style={{ transform: `scaleX(${pct / 100})` }}
                 />
               </div>
