@@ -1291,6 +1291,9 @@ mark leaves once any lesson has a status. It uses the verified progress snapshot
 that orders the list; unknown progress never qualifies a learner for the mark.
 
 `useLessonListProgress()` publishes a catalog and its progress together.
+`lessonCatalogLoaded` distinguishes a successful catalog response from a failed
+initial attempt. Until a catalog succeeds, its initial empty array cannot become
+a retained snapshot or produce an empty-state announcement during retry.
 `sync.loadAll()` returns true only after a complete, current response populates
 the cache, and `AppContext` publishes that result with the catalog as
 `lessonProgressHydrated`. Only this successful bulk read proves that an absent

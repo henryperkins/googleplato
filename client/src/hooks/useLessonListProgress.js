@@ -8,9 +8,11 @@ export function useLessonListProgress(sourceLessons, { loaded, hydrated }) {
   const [resolved, setResolved] = useState(null);
   const [failure, setFailure] = useState(null);
   const cachedSnapshot = useMemo(() => {
+    // A completed failed request does not verify the initial empty catalog.
+    if (!loaded) return null;
     const statuses = cachedLessonStatuses(sourceLessons, { complete: hydrated });
     return statuses ? { lessons: sourceLessons, statuses } : null;
-  }, [sourceLessons, hydrated]);
+  }, [sourceLessons, loaded, hydrated]);
 
   // Local event updates belong only to the catalog that produced them. A new
   // bulk snapshot takes precedence over all statuses from an older catalog.

@@ -176,6 +176,13 @@ the shared cache. Completion-event reads are also cancelled on unmount or catalo
 replacement, addressing the existing automated review comment. Sign-out clears
 the prior account's catalog and hydration state.
 
+The independent pre-merge review found one additional loading-state defect:
+after both initial requests failed, a retry could retain the unverified empty
+catalog and display or announce **No lessons yet** while progress was pending.
+Successful catalog loading now has its own readiness flag. The focused browser
+regression failed against `966d949` and verifies **Loading lessons…** throughout
+that retry until the returning learner's progress arrives.
+
 Browser regressions exercise initial bulk failure, fallback failure and retry,
 successful foreground sync with unrelated reads blocked, a failed refresh with
 keyboard focus retained, superseded fallback responses, completion reads during
@@ -191,8 +198,8 @@ Playwright browser binaries (Chromium 151 and WebKit):
 | Check | Result |
 | --- | --- |
 | Client unit suite | 755 passed, including 10 new progress-read and sync-readiness tests. |
-| Lesson-list browser suite, Chromium | 12 passed: the original 5 and 7 new recovery/lifecycle regressions. |
-| New recovery/lifecycle regressions, WebKit | 7 passed. |
+| Lesson-list browser suite, Chromium | 14 passed: the original 5 and 9 new recovery/lifecycle regressions. |
+| New recovery/lifecycle regressions, WebKit | 9 passed. |
 | Existing learner recovery suite, Chromium | 27 passed, including account switching, retained drafts, and save recovery. |
 | Client lint | 0 errors, 19 existing warnings. |
 | Client build | Passed, with the existing bundle-size advisory. |
@@ -204,3 +211,8 @@ production, or real model calls.
 | Unknown progress waits before showing cards | Failed progress reads offer retry at 390 px |
 | --- | --- |
 | ![Loading lessons while progress is unknown](screenshots/review-progress-loading.png) | ![Progress error with Try again at 390 px](screenshots/review-progress-retry-390.png) |
+
+After an initial catalog failure, retry keeps the loading state until progress
+arrives. A successfully fetched empty catalog still shows the empty state:
+
+![Retry waits for verified progress instead of claiming the catalog is empty](screenshots/review-catalog-retry-loading.png)

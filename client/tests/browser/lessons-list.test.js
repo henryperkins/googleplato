@@ -234,6 +234,51 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     assert.match(await cards(page).first().getAttribute('aria-label'), /In progress, 30% complete/);
   });
 
+  it('keeps loading after an initial catalog failure while retry progress is pending', async t => {
+    let catalogFailed = true;
+    const fallback = deferred();
+    const reached = deferred();
+    const { context, page } = await signIn('a', {}, async page => {
+      await page.route('**/v1/sync', route => route.fulfill({ status: 503, json: { error: 'Unavailable' } }));
+      await page.route('**/v1/lessons', route => catalogFailed
+        ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
+        : route.continue());
+      await page.route(progressRequest, async route => {
+        reached.resolve();
+        await fallback.promise;
+        await route.continue().catch(() => {});
+      });
+    }, { waitForCards: false });
+    t.after(async () => { fallback.resolve(); await context.close(); });
+    await page.getByRole('alert').filter({ hasText: 'load your lessons' }).waitFor();
+    catalogFailed = false;
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await reached.promise;
+    assert.equal(await page.getByText(/^No lessons yet\./).count(), 0,
+      'a failed initial catalog is not a verified empty list');
+    assert.equal(await cards(page).count(), 0);
+    assert.doesNotMatch((await page.getByRole('status').allTextContents()).join(' '), /No lessons yet/);
+    await page.getByText('Loading lessons…', { exact: true }).waitFor();
+    await screenshot(page, 'catalog-retry-loading');
+    fallback.resolve();
+    await cards(page).first().waitFor();
+    assert.match(await cards(page).first().getAttribute('aria-label'), /In progress, 30% complete/);
+    assert.equal(await page.getByRole('alert').count(), 0);
+  });
+
+  it('shows a verified empty catalog even when bulk progress is unavailable', async t => {
+    const { context, page } = await signIn('a', {}, async page => {
+      await page.route('**/v1/sync', route => route.fulfill({ status: 503, json: { error: 'Unavailable' } }));
+      await page.route('**/v1/lessons', route => route.fulfill({ json: [] }));
+    }, { waitForCards: false });
+    t.after(() => context.close());
+    await page.getByText(/^No lessons yet\./).last().waitFor();
+    assert.equal(await page.getByText('Loading lessons…', { exact: true }).count(), 0);
+    assert.equal(await page.getByRole('alert').count(), 0);
+    assert.equal(await cards(page).count(), 0);
+    assert.match((await page.getByRole('status').allTextContents()).join(' '), /No lessons yet/);
+  });
+
   it('uses a fresh bulk snapshot immediately and makes no per-lesson confirmation requests', async t => {
     let refreshed = false;
     let perLessonReads = 0;

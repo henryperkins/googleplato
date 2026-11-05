@@ -11,6 +11,7 @@ const initialState = {
   preferences: { name: '' },
   generating: null,
   loaded: false,
+  lessonCatalogLoaded: false,
   loadingLessons: false,
   lessonsError: null,
   lessonProgressHydrated: false,
@@ -21,7 +22,7 @@ function reducer(state, action) {
     case 'RESET_DATA':
       return initialState;
     case 'INIT_DATA':
-      return { ...state, ...action.payload, loaded: true, loadingLessons: false, lessonsError: null };
+      return { ...state, ...action.payload, loaded: true, lessonCatalogLoaded: true, loadingLessons: false, lessonsError: null };
     case 'LOADING_LESSONS':
       return { ...state, loadingLessons: true };
     case 'LESSONS_LOAD_FAILED':

@@ -70,9 +70,9 @@ function formatTimeRange(p20, p80) {
 export default function LessonsList() {
   const { state, reloadLessons } = useApp();
   const navigate = useNavigate();
-  const { loaded, lessonsError, loadingLessons, lessonProgressHydrated } = state;
+  const { loaded, lessonCatalogLoaded, lessonsError, loadingLessons, lessonProgressHydrated } = state;
   const { lessons, statuses, ready: progressReady, error: progressError } = useLessonListProgress(state.lessons, {
-    loaded, hydrated: lessonProgressHydrated,
+    loaded: lessonCatalogLoaded, hydrated: lessonProgressHydrated,
   });
   const loadError = lessonsError || progressError;
   const headingRef = useRef(null);
