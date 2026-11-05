@@ -139,3 +139,39 @@ describe('The operator address (ADMIN_EMAIL)', () => {
     assert.equal(calls.created[0].role, 'admin');
   });
 });
+
+describe('Existing accounts and first-time setup', () => {
+  it('signs in an existing account without an invitation and keeps its role', async () => {
+    let inviteLookups = 0;
+    db.getInvite = async () => { inviteLookups += 1; return null; };
+    db.getInviteByEmail = async () => { inviteLookups += 1; return null; };
+    for (const role of ['admin', 'user']) {
+      signInAs({ email: `existing.${role}@example.com` });
+      db.getUserByEmail = async (email) => (email === `existing.${role}@example.com`
+        ? { userId: `usr_${role}`, email, username: `existing${role}`, name: `Existing ${role}`, role, passwordHash: 'stored' }
+        : null);
+      const res = await post();
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(data.user.userId, `usr_${role}`);
+      assert.equal(data.user.role, role);
+    }
+    assert.equal(inviteLookups, 0, 'an existing account never needs an invitation');
+    assert.deepEqual(calls.created, []);
+    assert.equal(calls.tokens, 2);
+  });
+
+  it('makes the first Google account on an empty database the admin, without an invitation', async () => {
+    db.countUsers = async () => 0;
+    db.putSyncData = async () => ({ version: 1 });
+    signInAs({ email: 'founder@example.com', name: 'Founder' });
+    const res = await post({ idToken: 'valid_token', classroomName: 'Founding Classroom' });
+    assert.equal(res.status, 201);
+    const data = await res.json();
+    assert.equal(data.isNewSetup, true);
+    assert.equal(data.user.role, 'admin');
+    assert.equal(calls.created.length, 1);
+    assert.equal(calls.created[0].role, 'admin');
+    assert.deepEqual(calls.used, []);
+  });
+});

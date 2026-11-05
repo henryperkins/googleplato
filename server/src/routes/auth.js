@@ -637,6 +637,9 @@ auth.post('/v1/auth/firebase', async (c) => {
     username = candidate;
   }
 
+  // Past the invitation check, an account without an invite is the operator's,
+  // so a wait-list entry here is theirs: its answers fill in the profile, and
+  // the entry is removed once the account exists.
   const profile = invite?.profile || waitlistEntry?.profile || null;
   let customFields = {};
   if (rawCustomFields !== undefined || profile?.customFields) {
