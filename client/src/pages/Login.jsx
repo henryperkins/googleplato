@@ -168,7 +168,7 @@ export default function Login() {
           <Button
             type="button"
             variant="outline"
-            className="w-full gap-2 whitespace-nowrap shrink-0"
+            className="h-auto min-h-10 w-full flex-wrap gap-2 whitespace-normal py-2"
             onClick={handleGoogleLogin}
             disabled={submitting || googleSubmitting} focusableWhenDisabled
             aria-busy={googleSubmitting ? 'true' : undefined}
@@ -178,11 +178,11 @@ export default function Login() {
             ) : (
               <GoogleIcon className="h-4 w-4 shrink-0" />
             )}
-            <span>{googleSubmitting ? 'Signing in with Google...' : 'Continue with Google'}</span>
+            <span className="min-w-0 max-w-full break-words">{googleSubmitting ? 'Signing in with Google...' : 'Continue with Google'}</span>
           </Button>
           <div className="relative flex items-center py-1">
             <div className="grow border-t border-border" />
-            <span className="mx-3 shrink-0 text-xs text-muted-foreground">or sign in with password</span>
+            <span className="mx-3 min-w-0 text-center text-xs text-muted-foreground">or sign in with password</span>
             <div className="grow border-t border-border" />
           </div>
           <form className="space-y-4" onSubmit={handleLogin} noValidate>
@@ -218,7 +218,7 @@ export default function Login() {
               )}
             </div>
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                 <Label htmlFor="login-password">Password</Label>
                 {/* Padding (cancelled by negative margin) makes a 28px target without
                     moving the row; a 44px one would overlap the password field. */}
@@ -258,12 +258,12 @@ export default function Login() {
             </div>
             <Button
               type="submit"
-              className="w-full gap-2 whitespace-nowrap shrink-0"
+              className="h-auto min-h-10 w-full flex-wrap gap-2 whitespace-normal py-2"
               disabled={submitting || googleSubmitting} focusableWhenDisabled
               aria-busy={submitting ? 'true' : undefined}
             >
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
-              <span>{submitting ? 'Signing in...' : 'Sign in'}</span>
+              <span className="min-w-0 max-w-full break-words">{submitting ? 'Signing in...' : 'Sign in'}</span>
             </Button>
           </form>
         </CardContent>

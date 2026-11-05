@@ -1284,6 +1284,65 @@ lessons remain visible and usable in the grid. Courses without public lessons
 have no progress bar. Purely informational; it reads `lessonKB.status` and never
 affects completion.
 
+While the status filter shows every status, the lessons the learner has started
+and not completed lead the whole list under an **In progress** heading, in
+catalog order among themselves, so a long first course can't push a returning
+learner's lesson onto page 2 (`orderLessons()` / `groupLessonsForPage()` in
+`client/src/lib/lessonListOrder.js`). A status filter keeps plain course
+grouping. Course groups follow in course-name order; lessons without a course
+come last, under **Other lessons** whenever the list has other groups.
+
+A learner who hasn't started any lesson gets one suggestion instead: the first
+lesson in the list shows **Start here** (`startHereLessonId()`), and its open
+action's accessible name ends with "Start here." It follows the filters, so a
+course filter moves it to that course's first lesson. It never marks an admin's
+own `custom-*` lesson and doesn't appear in a list of one. Catalog order has no
+authored sequence: course name, then lesson name, both with numeric collation,
+so an admin who wants a particular first lesson numbers the names ("1. …"). The
+mark leaves once any lesson has a status. It uses the verified progress snapshot
+that orders the list; unknown progress never qualifies a learner for the mark.
+
+`useLessonListProgress()` publishes a catalog and its progress together.
+`lessonCatalogLoaded` distinguishes a successful catalog response from a failed
+initial attempt. Until a catalog succeeds, its initial empty array cannot become
+a retained snapshot or produce an empty-state announcement during retry.
+`sync.loadAll()` returns true only after a complete, current response populates
+the cache, and `AppContext` publishes that result with the catalog as
+`lessonProgressHydrated`. Only this successful bulk read proves that an absent
+cache record means not started. No confirming per-lesson requests are needed
+after a successful bulk sync. The first render uses the cache immediately;
+previous component statuses cannot override a newer catalog's snapshot.
+
+If bulk sync fails and some progress is unknown, `loadLessonStatuses()` reads
+the catalog's progress records before the first cards appear. A missing record
+must be confirmed by a successful response with `data: null`; HTTP failures,
+network errors and malformed responses do not become "not started." An initial
+load shows **Loading lessons…**, then a retryable progress error if needed.
+A foreground refresh retains the last verified catalog, status filters, paging
+and keyboard focus while fallback reads are pending or failed. The existing
+**Try again** action retries the catalog and progress together.
+
+Fallback requests are aborted on unmount or when a newer catalog arrives, and
+their results never write the shared sync cache. Completion-event reads have the
+same lifetime guard; completion updates received during a fallback take precedence
+over that fallback's older status. Sign-out resets the app catalog and its
+hydration flag before another account signs in. These are read-path changes;
+lesson completion and persistence writes are unchanged.
+
+The **View outline** dialog ends with the lesson's next step (**Start
+lesson**, **Continue lesson**, or **Open lesson**) and closes before navigating,
+so its background scroll lock is released before the lesson page renders.
+
+**Previous** and **Next** move focus to the page's `h1` (`goToPage()`), which
+scrolls the new page's top into view. Left on the button, focus would sit below
+cards the learner hasn't read, and on the last page, where Next is disabled, it
+fell to the document and the next Tab reached the footer. Both buttons are
+`focusableWhenDisabled`, and steps count from the page shown, which the stored
+page can outrun when the list shrinks. Filter changes reset the page without
+moving focus. Lesson titles, descriptions, course names and the outline's author
+text use `dir="auto"`, since admins can write lessons in a right-to-left
+language; the card's metadata isolates its course name in a `<bdi>`.
+
 Both learner lesson endpoints return normalized visibility in `status`, using
 the same `normalizeStatus()` helper as dashboard/activity stats: legacy
 `published` and status-less lessons with markdown become `public`, and legacy
@@ -1842,7 +1901,7 @@ Generic single/batch sync writes cannot create or replace assessment/transcripts
 
 Unsigned retained pre-upgrade replies can save their exact transcript, explicitly
 marked legacy-unverified, while preserving only previously saved assessment.
-Their assistant assertions are excluded from future assessment history. Active
+Their assistant text is retained as bounded, explicitly unverified conversation reference data; it cannot become learner evidence or completion authority. Active
 legacy assessment is reconciled to authored criteria without carrying unverified
 evidence forward; historical completed lessons remain complete. A changed rubric
 invalidates active evidence. If criteria change between generation and save, the
@@ -1857,7 +1916,7 @@ objective text, excluding raw sources and incidental disclosures. Optional model
 updates run only after the acknowledged assessment confirms new completion.
 
 `coach_assessment` telemetry records only validity, response class, completion and
-fixed issue codes. `scripts/evaluate-coach.js` defaults to 15 authored offline
+fixed issue codes. `scripts/evaluate-coach.js` includes assessment and conversation-continuity offline
 fixtures. Explicit live mode requires a call budget, records the selected provider
 and model plus prompt/fixture hashes, and never writes synthetic lesson progress.
 It evaluates the bundled prompt in isolation; server assembly is covered by route
@@ -1879,3 +1938,101 @@ Model context separates authored `assessmentRequirements` from generated
 `evidenceGuidance`; guidance cannot create new mandatory criteria. See
 `docs/reviews/coach-live-evaluation-2026-10-25.md` for live results, exact prompt
 identities, the latency/call tradeoff, earlier failures and preservation evidence.
+
+
+### Resumed coaching conversation continuity (2026-11-05)
+
+`server/src/shared/coachConversation.js` builds provider history and source-backed
+`lessonKB.conversationState`. Legacy assistant messages are quoted as JSON
+`unverifiedCoachMessage` in a user-role reference message, with old terminal
+control metadata removed. They remain available to explain what the learner is
+answering, but never enter learner `sources` or assessment evidence. Recent history
+is limited to 40 usable messages and 6,000 characters per message.
+
+Conversation state separately retains the original assignment, explicit
+learner directions, and the latest coach prompt. Each anchor carries its saved
+message ID, exact bounded text, role and provenance; the server rehydrates anchors
+from saved messages rather than accepting generated summaries. These anchors
+survive history-window limits and assessment-criteria reconciliation, including a
+criteria edit between generation and save. Earlier additive directions are not
+discarded when later directions arrive: the existing whole-record save limit
+bounds storage and rejects an oversized save instead of forgetting active work.
+Duplicate message IDs cannot select one ambiguous occurrence as an anchor;
+`sourceAmbiguity` tells the coach to clarify any affected task detail. Optional
+KB_UPDATE `taskChangeSourceId` can retain only the current nonempty learner text;
+attachments and coach-generated URLs cannot replace the assignment. The prompt
+requires an explicit learner selection/change, and interprets the retained exact
+text rather than treating an arbitrary link as permission to switch.
+
+Version 3 migrates pre-existing transcripts (including version 1 continuity
+records) into chronological `legacyLearnerContext` and bounds version 2 migrations.
+It retains the saved learner
+statements without guessing which ones are task changes; the prompt resolves
+explicit selections from their actual words and asks for clarification if needed.
+This migration happens once, and later observations are not added to that
+historical collection. It is conversation context only and never repopulates
+assessment sources or evidence. The serialized collection is limited to 48 KiB
+of UTF-8, retaining whole recent anchors in chronological order. The existing
+whole-record size checks still apply to the transcript and KB.
+
+If this limit omits history, or retained task text or links are incomplete,
+`legacyContextTruncated` survives reloads. For an
+active lesson, the server generates a fixed clarification without calling either
+the coach or metadata-repair model. It preserves assessment and observations and
+asks for a complete task restatement beginning with `Continue with:`. The normal
+signed-turn save, stream and recovery paths carry this clarification. A unique
+saved `confirmationPromptId` must identify that exact preceding prompt before a
+complete current learner reply can clear the flag. Empty, oversized, incomplete
+link-dependent or unrelated replies do not clear it.
+
+The same clarification also covers incomplete original assignments and selected
+learner directions, including directions selected after an earlier complete
+restatement. A prior confirmed task never hides a newer incomplete direction.
+
+The restatement becomes a source-backed `confirmedTask`, rehydrated from the
+unique saved learner message and its links. It replaces earlier task directions
+and legacy context; future explicit directions remain additive. The original
+assignment and transcript remain in storage, while model context hides the old
+assignment and history begins at the restatement. Missing or ambiguous saved
+confirmation sources require clarification again. This avoids relying on a model
+to honor an omission warning while still seeing the obsolete opening. Completed
+lessons continue in feedback mode with bounded context and unchanged completion.
+The model evaluator refuses unresolved overflow fixtures; the route tests cover
+this deterministic path instead.
+
+Learner anchors and recent history also preserve up to four HTTP(S) link URLs and
+bounded titles from saved `metadata.links`, so a direction such as "Audit this
+site instead" survives source-list eviction. Page excerpts are not imported as
+conversation instructions or evidence. Invalid/excessive links are marked
+`linksIncomplete`; ambiguous references require clarification. A link without
+explicit task-selection wording does not become a retained learner direction.
+
+The continuity evaluator declares allowed target URLs per fixture, rejects
+unapproved URLs (including Markdown destinations and bare domains), grades
+explicitly forbidden diagnostic claims in the resulting `insights` and
+`learnerPosition`, and requires task-change markers to be absent unless the case
+expects one. These are conservative checks for the tested failure classes, not a
+general semantic proof; agent editorial review is still recorded separately.
+
+`POST /v1/admin/users/:userId/lessons/:lessonId/continuity-repair` is an admin-only
+operational repair. It accepts the complete current `base` from the lesson-turn
+GET, `assignmentMessageId`, the latest `learnerMessageId`, and a bounded
+`misleadingInsights` list of exact existing notes to remove. The operation refuses
+impersonation mode, stale snapshots, missing/empty or duplicate source identities,
+and completed lessons.
+It uses `commitLessonTurn` to preserve the entire transcript and all assessment
+fields while restoring the chosen assignment, retaining the actual learner
+observation without a guessed diagnosis, and marking the earlier coach switch for
+acknowledgement. The audit write follows the atomic repair. The response returns
+the committed snapshot with `X-Plato-Audit-Status: recorded` when logging succeeds.
+If the audit write fails, it still returns HTTP 200 with that snapshot and
+`X-Plato-Audit-Status: failed`, and emits `lesson_continuity_audit_failed` with
+`committed: true` and no transcript, account or exception details. This is a
+best-effort audit write; a failed audit entry is not durably queued for retry.
+Back up the exact snapshot before an operational repair; a failed/stale request
+must be investigated against a new read, not retried with guessed versions.
+
+Recovery returns only a result whose base is still current or whose exact messages
+and KB are already saved. A repaired KB makes an old generated result unavailable;
+replaying an already saved receipt acknowledges the current repaired state, while
+an unsaved stale reply conflicts. Neither repair nor replay calls a model.

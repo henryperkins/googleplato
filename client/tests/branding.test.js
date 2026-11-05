@@ -200,6 +200,13 @@ describe('night classroom colors', () => {
     };
     // index.css: white cards, the muted track, and the warm workspace by day.
     const lightSurfaces = ['#ffffff', oklchToHex(0.97, 0, 0), oklchToHex(0.97, 0.001, 106.424)];
+    // The lesson list's bars sit on --track instead: opaque by day, and
+    // translucent white at night, painted over the page, a card, or a dialog.
+    const css = readSrc('index.css');
+    const lightTrack = oklchToHex(Number(css.match(/\n:root,\n\.light \{[^}]*?--track: oklch\(([\d.]+) 0 0\);/)[1]), 0, 0);
+    const nightTrackAlpha = Number(css.match(/\n\.dark \{[^}]*?--track: oklch\(1 0 0 \/ (\d+)%\);/)[1]) / 100;
+    const whiteOver = (surface, alpha) => '#' + [1, 3, 5]
+      .map(i => Math.round(255 * alpha + parseInt(surface.slice(i, i + 2), 16) * (1 - alpha)).toString(16).padStart(2, '0')).join('');
     for (const hex of palettes) {
       const vars = buildThemeVars({ primary: hex });
       const fill = hexOf(vars['--primary']);
@@ -208,8 +215,10 @@ describe('night classroom colors', () => {
         assert.ok(contrastRatio(fill, surface) >= 3, `${hex} light fill ${fill} vs ${surface}`);
       }
       assert.ok(contrastRatio(label, fill) >= 4.5, `${hex} light label`);
-      // Progress fills use the primary-text shade on the muted track.
-      assert.ok(contrastRatio(hexOf(vars['--classroom-primary-text-light']), lightSurfaces[1]) >= 3, `${hex} light progress`);
+      // Progress fills use the primary-text shade, on the muted track and on --track.
+      const lightProgress = hexOf(vars['--classroom-primary-text-light']);
+      assert.ok(contrastRatio(lightProgress, lightSurfaces[1]) >= 3, `${hex} light progress`);
+      assert.ok(contrastRatio(lightProgress, lightTrack) >= 3, `${hex} light progress on the list's track`);
 
       // At night the surfaces carry the brand's tint: page, card, popover, muted track.
       const tint = Number(vars['--classroom-tint-chroma']);
@@ -220,7 +229,12 @@ describe('night classroom colors', () => {
         assert.ok(contrastRatio(nightFill, surface) >= 3, `${hex} dark fill ${nightFill} vs ${surface}`);
       }
       assert.ok(contrastRatio(hexOf(vars['--classroom-primary-foreground-dark']), nightFill) >= 4.5, `${hex} dark label`);
-      assert.ok(contrastRatio(hexOf(vars['--classroom-primary-text-dark']), oklchToHex(0.27, tint, hue)) >= 3, `${hex} dark progress`);
+      const darkProgress = hexOf(vars['--classroom-primary-text-dark']);
+      assert.ok(contrastRatio(darkProgress, oklchToHex(0.27, tint, hue)) >= 3, `${hex} dark progress`);
+      for (const lightness of [0.15, 0.195, 0.235]) {
+        const track = whiteOver(oklchToHex(lightness, tint, hue), nightTrackAlpha);
+        assert.ok(contrastRatio(darkProgress, track) >= 3, `${hex} dark progress on the list's track over ${lightness}`);
+      }
       // Learner bubbles stand out like fills, with white text at night.
       const nightBubble = hexOf(vars['--classroom-bubble-dark']);
       for (const lightness of [0.15, 0.195, 0.235]) {
@@ -233,7 +247,7 @@ describe('night classroom colors', () => {
     // fell to 2.65:1 on the night track: the lesson bar, and in the lesson
     // list both the course summary and the outline's bar.
     assert.match(readSrc('components/chat/ProgressBar.jsx'), /progress-fill h-full rounded-full[^"]*\bbg-primary-text\b/);
-    const fills = [...readSrc('pages/LessonsList.jsx').matchAll(/rounded-full bg-muted overflow-hidden"[^]*?className="([^"]*)"/g)].map(match => match[1]);
+    const fills = [...readSrc('pages/LessonsList.jsx').matchAll(/rounded-full bg-track overflow-hidden[^"]*"\s*>\s*<div\s+className="([^"]*)"/g)].map(match => match[1]);
     assert.equal(fills.length, 2, 'the course summary and outline progress bars');
     for (const fill of fills) assert.match(fill, /\bbg-primary-text\b/, fill);
   });

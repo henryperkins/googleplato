@@ -3,13 +3,117 @@ import assert from 'node:assert/strict';
 import * as evaluation from '../../scripts/evaluate-coach.js';
 const { evaluateCoach, evaluateCoachReply } = evaluation;
 import { coachFixtures } from '../../scripts/coach-fixtures.js';
+import { TASK_CONFIRMATION_PROMPT } from '../../server/src/shared/coachConversation.js';
 test('fixed offline suite uses the production contract without any provider calls', async () => {
   const report = await evaluateCoach();
   assert.equal(report.calls, 0);
-  assert.equal(report.results.length, 15);
+  assert.equal(report.results.length, coachFixtures.length);
   assert.equal(report.passed, true, JSON.stringify(report.results.filter(item => !item.passed)));
   assert.equal(report.identity.provider, null);
   assert.match(report.promptHash, /^[a-f0-9]{64}$/);
+});
+
+test('live evaluation preserves legacy history and assignment anchors using the server assembly', () => {
+  const fixture = { ...coachFixtures[0], opening: false, history: [
+    { id: 'old:0', role: 'assistant', content: 'Audit https://www.berkshirehathaway.com on your phone.' },
+    ...Array.from({ length: 45 }, (_, i) => ({ id: `history-${i}`, role: 'user', content: 'Another question.' })),
+  ] };
+  const body = evaluation.buildCoachEvaluationRequest(fixture, 'prompt');
+  const context = JSON.parse(body.messages[0].content);
+  assert.equal(context.conversationState?.assignment?.text, 'Audit https://www.berkshirehathaway.com on your phone.');
+  assert.equal(body.messages.length, 43);
+  const short = evaluation.buildCoachEvaluationRequest({ ...fixture, history: fixture.history.slice(0, 1) }, 'prompt');
+  assert.equal(JSON.parse(short.messages[2].content).unverifiedCoachMessage.sourceMessageId, 'old:0');
+});
+
+test('evaluation refuses inference for unresolved oversized history and uses the learner restatement after confirmation', () => {
+  const fixture = { ...coachFixtures.find(item => item.id === 'legacy-audit-resume'), history: [
+    { id: 'old:0', role: 'assistant', content: 'Audit https://www.berkshirehathaway.com.' },
+    ...Array.from({ length: 20 }, (_, i) => ({ id: `long-${i}`, role: 'user', content: 'x'.repeat(6000) })),
+  ] };
+  fixture.kb = { ...fixture.kb, conversationState: undefined };
+  assert.throws(() => evaluation.buildCoachEvaluationRequest(fixture, 'prompt'), /server continuity clarification/);
+  fixture.history.push({ id: 'confirm:1', role: 'assistant', content: TASK_CONFIRMATION_PROMPT });
+  fixture.kb = { ...fixture.kb, conversationState: { version: 3, legacyLearnerContext: [], legacyContextTruncated: true, confirmationPromptId: 'confirm:1' } };
+  fixture.input = 'Continue with: audit https://example.org.';
+  const body = evaluation.buildCoachEvaluationRequest(fixture, 'prompt');
+  const state = JSON.parse(body.messages[0].content).conversationState;
+  assert.equal(state.confirmedTask.text, fixture.input);
+  assert.equal(state.assignment, null);
+  assert.equal(body.messages.length, 3);
+});
+
+test('continuity qualification rejects a substituted target and missing task-change reference', () => {
+  const fixture = { ...coachFixtures.find(item => item.id === 'preserve-question'), expectedTargetMentions: ['berkshirehathaway.com', 'Berkshire Hathaway'], expectedTaskChangeSourceId: 'fixture:0' };
+  const update = { responseType: 'question', insights: [], learnerPosition: 'No new work.', evidence: [], exemplarEvidence: fixture.kb.exemplarEvidence };
+  const reply = text => `${text}\n[PROGRESS: 6]\n[KB_UPDATE: ${JSON.stringify(update)}]`;
+  const wrong = evaluateCoachReply(fixture, reply('Audit https://news.ycombinator.com instead.'));
+  assert.ok(wrong.failures.includes('target_continuity'));
+  assert.ok(wrong.failures.includes('task_change_not_retained'));
+  update.taskChangeSourceId = 'fixture:0';
+  assert.equal(evaluateCoachReply(fixture, reply('Continue with Berkshire Hathaway.')).passed, true);
+});
+
+test('an on-topic clarification need not repeat the site name to preserve continuity', () => {
+  const fixture = coachFixtures.find(item => item.id === 'legacy-audit-resume');
+  const metadata = fixture.raw.slice(fixture.raw.indexOf('\n[PROGRESS:'));
+  assert.equal(evaluateCoachReply(fixture, `Which element looks unstyled, and how does it affect using the page on your phone?${metadata}`).passed, true);
+  assert.ok(evaluateCoachReply(fixture, `The task is https://news.ycombinator.com instead.${metadata}`).failures.includes('target_continuity'));
+});
+
+test('continuity grading rejects arbitrary replacement URLs and substitutions that mention the original target', () => {
+  for (const [id, text] of [
+    ['legacy-audit-resume', 'Audit https://example.com instead; describe one issue.'],
+    ['audit-drift-correction', 'Berkshire Hathaway was the original target, but use https://news.ycombinator.com instead.'],
+    ['audit-drift-correction', 'Use [Berkshire Hathaway](https://example.com) for this audit.'],
+    ['audit-drift-correction', 'Berkshire Hathaway was the original target, but audit Hacker News instead.'],
+    ['legacy-audit-resume', 'Use news.ycombinator.com instead.'],
+  ]) {
+    const fixture = coachFixtures.find(item => item.id === id);
+    const result = evaluateCoachReply(fixture, text + fixture.raw.slice(fixture.raw.indexOf('\n[PROGRESS:')));
+    assert.equal(result.metadataValid, true);
+    assert.ok(result.failures.includes('target_continuity'), `${id}: ${text}`);
+  }
+});
+
+test('unsupported diagnoses in either retained observation field fail qualification with valid assessment metadata', () => {
+  const fixture = coachFixtures.find(item => item.id === 'legacy-audit-resume');
+  const raw = update => `Which element looks unstyled?\n[PROGRESS: 0]\n[KB_UPDATE: ${JSON.stringify({ responseType: 'clarification',
+    insights: [], learnerPosition: fixture.kb.learnerPosition, evidence: [], exemplarEvidence: fixture.kb.exemplarEvidence, ...update })}]`;
+  for (const update of [{ insights: ['Confirmed CSS failure.'] }, { learnerPosition: 'The learner reported a failed stylesheet.' },
+    { insights: ['The stylesheet did not load.'] }]) {
+    const result = evaluateCoachReply(fixture, raw(update));
+    assert.equal(result.metadataValid, true);
+    assert.equal(result.progress, 0);
+    if (update.insights) assert.deepEqual(result.insights, update.insights, 'grade the observations that would actually be persisted');
+    if (update.learnerPosition) assert.equal(result.learnerPosition, update.learnerPosition);
+    assert.ok(result.failures.includes('unsupported_observation'), JSON.stringify(update));
+  }
+  assert.equal(evaluateCoachReply(fixture, raw({ insights: ['Learner says CSS looks ignored; visible effect is not yet clear.'],
+    learnerPosition: 'Clarify which element looks unstyled and how it affects use.' })).passed, true);
+});
+
+test('rotated continuity fixtures expose the selected URL outside both bounded lists', () => {
+  for (const id of ['migrated-legacy-target', 'rotated-link-target']) {
+    const fixture = coachFixtures.find(item => item.id === id);
+    const body = evaluation.buildCoachEvaluationRequest(fixture, 'prompt');
+    const context = JSON.parse(body.messages[0].content);
+    assert.equal(JSON.stringify(body.messages.slice(2)).includes('ycombinator.com'), false);
+    assert.equal(JSON.stringify(context.sources).includes('ycombinator.com'), false);
+    assert.match(JSON.stringify(context.conversationState), /https:\/\/news\.ycombinator\.com\//);
+    assert.equal(context.sources.length, 16);
+  }
+});
+
+test('continuity fixtures reject task-change markers unless the learner actually requests a change', () => {
+  for (const id of ['legacy-audit-resume', 'audit-drift-correction', 'long-audit-resume']) {
+    const fixture = coachFixtures.find(item => item.id === id);
+    const result = evaluateCoachReply(fixture, fixture.raw.replace('"insights":', '"taskChangeSourceId":"fixture:0","insights":'));
+    assert.equal(result.metadataValid, true);
+    assert.ok(result.failures.includes('unexpected_task_change'), id);
+  }
+  const change = coachFixtures.find(item => item.id === 'audit-target-change');
+  assert.equal(evaluateCoachReply(change, change.raw).passed, true);
 });
 test('live evaluation requires an explicit bounded call budget before inference', async () => {
   await assert.rejects(evaluateCoach({ live: true, invoke: () => { throw new Error('must not call'); } }), /max-calls budget/);

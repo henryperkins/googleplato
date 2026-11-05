@@ -1,11 +1,15 @@
 import { Fragment, useState, useEffect, useMemo, useId, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext.jsx';
-import { getLessonKB } from '../../js/storage.js';
+import { useLessonListProgress } from '../hooks/useLessonListProgress.js';
 import { authenticatedFetch } from '../../js/auth.js';
 import { renderMd, renderInlineMd, stripInlineMd } from '../lib/helpers.js';
+import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import Check from 'lucide-react/dist/esm/icons/check';
-import { courseCompletion, groupByCourse } from '../lib/courseCompletion.js';
+import { courseCompletion } from '../lib/courseCompletion.js';
+import { groupLessonsForPage, needsOtherHeading, orderLessons, startHereLessonId } from '../lib/lessonListOrder.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +36,9 @@ const STATUS_COMPLETED = 'completed';
 
 // Learners can't create lessons, so the empty list explains where they come from.
 const EMPTY_MESSAGE = 'No lessons yet. Lessons appear here when they’re published or shared with you.';
+
+// Shared by every group heading on the page (courses, In progress, Other lessons).
+const GROUP_HEADING = 'min-w-0 [overflow-wrap:anywhere] text-sm font-semibold uppercase tracking-wider text-muted-foreground';
 
 function lessonStatusKey(d) {
   if (d?.status === 'completed') return STATUS_COMPLETED;
@@ -63,45 +70,17 @@ function formatTimeRange(p20, p80) {
 export default function LessonsList() {
   const { state, reloadLessons } = useApp();
   const navigate = useNavigate();
-  const { lessons, loaded, lessonsError, loadingLessons } = state;
+  const { loaded, lessonCatalogLoaded, lessonsError, loadingLessons, lessonProgressHydrated } = state;
+  const { lessons, statuses, ready: progressReady, error: progressError } = useLessonListProgress(state.lessons, {
+    loaded: lessonCatalogLoaded, hydrated: lessonProgressHydrated,
+  });
+  const loadError = lessonsError || progressError;
   const headingRef = useRef(null);
-  const [lessonData, setLessonData] = useState({});
   const [timeStats, setTimeStats] = useState({});
   const [detailLesson, setDetailLesson] = useState(null);
   const [courseFilter, setCourseFilter] = useState(FILTER_ALL);
   const [statusFilter, setStatusFilter] = useState(STATUS_ALL);
   const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    (async () => {
-      const data = {};
-      for (const c of lessons) {
-        const kb = await getLessonKB(c.lessonId);
-        data[c.lessonId] = {
-          status: kb?.status || null,
-          progress: kb?.progress ?? null,
-        };
-      }
-      setLessonData(data);
-    })();
-  }, [lessons]);
-
-  // Listen for lesson completion events to immediately update the checkmark
-  useEffect(() => {
-    const handleCompletion = async (e) => {
-      const { lessonId } = e.detail;
-      const kb = await getLessonKB(lessonId);
-      setLessonData(prev => ({
-        ...prev,
-        [lessonId]: {
-          status: kb?.status || null,
-          progress: kb?.progress ?? null,
-        },
-      }));
-    };
-    window.addEventListener('plato:lesson-completed', handleCompletion);
-    return () => window.removeEventListener('plato:lesson-completed', handleCompletion);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,35 +130,42 @@ export default function LessonsList() {
     }
   }, [hasCourseFilter, courseFilter, courseOptions.named]);
 
+  // While every status is shown, the lessons in progress lead the whole list
+  // under their own heading, ahead of the course groups. A status filter
+  // already sorts by status, so it keeps the plain course grouping.
+  const inProgressFirst = statusFilter === STATUS_ALL;
+
   // Apply both filters. Course narrows by taxonomy; status narrows by the
   // learner's progress on each lesson. Combined as logical AND so the grid
-  // only shows lessons matching every active filter.
+  // only shows lessons matching every active filter. Then catalog order:
+  // course name (lessons without a course last), then lesson name.
   const filtered = useMemo(() => {
     let result = lessons;
     if (courseFilter === FILTER_NONE) result = result.filter((l) => !l.course?.id);
     else if (courseFilter !== FILTER_ALL) result = result.filter((l) => l.course?.id === courseFilter);
     if (statusFilter !== STATUS_ALL) {
-      result = result.filter((l) => lessonStatusKey(lessonData[l.lessonId]) === statusFilter);
+      result = result.filter((l) => lessonStatusKey(statuses[l.lessonId]) === statusFilter);
     }
-    // Sort by course name first (uncategorized lessons last), then by lesson
-    // title within each course.
-    return result.slice().sort((a, b) => {
-      const courseA = a.course?.name || '';
-      const courseB = b.course?.name || '';
-      // Push lessons without courses to the end
-      if (!courseA && courseB) return 1;
-      if (courseA && !courseB) return -1;
-      // Compare course names alphabetically
-      const courseCompare = courseA.localeCompare(courseB, undefined, { numeric: true, sensitivity: 'base' });
-      if (courseCompare !== 0) return courseCompare;
-      // Within the same course (or both uncategorized), sort by lesson name
-      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-    });
-  }, [lessons, courseFilter, statusFilter, lessonData]);
+    return orderLessons(result, statuses, { inProgressFirst });
+  }, [lessons, courseFilter, statusFilter, statuses, inProgressFirst]);
+
+  // Lessons without a course get an "Other lessons" heading whenever the list
+  // also has named groups, even on a page that shows only them.
+  const showOtherHeading = useMemo(
+    () => needsOtherHeading(filtered, statuses, { inProgressFirst }),
+    [filtered, statuses, inProgressFirst],
+  );
+
+  // A learner who hasn't started any lesson gets one suggested first lesson,
+  // so a grid of identical empty circles has a place to begin.
+  const startHereId = useMemo(
+    () => startHereLessonId(filtered, lessons, statuses),
+    [filtered, lessons, statuses],
+  );
 
   // Course progress counts public lessons from the full catalog, so a status
   // filter can't skew "N of M" (#395). Shared private lessons remain available.
-  const progressByCourse = useMemo(() => courseCompletion(lessons, lessonData), [lessons, lessonData]);
+  const progressByCourse = useMemo(() => courseCompletion(lessons, statuses), [lessons, statuses]);
 
   // Pagination math. We clamp the current page to the available range so a
   // filter that shrinks the list below the current page doesn't strand us.
@@ -191,6 +177,18 @@ export default function LessonsList() {
   // Reset to page 1 whenever any filter changes so we never land on an
   // out-of-range page after a tighter filter.
   useEffect(() => { setPage(1); }, [courseFilter, statusFilter]);
+
+  // Previous and Next replace the cards, so the reader starts the new page at
+  // the top: focus moves to the page heading, which scrolls into view. Left on
+  // the button, focus would sit below cards not yet read, and on the last
+  // page, where Next is disabled, it would fall to the document. Steps count
+  // from the page shown, which `page` can outrun when the list shrinks.
+  const goToPage = (next) => {
+    const target = Math.min(Math.max(1, next), totalPages);
+    if (target === currentPage) return;
+    setPage(target);
+    headingRef.current?.focus();
+  };
 
   // Live announcement: assembled from filter + page state. Updates whenever
   // either changes, which is exactly the moment screen reader users need to
@@ -222,10 +220,10 @@ export default function LessonsList() {
     // is what reliably fires the screen-reader announcement (live regions
     // commonly skip initial-mount content). Avoids double-announcement
     // with the visible "Loading lessons…" div below.
-    if (!loaded) return '';
+    if (!loaded || !progressReady) return '';
     const total = filtered.length;
     const scope = filterPhrase ? ` ${filterPhrase}` : '';
-    if (lessons.length === 0) return lessonsError ? '' : EMPTY_MESSAGE;
+    if (lessons.length === 0) return loadError ? '' : EMPTY_MESSAGE;
     if (total === 0) {
       return filterPhrase ? `No lessons ${filterPhrase}.` : 'No lessons.';
     }
@@ -236,7 +234,7 @@ export default function LessonsList() {
     const showingFrom = pageStart + 1;
     const showingTo = pageStart + visibleLessons.length;
     return `Showing ${showingFrom} to ${showingTo} of ${total} ${lessonWord}${scope}, page ${currentPage} of ${totalPages}.`;
-  }, [loaded, lessons.length, lessonsError, filtered.length, filterPhrase, totalPages, pageStart, visibleLessons.length, currentPage]);
+  }, [loaded, progressReady, lessons.length, loadError, filtered.length, filterPhrase, totalPages, pageStart, visibleLessons.length, currentPage]);
 
   return (
     <div className="mx-auto max-w-5xl p-4">
@@ -289,9 +287,9 @@ export default function LessonsList() {
         {announcement}
       </div>
 
-      {lessonsError && (
+      {loadError && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger-border bg-danger px-4 py-3 text-sm text-danger-foreground" role="alert">
-          <p>{lessonsError}</p>
+          <p>{loadError}</p>
           <Button
             variant="outline"
             size="sm"
@@ -307,14 +305,14 @@ export default function LessonsList() {
         </div>
       )}
 
-      {!loaded ? (
+      {!loaded || (!progressReady && !loadError) ? (
         // Plain visible state — no role/aria-live here. The sr-only live
         // region above is the single announcer; it fires when its content
         // transitions from '' (loading) to "Showing N lessons" (loaded).
         <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
           Loading lessons…
         </div>
-      ) : lessons.length === 0 ? (lessonsError ? null : (
+      ) : lessons.length === 0 ? (loadError ? null : (
         <div className="rounded-lg border border-dashed px-4 py-12 text-center text-muted-foreground">
           {EMPTY_MESSAGE}
         </div>
@@ -325,30 +323,41 @@ export default function LessonsList() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* One progress header per course on this page; counts come from
-              progressByCourse (all lessons), not from what's visible. */}
-          {groupByCourse(visibleLessons).map((group) => {
-            const progress = group.courseId ? progressByCourse[group.courseId] : null;
+          {/* In reading order: the lessons in progress, then one group per
+              course with its progress header (counts come from
+              progressByCourse, all lessons, not from what's visible), then
+              lessons without a course. */}
+          {groupLessonsForPage(visibleLessons, statuses, { inProgressFirst }).map((group) => {
+            const progress = group.kind === 'course' ? progressByCourse[group.courseId] : null;
+            const heading = group.kind === 'in-progress' ? 'In progress'
+              : group.kind === 'course' ? group.courseName
+                : showOtherHeading ? 'Other lessons' : null;
+            const listLabel = group.kind === 'in-progress' ? 'Lessons in progress'
+              : group.kind === 'course' ? `${group.courseName} lessons`
+                : heading || 'Lessons';
             return (
-              <div key={group.courseId || 'uncategorized'}>
-                {group.courseName && progress && (
+              <div key={group.key}>
+                {progress?.total > 0 ? (
                   <CourseProgressHeader
                     courseName={group.courseName}
                     completed={progress.completed}
                     total={progress.total}
                   />
+                ) : heading && (
+                  <h2 dir="auto" className={`mb-3 ${GROUP_HEADING}`}>{heading}</h2>
                 )}
                 <ul
                   className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
                   role="list"
-                  aria-label={group.courseName ? `${group.courseName} lessons` : 'Lessons'}
+                  aria-label={listLabel}
                 >
                   {group.lessons.map((lesson) => (
                     <LessonCardItem
                       key={lesson.lessonId}
                       lesson={lesson}
-                      lessonData={lessonData}
+                      lessonData={statuses}
                       timeStats={timeStats}
+                      startHere={lesson.lessonId === startHereId}
                       navigate={navigate}
                       setDetailLesson={setDetailLesson}
                     />
@@ -367,10 +376,12 @@ export default function LessonsList() {
             size="sm"
             className="touch-manipulation"
             disabled={currentPage <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            focusableWhenDisabled
+            onClick={() => goToPage(currentPage - 1)}
             aria-label="Previous page"
           >
-            &larr; Previous
+            <ArrowLeft aria-hidden="true" data-icon="inline-start" />
+            Previous
           </Button>
           <span className="text-sm text-muted-foreground tabular-nums whitespace-nowrap" aria-current="page">
             Page {currentPage} of {totalPages}
@@ -380,10 +391,12 @@ export default function LessonsList() {
             size="sm"
             className="touch-manipulation"
             disabled={currentPage >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            focusableWhenDisabled
+            onClick={() => goToPage(currentPage + 1)}
             aria-label="Next page"
           >
-            Next &rarr;
+            Next
+            <ArrowRight aria-hidden="true" data-icon="inline-end" />
           </Button>
         </nav>
       )}
@@ -391,10 +404,17 @@ export default function LessonsList() {
       {detailLesson && (
         <LessonDetailDialog
           lesson={detailLesson}
-          progress={lessonData[detailLesson.lessonId]}
+          progress={statuses[detailLesson.lessonId]}
           timeStats={timeStats[detailLesson.lessonId]}
           open={!!detailLesson}
           onOpenChange={(open) => { if (!open) setDetailLesson(null); }}
+          onOpenLesson={() => {
+            const { lessonId } = detailLesson;
+            // Close first, so the dialog releases its scroll lock (on iOS,
+            // restoring the list's scroll) before the lesson page renders.
+            flushSync(() => setDetailLesson(null));
+            navigate(`/lessons/${lessonId}`);
+          }}
         />
       )}
     </div>
@@ -402,6 +422,8 @@ export default function LessonsList() {
 }
 
 // Course progress header — completed / total public lessons in the course.
+// The track shows the bar's whole length, even at 0. Forced colors drop both
+// fills, so the track keeps an outline and the fill takes the text color.
 function CourseProgressHeader({ courseName, completed, total }) {
   if (total === 0) return null;
   const pct = Math.round((completed / total) * 100);
@@ -409,7 +431,7 @@ function CourseProgressHeader({ courseName, completed, total }) {
   return (
     <div className="mb-3">
       <div className="flex min-w-0 flex-col gap-1 mb-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
-        <h2 className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        <h2 dir="auto" className={GROUP_HEADING}>
           {courseName}
         </h2>
         <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
@@ -422,10 +444,10 @@ function CourseProgressHeader({ courseName, completed, total }) {
         aria-valuemax={100}
         aria-valuenow={pct}
         aria-label={`${courseName} progress: ${completed} of ${total} public lessons completed`}
-        className="h-1.5 rounded-full bg-muted overflow-hidden"
+        className="h-1.5 rounded-full bg-track overflow-hidden forced-colors:outline-1"
       >
         <div
-          className="h-full rounded-full bg-primary-text transition-all"
+          className="h-full rounded-full bg-primary-text transition-all forced-colors:bg-[color:CanvasText]"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -435,13 +457,14 @@ function CourseProgressHeader({ courseName, completed, total }) {
 
 // Wrapper for individual lesson cards in the grid. Extracted to avoid
 // duplicating the card rendering logic when grouping by course.
-function LessonCardItem({ lesson, lessonData, timeStats, navigate, setDetailLesson }) {
+function LessonCardItem({ lesson, lessonData, timeStats, startHere, navigate, setDetailLesson }) {
   return (
     <li className="list-none">
       <LessonCard
         lesson={lesson}
         progress={lessonData[lesson.lessonId]}
         timeStats={timeStats[lesson.lessonId]}
+        startHere={startHere}
         onOpen={() => navigate(`/lessons/${lesson.lessonId}`)}
         onShowOverview={() => setDetailLesson(lesson)}
       />
@@ -449,7 +472,7 @@ function LessonCardItem({ lesson, lessonData, timeStats, navigate, setDetailLess
   );
 }
 
-function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
+function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOverview }) {
   // Stable id per card so the open-lesson button can describe itself with
   // the meta strip — Tab navigation announces course + time as
   // supplementary context (status now lives in the indicator and the
@@ -484,7 +507,7 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
   const statusText = statusAnnouncement(progress);
 
   return (
-    <Card className="h-full transition-shadow [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-md group gap-0 p-0">
+    <Card className="lesson-card h-full transition-shadow [@media(hover:hover)_and_(pointer:fine)]:hover:shadow-md group gap-0 p-0 forced-colors:outline-1">
       <button
         type="button"
         onClick={onOpen}
@@ -492,22 +515,27 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
         // indicator is aria-hidden, so without this the icon's meaning
         // would be invisible to SR users. We use aria-label instead of
         // wrapping an h3 inside the button (invalid HTML per WCAG 2.4.6).
-        aria-label={`Open lesson ${lesson.name}. ${statusText}.`}
+        aria-label={`Open lesson ${lesson.name}. ${statusText}.${startHere ? ' Start here.' : ''}`}
         aria-describedby={parts.length > 0 ? metaId : undefined}
-        className="min-w-0 flex-1 text-left px-4 pt-4 pb-2 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+        // The card draws this button's focus ring (.lesson-card in
+        // index.css): the card clips to its corners, which cut the ring to a
+        // line. text-start lets a right-to-left title align right. A button
+        // centers its content, so a short title sat lower than a long one
+        // beside it; as a column it starts every title on the row's top line.
+        className="lesson-open flex min-w-0 flex-1 flex-col justify-start text-start px-4 pt-4 pb-2 cursor-pointer"
       >
         <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
           <div className="min-w-0 basis-48 flex-1 space-y-1.5">
-            <span className="wrap-anywhere text-base font-semibold leading-snug transition-colors group-hover:text-primary-text block">
+            <span dir="auto" className="wrap-anywhere text-base font-semibold leading-snug transition-colors group-hover:text-primary-text block">
               {lesson.name}
             </span>
             {lesson.description && (
-              <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+              <p dir="auto" className="wrap-anywhere text-sm text-muted-foreground line-clamp-2 leading-relaxed">
                 {stripInlineMd(lesson.description)}
               </p>
             )}
           </div>
-          <StatusIndicator progress={progress} statusText={statusText} />
+          {startHere ? <StartHereMark /> : <StatusIndicator progress={progress} statusText={statusText} />}
         </div>
       </button>
       <div className="px-4 pb-3 pt-1 flex flex-col items-start gap-2">
@@ -535,9 +563,9 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
               )}
               <span className="wrap-anywhere">
                 {idx > 0 && <span aria-hidden="true">· </span>}
-                {part.title ? (
-                  <span title={part.title}>{part.text}</span>
-                ) : part.text}
+                {/* Isolated, so a right-to-left course name keeps its own
+                    order without pulling the separators into it. */}
+                <bdi title={part.title}>{part.text}</bdi>
               </span>
             </Fragment>
           ))}
@@ -559,18 +587,37 @@ function LessonCard({ lesson, progress, timeStats, onOpen, onShowOverview }) {
   );
 }
 
+// The suggested first lesson's mark, in place of its not-started circle (with
+// nothing started, every circle is empty). It takes the classroom's action
+// fill, the one filled mark on the page, and keeps its outline in forced
+// colors, which drop the fill. Hidden like the status icons: the open
+// action's accessible name ends with "Start here."
+function StartHereMark() {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-6 shrink-0 items-center whitespace-nowrap rounded-full bg-primary px-2.5 text-xs font-semibold text-primary-foreground forced-colors:outline-1"
+    >
+      Start here
+    </span>
+  );
+}
+
 // Visual status indicator that doubles as a progress meter. Three
 // well-differentiated states with distinct hues so the icon is
 // glanceable in a grid without relying on shape alone:
 //   - not-started: muted gray outline ring
-//   - in-progress: amber arc on amber wash (warm "in flight" cue, kept
-//     out of the brand palette so it doesn't blend into themed UI)
+//   - in-progress: amber arc and its percentage on an amber wash (warm
+//     "in flight" cue, kept out of the brand palette so it doesn't blend
+//     into themed UI). The number says what the arc can't: 20% and 60%
+//     look alike at this size.
 //   - completed:   green check on green wash
 // The visual is aria-hidden — the matching status text is folded into
-// the open-lesson button's aria-label, and `title` gives sighted hover
-// users the precise % when the arc alone is hard to read.
+// the open-lesson button's aria-label, and `title` repeats it on hover.
+// Marks are 24px, top-aligned with the title's 22px first line: that centers
+// them on its x-height and sets a chip's 12px label on the title's baseline.
 function StatusIndicator({ progress, statusText }) {
-  const sharedClass = 'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full';
+  const sharedClass = 'flex h-6 w-6 shrink-0 items-center justify-center rounded-full';
   if (progress?.status === 'completed') {
     return (
       <span
@@ -583,14 +630,23 @@ function StatusIndicator({ progress, statusText }) {
     );
   }
   if (progress?.status) {
-    const pct = progress.progress != null ? progress.progress * 10 : 0;
+    const pct = progress.progress != null ? progress.progress * 10 : null;
+    if (pct == null) {
+      return (
+        <span aria-hidden="true" title={statusText} className={`${sharedClass} bg-in-progress-background text-in-progress-foreground`}>
+          <ProgressRing pct={0} />
+        </span>
+      );
+    }
+    // The ring keeps the circle's 1px inset; the number holds 4.5:1 on the wash.
     return (
       <span
         aria-hidden="true"
         title={statusText}
-        className={`${sharedClass} bg-in-progress-background text-in-progress-foreground`}
+        className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-in-progress-background pl-px pr-2 text-in-progress-foreground"
       >
         <ProgressRing pct={pct} />
+        <span className="text-xs font-semibold tabular-nums">{pct}%</span>
       </span>
     );
   }
@@ -627,9 +683,12 @@ function ProgressRing({ pct, size = 22, stroke = 2.5 }) {
   );
 }
 
-function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange }) {
+function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange, onOpenLesson }) {
   const pct = progress?.status === 'completed' ? 100 : (progress?.progress != null ? progress.progress * 10 : null);
   const progressText = progress?.status === 'completed' ? 'Completed' : (pct != null ? `${pct}% complete` : null);
+  // The outline is where a learner decides, so it carries the next step.
+  const openLabel = progress?.status === 'completed' ? 'Open lesson'
+    : progress?.status ? 'Continue lesson' : 'Start lesson';
   const range = timeStats && (timeStats.sampleSize ?? 0) >= 3
     ? formatTimeRange(timeStats.p20, timeStats.p80)
     : null;
@@ -638,18 +697,18 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent variant="sheet">
         <DialogHeader>
-          {/* Course tag above the title — establishes scope before the
-              learner reads the title, matches the card's visual order. */}
-          {lesson.course?.name && (
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {lesson.course.name}
-            </p>
-          )}
-          <DialogTitle>{lesson.name}</DialogTitle>
+          <DialogTitle dir="auto" className="wrap-anywhere leading-snug">{lesson.name}</DialogTitle>
           {/* Author-written markdown: inline formatting only, since the
               description is a <p>. The exemplar may hold lists. */}
           {lesson.description && (
-            <DialogDescription className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />
+            <DialogDescription dir="auto" className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />
+          )}
+          {/* The course follows in the card's order and metadata style,
+              rather than as a label above the title. */}
+          {lesson.course?.name && (
+            <p dir="auto" className="wrap-anywhere text-xs leading-relaxed text-muted-foreground">
+              {lesson.course.name}
+            </p>
           )}
         </DialogHeader>
 
@@ -671,10 +730,10 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
                 aria-valuemax={100}
                 aria-valuenow={pct}
                 aria-label={progressText}
-                className="h-2 rounded-full bg-muted overflow-hidden"
+                className="h-2 rounded-full bg-track overflow-hidden forced-colors:outline-1"
               >
                 <div
-                  className="progress-fill h-full rounded-full bg-primary-text"
+                  className="progress-fill h-full rounded-full bg-primary-text forced-colors:bg-[color:CanvasText]"
                   style={{ transform: `scaleX(${pct / 100})` }}
                 />
               </div>
@@ -692,12 +751,12 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
 
           <div>
             <h3 className="text-sm font-medium mb-1">Exemplar</h3>
-            <div className="coach-copy text-sm text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(lesson.exemplar) }} />
+            <div dir="auto" className="coach-copy text-sm text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(lesson.exemplar) }} />
           </div>
 
           <div>
             <h3 className="text-sm font-medium mb-1">Learning objectives</h3>
-            <ul className="list-disc pl-5 text-sm text-muted-foreground leading-relaxed space-y-1">
+            <ul dir="auto" className="list-disc ps-5 text-sm text-muted-foreground leading-relaxed space-y-1">
               {lesson.learningObjectives.map((obj, i) => (
                 <li key={i} className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(obj) }} />
               ))}
@@ -707,6 +766,7 @@ function LessonDetailDialog({ lesson, progress, timeStats, open, onOpenChange })
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button onClick={onOpenLesson}>{openLabel}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

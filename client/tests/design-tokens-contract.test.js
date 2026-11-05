@@ -77,7 +77,7 @@ describe('design tokens', () => {
   });
 
   it('defines the workspace and lesson-status tokens DESIGN.md names', () => {
-    for (const name of ['workspace', 'completed-background', 'completed-foreground', 'in-progress-background', 'in-progress-foreground', 'header', 'header-foreground', 'bubble', 'bubble-foreground']) {
+    for (const name of ['workspace', 'completed-background', 'completed-foreground', 'in-progress-background', 'in-progress-foreground', 'header', 'header-foreground', 'bubble', 'bubble-foreground', 'track']) {
       assert.match(CSS, new RegExp(`--${name}:\\s*(oklch|var)`), `--${name} value`);
       assert.match(CSS, new RegExp(`--color-${name}:\\s*var\\(--${name}\\)`), `--color-${name} mapping`);
     }
@@ -182,6 +182,42 @@ describe('theme contrast', () => {
         const surface = token(surfaces, name, { chroma: 0.007, hue });
         const ratio = contrastRatio(over('#ffffff', alpha, surface), surface);
         assert.ok(ratio >= 3, `field border on ${name} at hue ${hue}: ${ratio.toFixed(2)}:1`);
+      }
+    }
+  });
+
+  it("shows a progress bar's whole length on every surface, with its fills at 3:1, in both themes", () => {
+    // By day the track is a visible step off the workspace, cards, and
+    // dialogs (--muted was 1:1 on the workspace), under the unbranded fill.
+    // The completed green, which the lesson page's bar ends in, holds too, so
+    // that bar can move onto the track. lib/branding.js classroom fills are
+    // swept in branding.test.js.
+    const track = token(light, 'track');
+    for (const name of ['workspace', 'card', 'popover']) {
+      const ratio = contrastRatio(track, token(light, name));
+      assert.ok(ratio >= 1.3, `light track on ${name} at ${ratio.toFixed(2)}:1`);
+    }
+    for (const fill of ['primary', 'success-foreground']) {
+      const ratio = contrastRatio(token(light, fill), track);
+      assert.ok(ratio >= 3, `light ${fill} on the track at ${ratio.toFixed(2)}:1`);
+    }
+    // At night it is translucent white, so it rises the same step off each
+    // surface, whatever hue tints it.
+    const alpha = Number(dark.match(/--track:\s*oklch\(1 0 0 \/ (\d+)%\);/)[1]) / 100;
+    const nightFills = [
+      ['primary-text', hexOf(night.match(/--primary-text: var\(--classroom-primary-text-dark, (oklch\([^)]+\))\)/)[1])],
+      ['success-foreground', token(dark, 'success-foreground')],
+    ];
+    for (const hue of HUES) {
+      for (const name of ['workspace', 'card', 'popover']) {
+        const surface = token(surfaces, name, { chroma: 0.007, hue });
+        const nightTrack = over('#ffffff', alpha, surface);
+        const ratio = contrastRatio(nightTrack, surface);
+        assert.ok(ratio >= 1.3, `dark track on ${name} at hue ${hue}: ${ratio.toFixed(2)}:1`);
+        for (const [fill, color] of nightFills) {
+          const fillRatio = contrastRatio(color, nightTrack);
+          assert.ok(fillRatio >= 3, `dark ${fill} on the track over ${name} at hue ${hue}: ${fillRatio.toFixed(2)}:1`);
+        }
       }
     }
   });
