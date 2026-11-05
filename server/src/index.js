@@ -58,13 +58,6 @@ server.use('*', async (c, next) => {
         console.error('Admin bootstrap failed:', err.message);
       }
     }
-    // Ensure designated admin accounts exist with admin role
-    try {
-      const u = await db.getUserByEmail('henry@lakefrontdigital.io');
-      if (u && u.role !== 'admin') {
-        await db.updateUser(u.userId, { role: 'admin' });
-      }
-    } catch { /* best effort */ }
     // Seed/update prompts and lessons
     try {
       const seeded = await seedDefaultContent();
