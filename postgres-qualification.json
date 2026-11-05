@@ -1,0 +1,43 @@
+{
+  "source_commit": "ebab465a9a1bf00d67faf0f892f739e5dcd3f804",
+  "command": [
+    "node",
+    "--test",
+    "--test-reporter=spec",
+    "server/tests/lib/db-postgres.test.js",
+    "server/tests/lib/branding-persistence.test.js",
+    "server/tests/lib/save-observability-start.test.js"
+  ],
+  "postgres_version": "17.11 (Debian 17.11-1.pgdg12+2)",
+  "postgres_image": {
+    "id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+    "repo_digests": [
+      "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+    ],
+    "created": "2026-10-06T01:33:14.109789664Z"
+  },
+  "test_started_at": "2026-11-05T16:20:18.149658+00:00",
+  "test_completed_at": "2026-11-05T16:20:19.766848+00:00",
+  "exit_code": 0,
+  "totals": {
+    "tests": 27,
+    "pass": 27,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0
+  },
+  "schemas_after_tests": [
+    "public"
+  ],
+  "container_stopped_and_removed": true,
+  "provider_credentials_inherited": false,
+  "candidate_clean": true,
+  "source_patch_unchanged": true,
+  "scope": "Three relevant server test files; all three previously skipped PostgreSQL-dependent groups exercised. This was not a repeated full server suite.",
+  "isolation": "Disposable PostgreSQL bound to loopback with synthetic fixture data and per-test schemas; container removed after testing.",
+  "limits": [
+    "Local PostgreSQL qualification only; not Cloud SQL or production verification.",
+    "Hosted Actions remain unavailable because of the account billing lock."
+  ],
+  "cleanup_note": "Post-test cleanup verification expected No such object, but Docker 29 reports No such container. Direct inspect and listing confirmed that the task-owned container was already removed. The tests themselves exited 0."
+}

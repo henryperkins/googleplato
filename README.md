@@ -85,3 +85,35 @@ CI is separate from these local results; consult the PR for its current status.
 Private recovery archives, original dirty work, and local Impeccable configuration
 remain outside this evidence branch.
 
+
+
+## PostgreSQL follow-up
+
+On 2026-11-05, the three previously skipped PostgreSQL-dependent groups were run
+against a disposable local PostgreSQL 17.11 database on the unchanged source commit
+`ebab465a9a1bf00d67faf0f892f739e5dcd3f804`.
+
+The three selected test files produced **27 passes, zero failures, and zero skips**.
+This covers PostgreSQL persistence and concurrent writers; PostgreSQL branding
+transactions and rollback; and authenticated save-event reports through the
+production HTTP entrypoint. The selected files also include their existing
+SQLite, DynamoDB, and development-entrypoint checks. This was a focused follow-up,
+not a second full server-suite run; its count should not be added to the earlier
+927 passes as if the cases were disjoint.
+
+The official PostgreSQL image was pinned by digest. The database listened only on
+loopback, used synthetic fixtures and disposable schemas, and inherited no live
+provider credentials. Tests removed their schemas, and the task-owned database
+container was stopped and removed. Application source and its qualified diff are
+unchanged.
+
+- [Exact test output](postgres-tests.log)
+- [Sanitized qualification record and image identity](postgres-qualification.json)
+
+A post-test fixture cleanup assertion initially expected Docker's older missing
+object wording. Docker 29 reported a missing container instead; direct inspection
+and listing confirmed cleanup. The test process itself exited successfully, and
+no application change or test rerun was needed.
+
+This closes the three local PostgreSQL skips in the earlier report. It does not
+qualify production Cloud SQL, live providers, physical devices, or hosted CI.

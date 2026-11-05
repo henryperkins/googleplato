@@ -1,0 +1,38 @@
+▶ SQLite branding transaction
+  ✔ replacement, restoration, and removal keep pointers and bytes together (1.319892ms)
+  ✔ stale writes cannot store orphan assets or delete the active asset (0.822189ms)
+  ✔ only one competing initial settings creation succeeds (0.592832ms)
+  ✔ reusing identical logo content succeeds without duplicate insert failures (0.305385ms)
+✔ SQLite branding transaction (14.741366ms)
+▶ PostgreSQL branding transaction across connections
+  ✔ replacement, restoration, and removal keep pointers and bytes together (10.443033ms)
+  ✔ stale writes cannot store orphan assets or delete the active asset (3.295537ms)
+  ✔ only one competing initial settings creation succeeds (4.847566ms)
+  ✔ reusing identical logo content succeeds without duplicate insert failures (1.960475ms)
+  ✔ a failure after the asset write rolls back all branding changes (5.941702ms)
+✔ PostgreSQL branding transaction across connections (69.204585ms)
+✔ DynamoDB branding is one conditional transaction with safe error mapping (7.389192ms)
+▶ PostgreSQL persistence and concurrent writers
+  ✔ account, invite, token and audit contracts (46.389052ms)
+  ✔ token consume is atomic across instances and revocation works (SEC-2, SEC-3) (6.20472ms)
+  ✔ strict creation, updates and literal prefix filtering (10.159076ms)
+  ✔ excluded prefixes, bulk prefix reads and bulk delete (7.446643ms)
+  ✔ two instances cannot commit divergent turns from the same base (3.80464ms)
+  ✔ failed second write rolls the transcript back (4.327733ms)
+  ✔ resets invalidate old turns even when content and versions return to empty (7.64813ms)
+  ✔ same-version content changes cannot be overwritten (4.858956ms)
+  ✔ saved turns survive replacement of all application connections (14.51165ms)
+  ✔ production bootstrap keeps its password out of runtime configuration on every start (997.102729ms)
+  ✔ concurrent startup seeders recover conflicts without hiding persistent failures (94.674901ms)
+✔ PostgreSQL persistence and concurrent writers (1241.223192ms)
+✔ start.js accepts authenticated save reports over HTTP and emits structured events (564.017458ms)
+✔ dev.js accepts authenticated save reports over HTTP and emits structured events (377.890863ms)
+✔ dev-sqlite.js accepts authenticated save reports over HTTP and emits structured events (531.841839ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1547.335506
