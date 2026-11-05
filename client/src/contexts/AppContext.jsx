@@ -13,10 +13,13 @@ const initialState = {
   loaded: false,
   loadingLessons: false,
   lessonsError: null,
+  lessonProgressHydrated: false,
 };
 
 function reducer(state, action) {
   switch (action.type) {
+    case 'RESET_DATA':
+      return initialState;
     case 'INIT_DATA':
       return { ...state, ...action.payload, loaded: true, loadingLessons: false, lessonsError: null };
     case 'LOADING_LESSONS':
@@ -45,11 +48,12 @@ export function AppProvider({ children }) {
     invalidateLessonsCache();
     dispatch({ type: 'LOADING_LESSONS' });
     try {
-      try { await sync.loadAll({ isCurrent }); } catch { /* offline or error */ }
+      let lessonProgressHydrated = false;
+      try { lessonProgressHydrated = await sync.loadAll({ isCurrent }); } catch { /* offline or error */ }
       if (!isCurrent()) return;
       const [lessons, preferences] = await Promise.all([loadLessons(), getPreferences()]);
       if (isCurrent()) {
-        dispatch({ type: 'INIT_DATA', payload: { preferences, lessons } });
+        dispatch({ type: 'INIT_DATA', payload: { preferences, lessons, lessonProgressHydrated } });
       }
     } catch {
       if (isCurrent()) dispatch({ type: 'LESSONS_LOAD_FAILED' });
@@ -59,7 +63,10 @@ export function AppProvider({ children }) {
   // Initial load, manual retry, and foreground refresh share the same recovery
   // path. Failed refreshes keep the last rendered lessons available.
   useEffect(() => {
-    if (!loggedIn) return;
+    if (!loggedIn) {
+      dispatch({ type: 'RESET_DATA' });
+      return;
+    }
     reloadLessons();
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return;

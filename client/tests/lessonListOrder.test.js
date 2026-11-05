@@ -155,8 +155,8 @@ describe('getCachedLessonKB', () => {
 describe('LessonsList wiring', () => {
   const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/pages/LessonsList.jsx'), 'utf8');
 
-  it('orders the first render from cached progress, so cards do not move after they appear', () => {
-    assert.match(src, /getCachedLessonKB\(l\.lessonId\)/);
+  it('orders from the verified progress snapshot', () => {
+    assert.match(src, /useLessonListProgress\(state\.lessons,/);
     assert.match(src, /orderLessons\(result, statuses, \{ inProgressFirst \}\)/);
     assert.match(src, /const inProgressFirst = statusFilter === STATUS_ALL;/);
   });

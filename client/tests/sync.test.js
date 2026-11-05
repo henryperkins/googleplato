@@ -24,7 +24,7 @@ describe('sync load cancellation', () => {
   it('replaces the cached collection with the current server response', async () => {
     _populateCache('lessons:old', { lessonId: 'old' }, 1);
     globalThis.fetch = async url => url.endsWith('/status') ? response({ protocol: '1', epoch: 'test' }) : response([savedLesson('current')]);
-    await loadAll();
+    assert.equal(await loadAll(), true);
     assert.deepEqual((await getUserLessons()).map(lesson => lesson.lessonId), ['current']);
   });
 
@@ -42,7 +42,7 @@ describe('sync load cancellation', () => {
     current = false;
     _populateCache('lessons:current', { lessonId: 'current' }, 2);
     finishRequest(response([savedLesson('stale')]));
-    await pending;
+    assert.equal(await pending, false);
     assert.deepEqual((await getUserLessons()).map(lesson => lesson.lessonId), ['current']);
   });
 
@@ -65,7 +65,23 @@ describe('sync load cancellation', () => {
     clearCache();
     body.enqueue(new TextEncoder().encode(JSON.stringify([savedLesson('previous-session')]).slice(1)));
     body.close();
-    await pending;
+    assert.equal(await pending, false);
     assert.deepEqual(await getUserLessons(), []);
+  });
+
+  it('does not claim a complete cache when the bulk endpoint rejects the read', async () => {
+    _populateCache('lessons:previous', { lessonId: 'previous' }, 1);
+    globalThis.fetch = async () => new Response('{}', { status: 503 });
+    assert.equal(await loadAll(), false);
+    assert.deepEqual((await getUserLessons()).map(lesson => lesson.lessonId), ['previous']);
+  });
+
+  it('rejects incomplete payloads before clearing the last verified cache', async () => {
+    for (const items of [{}, [null], [{ dataKey: 'lessonKB:missing-data' }]]) {
+      _populateCache('lessons:previous', { lessonId: 'previous' }, 1);
+      globalThis.fetch = async () => response(items);
+      await assert.rejects(loadAll(), /incomplete/);
+      assert.deepEqual((await getUserLessons()).map(lesson => lesson.lessonId), ['previous']);
+    }
   });
 });

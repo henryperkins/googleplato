@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -20,22 +20,39 @@ import { contrastRatio } from '../../src/lib/branding.js';
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const engine = process.env.PLATO_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
 const assets = process.env.PLATO_TEST_CLIENT_DIST || join(root, 'client/dist');
+const evidence = process.env.PLATO_TEST_EVIDENCE;
 const password = randomBytes(24).toString('base64url');
 let browser, server, directory, base;
 
 // The fixture's learner a has 13 of 14 lessons in progress (two pages) and
 // one completed; its admin has started none.
-async function signIn(who, options = {}) {
+async function signIn(who, options = {}, prepare = async () => {}, { waitForCards = true } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...options });
   const page = await context.newPage();
+  await prepare(page);
   await page.goto(`${base}/login`);
   await page.getByRole('textbox', { name: 'Email or Username' }).fill(`learner-${who}@example.test`);
   await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.waitForURL('**/lessons');
-  await page.getByRole('button', { name: /^Open lesson / }).first().waitFor();
+  if (waitForCards) await page.getByRole('button', { name: /^Open lesson / }).first().waitFor();
   return { context, page };
 }
+const deferred = () => {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+};
+const progressRequest = /\/v1\/sync\/lessonKB(?:%3A|:)/i;
+const cards = page => page.getByRole('button', { name: /^Open lesson / });
+const refresh = async page => {
+  const catalog = page.waitForResponse(response => new URL(response.url()).pathname === '/v1/lessons');
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await catalog;
+};
+const screenshot = async (page, name) => {
+  if (evidence) await page.screenshot({ path: join(evidence, `${engine}-${name}.png`) });
+};
 const focused = page => page.evaluate(() => {
   const element = document.activeElement;
   return { tag: element.tagName, name: element.getAttribute('aria-label') || element.textContent.trim() };
@@ -72,9 +89,10 @@ const assertVisible = (colors, where) => {
   assert.ok(contrastRatio(colors.fill, colors.track) >= 3, `${where}: fill ${colors.fill} on ${colors.track}`);
 };
 
-describe(`lesson list (${engine})`, () => {
+describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(assets, 'index.html')), 'Build the client before browser tests');
+    if (evidence) await mkdir(evidence, { recursive: true });
     directory = await mkdtemp(join(tmpdir(), 'plato-lessons-'));
     const reservation = createServer();
     reservation.listen(0, '127.0.0.1');
@@ -165,6 +183,208 @@ describe(`lesson list (${engine})`, () => {
     const returning = await signIn('a');
     assert.equal(await returning.page.getByRole('button', { name: /Start here\.$/ }).count(), 0);
     await returning.context.close();
+  });
+
+  it('waits for verified progress after a failed bulk sync before showing cards or Start here', async t => {
+    const fallback = deferred();
+    const reached = deferred();
+    const { context, page } = await signIn('a', {}, async page => {
+      await page.route('**/v1/sync', route => route.fulfill({ status: 503, json: { error: 'Unavailable' } }));
+      await page.route(progressRequest, async route => {
+        reached.resolve();
+        await fallback.promise;
+        await route.continue().catch(() => {});
+      });
+    }, { waitForCards: false });
+    t.after(async () => { fallback.resolve(); await context.close(); });
+    await reached.promise;
+    assert.equal(await cards(page).count(), 0, 'unknown progress must not render an incorrect, focusable catalog');
+    assert.equal(await page.getByText('Start here', { exact: true }).count(), 0);
+    await page.getByText('Loading lessons…', { exact: true }).waitFor();
+    await screenshot(page, 'progress-loading');
+    fallback.resolve();
+    const first = cards(page).first();
+    await first.waitFor();
+    assert.match(await first.getAttribute('aria-label'), /^Open lesson Give constructive feedback\. In progress, 30% complete\.$/);
+    assert.equal(await page.getByText('Start here', { exact: true }).count(), 0);
+    await page.locator('#status-filter').focus();
+    await page.keyboard.press('Tab');
+    await page.waitForLoadState('networkidle');
+    assert.equal(await first.evaluate(button => button === document.activeElement), true);
+    await screenshot(page, 'progress-recovered');
+  });
+
+  it('shows a retry when fallback progress also fails, then recovers without inventing a first lesson', async t => {
+    let failing = true;
+    const { context, page } = await signIn('a', { viewport: { width: 390, height: 844 } }, async page => {
+      await page.route('**/v1/sync', route => route.fulfill({ status: 503, json: { error: 'Unavailable' } }));
+      await page.route(progressRequest, route => failing
+        ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
+        : route.continue());
+    }, { waitForCards: false });
+    t.after(() => context.close());
+    await page.getByRole('alert').filter({ hasText: 'lesson progress' }).waitFor({ timeout: 3000 });
+    await screenshot(page, 'progress-retry-390');
+    assert.equal(await cards(page).count(), 0);
+    assert.equal(await page.getByText('Start here', { exact: true }).count(), 0);
+    failing = false;
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await page.getByRole('list', { name: 'Lessons in progress' }).waitFor();
+    assert.equal(await page.getByRole('alert').count(), 0);
+    assert.match(await cards(page).first().getAttribute('aria-label'), /In progress, 30% complete/);
+  });
+
+  it('uses a fresh bulk snapshot immediately and makes no per-lesson confirmation requests', async t => {
+    let refreshed = false;
+    let perLessonReads = 0;
+    const blocked = deferred();
+    const { context, page } = await signIn('a', {}, async page => {
+      await page.route('**/v1/sync', async route => {
+        const response = await route.fetch();
+        const records = await response.json();
+        const keys = new Set(refreshed ? ['lessonKB:feedback', 'lessonKB:long-title'] : ['lessonKB:feedback']);
+        await route.fulfill({ response, json: records.filter(item => !item.dataKey.startsWith('lessonKB:') || keys.has(item.dataKey)) });
+      });
+      await page.route(progressRequest, async route => {
+        perLessonReads++;
+        if (refreshed) await blocked.promise;
+        const dataKey = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
+        await route.fulfill({ json: { dataKey, data: null, version: 0 } }).catch(() => {});
+      });
+    });
+    t.after(async () => { blocked.resolve(); await context.close(); });
+    await page.waitForLoadState('networkidle');
+    assert.equal(await page.getByRole('list', { name: 'Lessons in progress' }).getByRole('button', { name: /^Open lesson / }).count(), 1);
+    refreshed = true;
+    await refresh(page);
+    await page.getByRole('button', { name: /^Open lesson Practice giving thoughtful.* In progress/ }).waitFor({ timeout: 3000 });
+    assert.equal(perLessonReads, 0, 'successful bulk sync already knows which lessons have no progress record');
+    await screenshot(page, 'fresh-bulk-progress');
+  });
+
+  it('keeps the verified catalog and keyboard focus during a failed foreground progress refresh', async t => {
+    let failing = false;
+    const reached = deferred();
+    const release = deferred();
+    const { context, page } = await signIn('a', {}, async page => {
+      await page.route('**/v1/sync', async route => {
+        if (failing) return route.fulfill({ status: 503, json: { error: 'Unavailable' } });
+        const response = await route.fetch();
+        const records = await response.json();
+        return route.fulfill({ response, json: records.filter(item => !item.dataKey.startsWith('lessonKB:') || item.dataKey === 'lessonKB:feedback') });
+      });
+      await page.route(progressRequest, async route => {
+        reached.resolve();
+        await release.promise;
+        await route.fulfill({ status: 503, json: { error: 'Unavailable' } }).catch(() => {});
+      });
+    });
+    t.after(async () => { release.resolve(); await context.close(); });
+    await page.waitForLoadState('networkidle');
+    const before = await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
+    await page.locator('#status-filter').focus();
+    await page.keyboard.press('Tab');
+    failing = true;
+    await refresh(page);
+    await reached.promise;
+    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+    assert.equal(await cards(page).first().evaluate(button => button === document.activeElement), true);
+    release.resolve();
+    await page.getByRole('alert').filter({ hasText: 'lesson progress' }).waitFor();
+    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+    assert.equal(await cards(page).first().evaluate(button => button === document.activeElement), true);
+    failing = false;
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await page.getByRole('alert').waitFor({ state: 'detached' });
+    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+  });
+
+  it('does not let a superseded fallback overwrite a successful refresh or drop focus', async t => {
+    let refreshed = false;
+    let fallbackReads = 0;
+    const reached = deferred();
+    const release = deferred();
+    const { context, page } = await signIn('a', {}, async page => {
+      await page.route('**/v1/sync', async route => {
+        if (!refreshed) return route.fulfill({ status: 503, json: { error: 'Unavailable' } });
+        const response = await route.fetch();
+        const records = await response.json();
+        return route.fulfill({ response, json: records.filter(item => !item.dataKey.startsWith('lessonKB:') || item.dataKey === 'lessonKB:long-title') });
+      });
+      await page.route(progressRequest, async route => {
+        fallbackReads++;
+        reached.resolve();
+        const response = await route.fetch();
+        await release.promise;
+        await route.fulfill({ response }).catch(() => {});
+      });
+    }, { waitForCards: false });
+    t.after(async () => { release.resolve(); await context.close(); });
+    await reached.promise;
+    refreshed = true;
+    await refresh(page);
+    const current = page.getByRole('button', { name: /^Open lesson Practice giving thoughtful.* In progress/ });
+    await current.waitFor();
+    await current.focus();
+    release.resolve();
+    await page.waitForLoadState('networkidle');
+    assert.equal(fallbackReads, 1, 'cancelled catalog reads stop before the next lesson');
+    assert.equal(await current.evaluate(button => button === document.activeElement), true);
+    assert.equal(await cards(page).first().getAttribute('aria-label'), await current.getAttribute('aria-label'));
+    assert.equal(await page.getByRole('alert').count(), 0);
+  });
+
+  it('cancels a pending completion read when the list unmounts', async t => {
+    let completing = false;
+    const reached = deferred();
+    const release = deferred();
+    const { context, page } = await signIn('a', {}, async page => {
+      await page.route('**/v1/sync', route => route.fulfill({ status: 503, json: { error: 'Unavailable' } }));
+      await page.route(progressRequest, async route => {
+        if (!completing) return route.continue();
+        reached.resolve();
+        const response = await route.fetch();
+        await release.promise;
+        await route.fulfill({ response }).catch(() => {});
+      });
+    });
+    t.after(async () => { release.resolve(); await context.close(); });
+    completing = true;
+    const aborted = page.waitForEvent('requestfailed', { predicate: request => progressRequest.test(request.url()), timeout: 5000 });
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('plato:lesson-completed', { detail: { lessonId: 'feedback' } })));
+    await reached.promise;
+    await cards(page).first().click();
+    await page.waitForURL('**/lessons/feedback');
+    const request = await aborted;
+    assert.match(request.failure().errorText, /abort|cancel/i);
+    release.resolve();
+    await page.getByRole('textbox', { name: 'Your message', exact: true }).waitFor();
+  });
+
+  it('does not reuse the previous account\'s catalog or hydration when signing in again', async t => {
+    const { context, page } = await signIn('a');
+    const reached = deferred();
+    const release = deferred();
+    t.after(async () => { release.resolve(); await context.close(); });
+    await page.getByRole('button', { name: /— Account/ }).click();
+    await page.getByRole('menuitem', { name: 'Sign Out', exact: true }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Sign Out', exact: true }).click();
+    await page.waitForURL('**/login');
+    await page.route('**/v1/sync', async route => {
+      reached.resolve();
+      await release.promise;
+      await route.continue().catch(() => {});
+    });
+    await page.getByRole('textbox', { name: 'Email or Username' }).fill('learner-admin@example.test');
+    await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await page.waitForURL('**/lessons');
+    await reached.promise;
+    assert.equal(await cards(page).count(), 0);
+    await page.getByText('Loading lessons…', { exact: true }).waitFor();
+    release.resolve();
+    await page.getByRole('button', { name: /\. Not started\. Start here\.$/ }).waitFor();
+    assert.equal(await page.getByRole('list', { name: 'Lessons in progress' }).count(), 0);
   });
 
   it("lines up card titles across a row, each status mark on its title's first line", async () => {

@@ -456,6 +456,8 @@ Lesson status is a separate visual language: a completed check on an emerald was
 
 **Start here** is a suggestion, not a status. For a learner who hasn't started any lesson, it replaces the first lesson's circle with a 24 px pill in the classroom's action fill (`primary` / `primary-foreground`, 12 px semibold), the button pair whose contrast the branding rules already hold. It is the one filled mark in the grid, so it's where the eye starts. The open action's accessible name ends with "Start here." It follows the filters, appears only when there is more than one lesson to choose from, and leaves once any lesson has a status. Where the title column is too narrow for it, as at 320 px, it wraps under the description.
 
+Progress must be known before the first cards and **Start here** appear. If bulk sync fails, the list shows **Loading lessons…** while fallback reads establish progress; a failed read offers **Try again**. A refresh keeps the last verified list visible and usable until the new catalog and progress are ready together. A successful bulk sync updates the ordering immediately without per-lesson confirmation requests.
+
 ### Cards and lesson cards
 
 Default cards use the card surface, 11.2 px corners, a fine foreground ring, 16 px vertical padding, and 16 px internal gaps. Header and content sections add horizontal padding. Footer sections use a top border and a muted half-opacity background.

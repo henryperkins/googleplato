@@ -1287,15 +1287,34 @@ course filter moves it to that course's first lesson. It never marks an admin's
 own `custom-*` lesson and doesn't appear in a list of one. Catalog order has no
 authored sequence: course name, then lesson name, both with numeric collation,
 so an admin who wants a particular first lesson numbers the names ("1. …"). The
-mark leaves once any lesson has a status. It reads the same cached progress as
-the ordering below, so a returning learner never sees it flash.
+mark leaves once any lesson has a status. It uses the verified progress snapshot
+that orders the list; unknown progress never qualifies a learner for the mark.
 
-The first render takes each lesson's progress from the sync cache
-(`getCachedLessonKB()`), which `sync.loadAll()` fills with every record the
-learner has before the lessons arrive; a miss means not started. So the order is
-settled before the cards appear. The per-lesson `getLessonKB()` read that follows
-only confirms it (a not-started lesson has no record, so its read is a network
-miss). The **View outline** dialog ends with the lesson's next step (**Start
+`useLessonListProgress()` publishes a catalog and its progress together.
+`sync.loadAll()` returns true only after a complete, current response populates
+the cache, and `AppContext` publishes that result with the catalog as
+`lessonProgressHydrated`. Only this successful bulk read proves that an absent
+cache record means not started. No confirming per-lesson requests are needed
+after a successful bulk sync. The first render uses the cache immediately;
+previous component statuses cannot override a newer catalog's snapshot.
+
+If bulk sync fails and some progress is unknown, `loadLessonStatuses()` reads
+the catalog's progress records before the first cards appear. A missing record
+must be confirmed by a successful response with `data: null`; HTTP failures,
+network errors and malformed responses do not become "not started." An initial
+load shows **Loading lessons…**, then a retryable progress error if needed.
+A foreground refresh retains the last verified catalog, status filters, paging
+and keyboard focus while fallback reads are pending or failed. The existing
+**Try again** action retries the catalog and progress together.
+
+Fallback requests are aborted on unmount or when a newer catalog arrives, and
+their results never write the shared sync cache. Completion-event reads have the
+same lifetime guard; completion updates received during a fallback take precedence
+over that fallback's older status. Sign-out resets the app catalog and its
+hydration flag before another account signs in. These are read-path changes;
+lesson completion and persistence writes are unchanged.
+
+The **View outline** dialog ends with the lesson's next step (**Start
 lesson**, **Continue lesson**, or **Open lesson**) and closes before navigating,
 so its background scroll lock is released before the lesson page renders.
 

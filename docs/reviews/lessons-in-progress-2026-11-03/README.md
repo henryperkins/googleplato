@@ -8,7 +8,7 @@ The owner chose the smallest structural fix: keep one grid and the existing card
 - **Status chip.** The in-progress chip shows its percentage beside the ring, because 20% and 60% look alike as 22 px rings. The 12 px semibold number holds 4.52:1 on the amber wash in light mode and 7.73:1 in dark.
 - **Lessons without a course.** They come last under **Other lessons** whenever the list has other groups. Before, on page 2, "Run a five-minute retro" read as part of the course above it.
 - **Outline dialog.** It ends with the lesson's next step beside Close: **Start lesson**, **Continue lesson**, or **Open lesson** once completed. It closes before navigating, so its background scroll lock (on iOS, a fixed `<body>`) is released before the lesson page renders.
-- **First render.** It takes progress from the sync cache (`getCachedLessonKB()`), so the order is settled before cards appear. The existing per-lesson read still confirms it. That read is sequential, and every lesson not yet started is a network miss. Waiting for it would have shown "Loading lessons…" for one round trip per lesson; ignoring it would have moved the cards after they appeared.
+- **First render.** It takes progress from a verified snapshot. Successful bulk sync settles the order from the cache without further per-lesson reads. If bulk sync fails, unknown progress remains behind **Loading lessons…** until fallback reads succeed. Failed reads offer **Try again**; a foreground refresh retains the last verified list while progress is pending or failed. See the review follow-up below.
 
 ## Start here for a learner with nothing started
 
@@ -21,7 +21,7 @@ The critique also found that a first-run learner lands on 14 identical empty cir
   - It leaves as soon as any lesson has a status, including one the filter hides.
   - Catalog order has no authored sequence, so an admin who wants a particular first lesson numbers the names.
 - **Accessible name.** The open action's name ends with "Start here." It is the first Tab stop after the filters.
-- **No flash.** It reads the same cached progress that orders the list, so a returning learner never sees it.
+- **No flash.** It reads the same verified progress that orders the list. Unknown progress never qualifies a returning learner for the mark.
 
 No explanatory copy was added. The lesson itself, one click away, shows that it is a conversation with a coach. A line saying so would be a new product claim, which is the owner's call.
 
@@ -156,4 +156,51 @@ The harden, colorize, and polish passes also found these, outside this page:
 - **Shared card outline.** The shared `Card` loses its outline in forced colors everywhere else, such as administration and settings. The fix here is scoped to lesson cards.
 - **Other progress bars.** The lesson page's bar and the admin readiness meters still sit on `--muted`, at 1.09:1 on white by day. Moving each to `--track` is one class. The readiness fills hold at least 6:1 on it, and the lesson bar's fill holds 3:1 for every classroom, as the list's do.
 - **Text arrows in administration.** The back buttons in Users and the wait-list editor read "← Back" with a text glyph rather than an icon.
-- **Repeated progress reads.** After every tab refocus, `sync.loadAll()` clears the cache. The list's confirming read then makes one request per unstarted lesson, in sequence. It is cheap, but it grows with the catalog. `/impeccable optimize` could skip it when the bulk load succeeded.
+
+## PR #39 review follow-up
+
+The November 5 review found two progress-read defects in the original implementation:
+
+- A failed bulk sync looked like a new learner's empty progress. The page showed
+  **Start here** on a completed lesson; fallback results then regrouped the cards
+  and dropped keyboard focus.
+- On a successful foreground sync, the previous component status map overrode
+  the fresh cache. A newly started lesson stayed on page 2 until unrelated
+  sequential reads completed.
+
+The follow-up makes bulk hydration explicit, keeps each status map with the
+catalog that produced it, and removes redundant confirmation reads after a
+successful sync. Fallback failures are retryable, and a failed refresh preserves
+the last verified list. Aborted or superseded fallback responses cannot write
+the shared cache. Completion-event reads are also cancelled on unmount or catalog
+replacement, addressing the existing automated review comment. Sign-out clears
+the prior account's catalog and hydration state.
+
+Browser regressions exercise initial bulk failure, fallback failure and retry,
+successful foreground sync with unrelated reads blocked, a failed refresh with
+keyboard focus retained, superseded fallback responses, completion reads during
+navigation, and account switching. The initial three regressions were observed
+failing against `ed0f3c9` before applying the fixes. Unit coverage distinguishes
+unknown progress from a confirmed absent record, rejects malformed responses,
+and checks cancellation without shared-cache mutation. The validation table above
+records the original design passes; follow-up validation is reported separately.
+
+Follow-up validation on November 5, using isolated SQLite fixtures and installed
+Playwright browser binaries (Chromium 151 and WebKit):
+
+| Check | Result |
+| --- | --- |
+| Client unit suite | 755 passed, including 10 new progress-read and sync-readiness tests. |
+| Lesson-list browser suite, Chromium | 12 passed: the original 5 and 7 new recovery/lifecycle regressions. |
+| New recovery/lifecycle regressions, WebKit | 7 passed. |
+| Existing learner recovery suite, Chromium | 27 passed, including account switching, retained drafts, and save recovery. |
+| Client lint | 0 errors, 19 existing warnings. |
+| Client build | Passed, with the existing bundle-size advisory. |
+| Whitespace check | `git diff --check` passed. |
+
+These checks use synthetic local data. They do not qualify physical devices,
+production, or real model calls.
+
+| Unknown progress waits before showing cards | Failed progress reads offer retry at 390 px |
+| --- | --- |
+| ![Loading lessons while progress is unknown](screenshots/review-progress-loading.png) | ![Progress error with Try again at 390 px](screenshots/review-progress-retry-390.png) |

@@ -2,7 +2,7 @@ import { Fragment, useState, useEffect, useMemo, useId, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext.jsx';
-import { getCachedLessonKB, getLessonKB } from '../../js/storage.js';
+import { useLessonListProgress } from '../hooks/useLessonListProgress.js';
 import { authenticatedFetch } from '../../js/auth.js';
 import { renderMd, renderInlineMd, stripInlineMd } from '../lib/helpers.js';
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
@@ -40,10 +40,6 @@ const EMPTY_MESSAGE = 'No lessons yet. Lessons appear here when they’re publis
 // Shared by every group heading on the page (courses, In progress, Other lessons).
 const GROUP_HEADING = 'min-w-0 [overflow-wrap:anywhere] text-sm font-semibold uppercase tracking-wider text-muted-foreground';
 
-function toLessonStatus(kb) {
-  return { status: kb?.status || null, progress: kb?.progress ?? null };
-}
-
 function lessonStatusKey(d) {
   if (d?.status === 'completed') return STATUS_COMPLETED;
   if (d?.status) return STATUS_IN_PROGRESS;
@@ -74,50 +70,17 @@ function formatTimeRange(p20, p80) {
 export default function LessonsList() {
   const { state, reloadLessons } = useApp();
   const navigate = useNavigate();
-  const { lessons, loaded, lessonsError, loadingLessons } = state;
+  const { loaded, lessonsError, loadingLessons, lessonProgressHydrated } = state;
+  const { lessons, statuses, ready: progressReady, error: progressError } = useLessonListProgress(state.lessons, {
+    loaded, hydrated: lessonProgressHydrated,
+  });
+  const loadError = lessonsError || progressError;
   const headingRef = useRef(null);
-  const [lessonData, setLessonData] = useState(null);
   const [timeStats, setTimeStats] = useState({});
   const [detailLesson, setDetailLesson] = useState(null);
   const [courseFilter, setCourseFilter] = useState(FILTER_ALL);
   const [statusFilter, setStatusFilter] = useState(STATUS_ALL);
   const [page, setPage] = useState(1);
-
-  // Progress as sync.loadAll() cached it before the lessons arrived, so the
-  // first render already knows which lessons are in progress. They lead the
-  // list, and reading progress over the network first would move the cards
-  // after they appear. The read below confirms it from the server.
-  const cachedStatuses = useMemo(
-    () => Object.fromEntries(lessons.map((l) => [l.lessonId, toLessonStatus(getCachedLessonKB(l.lessonId))])),
-    [lessons],
-  );
-  const statuses = useMemo(
-    () => (lessonData ? { ...cachedStatuses, ...lessonData } : cachedStatuses),
-    [cachedStatuses, lessonData],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const data = {};
-      for (const c of lessons) {
-        data[c.lessonId] = toLessonStatus(await getLessonKB(c.lessonId));
-      }
-      if (!cancelled) setLessonData(data);
-    })();
-    return () => { cancelled = true; };
-  }, [lessons]);
-
-  // Listen for lesson completion events to immediately update the checkmark
-  useEffect(() => {
-    const handleCompletion = async (e) => {
-      const { lessonId } = e.detail;
-      const kb = await getLessonKB(lessonId);
-      setLessonData(prev => ({ ...prev, [lessonId]: toLessonStatus(kb) }));
-    };
-    window.addEventListener('plato:lesson-completed', handleCompletion);
-    return () => window.removeEventListener('plato:lesson-completed', handleCompletion);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -257,10 +220,10 @@ export default function LessonsList() {
     // is what reliably fires the screen-reader announcement (live regions
     // commonly skip initial-mount content). Avoids double-announcement
     // with the visible "Loading lessons…" div below.
-    if (!loaded) return '';
+    if (!loaded || !progressReady) return '';
     const total = filtered.length;
     const scope = filterPhrase ? ` ${filterPhrase}` : '';
-    if (lessons.length === 0) return lessonsError ? '' : EMPTY_MESSAGE;
+    if (lessons.length === 0) return loadError ? '' : EMPTY_MESSAGE;
     if (total === 0) {
       return filterPhrase ? `No lessons ${filterPhrase}.` : 'No lessons.';
     }
@@ -271,7 +234,7 @@ export default function LessonsList() {
     const showingFrom = pageStart + 1;
     const showingTo = pageStart + visibleLessons.length;
     return `Showing ${showingFrom} to ${showingTo} of ${total} ${lessonWord}${scope}, page ${currentPage} of ${totalPages}.`;
-  }, [loaded, lessons.length, lessonsError, filtered.length, filterPhrase, totalPages, pageStart, visibleLessons.length, currentPage]);
+  }, [loaded, progressReady, lessons.length, loadError, filtered.length, filterPhrase, totalPages, pageStart, visibleLessons.length, currentPage]);
 
   return (
     <div className="mx-auto max-w-5xl p-4">
@@ -324,9 +287,9 @@ export default function LessonsList() {
         {announcement}
       </div>
 
-      {lessonsError && (
+      {loadError && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger-border bg-danger px-4 py-3 text-sm text-danger-foreground" role="alert">
-          <p>{lessonsError}</p>
+          <p>{loadError}</p>
           <Button
             variant="outline"
             size="sm"
@@ -342,14 +305,14 @@ export default function LessonsList() {
         </div>
       )}
 
-      {!loaded ? (
+      {!loaded || (!progressReady && !loadError) ? (
         // Plain visible state — no role/aria-live here. The sr-only live
         // region above is the single announcer; it fires when its content
         // transitions from '' (loading) to "Showing N lessons" (loaded).
         <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
           Loading lessons…
         </div>
-      ) : lessons.length === 0 ? (lessonsError ? null : (
+      ) : lessons.length === 0 ? (loadError ? null : (
         <div className="rounded-lg border border-dashed px-4 py-12 text-center text-muted-foreground">
           {EMPTY_MESSAGE}
         </div>
