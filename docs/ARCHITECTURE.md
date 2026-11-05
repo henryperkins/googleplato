@@ -1889,7 +1889,7 @@ Generic single/batch sync writes cannot create or replace assessment/transcripts
 
 Unsigned retained pre-upgrade replies can save their exact transcript, explicitly
 marked legacy-unverified, while preserving only previously saved assessment.
-Their assistant assertions are excluded from future assessment history. Active
+Their assistant text is retained as bounded, explicitly unverified conversation reference data; it cannot become learner evidence or completion authority. Active
 legacy assessment is reconciled to authored criteria without carrying unverified
 evidence forward; historical completed lessons remain complete. A changed rubric
 invalidates active evidence. If criteria change between generation and save, the
@@ -1904,7 +1904,7 @@ objective text, excluding raw sources and incidental disclosures. Optional model
 updates run only after the acknowledged assessment confirms new completion.
 
 `coach_assessment` telemetry records only validity, response class, completion and
-fixed issue codes. `scripts/evaluate-coach.js` defaults to 15 authored offline
+fixed issue codes. `scripts/evaluate-coach.js` includes assessment and conversation-continuity offline
 fixtures. Explicit live mode requires a call budget, records the selected provider
 and model plus prompt/fixture hashes, and never writes synthetic lesson progress.
 It evaluates the bundled prompt in isolation; server assembly is covered by route
@@ -1926,3 +1926,40 @@ Model context separates authored `assessmentRequirements` from generated
 `evidenceGuidance`; guidance cannot create new mandatory criteria. See
 `docs/reviews/coach-live-evaluation-2026-10-25.md` for live results, exact prompt
 identities, the latency/call tradeoff, earlier failures and preservation evidence.
+
+
+### Resumed coaching conversation continuity (2026-11-05)
+
+`server/src/shared/coachConversation.js` builds provider history and source-backed
+`lessonKB.conversationState`. Legacy assistant messages are quoted as JSON
+`unverifiedCoachMessage` in a user-role reference message, with old terminal
+control metadata removed. They remain available to explain what the learner is
+answering, but never enter learner `sources` or assessment evidence. Recent history
+is limited to 40 usable messages and 6,000 characters per message.
+
+Conversation state separately retains the original assignment, up to four explicit
+learner directions, and the latest coach prompt. Each anchor carries its saved
+message ID, exact bounded text, role and provenance; the server rehydrates anchors
+from saved messages rather than accepting generated summaries. These anchors
+survive history-window limits and assessment-criteria reconciliation. Optional
+KB_UPDATE `taskChangeSourceId` can retain only the current nonempty learner text;
+attachments and coach-generated URLs cannot replace the assignment. The prompt
+requires an explicit learner selection/change, and interprets the retained exact
+text rather than treating an arbitrary link as permission to switch.
+
+`POST /v1/admin/users/:userId/lessons/:lessonId/continuity-repair` is an admin-only
+operational repair. It accepts the complete current `base` from the lesson-turn
+GET, `assignmentMessageId`, the latest `learnerMessageId`, and a bounded
+`misleadingInsights` list of exact existing notes to remove. The operation refuses
+impersonation mode, stale snapshots, missing/empty sources and completed lessons.
+It uses `commitLessonTurn` to preserve the entire transcript and all assessment
+fields while restoring the chosen assignment, retaining the actual learner
+observation without a guessed diagnosis, and marking the earlier coach switch for
+acknowledgement. Successful repairs are audit-logged without transcript contents.
+Back up the exact snapshot before an operational repair; a failed/stale request
+must be investigated against a new read, not retried with guessed versions.
+
+Recovery returns only a result whose base is still current or whose exact messages
+and KB are already saved. A repaired KB makes an old generated result unavailable;
+replaying an already saved receipt acknowledges the current repaired state, while
+an unsaved stale reply conflicts. Neither repair nor replay calls a model.

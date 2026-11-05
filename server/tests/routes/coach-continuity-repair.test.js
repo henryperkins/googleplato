@@ -60,6 +60,10 @@ test('admin repair preserves transcript and assessment while correcting only nam
   assert.equal(saved.lessonKB.data.conversationState.assignment.sourceMessageId, 'opening:0');
   assert.equal(saved.lessonKB.data.conversationState.correction.afterMessageId, 'resumed:1');
   assert.equal(saved.lessonKB.data.conversationState.assignment.provenance, 'legacy-unverified');
+  const audit = (await db.listAuditLogsForUser(learner)).find(entry => entry.action === 'lesson_continuity_repaired');
+  assert.equal(audit.performedBy, operator);
+  assert.equal(audit.details.assignmentMessageId, 'opening:0');
+  assert.equal(JSON.stringify(audit).includes('css is ignored'), false);
   assert.equal(inferenceCalls, 0);
 });
 
@@ -101,6 +105,13 @@ test('repair never ignores a concurrent commit at the atomic write boundary', as
   const saved = await db.getLessonState(learner, 'audit');
   assert.equal(saved.messages.data.at(-1).content, 'Concurrent work.');
   assert.equal(saved.lessonKB.data.learnerPosition, body.base.lessonKB.data.learnerPosition);
+});
+
+test('repair cannot silently substitute a different message when the selected assignment is empty', async () => {
+  await db.putSyncData(learner, 'messages:audit', [{ ...messages[0], content: '' }, ...messages.slice(1)]);
+  const body = await input();
+  assert.equal((await request(body)).status, 400);
+  assert.deepEqual(await db.getLessonState(learner, 'audit'), body.base);
 });
 
 test('recovery and old receipt replay cannot restore notes changed by a repair', async () => {

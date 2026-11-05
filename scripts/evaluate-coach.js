@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { parseCoachResponse, applyCoachResponseToKB, buildContext, submissionSources, retainSources } from '../server/src/shared/coachContract.js';
 import { assessCoachResponse, ASSESSMENT_REPAIR_PROMPT } from '../server/src/lib/coach-assessment.js';
+import { buildCoachHistory, reconcileConversationState } from '../server/src/shared/coachConversation.js';
 import { classifyAiError } from '../server/src/lib/ai-errors.js';
 import { coachFixtures } from './coach-fixtures.js';
 
@@ -10,10 +11,11 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const currentSources = fixture => fixture.opening ? [] : submissionSources({ turnId: 'fixture', text: fixture.input });
 export function buildCoachEvaluationRequest(fixture, prompt) {
   const sources = retainSources(fixture.kb.sources, [...(fixture.sources || []), ...currentSources(fixture)]);
-  const context = buildContext(fixture.lesson, { ...fixture.kb, sources }, 'Synthetic learner; no profile facts.', 'Ada');
+  const conversationState = reconcileConversationState(fixture.kb.conversationState, fixture.history || []);
+  const context = buildContext(fixture.lesson, { ...fixture.kb, sources, conversationState }, 'Synthetic learner; no profile facts.', 'Ada');
   return { system: prompt, max_tokens: 3072, messages: [
     { role: 'user', content: context }, { role: 'assistant', content: 'Ready.' },
-    ...(fixture.history || []),
+    ...buildCoachHistory(fixture.history || []),
     { role: 'user', content: fixture.opening ? 'Start the lesson.' : JSON.stringify({ learnerSubmission: fixture.input, currentSourceIds: currentSources(fixture).map(item => item.id) }) },
   ] };
 }
@@ -22,6 +24,9 @@ export function evaluateCoachReply(fixture, raw, { live = false } = {}) {
   const applied = applyCoachResponseToKB(fixture.kb, parsed, { opening: fixture.opening,
     sources: [...(fixture.sources || []), ...currentSources(fixture)], submissionId: 'fixture:0', now: () => 1 });
   const failures = [];
+  if (fixture.expectedTargetMentions && !fixture.expectedTargetMentions.some(text => parsed.text.toLowerCase().includes(text.toLowerCase()))) failures.push('target_continuity');
+  if (fixture.forbiddenTargetMentions?.some(text => parsed.text.toLowerCase().includes(text.toLowerCase()))) failures.push('target_continuity');
+  if (fixture.expectedTaskChangeSourceId && parsed.kbUpdate?.taskChangeSourceId !== fixture.expectedTaskChangeSourceId) failures.push('task_change_not_retained');
   if (parsed.valid !== (fixture.expectedValid !== false)) failures.push('protocol');
   if (parsed.valid && !(fixture.allowedTypes || [fixture.expectedType]).includes(parsed.kbUpdate.responseType)) failures.push('response_type');
   if (!(fixture.allowedProgress || [fixture.expectedProgress]).includes(applied.lessonKB.progress)) failures.push('progress');

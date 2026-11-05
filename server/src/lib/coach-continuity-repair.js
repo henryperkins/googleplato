@@ -37,7 +37,7 @@ export async function repairCoachContinuity(userId, lessonId, input) {
   }
   const conversationState = reconcileConversationState({ ...kb.conversationState,
     assignment: { sourceMessageId: input.assignmentMessageId } }, messages);
-  if (!conversationState.assignment) throw failure('The selected assignment has no readable text.');
+  if (conversationState.assignment?.sourceMessageId !== input.assignmentMessageId) throw failure('The selected assignment has no readable text.');
   conversationState.correction = { reason: 'assignment-drift', afterMessageId: last.id, learnerMessageId: observation.id };
   const lessonKB = { ...kb, conversationState,
     insights: (kb.insights || []).filter(insight => !input.misleadingInsights.includes(insight)),
