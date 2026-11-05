@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
 import ClassroomLogo from '../components/ClassroomLogo.jsx';
+import InviteRequired from '../components/InviteRequired.jsx';
 
 const LOGIN_DRAFT_KEY = 'plato_login_draft';
 
@@ -35,7 +36,11 @@ export default function Login() {
   const returnTo = returnPath(location.state?.from);
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
-  const branding = usePublicBranding('Sign in');
+  const headingRef = useRef(null);
+  // Set when a Google account has no invitation; shows InviteRequired instead of the form.
+  const [admission, setAdmission] = useState(null);
+  const returningRef = useRef(false);
+  const branding = usePublicBranding(admission ? 'Invitation required' : 'Sign in');
   const [waitlistOpen, setWaitlistOpen] = useState(false);
 
   useEffect(() => {
@@ -53,6 +58,18 @@ export default function Login() {
   }, []);
 
   useEffect(() => { preloadFirebase(); }, []);
+
+  // Back from the invitation page, the form returns; its heading takes focus.
+  useEffect(() => {
+    if (admission || !returningRef.current) return;
+    returningRef.current = false;
+    headingRef.current?.focus();
+  }, [admission]);
+
+  function backToSignIn() {
+    returningRef.current = true;
+    setAdmission(null);
+  }
 
   function validateField(name, val) {
     if (name === 'email') return val.trim() ? '' : 'Please enter your email or username.';
@@ -96,6 +113,10 @@ export default function Login() {
       try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
       navigate(returnTo, { replace: true });
     } catch (e) {
+      if (e?.admission) {
+        setAdmission(e.admission);
+        return;
+      }
       const msg = googleSignInError(e);
       if (msg) setError(msg);
     } finally {
@@ -107,13 +128,31 @@ export default function Login() {
 
   const { logo, classroomName } = branding;
 
+  // A Google account without an invitation: the invitation page replaces the form.
+  if (admission) {
+    return (
+      <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
+        <ClassroomLogo src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-auto max-w-full mb-6 object-contain"
+          fallback={<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</p>} />
+        <InviteRequired
+          classroomName={classroomName}
+          admission={admission}
+          waitlistOpen={waitlistOpen}
+          onJoinWaitlist={() => navigate('/waitlist', { state: { prefill: { email: admission.email, name: admission.name } } })}
+          onBack={backToSignIn}
+        />
+        <PublicFooter />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
       <ClassroomLogo src={logo} alt={classroomName} width="64" height="64" fetchPriority="high" className="h-16 w-auto max-w-full mb-6 object-contain"
         fallback={<p className="max-w-full break-words text-center text-2xl font-bold mb-6">{classroomName}</p>} />
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle as="h1" className="text-2xl">Sign in</CardTitle>
+          <CardTitle as="h1" ref={headingRef} tabIndex={-1} className="text-2xl">Sign in</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {signedOutReason === 'expired' && (

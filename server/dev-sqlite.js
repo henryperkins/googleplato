@@ -4,7 +4,6 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { randomBytes } from 'node:crypto';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -75,34 +74,6 @@ if (ADMIN_EMAIL && ADMIN_PASSWORD) {
   } catch (err) {
     console.error('Admin bootstrap failed:', err.message);
   }
-}
-
-// Ensure designated admin accounts exist with admin role
-try {
-  const designatedAdmins = ['henry@lakefrontdigital.io'];
-  for (const adminEmail of designatedAdmins) {
-    const existing = await db.getUserByEmail(adminEmail);
-    if (existing) {
-      if (existing.role !== 'admin') {
-        await db.updateUser(existing.userId, { role: 'admin' });
-        console.log(`Updated ${adminEmail} to admin`);
-      }
-    } else {
-      const userId = generateUserId();
-      const passwordHash = await hashPassword(randomBytes(16).toString('hex'));
-      await db.createUser({
-        userId,
-        email: adminEmail,
-        username: adminEmail.split('@')[0],
-        passwordHash,
-        name: 'Henry',
-        role: 'admin',
-      });
-      console.log(`Created admin account for ${adminEmail}`);
-    }
-  }
-} catch (err) {
-  console.error('Designated admin bootstrap error:', err.message);
 }
 
 // Seed/update prompts, lessons on every startup
