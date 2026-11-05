@@ -3,6 +3,38 @@
   container-type: inline-size;
 }
 
+.knowledge-viewer-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.knowledge-viewer-description {
+  flex: 1 1 20rem;
+}
+
+.knowledge-viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-width: 100%;
+}
+
+.knowledge-viewer-actions > button {
+  max-width: 100%;
+  height: auto;
+  min-height: 2.5rem;
+  padding-block: 0.5rem;
+  white-space: normal;
+}
+
+.knowledge-document,
+.knowledge-review .coach-copy {
+  max-width: 65ch;
+  line-height: 1.625;
+}
+
 .knowledge-workspace {
   display: grid;
   gap: 1.5rem;
@@ -13,6 +45,11 @@
   min-height: 22rem;
   line-height: 1.6;
   resize: vertical;
+}
+
+.knowledge-editing-region,
+.knowledge-text-input {
+  scroll-margin-block: 1rem;
 }
 
 .knowledge-review .markdown-preview-pane {
@@ -43,6 +80,27 @@
 }
 
 @media (max-width: 47.999rem) {
+  .customizer-page-editing > h1 {
+    margin-bottom: 0.5rem;
+    font-size: 1.25rem;
+    line-height: 1.4;
+  }
+
+  .knowledge-editor-header {
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .knowledge-editor-header h2 {
+    min-width: 0;
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .knowledge-editor-intro {
+    margin-bottom: 0.75rem;
+  }
+
   .customizer-page [data-slot="tabs-list"],
   .knowledge-mode-tabs {
     height: auto;
@@ -51,6 +109,7 @@
 
   .customizer-page [data-slot="tabs-trigger"],
   .knowledge-mode-tabs [data-slot="tabs-trigger"],
+  .knowledge-viewer-actions > button,
   .customizer-appearance input[type="text"] {
     min-height: 2.75rem;
   }
@@ -63,6 +122,15 @@
     background: var(--background);
     padding-block: 0.75rem;
     border-top: 1px solid var(--border);
+  }
+
+  .knowledge-save-actions[data-pristine="true"] {
+    position: static;
+  }
+
+  .knowledge-return-editing,
+  .knowledge-writing-help summary {
+    min-height: 2.75rem;
   }
 
   .admin-main:has(.customizer-page) {
@@ -125,6 +193,10 @@
    the action bars, whose buttons now stack, scroll with the page instead of
    covering most of it. */
 @container (max-width: 16rem) {
+  .knowledge-editor-header {
+    flex-wrap: wrap;
+  }
+
   .customizer-page [data-slot="tabs-list"],
   .knowledge-mode-tabs {
     width: 100%;
@@ -135,11 +207,19 @@
 
   .customizer-page [data-slot="tabs-trigger"],
   .knowledge-mode-tabs [data-slot="tabs-trigger"] {
-    flex: 1 1 auto;
+    flex: 1 1 100%;
     min-width: 0;
     height: auto;
     white-space: normal;
     overflow-wrap: break-word;
+  }
+
+  .knowledge-base-editor button:not([role="tab"]) {
+    max-width: 100%;
+    height: auto;
+    min-height: 2.75rem;
+    padding-block: 0.625rem;
+    white-space: normal;
   }
 
   .knowledge-save-actions,

@@ -27,7 +27,7 @@ export default function AdminKBSetup() {
       </p>
       <KnowledgeBaseEditor
         onSave={handleSave}
-        saveLabel="Save Knowledge Base"
+        saveLabel="Save knowledge base"
         storageKey="plato_kb_setup_draft"
         pageTitle="Set Up Knowledge Base — plato"
       />

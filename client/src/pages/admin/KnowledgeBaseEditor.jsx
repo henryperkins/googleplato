@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBlocker } from 'react-router-dom';
+import { ChevronDown, X } from 'lucide-react';
 import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -35,7 +36,7 @@ export default function KnowledgeBaseEditor({
   initialConversation = null,
   initialReadiness = 0,
   onSave,
-  saveLabel = 'Save Knowledge Base',
+  saveLabel = 'Save knowledge base',
   storageKey = 'plato_kb_editor_draft',
   pageTitle = 'Knowledge Base — plato',
   initialMode = 'conversation',
@@ -59,6 +60,8 @@ export default function KnowledgeBaseEditor({
 
   const [previewMarkdown, setPreviewMarkdown] = useState(initialContent || '');
   const [draftMarkdown, setDraftMarkdown] = useState(initialContent || '');
+  const editingRegion = useRef(null);
+  const textInput = useRef(null);
   const previewRegion = useRef(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
@@ -269,6 +272,12 @@ export default function KnowledgeBaseEditor({
     requestAnimationFrame(() => previewRegion.current?.focus());
   }
 
+  function returnToEditing() {
+    const target = mode === 'text' ? textInput.current : editingRegion.current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: 'start' });
+  }
+
   const renderMessage = (msg, idx) => {
     if (msg.msgType === MSG_TYPES.USER) return <UserMessage key={idx} content={msg.content} />;
     return <AssistantMessage key={idx} content={msg.content} />;
@@ -277,13 +286,12 @@ export default function KnowledgeBaseEditor({
   return (
     <div className="knowledge-base-editor">
       <Tabs value={mode} onValueChange={setMode} className="gap-0">
-        <TabsList aria-label="Knowledge editing method" className="knowledge-mode-tabs mb-4">
-          <TabsTrigger value="conversation" disabled={isBusy}>Conversation</TabsTrigger>
+        <TabsList aria-label="Knowledge editing method" className="knowledge-mode-tabs mb-3">
+          <TabsTrigger value="conversation" disabled={isBusy}>Assistant</TabsTrigger>
           <TabsTrigger value="text" disabled={isBusy}>Edit text</TabsTrigger>
         </TabsList>
-        <p className="text-sm text-muted-foreground mb-5 max-w-prose">
-          Work with the assistant or edit the text yourself. Both use the same draft.
-          Review the preview before saving; the coach and lesson creator use only the saved knowledge base.
+        <p className="knowledge-editor-intro text-sm text-muted-foreground mb-4 max-w-prose">
+          Use the assistant or edit the text, then review your changes before saving.
         </p>
         {error && errorSource !== 'save' && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger text-danger-foreground px-4 py-3 mb-4 text-sm" role="alert">
@@ -293,13 +301,13 @@ export default function KnowledgeBaseEditor({
               openingStarted.current = false;
               setOpeningAttempt(attempt => attempt + 1);
             }} disabled={isBusy} focusableWhenDisabled>Retry conversation</Button>}
-            <button type="button" onClick={() => setError('')} aria-label="Dismiss error" className={DISMISS_CLASS}>&times;</button>
+            <button type="button" onClick={() => setError('')} aria-label="Dismiss error" className={DISMISS_CLASS}><X className="size-4" aria-hidden="true" /></button>
           </div>
         )}
         {draftWarning && <p className="text-sm text-warning-foreground mb-4" role="status">{draftWarning}</p>}
 
         <div className="knowledge-workspace">
-          <div className="min-w-0">
+          <div ref={editingRegion} tabIndex={-1} role="region" aria-label="Edit knowledge base" className="knowledge-editing-region min-w-0">
             <TabsContent value="conversation">
               <div className="mb-4 space-y-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
@@ -324,13 +332,12 @@ export default function KnowledgeBaseEditor({
               </ChatArea>
               <ComposeBar placeholder="Tell me about your program..." storageKey={storageKey} onSend={handleSend} busy={isBusy} />
             </TabsContent>
-            <TabsContent value="text" className="space-y-3">
+            <TabsContent value="text" className="knowledge-text-panel space-y-3">
               <Label htmlFor="kb-document-text">Knowledge base text</Label>
               <p id="kb-text-hint" className="text-sm text-muted-foreground">
-                Write or paste your program reference in Markdown. Review text changes to put this exact text in the preview.
-                Conversation suggestions are included only if you add them here or refresh from Conversation.
+                Write or paste your program reference.
               </p>
-              <Textarea id="kb-document-text" value={draftMarkdown} readOnly={isBusy} aria-describedby="kb-text-hint kb-text-review-hint"
+              <Textarea ref={textInput} id="kb-document-text" value={draftMarkdown} readOnly={isBusy} aria-describedby="kb-text-hint kb-text-review-hint"
                 className="knowledge-text-input" onChange={event => { setDraftMarkdown(event.target.value); setError(''); setErrorSource(''); }} />
               <p id="kb-text-review-hint" className="text-sm text-muted-foreground">
                 {!savableKnowledgeBase(draftMarkdown, savedMarkdown)
@@ -340,6 +347,16 @@ export default function KnowledgeBaseEditor({
               <Button onClick={reviewText} disabled={isBusy || !savableKnowledgeBase(draftMarkdown, savedMarkdown) || editor.previewCurrent} focusableWhenDisabled>
                 Review text changes
               </Button>
+              <details className="knowledge-writing-help group text-sm text-muted-foreground">
+                <summary className="inline-flex max-w-full cursor-pointer list-none items-center gap-2 rounded-sm py-3 font-medium text-foreground hover:text-link [&::-webkit-details-marker]:hidden">
+                  Writing and review help <ChevronDown className="size-4 shrink-0 group-open:rotate-180" aria-hidden="true" />
+                </summary>
+                <div className="space-y-2 pb-3 max-w-prose leading-relaxed">
+                  <p>Use Markdown for headings and lists: start a heading with # or a list item with -.</p>
+                  <p>Review text changes puts this exact text in the preview. Assistant suggestions are included only if you add them here or refresh the preview from the Assistant tab.</p>
+                  <p>Both methods use the same draft. The coach and lesson creator use only the saved knowledge base.</p>
+                </div>
+              </details>
             </TabsContent>
           </div>
           <div ref={previewRegion} tabIndex={-1} className="knowledge-review min-w-0" aria-label="Review knowledge base">
@@ -348,7 +365,7 @@ export default function KnowledgeBaseEditor({
               loading={previewLoading}
               error={previewError}
               stale={editor.previewStale}
-              staleHint={unreviewedText ? 'The text draft has changed. Review text changes, or refresh from Conversation to combine your edits with its suggestions.' : undefined}
+              staleHint={unreviewedText ? 'The text draft has changed. Review text changes, or refresh from the Assistant tab to combine your edits with its suggestions.' : undefined}
               saveLabel={saveLabel}
               saved={editor.saved}
               saveHint={editor.saved ? 'This is the saved knowledge base. Edit it using either method, then review the preview.' : undefined}
@@ -358,11 +375,12 @@ export default function KnowledgeBaseEditor({
               ariaLabel="Knowledge base markdown preview"
               noun="knowledge base"
               preserveContent
-              emptyHint="Use Conversation to generate a preview, or write in Edit text and review your changes."
+              emptyHint="Use the Assistant tab to generate a preview, or write in Edit text and review your changes."
             />
+            <Button variant="outline" className="knowledge-return-editing mt-3" onClick={returnToEditing}>Back to editing</Button>
           </div>
         </div>
-        <div className="knowledge-save-actions mt-5 space-y-3 border-t border-border pt-4">
+        <div className="knowledge-save-actions mt-5 space-y-3 border-t border-border pt-4" data-pristine={!editor.dirty && !isBusy && !error}>
           {error && errorSource === 'save' && <p className="text-sm text-destructive" role="alert">{error}</p>}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p id="kb-save-hint" role="status" className="text-sm text-muted-foreground min-w-0 flex-1">
@@ -372,7 +390,7 @@ export default function KnowledgeBaseEditor({
                     : 'Saves exactly this preview.'}
             </p>
             <Button onClick={handleSaveKB} disabled={isBusy || saveBlocked} focusableWhenDisabled aria-describedby="kb-save-hint">
-              {busy === 'saving' || busy === 'saved' ? 'Saving...' : errorSource === 'save' && error ? 'Retry saving' : saveLabel}
+              {busy === 'saving' || busy === 'saved' ? 'Saving…' : errorSource === 'save' && error ? 'Retry saving' : saveLabel}
             </Button>
           </div>
         </div>

@@ -37,6 +37,16 @@ async function navigate(page, section) {
   await page.evaluate(() => document.fonts.ready);
 }
 
+async function visibleKnowledgeWritingSpace(page) {
+  return page.getByLabel('Knowledge base text', { exact: true }).evaluate(input => {
+    const bounds = input.getBoundingClientRect();
+    const main = document.querySelector('.admin-main').getBoundingClientRect();
+    const actions = document.querySelector('.knowledge-save-actions');
+    const bottom = Math.min(innerHeight, main.bottom, getComputedStyle(actions).position === 'sticky' ? actions.getBoundingClientRect().top : Infinity);
+    return Math.max(0, Math.min(bounds.bottom, bottom) - Math.max(bounds.top, main.top));
+  });
+}
+
 // The timeout covers the whole suite, which takes about 70 seconds in WebKit.
 describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => {
   before(async () => {
@@ -260,12 +270,12 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
       await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
       await page.getByRole('button', { name: 'Retry knowledge base', exact: true }).click();
-      await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Edit with assistant', exact: true }).waitFor();
       await page.route('**/v1/admin/theme', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Styles offline"}' }));
       await navigate(page, 'customizer');
       await page.getByRole('button', { name: 'Retry appearance', exact: true }).waitFor();
       await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
-      await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Edit with assistant', exact: true }).waitFor();
     } finally { await context.close(); }
   });
 
@@ -363,14 +373,14 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       assert.equal(await page.getByRole('button', { name: 'Save', exact: true }).isEnabled(), true);
       await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
       await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
-      await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).click();
+      await page.getByRole('button', { name: 'Edit with assistant', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer/knowledge/edit`);
       await page.getByRole('button', { name: 'Back to knowledge base', exact: true }).waitFor();
       await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
       await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer/knowledge`);
       assert.equal(await page.getByRole('button', { name: 'Back to knowledge base', exact: true }).count(), 0);
-      await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Edit with assistant', exact: true }).waitFor();
     } finally { await context.close(); }
   });
 
@@ -400,9 +410,9 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       await page.getByRole('tabpanel', { name: 'Edit text', exact: true }).waitFor();
       const text = page.getByLabel('Knowledge base text', { exact: true });
       await text.fill(revised);
-      const save = page.getByRole('button', { name: 'Update Knowledge Base', exact: true });
+      const save = page.getByRole('button', { name: 'Update knowledge base', exact: true });
       assert.equal(await save.isDisabled(), true, 'text edits must be reviewed before saving');
-      await page.getByRole('tab', { name: 'Conversation', exact: true }).click();
+      await page.getByRole('tab', { name: 'Assistant', exact: true }).click();
       await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
       assert.equal(await text.inputValue(), revised, 'switching modes preserves the same text draft');
       await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
@@ -426,6 +436,99 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
     } finally { await context.close(); }
   });
 
+  it('keeps knowledge entry actions reachable with enlarged text', async () => {
+    const { context, page } = await openPage({ width: 320, height: 740 });
+    page.setDefaultTimeout(6000);
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-phone-editor'), browserName);
+    await mkdir(assets, { recursive: true });
+    try {
+      await page.route('**/v1/ai/**', route => route.abort());
+      for (const viewport of [{ width: 320, height: 740 }, { width: 768, height: 1024 }]) {
+        await page.setViewportSize(viewport);
+        for (const empty of [true, false]) {
+          await context.request.put(`${base}/v1/admin/knowledge-base`, { headers, data: {
+            content: empty ? '' : '# Program reference\n\nLearners practise one skill at a time using examples from their work.',
+            conversation: null, readiness: 0,
+          } });
+          await navigate(page, 'customizer/knowledge');
+          await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+          await page.getByRole('button', { name: empty ? 'Create with assistant' : 'Edit with assistant', exact: true }).focus();
+          await page.screenshot({ path: join(assets, `knowledge-${viewport.width}-${empty ? 'empty' : 'saved'}-enlarged-actions.png`), animations: 'disabled' });
+          assert.equal(await page.locator('.admin-main').evaluate(main => main.scrollWidth <= main.clientWidth), true, 'entry actions and instructions must fit the available width');
+          await page.getByRole('button', { name: empty ? 'Write or paste text' : 'Edit text', exact: true }).click();
+          await page.getByLabel('Knowledge base text', { exact: true }).waitFor();
+        }
+      }
+    } finally { await context.close(); }
+  });
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }]) {
+    it(`keeps the phone document visible and returns from review to editing at ${viewport.width}px`, async () => {
+      const { context, page } = await openPage(viewport);
+      page.setDefaultTimeout(6000);
+      const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+      const headers = { Authorization: `Bearer ${auth.accessToken}` };
+      const content = '# Program reference\n\nLearners practise one skill at a time and bring a concrete example to each lesson.\n\n' + '## Teaching approach\n\nGive specific feedback and let the learner explain the next step.\n\n'.repeat(6);
+      let inference = 0;
+      try {
+        const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-phone-editor'), browserName);
+        await mkdir(assets, { recursive: true });
+        await page.route('**/v1/ai/**', route => { inference++; return route.abort(); });
+        await context.request.put(`${base}/v1/admin/knowledge-base`, { headers, data: { content: '', conversation: null, readiness: 0 } });
+        await page.goto(`${base}/plato/customizer/knowledge`);
+        await page.getByRole('button', { name: 'Write or paste text', exact: true }).click();
+        const text = page.getByLabel('Knowledge base text', { exact: true });
+        await text.waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        await page.screenshot({ path: join(assets, `phone-${viewport.width}-new-editor-entry.png`) });
+        const newWritingSpace = await visibleKnowledgeWritingSpace(page);
+        assert.ok(newWritingSpace >= 160, `expected several visible lines in a new document; got ${newWritingSpace}px`);
+
+        await context.request.put(`${base}/v1/admin/knowledge-base`, { headers, data: {
+          content, conversation: [{ role: 'assistant', content: 'What would you like to change?' }], readiness: 8,
+        } });
+        await page.goto(`${base}/plato/customizer/knowledge/edit?mode=text`);
+        await text.waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        const writingSpace = await visibleKnowledgeWritingSpace(page);
+        await page.screenshot({ path: join(assets, `phone-${viewport.width}-editor-entry.png`) });
+        assert.ok(writingSpace >= 160, `expected several visible lines on entry; got ${writingSpace}px`);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+        const revised = content + '\nKeep participant examples anonymous.\n';
+        await text.fill(revised);
+        const save = page.getByRole('button', { name: 'Update knowledge base', exact: true });
+        assert.equal(await save.isDisabled(), true);
+        await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
+        await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Review knowledge base');
+        assert.equal(await save.isEnabled(), true);
+        await page.getByRole('button', { name: 'Back to editing', exact: true }).click();
+        await page.waitForFunction(() => document.activeElement?.id === 'kb-document-text');
+        assert.equal(await text.evaluate(input => input.getBoundingClientRect().top >= document.querySelector('.admin-main').getBoundingClientRect().top), true, 'returning should show the start of the writing field');
+        assert.equal(await text.inputValue(), revised);
+        await text.fill(revised + '\nUse weekly practice.\n');
+        assert.equal(await save.isDisabled(), true, 'returning to edit never skips review');
+        await page.getByRole('button', { name: 'Back to knowledge base', exact: true }).click();
+        await page.getByRole('alertdialog').waitFor();
+        await page.getByRole('button', { name: 'Stay here', exact: true }).click();
+        await page.getByRole('alertdialog').waitFor({ state: 'hidden' });
+        assert.equal(await text.inputValue(), revised + '\nUse weekly practice.\n');
+
+        await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+        const help = page.getByText('Writing and review help', { exact: true });
+        await help.focus();
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('.knowledge-writing-help').open);
+        await page.screenshot({ path: join(assets, `phone-${viewport.width}-enlarged-help.png`), animations: 'disabled' });
+        assert.equal(await page.locator('.admin-main').evaluate(main => main.scrollWidth <= main.clientWidth), true, 'enlarged text must wrap inside the editor');
+        assert.equal(await page.locator('.knowledge-save-actions').evaluate(actions => getComputedStyle(actions).position), 'static', 'large text must leave room to read and edit');
+        assert.equal(inference, 0, 'the text editing and review loop never calls AI');
+      } finally { await context.close(); }
+    });
+  }
+
   it('creates a knowledge base directly without starting an AI conversation', async () => {
     const { context, page } = await openPage({ width: 1440, height: 1000 });
     page.setDefaultTimeout(6000);
@@ -436,11 +539,11 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       await context.request.put(`${base}/v1/admin/knowledge-base`, { headers, data: { content: '', conversation: null, readiness: 0 } });
       await page.route('**/v1/ai/**', route => { inference++; return route.abort(); });
       await page.goto(`${base}/plato/customizer/knowledge`);
-      await page.getByRole('button', { name: 'Write text', exact: true }).click();
+      await page.getByRole('button', { name: 'Write or paste text', exact: true }).click();
       const content = '# New program\n\nIndependent learners practise one skill at a time and bring examples from their work.';
       await page.getByLabel('Knowledge base text', { exact: true }).fill(content);
       await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
-      await page.getByRole('button', { name: 'Save Knowledge Base', exact: true }).click();
+      await page.getByRole('button', { name: 'Save knowledge base', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer/knowledge`);
       assert.equal((await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json()).content, content);
       assert.equal(inference, 0);
@@ -460,7 +563,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       ] } });
       await page.route('**/v1/ai/**', route => { inference++; return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Preview unavailable","code":"ai_unavailable"}' }); });
       await page.goto(`${base}/plato/customizer/knowledge/edit`);
-      const save = page.getByRole('button', { name: 'Update Knowledge Base', exact: true });
+      const save = page.getByRole('button', { name: 'Update knowledge base', exact: true });
       await save.waitFor();
       assert.equal(await save.isDisabled(), true);
       await save.click({ force: true });
@@ -496,7 +599,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       await page.goto(`${base}/plato/customizer/knowledge/edit?mode=text`);
       await page.getByLabel('Knowledge base text', { exact: true }).fill(manual);
       await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
-      await page.getByRole('tab', { name: 'Conversation', exact: true }).click();
+      await page.getByRole('tab', { name: 'Assistant', exact: true }).click();
       await page.getByPlaceholder('Tell me about your program...', { exact: true }).fill('Add guidance about anonymised weekly examples.');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
       await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
@@ -506,7 +609,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       assert.ok(JSON.stringify(inference[1].messages).includes('The corrected program name is Practice Lab.'), 'extractor starts from the edited document');
       await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
       assert.equal(await page.getByLabel('Knowledge base text', { exact: true }).inputValue(), combined);
-      await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
+      await page.getByRole('button', { name: 'Update knowledge base', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer/knowledge`);
       assert.equal((await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json()).content, combined);
       assert.equal(inference.length, 2, 'saving the combined document does not call AI');
@@ -549,7 +652,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
       await page.getByLabel('Knowledge base text', { exact: true }).fill('# Direct fallback\n\nThe first conversation can be retried, and administrators can still edit their program reference.');
       await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
-      assert.equal(await page.getByRole('button', { name: 'Save Knowledge Base', exact: true }).isEnabled(), true);
+      assert.equal(await page.getByRole('button', { name: 'Save knowledge base', exact: true }).isEnabled(), true);
       assert.equal(inference, 2, 'the StrictMode probe must not start an abandoned inference request');
     } finally { await context?.close(); await vite.close(); }
   });
@@ -576,7 +679,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       const preview = page.getByRole('complementary', { name: 'Knowledge base markdown preview', exact: true });
       await preview.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
       assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'), '8', 'saved content without readiness remains savable');
-      assert.equal(await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).isEnabled(), false, 'unchanged knowledge does not need saving');
+      assert.equal(await page.getByRole('button', { name: 'Update knowledge base', exact: true }).isEnabled(), false, 'unchanged knowledge does not need saving');
       assert.equal(await preview.getByText(/Review this preview/).count(), 0);
       await page.getByPlaceholder('Tell me about your program...', { exact: true }).fill('Require alt text on every slide.');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -597,7 +700,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
         window.dispatchEvent(event);
         return event.defaultPrevented;
       }), true);
-      await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
+      await page.getByRole('button', { name: 'Update knowledge base', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer/knowledge`);
       const saved = await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json();
       assert.equal(saved.content, reviewed, 'persist exactly the reviewed Unicode and Markdown');
@@ -634,7 +737,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       await page.getByRole('button', { name: 'Leave without saving', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer`);
       await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
-      await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).click();
+      await page.getByRole('button', { name: 'Edit with assistant', exact: true }).click();
       await stale.waitFor();
       assert.equal(await page.getByText('Move cohorts to Mondays.', { exact: true }).count(), 1);
       await page.getByRole('button', { name: 'Back to knowledge base', exact: true }).click();
@@ -687,7 +790,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       ]);
       await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
       await page.getByRole('note').filter({ hasText: 'Review this preview' }).waitFor();
-      await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
+      await page.getByRole('button', { name: 'Update knowledge base', exact: true }).click();
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(publications, 0, 'publication must wait for the held draft, which could otherwise restore unpublished flags');
       await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
@@ -701,7 +804,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       assert.equal(saved.conversation.length, 3);
       assert.equal(saved.conversation.some(message => message.unpublished), false);
       assert.equal(publications, 1);
-      await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).click();
+      await page.getByRole('button', { name: 'Edit with assistant', exact: true }).click();
       await page.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
       await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer`);
@@ -743,7 +846,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
         await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
         await page.getByLabel('Knowledge base text', { exact: true }).fill(content + '\n');
         await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
-        await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
+        await page.getByRole('button', { name: 'Update knowledge base', exact: true }).click();
         await Promise.race([
           held,
           delay(6000, null, { ref: false }).then(() => { throw new Error('Timed out waiting for the intercepted refresh request'); }),

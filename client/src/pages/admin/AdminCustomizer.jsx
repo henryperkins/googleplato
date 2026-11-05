@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { adminApi } from './adminApi.js';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -68,12 +69,16 @@ export default function AdminCustomizer() {
   const knowledge = useResource('/v1/admin/knowledge-base');
   const kb = knowledge.data || {};
   const headingRef = useRef(null);
+  const editorHeadingRef = useRef(null);
   const [knowledgeSaved, setKnowledgeSaved] = useState(false);
 
   useEffect(() => { document.title = 'Classroom Customizer — plato'; }, []);
+  useLayoutEffect(() => {
+    if (editing && !knowledge.loading && !knowledge.error) editorHeadingRef.current?.focus({ preventScroll: true });
+  }, [editing, knowledge.loading, knowledge.error]);
 
   return (
-    <div className="customizer-page">
+    <div className={`customizer-page${editing ? ' customizer-page-editing' : ''}`}>
       <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold mb-4">Classroom Customizer</h1>
       <Tabs value={tab} onValueChange={value => navigate(value === 'knowledge' ? '/plato/customizer/knowledge' : '/plato/customizer', { replace: true })} className="space-y-4">
         <TabsList aria-label="Customizer sections">
@@ -89,14 +94,14 @@ export default function AdminCustomizer() {
           <ResourceState resource={knowledge} name="Knowledge base" headingRef={headingRef}>
             {editing ? (
               <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/plato/customizer/knowledge', { replace: true })} aria-label="Back to knowledge base">&larr; Back</Button>
-                  <h2 className="text-lg font-semibold">{kb.content ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</h2>
+                <div className="knowledge-editor-header flex items-center gap-3 mb-4">
+                  <Button variant="ghost" size="sm" onClick={() => navigate('/plato/customizer/knowledge', { replace: true })} aria-label="Back to knowledge base"><ArrowLeft className="size-4" aria-hidden="true" /> Back</Button>
+                  <h2 ref={editorHeadingRef} tabIndex={-1} className="text-lg font-semibold">{kb.content ? 'Edit knowledge base' : 'Create knowledge base'}</h2>
                 </div>
                 <KnowledgeBaseEditor key={kb.content ? 'edit' : 'create'} initialContent={kb.content || ''} initialConversation={kb.conversation || null}
                   initialReadiness={kb.readiness ?? (kb.content ? 8 : 0)} storageKey="plato_kb_customizer_draft" pageTitle="Classroom Customizer — plato"
                   initialMode={new URLSearchParams(location.search).get('mode') === 'text' ? 'text' : 'conversation'}
-                  saveLabel={kb.content ? 'Update Knowledge Base' : 'Save Knowledge Base'}
+                  saveLabel={kb.content ? 'Update knowledge base' : 'Save knowledge base'}
                   onSave={(content, conversation, readiness) => {
                     // The PUT is acknowledged. Navigation belongs to this save,
                     // never to a later GET; hide old attribution until refreshed.
@@ -126,8 +131,8 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit, saved }) {
   return (
     <div>
       {saved && <p role="status" className="text-sm text-success-foreground mb-4">Knowledge base saved. The coach and lesson creator now use this version.</p>}
-      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-        <div className="min-w-0">
+      <div className="knowledge-viewer-header mb-4">
+        <div className="knowledge-viewer-description min-w-0">
           <p className="text-sm text-muted-foreground max-w-prose">
             The coach and lesson creator use this knowledge base to understand your program.
           </p>
@@ -137,16 +142,16 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit, saved }) {
             </p>
           )}
         </div>
-        <div className="flex flex-wrap gap-2 shrink-0">
-          <Button onClick={() => onEdit('conversation')}>{content ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</Button>
-          <Button variant="outline" onClick={() => onEdit('text')}>{content ? 'Edit text' : 'Write text'}</Button>
+        <div className="knowledge-viewer-actions">
+          <Button onClick={() => onEdit('conversation')}>{content ? 'Edit with assistant' : 'Create with assistant'}</Button>
+          <Button variant="outline" onClick={() => onEdit('text')}>{content ? 'Edit text' : 'Write or paste text'}</Button>
         </div>
       </div>
 
       {content ? (
         <Card>
           <CardContent>
-            <div className="coach-copy" dangerouslySetInnerHTML={{ __html: renderMd(content) }} />
+            <div className="knowledge-document coach-copy" dangerouslySetInnerHTML={{ __html: renderMd(content) }} />
           </CardContent>
         </Card>
       ) : (
