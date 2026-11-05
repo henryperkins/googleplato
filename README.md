@@ -1,24 +1,28 @@
 # Login reflow and link-fetch focus evidence
 
 Review artifacts for [PR #42](https://github.com/henryperkins/googleplato/pull/42),
-source commit `1bcc8c0d88c61fe79d4a0f1169e83335b9e12463`. Screenshots contain synthetic local fixture data.
+source commit `36f38bf98e75721b2125da940a2996ce5c6c5e5b`. Screenshots contain synthetic local fixture data.
 This evidence branch is separate from the four-file application change.
 
 ## Source identity
 
 - Base: `6377a9d2182f4915709fb2fbf72da85c14c5ffa0`
-- Current source: `1bcc8c0d88c61fe79d4a0f1169e83335b9e12463`
+- Current source: `36f38bf98e75721b2125da940a2996ce5c6c5e5b`
 - Initial source: `ebab465a9a1bf00d67faf0f892f739e5dcd3f804`
 - Files: `PRODUCT.md`, `client/src/pages/Login.jsx`,
   `client/src/components/chat/ComposeBar.jsx`, and
   `client/tests/browser/learner-recovery.test.js`
 - Combined diff: 201 insertions and 14 deletions
 - SHA-256 of the full-index binary Git diff from the base:
-  `cf84e00994b00da6955bad1c8c9daa1ff771596d07f784b78684fc705a5e6cd3`
+  `1fe65692cbd417eb0dba134caa25f0b32cb378ffa63741fc14cd46f400fc54f4`
 
-The committed diff matches the tested patch byte for byte. A separate read-only
-review found no actionable issue in the follow-up. This technical review does not
-replace formal GitHub approval.
+The application and browser-test files match qualified commit
+`1bcc8c0d88c61fe79d4a0f1169e83335b9e12463` byte for byte. The final commit only
+clarifies that completing first-sign-in Google setup on an empty database creates
+an admin regardless of email; both role-assignment branches were checked against
+`server/src/routes/auth.js`. Completed runtime checks were reused for this prose
+correction. A separate read-only review found no actionable issue in the preceding
+runtime follow-up. Technical review does not replace formal GitHub approval.
 
 ## Review follow-up
 
