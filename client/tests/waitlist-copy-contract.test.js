@@ -2,7 +2,10 @@
  * Copy to account (upstream #482, merged in 9f3928f) must behave like Invite:
  * one request at a time per entry, a visible busy state while it runs, an
  * accessible name that starts with the visible label (WCAG 2.5.3), and no
- * navigation away from a different editor when a slow success lands.
+ * navigation away from a different editor when a slow success lands. A row
+ * records which action is running, so a removal never reads as a copy or an
+ * invite. client/tests/browser/admin-responsive.test.js covers the same
+ * behavior in a browser.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,38 +22,64 @@ const users = read('pages/admin/AdminUsers.jsx');
 const edit = read('pages/admin/WaitlistEntryEdit.jsx');
 const mobile = read('pages/admin/UserMobileList.jsx');
 
-const applyFn = users.slice(
-  users.indexOf('function applyFromWaitlist'),
-  users.indexOf('function removeFromWaitlist'),
-);
+// The source of a function declared in the AdminUsers component body, up to
+// the next declaration or comment at the same indentation. It fails when the
+// function is missing, so no assertion can pass against the wrong code or none.
+function componentFunction(name) {
+  const start = users.search(new RegExp(`\\n {2}(?:async )?function ${name}\\(`));
+  assert.notEqual(start, -1, `AdminUsers.jsx declares ${name}`);
+  const body = users.slice(start + 1);
+  const end = body.search(/\n {2}(?:(?:async )?function |const |\/\/ )/);
+  assert.notEqual(end, -1, `${name} is followed by another declaration`);
+  return body.slice(0, end);
+}
 
-describe('Copy to account request guard', () => {
-  it('refuses to start while an apply for the same entry is in flight', () => {
-    assert.match(applyFn, /if \(pendingRowsRef\.current\.has\(token\)\) return;/);
-    assert.match(applyFn, /pendingRowsRef\.current\.add\(token\)/);
-    assert.match(applyFn, /finally \{[\s\S]*?pendingRowsRef\.current\.delete\(token\)/);
-  });
+describe('Wait-list row request guard', () => {
+  for (const [name, action, request] of [
+    ['applyFromWaitlist', 'copy', /adminApi\('POST', `\/v1\/admin\/waitlist\/\$\{token\}\/apply`\)/],
+    ['removeFromWaitlist', 'remove', /adminApi\('DELETE', `\/v1\/admin\/waitlist\/\$\{token\}`\)/],
+  ]) {
+    it(`${name} sends one request per entry and records it as "${action}"`, () => {
+      const source = componentFunction(name);
+      assert.match(source, request);
+      // Once before the confirmation opens, and again when it is confirmed.
+      assert.equal(source.match(/if \(pendingRowsRef\.current\.has\(token\)\) return;/g)?.length, 2);
+      assert.match(source, /pendingRowsRef\.current\.add\(token\)/);
+      assert.match(source, new RegExp(`setPendingRows\\(prev => \\(\\{ \\.\\.\\.prev, \\[token\\]: '${action}' \\}\\)\\)`));
+      assert.match(source, /finally \{[\s\S]*?pendingRowsRef\.current\.delete\(token\)/);
+    });
+  }
 
-  it('tracks the in-flight copy in pendingRows so every surface disables', () => {
-    assert.match(applyFn, /setPendingRows\(prev => \(\{ \.\.\.prev, \[token\]: true \}\)\)/);
-    assert.match(users, /applying=\{!!pendingRows\[editEntry\.inviteToken\]\}/);
+  it('Invite and Resend record their own actions', () => {
+    assert.match(componentFunction('inviteFromWaitlist'), /setPendingRows\(prev => \(\{ \.\.\.prev, \[token\]: 'invite' \}\)\)/);
+    assert.match(componentFunction('resendInvite'), /setPendingRows\(prev => \(\{ \.\.\.prev, \[key\]: 'resend' \}\)\)/);
   });
 });
 
-describe('Copy to account busy state', () => {
-  it('desktop row shows Copying… while the request runs', () => {
-    assert.match(users, /pendingRows\[item\._key\] \? 'Copying…' : 'Copy to account'/);
+describe('Wait-list busy state', () => {
+  it('desktop rows name only the running action', () => {
+    assert.match(users, /pendingRows\[item\._key\] === 'copy' \? 'Copying…' : 'Copy to account'/);
+    assert.match(users, /pendingRows\[item\._key\] === 'invite' \? 'Sending…' : 'Invite'/);
   });
 
-  it('mobile row shows Copying… while the request runs', () => {
-    assert.match(mobile, /hasAccount \? 'Copying…' : 'Sending…'/);
+  it('mobile rows name only the running action', () => {
+    assert.match(mobile, /const primaryAction = hasAccount \? 'copy' : item\._type === 'waitlist' \? 'invite' : 'resend';/);
+    assert.match(mobile, /primaryRunning \? \(hasAccount \? 'Copying…' : 'Sending…'\)/);
+    assert.match(mobile, /pendingAction === 'remove' \? 'Removing…' : 'Remove'/);
     assert.match(mobile, /onApply\(item\._key, item\.email\)/);
   });
 
-  it('edit screen disables Copy and reports Copying… while applying', () => {
-    assert.match(edit, /disabled=\{saving \|\| dirty \|\| inviting \|\| applying\}/);
+  it('the edit screen hears which action is running and holds every control', () => {
+    assert.match(users, /applying=\{pendingRows\[editEntry\.inviteToken\] === 'copy'\}/);
+    assert.match(users, /removing=\{pendingRows\[editEntry\.inviteToken\] === 'remove'\}/);
+    assert.match(edit, /const busy = saving \|\| inviting \|\| applying \|\| removing;/);
+    assert.equal(edit.match(/disabled=\{busy \|\| dirty\}/g)?.length, 2, 'Copy and Invite wait for any action');
+    assert.equal(edit.match(/disabled=\{busy\}/g)?.length, 4, 'Save, Cancel, Back and Remove wait for any action');
+    assert.equal(edit.match(/readOnly=\{busy\}/g)?.length, 3, 'Name, email and custom fields are read-only');
+    assert.match(edit, /aria-readonly=\{busy \|\| undefined\}/);
     assert.match(edit, /applying \? 'Copying…' : 'Copy to account'/);
-    assert.match(edit, /applying \? 'Copying answers to account…' : ''/);
+    assert.match(edit, /removing \? 'Removing…' : 'Remove from wait list'/);
+    assert.match(edit, /applying \? 'Copying answers to account…' : removing \? 'Removing entry…' : ''/);
   });
 });
 
@@ -66,6 +95,10 @@ describe('Copy to account accessible name', () => {
 describe('Edit-screen completion navigation', () => {
   it('only returns to the list when the admin is still viewing that entry', () => {
     assert.match(users, /const editTokenRef = useRef\(waitlistToken\)/);
-    assert.match(users, /editTokenRef\.current === e\.inviteToken/);
+    for (const handler of ['onSaved', 'onInvite', 'onApply', 'onRemove']) {
+      const line = users.split('\n').find(l => l.trim().startsWith(`${handler}=`));
+      assert.ok(line, `the wait-list editor receives ${handler}`);
+      assert.match(line, /editTokenRef\.current === (?:e|editEntry)\.inviteToken\) back\(\)/, `${handler} checks the open entry before going back`);
+    }
   });
 });

@@ -38,8 +38,12 @@ export default function UserMobileList({
         const name = item.name || item.email;
         const status = item._type === 'waitlist' ? 'Wait List'
           : item._type === 'invite' ? 'Invited' : item.role === 'admin' ? 'Admin' : 'Learner';
-        const pending = !!pendingRows[item._key];
+        // Any running action holds the whole row; only its own control says so.
+        const pendingAction = pendingRows[item._key];
+        const pending = !!pendingAction;
         const hasAccount = item._type === 'waitlist' && item._entry?.alreadyRegistered === 'account';
+        const primaryAction = hasAccount ? 'copy' : item._type === 'waitlist' ? 'invite' : 'resend';
+        const primaryRunning = pendingAction === primaryAction;
         return (
           <li key={item._key} className="py-3" data-user-key={item._key}>
             <div className="flex items-start justify-between gap-3">
@@ -89,7 +93,10 @@ export default function UserMobileList({
                       <Button variant="destructive" onClick={() => onDelete(item._key, name)} aria-label={`Delete ${name}`}>Delete user</Button>
                     )}
                     {item._type === 'waitlist' && (
-                      <Button variant="destructive" disabled={pending} focusableWhenDisabled onClick={() => onRemove(item._key, item.email)} aria-label={`Remove ${item.email} from the wait list`}>Remove</Button>
+                      <Button variant="destructive" disabled={pending} focusableWhenDisabled onClick={() => onRemove(item._key, item.email)} aria-label={`Remove ${item.email} from the wait list`}>
+                        {pendingAction === 'remove' && <LoaderCircle aria-hidden="true" className="animate-spin" />}
+                        {pendingAction === 'remove' ? 'Removing…' : 'Remove'}
+                      </Button>
                     )}
                     {item._type === 'invite' && (
                       <Button variant="destructive" disabled={pending} focusableWhenDisabled onClick={() => onRevoke(item._key, item.email)} aria-label={`Revoke invite for ${item.email}`}>Revoke invite</Button>
@@ -106,8 +113,8 @@ export default function UserMobileList({
                   aria-label={hasAccount ? `Copy to account for ${item.email}` : item._type === 'waitlist' ? `Invite ${item.email}` : `Resend invite to ${item.email}`}
                   onClick={() => hasAccount ? onApply(item._key, item.email) : item._type === 'waitlist' ? onInvite(item._key, item.email) : onResend(item.email, item._key)}
                 >
-                  {pending && <LoaderCircle aria-hidden="true" className="animate-spin" />}
-                  {pending ? (hasAccount ? 'Copying…' : 'Sending…') : hasAccount ? 'Copy to account' : item._type === 'waitlist' ? 'Invite' : 'Resend'}
+                  {primaryRunning && <LoaderCircle aria-hidden="true" className="animate-spin" />}
+                  {primaryRunning ? (hasAccount ? 'Copying…' : 'Sending…') : hasAccount ? 'Copy to account' : item._type === 'waitlist' ? 'Invite' : 'Resend'}
                 </Button>
               )}
             </div>
