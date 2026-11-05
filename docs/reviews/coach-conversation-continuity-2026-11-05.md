@@ -21,7 +21,7 @@ continuity grading. Route tests cover current/legacy history, unverified mastery
 long histories, rubric changes, actual learner task changes, authorization,
 completed-state rejection, concurrent commits and old receipt/recovery replay.
 
-Final local qualification passed: 758 client tests and 929 server tests, including
+Local qualification at `f3b293f` passed: 758 client tests and 929 server tests, including
 disposable PostgreSQL integration, with zero failures or skips; lint with zero
 errors and 19 existing client warnings; client build with the existing large-chunk
 advisory. No new database schema or dependency is required.
@@ -113,3 +113,40 @@ The independent review's three material findings are addressed by the regression
 above. The reviewer did not claim production deployment/repair verification or
 general model reliability; production actions remain pending and the synthetic
 live evidence is limited to the cases actually exercised.
+
+## Follow-up to the five findings on `f3b293f`
+
+All five supplied review findings reproduced before the corresponding changes.
+
+| Finding | Correction and regression |
+| --- | --- |
+| Historical learner selections missing during migration | Version 2 preserves chronological historical learner statements as `legacyLearnerContext`, separately from classified `learnerDirections`. Actual requests retain the earlier selection after both history and source rotation; migration remains stable on later turns and never awards assessment credit. |
+| Attached target URL lost | Saved link URLs/titles accompany learner anchors and recent history. A real generated linked direction survives reload, 24 later submissions, source eviction and history rollover. Reconciliation rehydrates the saved URL; page excerpts are excluded. |
+| Target substitution falsely passes | Each continuity fixture declares allowed URLs. Unknown URLs, Markdown destinations, bare domains and known replacement names fail even when the expected target also appears. |
+| Unsupported diagnoses falsely pass | Explicit forbidden-observation patterns grade the resulting retained insights and learner position. Valid replies containing each supplied diagnosis fail while neutral observations pass. Reports expose the actual retained observation fields. |
+| Unexpected task-change markers pass | Every continuity fixture explicitly expects marker omission unless it describes a genuine current task change. An unsolicited marker fails; genuine changes still require the exact source ID. |
+
+Final follow-up validation: **762 client tests and 934 server tests pass**, with
+disposable PostgreSQL enabled and zero skips. The focused set passes 59 tests;
+all 21 offline fixtures pass. Lint has zero errors and the same 19 existing client
+warnings; the client build passes with the existing chunk-size advisory.
+
+Two new synthetic live cases used the configured Workers AI model and candidate
+prompt, with two calls out of a four-call limit. Both passed the strengthened
+grader and agent editorial review: the legacy case recovered the earlier
+learner-selected Hacker News URL, and the linked case resolved "Audit this site
+instead" to its saved URL after it left both bounded lists. The
+[live report](coach-conversation-continuity-2026-11-05/live-user-review.json)
+retains fixtures, replies, hashes and provider identity. No real learner record
+was generated or modified.
+
+The four initial captured replies also pass the strengthened grader in a separate
+[historical regrade](coach-conversation-continuity-2026-11-05/user-review-historical-regrade.json).
+That regrade made no model calls and does not claim that their original requests
+used the new migration code. All earlier raw reports and failed experiments
+remain intact. URL and diagnostic-pattern checks deliberately fail conservatively
+for the declared cases; they do not recognize every possible semantic substitution
+or unsupported claim. Additional provider behavior still requires editorial review.
+
+This follow-up changes the PR branch only. Deployment and the backed-up repair
+remain pending hosted checks and an approving review.

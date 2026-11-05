@@ -10,6 +10,7 @@ const { default: sync } = await import('../../src/routes/sync.js');
 const { default: ai } = await import('../../src/lib/ai-provider.js');
 const { signAccessToken } = await import('../../src/lib/jwt.js');
 const { signCoachTurn } = await import('../../src/lib/coach-receipt.js');
+const { retainSources, submissionSources } = await import('../../src/shared/coachContract.js');
 const app = new Hono().route('/', route).route('/', sync);
 const userId = 'usr_coach';
 const markdown = '# Compare\nMake a choice.\n## Exemplar\nCompare two options and justify a choice.\n## Learning Objectives\n- Can compare options\n- Can justify a choice\n## Coach Directive\nRequire a reason for the choice.';
@@ -124,6 +125,43 @@ async function send(turnId, submission) {
   assert.equal(response.status, 200);
   return response.json();
 }
+
+for (const legacy of [true, false]) test(`${legacy ? 'legacy' : 'linked'} target changes survive both source and history rotation in actual coach requests`, async () => {
+  await saveOpening();
+  const target = 'https://news.ycombinator.com/';
+  respond(() => ({ progress: 0, kb: { responseType: 'clarification', ...(!legacy ? { taskChangeSourceId: 'target:0' } : {}) } }));
+  const change = await send('target', legacy ? { text: `Use ${target} instead.` }
+    : { text: 'Audit this site instead.', links: [{ url: target, title: 'Hacker News', text: 'Page excerpt.' }] });
+  assert.equal((await request('/v1/sync/lesson-turn/l', change)).status, 200);
+  const state = await db.getLessonState(userId, 'l');
+  const kb = { ...state.lessonKB.data };
+  if (legacy) delete kb.conversationState;
+  const history = [...state.messages.data];
+  for (let i = 0; i < 24; i++) {
+    const turnId = `later-${i}`;
+    const text = `Observation ${i}`;
+    kb.sources = retainSources(kb.sources, submissionSources({ turnId, text }));
+    history.push({ id: `${turnId}:0`, role: 'user', content: text },
+      { id: `${turnId}:1`, role: 'assistant', content: 'Describe one detail.', assessmentProvenance: 'server-v1' });
+  }
+  assert.equal(kb.sources.some(source => source.id.startsWith('target:')), false);
+  await db.putSyncData(userId, 'messages:l', history);
+  await db.putSyncData(userId, 'lessonKB:l', kb);
+  respond((context, body) => {
+    assert.equal(JSON.stringify(body.messages.slice(2)).includes(target), false, 'target is outside recent history');
+    assert.equal(context.sources.some(source => source.id.startsWith('target:')), false);
+    const saved = (legacy ? context.conversationState.legacyLearnerContext : context.conversationState.learnerDirections)
+      ?.find(item => item.sourceMessageId === 'target:0');
+    assert.ok(saved, 'the earlier selection must survive in conversation context');
+    if (legacy) assert.equal(saved.text, `Use ${target} instead.`);
+    else assert.equal(saved.links?.[0]?.url, target);
+    assert.deepEqual(context.evidence, []);
+    return { progress: 0, kb: { responseType: 'question' } };
+  });
+  const turn = await send('resume-target', { text: 'Which site are we using?' });
+  assert.equal(turn.lessonKB.progress, 0);
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 200);
+});
 test('link excerpt and original URL survive confirmation after reload and history truncation', async () => {
   await saveOpening();
   respond(() => ({ kb: { responseType: 'clarification' } }));

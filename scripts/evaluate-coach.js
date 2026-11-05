@@ -19,6 +19,22 @@ export function buildCoachEvaluationRequest(fixture, prompt) {
     { role: 'user', content: fixture.opening ? 'Start the lesson.' : JSON.stringify({ learnerSubmission: fixture.input, currentSourceIds: currentSources(fixture).map(item => item.id) }) },
   ] };
 }
+
+function targetKey(value) {
+  try {
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    return `${url.hostname.replace(/^www\./, '')}${url.port ? `:${url.port}` : ''}${url.pathname.replace(/\/+$/, '')}${url.search}`;
+  } catch { return null; }
+}
+
+function mentionedUrls(text) {
+  // Include Markdown destinations and bare domains. A mention of the expected
+  // site cannot excuse a second, unauthorized URL elsewhere in the reply.
+  const matches = text.match(/https?:\/\/[^\s<>"'`]+|\b(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z]{2,63}(?::\d+)?(?:\/[^\s<>"'`]*)?/gi) || [];
+  return matches.map(value => value.replace(/[\])}.,;:!?*]+$/, ''));
+}
+
 export function evaluateCoachReply(fixture, raw, { live = false } = {}) {
   const parsed = parseCoachResponse(raw);
   const applied = applyCoachResponseToKB(fixture.kb, parsed, { opening: fixture.opening,
@@ -26,7 +42,12 @@ export function evaluateCoachReply(fixture, raw, { live = false } = {}) {
   const failures = [];
   if (fixture.expectedTargetMentions && !fixture.expectedTargetMentions.some(text => parsed.text.toLowerCase().includes(text.toLowerCase()))) failures.push('target_continuity');
   if (fixture.forbiddenTargetMentions?.some(text => parsed.text.toLowerCase().includes(text.toLowerCase()))) failures.push('target_continuity');
+  if (fixture.allowedTargetUrls) {
+    const allowed = new Set(fixture.allowedTargetUrls.map(targetKey).filter(Boolean));
+    if (mentionedUrls(parsed.text).some(url => !allowed.has(targetKey(url)))) failures.push('target_continuity');
+  }
   if (fixture.expectedTaskChangeSourceId && parsed.kbUpdate?.taskChangeSourceId !== fixture.expectedTaskChangeSourceId) failures.push('task_change_not_retained');
+  if (fixture.expectedTaskChangeSourceId === null && parsed.kbUpdate?.taskChangeSourceId !== undefined) failures.push('unexpected_task_change');
   if (parsed.valid !== (fixture.expectedValid !== false)) failures.push('protocol');
   if (parsed.valid && !(fixture.allowedTypes || [fixture.expectedType]).includes(parsed.kbUpdate.responseType)) failures.push('response_type');
   if (!(fixture.allowedProgress || [fixture.expectedProgress]).includes(applied.lessonKB.progress)) failures.push('progress');
@@ -35,6 +56,8 @@ export function evaluateCoachReply(fixture, raw, { live = false } = {}) {
     const signature = kb => JSON.stringify({ progress: kb.progress, evidence: (kb.evidence || []).map(item => ({ objectiveId: item.objectiveId, status: item.status, sourceIds: [...item.sourceIds].sort() })).sort((a, b) => a.objectiveId.localeCompare(b.objectiveId)), exemplar: kb.exemplarEvidence ? { status: kb.exemplarEvidence.status, sourceIds: [...kb.exemplarEvidence.sourceIds].sort() } : null });
     if (signature(applied.lessonKB) !== signature(fixture.kb)) failures.push('reference_assessed');
   }
+  const observations = [...(applied.lessonKB.insights || []), applied.lessonKB.learnerPosition || ''];
+  if (fixture.forbiddenObservationPatterns?.some(pattern => observations.some(value => new RegExp(pattern, 'i').test(value)))) failures.push('unsupported_observation');
   for (const id of fixture.expectedUnconfirmedSources || []) if (applied.lessonKB.sources?.find(item => item.id === id)?.confirmed) failures.push('unconfirmed_reference');
   for (const id of fixture.expectedPreservedObjectives || []) if (!applied.lessonKB.evidence?.some(item => item.objectiveId === id && item.status === 'met')) failures.push('unrelated_evidence_lost');
   for (const id of fixture.expectedInvalidatedObjectives || []) if (applied.lessonKB.evidence?.some(item => item.objectiveId === id && item.status === 'met')) failures.push('retraction_ignored');
@@ -44,9 +67,10 @@ export function evaluateCoachReply(fixture, raw, { live = false } = {}) {
     if (parsed.progress !== (fixture.opening ? 0 : fixture.kb.progress)) failures.push('reported_progress');
   }
   if (live && applied.issues.length) failures.push('assessment_rejected');
-  return { id: fixture.id, passed: !failures.length, failures, metadataValid: parsed.valid, issues: applied.issues,
+  return { id: fixture.id, passed: !failures.length, failures: [...new Set(failures)], metadataValid: parsed.valid, issues: applied.issues,
     progress: applied.lessonKB.progress, reportedProgress: parsed.progress, reportedResponseType: parsed.kbUpdate?.responseType || null,
     evidence: applied.lessonKB.evidence || [], exemplarEvidence: applied.lessonKB.exemplarEvidence,
+    insights: applied.lessonKB.insights || [], learnerPosition: applied.lessonKB.learnerPosition,
     profileUpdate: parsed.profileUpdate, rawReply: raw, visibleReply: parsed.text, editorialReview: 'pending' };
 }
 export async function evaluateCoach({ live = false, trials = 1, maxCalls = 0, invoke, identity, caseIds, onUpdate, stream = false, invokeRepair } = {}) {

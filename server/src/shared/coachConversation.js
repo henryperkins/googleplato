@@ -4,12 +4,24 @@ const MAX_TEXT = 6000;
 const usable = message => message && ['user', 'assistant'].includes(message.role)
   && typeof message.content === 'string' && message.content.trim();
 
+function attachedLinks(message) {
+  if (message.role !== 'user' || !Array.isArray(message.metadata?.links)) return {};
+  const saved = message.metadata.links;
+  const links = saved.flatMap(link => {
+    if (typeof link?.url !== 'string' || link.url.length > 2048) return [];
+    try { if (!['http:', 'https:'].includes(new URL(link.url).protocol)) return []; } catch { return []; }
+    return [{ url: link.url, ...(typeof link.title === 'string' ? { title: link.title.slice(0, 300) } : {}) }];
+  }).slice(0, 4);
+  return { ...(links.length ? { links } : {}), ...(saved.length > links.length ? { linksIncomplete: true } : {}) };
+}
+
 function anchor(message) {
   if (!usable(message) || typeof message.id !== 'string' || !message.id || message.id.length > 160) return null;
   const text = message.role === 'assistant' ? visibleCoachText(message.content) : message.content.trim();
   if (!text) return null;
   return { sourceMessageId: message.id, role: message.role, text: text.slice(0, MAX_TEXT),
     provenance: message.role === 'user' ? 'learner' : message.assessmentProvenance === 'server-v1' ? 'server-v1' : 'legacy-unverified',
+    ...attachedLinks(message),
     ...(text.length > MAX_TEXT ? { truncated: true } : {}) };
 }
 
@@ -30,11 +42,18 @@ export function reconcileConversationState(previous, messages = []) {
   const previousDirections = Array.isArray(previous?.learnerDirections) ? previous.learnerDirections : [];
   const learnerDirections = previousDirections
     .map(item => byId.get(item?.sourceMessageId)).filter(item => item?.role === 'user');
+  // Legacy transcripts have no reliable task-change markers. Preserve their
+  // learner statements as chronological, unclassified context instead of
+  // assuming the opening is still current or guessing intent from keywords.
+  const legacyReferences = previous?.version === 2 && Array.isArray(previous.legacyLearnerContext)
+    ? previous.legacyLearnerContext : anchors.filter(item => item.role === 'user');
+  const legacyLearnerContext = legacyReferences.map(item => byId.get(item?.sourceMessageId)).filter(item => item?.role === 'user');
   // Preserve earlier additive changes, including a target selected before later
   // format/scope directions. The existing whole-record save limit bounds state;
   // exceeding it must reject the save rather than silently forget active work.
-  const state = { version: 1, assignment,
+  const state = { version: 2, assignment,
     learnerDirections: [...new Map(learnerDirections.map(item => [item.sourceMessageId, item])).values()],
+    legacyLearnerContext: [...new Map(legacyLearnerContext.map(item => [item.sourceMessageId, item])).values()],
     latestCoachPrompt: byId.get(anchors.findLast(item => item.role === 'assistant')?.sourceMessageId) || null };
   if ([...counts.values()].some(count => count > 1)) state.sourceAmbiguity = true;
   if (previous?.correction?.reason === 'assignment-drift'
@@ -71,6 +90,10 @@ export function buildCoachHistory(messages = []) {
         text: text.slice(0, MAX_TEXT), ...(text.length > MAX_TEXT ? { truncated: true } : {}),
       } }) }];
     }
+    const attachments = attachedLinks(message);
+    if (attachments.links || attachments.linksIncomplete) return [{ role: 'user', content: JSON.stringify({ learnerMessage: {
+      text: text.slice(0, MAX_TEXT), ...attachments,
+    } }) }];
     return [{ role: message.role, content: text.slice(0, MAX_TEXT) }];
   });
 }

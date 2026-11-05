@@ -1952,6 +1952,29 @@ attachments and coach-generated URLs cannot replace the assignment. The prompt
 requires an explicit learner selection/change, and interprets the retained exact
 text rather than treating an arbitrary link as permission to switch.
 
+Version 2 migrates pre-existing transcripts (including version 1 continuity
+records) into chronological `legacyLearnerContext`. It retains the saved learner
+statements without guessing which ones are task changes; the prompt resolves
+explicit selections from their actual words and asks for clarification if needed.
+This migration happens once, and later observations are not added to that
+historical collection. It is conversation context only and never repopulates
+assessment sources or evidence. It can use more context in long legacy threads;
+the existing record-size checks remain enforced.
+
+Learner anchors and recent history also preserve up to four HTTP(S) link URLs and
+bounded titles from saved `metadata.links`, so a direction such as "Audit this
+site instead" survives source-list eviction. Page excerpts are not imported as
+conversation instructions or evidence. Invalid/excessive links are marked
+`linksIncomplete`; ambiguous references require clarification. A link without
+explicit task-selection wording does not become a retained learner direction.
+
+The continuity evaluator declares allowed target URLs per fixture, rejects
+unapproved URLs (including Markdown destinations and bare domains), grades
+explicitly forbidden diagnostic claims in the resulting `insights` and
+`learnerPosition`, and requires task-change markers to be absent unless the case
+expects one. These are conservative checks for the tested failure classes, not a
+general semantic proof; agent editorial review is still recorded separately.
+
 `POST /v1/admin/users/:userId/lessons/:lessonId/continuity-repair` is an admin-only
 operational repair. It accepts the complete current `base` from the lesson-turn
 GET, `assignmentMessageId`, the latest `learnerMessageId`, and a bounded

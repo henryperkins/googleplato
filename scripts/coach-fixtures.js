@@ -1,5 +1,5 @@
 import { canonicalObjectives } from '../server/src/shared/coachContract.js';
-import { reconcileConversationState } from '../server/src/shared/coachConversation.js';
+import { reconcileConversationState, applyConversationTurn } from '../server/src/shared/coachConversation.js';
 const lesson = { name: 'Compare options', exemplar: 'Compare two options and justify a choice.', learningObjectives: ['Can compare options', 'Can justify a choice'] };
 const missing = { status: 'missing', observation: '', sourceIds: [] };
 const prior = { id: 'prior:0', kind: 'text', confirmed: true, text: 'Option A is cheaper; option B is more reliable. I have compared them but not chosen yet.' };
@@ -32,19 +32,44 @@ function auditFixture(id, input, options = {}) {
   const visible = options.visible || 'We are working on Berkshire Hathaway. Which visible element looks unstyled, and how does that affect using it on your phone?';
   return { id, lesson: auditLesson, kb, history, input, expectedType: 'clarification', allowedTypes: ['clarification', 'question', 'uncertainty', 'feedback', 'correction', 'work'],
     expectedProgress: 0, expectedComplete: false, expectedAssessmentUnchanged: true, expectedNoProfile: true,
-    ...(options.repeatTarget === false ? { forbiddenTargetMentions: ['news.ycombinator.com', 'Hacker News'] }
-      : { expectedTargetMentions: options.expectedTargetMentions || ['berkshirehathaway.com', 'Berkshire Hathaway'] }),
-    ...(options.expectedTaskChangeSourceId ? { expectedTaskChangeSourceId: options.expectedTaskChangeSourceId } : {}),
+    allowedTargetUrls: [options.targetUrl || 'https://www.berkshirehathaway.com'],
+    forbiddenObservationPatterns: ['\\b(?:css|style\\s*sheet)\\b[^.!?\\n]{0,40}\\b(?:fail(?:ed|ure)?|broken|missing|not\\s+load(?:ed|ing)?)\\b',
+      '\\b(?:failed|broken|missing)\\s+(?:css|style\\s*sheet)\\b'],
+    forbiddenTargetMentions: options.targetUrl?.includes('ycombinator.com') ? ['berkshirehathaway.com', 'Berkshire Hathaway'] : ['news.ycombinator.com', 'Hacker News'],
+    ...(options.repeatTarget === false ? {} : { expectedTargetMentions: options.expectedTargetMentions || ['berkshirehathaway.com', 'Berkshire Hathaway'] }),
+    expectedTaskChangeSourceId: options.expectedTaskChangeSourceId || null,
     raw: `${visible}\n[PROGRESS: 0]\n[KB_UPDATE: ${JSON.stringify(update)}]` };
 }
+
+function rotatedSelectionFixture(linked) {
+  const target = 'https://news.ycombinator.com/';
+  const selection = { id: 'selection:0', role: 'user', content: linked ? 'Audit this site instead.' : `Audit ${target} instead.`,
+    ...(linked ? { metadata: { links: [{ url: target, title: 'Hacker News' }] } } : {}) };
+  const acknowledgement = { id: 'selection:1', role: 'assistant', content: 'We will audit Hacker News.', assessmentProvenance: 'server-v1' };
+  const later = Array.from({ length: 24 }, (_, i) => [
+    { id: `later-${i}:0`, role: 'user', content: 'I have not collected a specific issue yet.' },
+    { id: `later-${i}:1`, role: 'assistant', content: 'Describe a concrete observation.', assessmentProvenance: 'server-v1' },
+  ]).flat();
+  const value = auditFixture(linked ? 'rotated-link-target' : 'migrated-legacy-target', 'Which site are we auditing now?', {
+    history: [auditOpening, selection, acknowledgement, ...later], targetUrl: target,
+    expectedTargetMentions: ['news.ycombinator.com', 'Hacker News'], visible: 'We are auditing Hacker News. What is one concrete barrier you observe?',
+  });
+  value.kb.conversationState = linked
+    ? applyConversationTurn(reconcileConversationState(null, [auditOpening]), [selection, acknowledgement], selection.id) : null;
+  value.kb.sources = later.filter(item => item.role === 'user').slice(-16).map(item => ({ id: item.id, kind: 'text', text: item.content, confirmed: true }));
+  return value;
+}
+
 export const continuityFixtures = [
   auditFixture('legacy-audit-resume', 'It looks like css is ignored', { repeatTarget: false }),
   auditFixture('audit-drift-correction', 'Why did you change the website? I followed your original link.', { history: driftHistory, correction: true }),
   auditFixture('long-audit-resume', 'Which website did you ask me to audit?', { history: [auditOpening,
     ...Array.from({ length: 45 }, (_, i) => ({ id: `question-${i}`, role: 'user', content: 'I have not collected a specific issue yet.' }))] }),
   auditFixture('audit-target-change', 'Please switch the audit to https://news.ycombinator.com. Keep the same rubric.', {
-    expectedTaskChangeSourceId: 'fixture:0', expectedTargetMentions: ['news.ycombinator.com', 'Hacker News'],
+    expectedTaskChangeSourceId: 'fixture:0', expectedTargetMentions: ['news.ycombinator.com', 'Hacker News'], targetUrl: 'https://news.ycombinator.com',
     visible: 'We can use Hacker News with the same rubric. What is the first concrete problem you observe on your phone?' }),
+  rotatedSelectionFixture(false),
+  rotatedSelectionFixture(true),
 ];
 
 export const coachFixtures = [
