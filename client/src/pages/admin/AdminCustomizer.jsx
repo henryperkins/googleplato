@@ -68,19 +68,20 @@ export default function AdminCustomizer() {
   const knowledge = useResource('/v1/admin/knowledge-base');
   const kb = knowledge.data || {};
   const headingRef = useRef(null);
+  const [knowledgeSaved, setKnowledgeSaved] = useState(false);
 
   useEffect(() => { document.title = 'Classroom Customizer — plato'; }, []);
 
   return (
-    <div>
+    <div className="customizer-page">
       <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold mb-4">Classroom Customizer</h1>
       <Tabs value={tab} onValueChange={value => navigate(value === 'knowledge' ? '/plato/customizer/knowledge' : '/plato/customizer', { replace: true })} className="space-y-4">
         <TabsList aria-label="Customizer sections">
-          <TabsTrigger value="styles">Styles</TabsTrigger>
-          <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
+          <TabsTrigger value="styles">Appearance</TabsTrigger>
+          <TabsTrigger value="knowledge">Program knowledge</TabsTrigger>
         </TabsList>
         <TabsContent value="styles">
-          <ResourceState resource={styles} name="Styles" headingRef={headingRef}>
+          <ResourceState resource={styles} name="Appearance" headingRef={headingRef}>
             {styles.data && <AdminStyles initialData={styles.data} onSaved={styles.update} />}
           </ResourceState>
         </TabsContent>
@@ -94,21 +95,24 @@ export default function AdminCustomizer() {
                 </div>
                 <KnowledgeBaseEditor key={kb.content ? 'edit' : 'create'} initialContent={kb.content || ''} initialConversation={kb.conversation || null}
                   initialReadiness={kb.readiness ?? (kb.content ? 8 : 0)} storageKey="plato_kb_customizer_draft" pageTitle="Classroom Customizer — plato"
+                  initialMode={new URLSearchParams(location.search).get('mode') === 'text' ? 'text' : 'conversation'}
                   saveLabel={kb.content ? 'Update Knowledge Base' : 'Save Knowledge Base'}
                   onSave={(content, conversation, readiness) => {
                     // The PUT is acknowledged. Navigation belongs to this save,
                     // never to a later GET; hide old attribution until refreshed.
                     knowledge.refresh({ ...kb, content, conversation, readiness, updatedAt: null, updatedByName: null });
+                    setKnowledgeSaved(true);
                     navigate('/plato/customizer/knowledge', { replace: true });
                   }} />
               </div>
             ) : (
-              <KBViewer content={kb.content || ''} updatedAt={kb.updatedAt} updatedByName={kb.updatedByName}
-                onEdit={() => {
+              <KBViewer content={kb.content || ''} updatedAt={kb.updatedAt} updatedByName={kb.updatedByName} saved={knowledgeSaved}
+                onEdit={mode => {
                   // Reload first: draft turns from an earlier visit to the editor are
                   // newer than this page's copy, and the editor would overwrite them.
                   knowledge.retry();
-                  navigate('/plato/customizer/knowledge/edit', { replace: true });
+                  setKnowledgeSaved(false);
+                  navigate(`/plato/customizer/knowledge/edit${mode === 'text' ? '?mode=text' : ''}`, { replace: true });
                 }} />
             )}
           </ResourceState>
@@ -118,9 +122,10 @@ export default function AdminCustomizer() {
   );
 }
 
-function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
+function KBViewer({ content, updatedAt, updatedByName, onEdit, saved }) {
   return (
     <div>
+      {saved && <p role="status" className="text-sm text-success-foreground mb-4">Knowledge base saved. The coach and lesson creator now use this version.</p>}
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground max-w-prose">
@@ -132,7 +137,10 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
             </p>
           )}
         </div>
-        <Button className="shrink-0" onClick={onEdit}>{content ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</Button>
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <Button onClick={() => onEdit('conversation')}>{content ? 'Edit Knowledge Base' : 'Create Knowledge Base'}</Button>
+          <Button variant="outline" onClick={() => onEdit('text')}>{content ? 'Edit text' : 'Write text'}</Button>
+        </div>
       </div>
 
       {content ? (
@@ -142,7 +150,7 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit }) {
           </CardContent>
         </Card>
       ) : (
-        <p className="text-sm text-muted-foreground">No knowledge base yet.</p>
+        <p className="text-sm text-muted-foreground max-w-prose">No knowledge base yet. Describe your program goals, learners, and teaching approach with the assistant, or write the reference yourself. Review it before saving.</p>
       )}
     </div>
   );

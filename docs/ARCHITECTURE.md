@@ -186,12 +186,13 @@ replaces the cache with the acknowledged metadata. A request generation prevents
 older in-flight requests, including their original callers, from restoring stale
 branding after a save. Logo loading no longer delays the metadata response.
 
-The Customizer loads Styles and Knowledge independently, with per-tab retry.
-Styles tracks edits against its last acknowledged save; discard restores that
+The Customizer loads Appearance and Program knowledge independently, with per-tab retry.
+Appearance tracks edits against its last acknowledged save; discard restores that
 snapshot, and reset stages the seeded defaults for an explicit Save. A data-router
 navigation blocker protects links and browser history, and `beforeunload` protects
 reloads/closing the page. The existing route tree remains in `App`. Knowledge
-editor mode is derived from `/plato/customizer/knowledge/edit`, never local state.
+viewer/editor state is derived from `/plato/customizer/knowledge/edit`; `?mode=text`
+opens direct text editing without starting an assistant request.
 An omitted accent, or one equal to the primary, means “Match primary”; new
 classrooms use that mode, while a different saved accent stays independent.
 Unmatching starts the accent from the color it was showing, and an accent equal
@@ -1442,8 +1443,17 @@ published as lesson content until the save button is used.
 builder for the extractor input. The same pane (copy parametrized via props) backs both the lesson editor
 (`extractLessonMarkdown`) and the **knowledge base editor**
 (`AdminCustomizer` + `AdminKBSetup`, `extractKBMarkdown`). The knowledge base
-editor likewise saves a current preview verbatim and extracts only when the
-preview is missing or stale. Its conversation auto-saves as a draft; turns
+editor saves only a current reviewed preview, verbatim, and never invokes
+extraction while saving. Conversation and direct text editing share a document
+draft. Text changes require **Review text changes**; conversation changes require
+a separately generated/refreshed preview. Extraction starts from the current
+text draft so manual corrections carry into guided work. The assistant
+estimates readiness on a visible 0–10 scale, with a 3/10 generation minimum;
+direct text review and saving do not depend on that estimate. Failed generation
+retains the previous document, and failed or unconfirmed saves keep the reviewed
+bytes available for persistence-only retry. Document edits remain in the mounted
+editor until saved or explicitly abandoned; the navigation/reload guard protects
+them, while the conversation auto-saves as a server draft. Conversation turns
 after the last save carry `unpublished: true` until the knowledge base is saved
 (`client/src/lib/knowledgeBaseDraft.js`).
 

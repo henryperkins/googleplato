@@ -42,7 +42,7 @@ describe('saving the knowledge base', () => {
     assert.deepEqual(result, { markdown: reviewed, extracted: false });
   });
 
-  it('extracts once when the preview is stale or missing', async () => {
+  it('rejects a stale or missing preview without extracting unseen content', async () => {
     const stale = { messageCount: 6, savedMarkdown: savedKB, savedThrough: 4, previewMarkdown: savedKB, previewSyncedAt: 4 };
     const missing = { messageCount: 3, savedThrough: 1, previewMarkdown: '' };
     assert.equal(knowledgeBaseEditorState(stale).previewStale, true);
@@ -51,9 +51,8 @@ describe('saving the knowledge base', () => {
       const { previewCurrent } = knowledgeBaseEditorState(input);
       assert.equal(previewCurrent, false);
       const extract = counter('# Fresh extraction');
-      const result = await knowledgeBaseMarkdownForSave({ previewMarkdown: input.previewMarkdown, previewCurrent, extract });
-      assert.equal(extract.calls, 1);
-      assert.deepEqual(result, { markdown: '# Fresh extraction', extracted: true });
+      await assert.rejects(knowledgeBaseMarkdownForSave({ previewMarkdown: input.previewMarkdown, previewCurrent, extract }), /review.*preview/i);
+      assert.equal(extract.calls, 0);
     }
   });
 
@@ -67,6 +66,20 @@ describe('saving the knowledge base', () => {
 });
 
 describe('saved and unsaved state', () => {
+  it('protects text edits and blocks saving until the text matches the reviewed preview', () => {
+    const draftMarkdown = `${savedKB}\nMeetings are on Tuesdays.\n`;
+    const input = { messageCount: 4, savedMarkdown: savedKB, savedThrough: 4, previewMarkdown: savedKB, previewSyncedAt: 4, draftMarkdown };
+    const unreviewed = knowledgeBaseEditorState(input);
+    assert.equal(unreviewed.dirty, true);
+    assert.equal(unreviewed.saved, false);
+    assert.equal(unreviewed.previewCurrent, false);
+    assert.equal(unreviewed.leaveGuard, 'unsaved');
+    const reviewed = knowledgeBaseEditorState({ ...input, previewMarkdown: draftMarkdown });
+    assert.equal(reviewed.previewCurrent, true);
+    assert.equal(reviewed.dirty, true);
+    assert.equal(reviewed.saved, false);
+  });
+
   it('reports an unchanged saved knowledge base as saved, with nothing to protect', () => {
     const savedThrough = savedMessageCount(loaded);
     const state = knowledgeBaseEditorState({
@@ -138,7 +151,7 @@ describe('conversation drafts', () => {
     const reopened = knowledgeBaseEditorState({
       messageCount: stored.length, savedMarkdown: savedKB, savedThrough, previewMarkdown: savedKB, previewSyncedAt: savedThrough,
     });
-    assert.equal(reopened.previewStale, true, 'Save extracts instead of saving the old knowledge base');
+    assert.equal(reopened.previewStale, true, 'new conversation turns require a separately reviewed preview');
     assert.equal(reopened.dirty, true);
   });
 
@@ -226,8 +239,7 @@ describe('editor wiring', () => {
   it('saves through the shared rules and clears the leave guard before the page moves on', () => {
     const save = editor.slice(editor.indexOf('async function handleSaveKB'), editor.indexOf('async function handleRefreshPreview'));
     assert.match(save, /knowledgeBaseMarkdownForSave\(/);
-    assert.equal(save.match(/extractKBMarkdown\(/g)?.length, 1);
-    assert.match(save, /extract: \(\) => extractKBMarkdown\(/);
+    assert.equal(save.includes('extractKBMarkdown('), false, 'saving never generates content');
     const put = save.indexOf("adminApi('PUT', '/v1/admin/knowledge-base',");
     const cleared = save.indexOf('leaveGuardRef.current = null');
     const moveOn = save.indexOf('await onSave(');

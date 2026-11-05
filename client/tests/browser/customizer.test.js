@@ -79,7 +79,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
     }
     const initialBranding = await (await fetch(`${base}/v1/branding`)).json();
     assert.deepEqual(initialBranding.theme, { primary: '#8b1a1a' }, 'new classrooms match the primary accent');
-    browser = await browserType.launch();
+    browser = await browserType.launch({ executablePath: process.env.PLATO_TEST_BROWSER_EXECUTABLE || undefined });
     const context = await browser.newContext();
     try {
       const page = await context.newPage();
@@ -257,13 +257,13 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.getByLabel('Classroom Name', { exact: true }).fill('Independent styles');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
-      await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+      await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
       await page.getByRole('button', { name: 'Retry knowledge base', exact: true }).click();
       await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).waitFor();
       await page.route('**/v1/admin/theme', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Styles offline"}' }));
       await navigate(page, 'customizer');
-      await page.getByRole('button', { name: 'Retry styles', exact: true }).waitFor();
-      await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+      await page.getByRole('button', { name: 'Retry appearance', exact: true }).waitFor();
+      await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
       await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).waitFor();
     } finally { await context.close(); }
   });
@@ -361,16 +361,196 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       assert.equal(await page.getByLabel('Classroom Name', { exact: true }).inputValue(), 'Retain me');
       assert.equal(await page.getByRole('button', { name: 'Save', exact: true }).isEnabled(), true);
       await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
-      await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+      await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
       await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer/knowledge/edit`);
       await page.getByRole('button', { name: 'Back to knowledge base', exact: true }).waitFor();
-      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
-      await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+      await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
+      await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer/knowledge`);
       assert.equal(await page.getByRole('button', { name: 'Back to knowledge base', exact: true }).count(), 0);
       await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).waitFor();
     } finally { await context.close(); }
+  });
+
+  it('reviews direct text edits, keeps them across modes, and retries saving without inference', async () => {
+    const { context, page } = await openPage({ width: 390, height: 844 });
+    page.setDefaultTimeout(6000);
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    const original = '# Program policy\n\nKeep the original policy until the administrator saves reviewed changes.';
+    const revised = '# Program policy\n\nCohorts meet on Tuesdays. Keep 日本語 wording and **accessible examples** exactly.\n';
+    const inference = [];
+    const writes = [];
+    let saveFailure = 'http';
+    try {
+      assert.equal((await context.request.put(`${base}/v1/admin/knowledge-base`, {
+        headers, data: { content: original, conversation: [{ role: 'assistant', content: 'What should change?' }], readiness: 0 },
+      })).status(), 200);
+      await page.route('**/v1/ai/**', route => { inference.push(route.request().url()); return route.abort(); });
+      await page.route('**/v1/admin/knowledge-base', route => {
+        if (route.request().method() !== 'PUT') return route.continue();
+        writes.push(route.request().postDataJSON().content);
+        if (saveFailure === 'http') return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Save temporarily unavailable"}' });
+        if (saveFailure === 'unconfirmed') return route.fulfill({ contentType: 'application/json', body: '{}' });
+        return route.continue();
+      });
+      await page.goto(`${base}/plato/customizer/knowledge/edit?mode=text`);
+      await page.getByRole('tabpanel', { name: 'Edit text', exact: true }).waitFor();
+      const text = page.getByLabel('Knowledge base text', { exact: true });
+      await text.fill(revised);
+      const save = page.getByRole('button', { name: 'Update Knowledge Base', exact: true });
+      assert.equal(await save.isDisabled(), true, 'text edits must be reviewed before saving');
+      await page.getByRole('tab', { name: 'Conversation', exact: true }).click();
+      await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
+      assert.equal(await text.inputValue(), revised, 'switching modes preserves the same text draft');
+      await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
+      assert.equal(await save.isEnabled(), true, 'manual review does not depend on AI readiness');
+      await save.click();
+      await page.getByRole('alert').filter({ hasText: 'Save temporarily unavailable' }).waitFor();
+      assert.equal(await text.inputValue(), revised);
+      assert.equal((await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json()).content, original);
+      saveFailure = 'unconfirmed';
+      await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: 'The save was not confirmed.' }).waitFor();
+      assert.equal(new URL(page.url()).pathname, '/plato/customizer/knowledge/edit');
+      assert.equal(await text.inputValue(), revised);
+      saveFailure = '';
+      await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+      await page.waitForURL(`${base}/plato/customizer/knowledge`);
+      await page.getByRole('status').filter({ hasText: 'Knowledge base saved.' }).waitFor();
+      assert.equal((await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json()).content, revised);
+      assert.deepEqual(writes, [revised, revised, revised], 'every retry persists the identical reviewed document');
+      assert.equal(inference.length, 0, 'text review and save never call a model');
+    } finally { await context.close(); }
+  });
+
+  it('creates a knowledge base directly without starting an AI conversation', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    page.setDefaultTimeout(6000);
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    let inference = 0;
+    try {
+      await context.request.put(`${base}/v1/admin/knowledge-base`, { headers, data: { content: '', conversation: null, readiness: 0 } });
+      await page.route('**/v1/ai/**', route => { inference++; return route.abort(); });
+      await page.goto(`${base}/plato/customizer/knowledge`);
+      await page.getByRole('button', { name: 'Write text', exact: true }).click();
+      const content = '# New program\n\nIndependent learners practise one skill at a time and bring examples from their work.';
+      await page.getByLabel('Knowledge base text', { exact: true }).fill(content);
+      await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
+      await page.getByRole('button', { name: 'Save Knowledge Base', exact: true }).click();
+      await page.waitForURL(`${base}/plato/customizer/knowledge`);
+      assert.equal((await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json()).content, content);
+      assert.equal(inference, 0);
+    } finally { await context.close(); }
+  });
+
+  it('blocks stale knowledge saves and preserves the document when refreshing fails', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    page.setDefaultTimeout(6000);
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    const original = '# Current knowledge\n\nFriday cohorts use the existing program policy until a new preview is reviewed.';
+    let inference = 0;
+    try {
+      await context.request.put(`${base}/v1/admin/knowledge-base`, { headers, data: { content: original, readiness: 8, conversation: [
+        { role: 'assistant', content: 'Saved guide' }, { role: 'user', content: 'Move cohorts to Mondays.', unpublished: true },
+      ] } });
+      await page.route('**/v1/ai/**', route => { inference++; return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Preview unavailable","code":"ai_unavailable"}' }); });
+      await page.goto(`${base}/plato/customizer/knowledge/edit`);
+      const save = page.getByRole('button', { name: 'Update Knowledge Base', exact: true });
+      await save.waitFor();
+      assert.equal(await save.isDisabled(), true);
+      await save.click({ force: true });
+      assert.equal(inference, 0, 'Save must not generate unseen content');
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      await page.getByRole('alert').waitFor();
+      await page.getByRole('complementary', { name: 'Knowledge base markdown preview', exact: true }).getByRole('heading', { name: 'Current knowledge', exact: true }).waitFor();
+      assert.equal(await save.isDisabled(), true);
+      await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
+      assert.equal(await page.getByLabel('Knowledge base text', { exact: true }).inputValue(), original);
+      assert.equal(inference, 1, 'only the explicit refresh called the model');
+    } finally { await context.close(); }
+  });
+
+  it('carries direct corrections into the conversation and its next generated preview', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    page.setDefaultTimeout(6000);
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    const manual = '# Program policy\n\nThe corrected program name is Practice Lab. Preserve this exact name in future edits.';
+    const combined = manual + '\n\nWeekly examples should be anonymised.';
+    const inference = [];
+    try {
+      await context.request.put(`${base}/v1/admin/knowledge-base`, { headers, data: {
+        content: '# Original program\n\nThe original reference contains an old program name.',
+        conversation: [{ role: 'assistant', content: 'What should change?' }], readiness: 8,
+      } });
+      await page.route('**/v1/ai/messages', route => {
+        const body = route.request().postDataJSON();
+        inference.push(body);
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ content: [{ type: 'text', text: body.stream ? 'Ready to add the guidance. [READINESS: 8]' : combined }] }) });
+      });
+      await page.goto(`${base}/plato/customizer/knowledge/edit?mode=text`);
+      await page.getByLabel('Knowledge base text', { exact: true }).fill(manual);
+      await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
+      await page.getByRole('tab', { name: 'Conversation', exact: true }).click();
+      await page.getByPlaceholder('Tell me about your program...', { exact: true }).fill('Add guidance about anonymised weekly examples.');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
+      await page.getByRole('note').filter({ hasText: 'Review this preview' }).waitFor();
+      assert.equal(inference.length, 2);
+      assert.ok(JSON.stringify(inference[0].messages).includes('The corrected program name is Practice Lab.'), 'assistant receives current direct corrections');
+      assert.ok(JSON.stringify(inference[1].messages).includes('The corrected program name is Practice Lab.'), 'extractor starts from the edited document');
+      await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
+      assert.equal(await page.getByLabel('Knowledge base text', { exact: true }).inputValue(), combined);
+      await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
+      await page.waitForURL(`${base}/plato/customizer/knowledge`);
+      assert.equal((await (await context.request.get(`${base}/v1/admin/knowledge-base`, { headers })).json()).content, combined);
+      assert.equal(inference.length, 2, 'saving the combined document does not call AI');
+    } finally { await context.close(); }
+  });
+
+  it('opens and retries the first conversation under development StrictMode', { timeout: 45000 }, async () => {
+    const { createServer: createViteServer } = await import('vite');
+    const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
+    const headers = { Authorization: `Bearer ${auth.accessToken}` };
+    const seed = await fetch(`${base}/v1/admin/knowledge-base`, {
+      method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '', conversation: null, readiness: 0 }),
+    });
+    assert.equal(seed.status, 200);
+    const vite = await createViteServer({
+      root: join(root, 'client'), configFile: join(root, 'client/vite.config.js'), logLevel: 'error',
+      server: { host: '127.0.0.1', port: 0, proxy: { '/v1': base } },
+    });
+    let context;
+    let inference = 0;
+    try {
+      await vite.listen();
+      const devBase = `http://127.0.0.1:${vite.httpServer.address().port}`;
+      context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+      await context.addInitScript(entries => {
+        for (const { name, value } of entries) localStorage.setItem(name, value);
+      }, storageState.origins[0].localStorage);
+      const page = await context.newPage();
+      page.setDefaultTimeout(12000);
+      await page.route('**/v1/ai/messages', route => {
+        inference++;
+        return inference === 1
+          ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"AI unavailable","code":"ai_unavailable"}' })
+          : route.fulfill({ contentType: 'application/json', body: JSON.stringify({ content: [{ type: 'text', text: 'Welcome. Tell me about the learners. [READINESS: 3]' }] }) });
+      });
+      await page.goto(`${devBase}/plato/customizer/knowledge/edit`);
+      await page.getByRole('button', { name: 'Retry conversation', exact: true }).click();
+      await page.getByText('Welcome. Tell me about the learners.', { exact: true }).waitFor();
+      await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
+      await page.getByLabel('Knowledge base text', { exact: true }).fill('# Direct fallback\n\nThe first conversation can be retried, and administrators can still edit their program reference.');
+      await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: 'Save Knowledge Base', exact: true }).isEnabled(), true);
+      assert.equal(inference, 2, 'the StrictMode probe must not start an abandoned inference request');
+    } finally { await context?.close(); await vite.close(); }
   });
 
   it('saves the reviewed knowledge preview verbatim without another extraction', async () => {
@@ -395,7 +575,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       const preview = page.getByRole('complementary', { name: 'Knowledge base markdown preview', exact: true });
       await preview.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
       assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'), '8', 'saved content without readiness remains savable');
-      assert.equal(await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).isEnabled(), true);
+      assert.equal(await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).isEnabled(), false, 'unchanged knowledge does not need saving');
       assert.equal(await preview.getByText(/Review this preview/).count(), 0);
       await page.getByPlaceholder('Tell me about your program...', { exact: true }).fill('Require alt text on every slide.');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -407,7 +587,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-validation-2026-10-26'), browserName);
       await mkdir(assets, { recursive: true });
       await page.screenshot({ path: join(assets, 'knowledge-reviewed-preview.png'), fullPage: true });
-      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
       await page.getByRole('alertdialog').waitFor();
       await page.screenshot({ path: join(assets, 'knowledge-unsaved-dialog.png'), fullPage: true });
       await page.getByRole('button', { name: 'Stay here', exact: true }).click();
@@ -424,7 +604,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       assert.equal(inference.length, 2, 'one conversation reply and one preview extraction; Save does not call AI');
       await page.locator('.coach-copy pre code').waitFor();
       await page.screenshot({ path: join(assets, 'knowledge-saved.png'), fullPage: true });
-      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer`);
       assert.equal(await page.getByRole('alertdialog').count(), 0, 'a successful save clears the navigation guard');
     } finally { await context.close(); }
@@ -448,11 +628,11 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.goto(`${base}/plato/customizer/knowledge/edit`);
       const stale = page.getByText('The conversation has changed. Refresh the preview to include your changes.', { exact: true });
       await stale.waitFor();
-      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
       await page.getByRole('alertdialog').waitFor();
       await page.getByRole('button', { name: 'Leave without saving', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer`);
-      await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+      await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
       await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).click();
       await stale.waitFor();
       assert.equal(await page.getByText('Move cohorts to Mondays.', { exact: true }).count(), 1);
@@ -509,7 +689,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(publications, 0, 'publication must wait for the held draft, which could otherwise restore unpublished flags');
-      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
       await page.getByRole('alertdialog').waitFor();
       assert.equal(await page.getByRole('button', { name: 'Leave without saving', exact: true }).isDisabled(), true);
       await page.getByRole('button', { name: 'Stay here', exact: true }).click();
@@ -522,7 +702,7 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
       assert.equal(publications, 1);
       await page.getByRole('button', { name: 'Edit Knowledge Base', exact: true }).click();
       await page.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
-      await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+      await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
       await page.waitForURL(`${base}/plato/customizer`);
       assert.equal(await page.getByRole('alertdialog').count(), 0);
     } finally { releaseDraft(); await context.close(); }
@@ -559,6 +739,9 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
         });
         await page.goto(`${base}/plato/customizer/knowledge/edit`);
         await page.getByRole('note').filter({ hasText: 'This is the saved knowledge base.' }).waitFor();
+        await page.getByRole('tab', { name: 'Edit text', exact: true }).click();
+        await page.getByLabel('Knowledge base text', { exact: true }).fill(content + '\n');
+        await page.getByRole('button', { name: 'Review text changes', exact: true }).click();
         await page.getByRole('button', { name: 'Update Knowledge Base', exact: true }).click();
         await Promise.race([
           held,
@@ -566,14 +749,14 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
         ]);
         assert.equal(new URL(page.url()).pathname, '/plato/customizer/knowledge', 'acknowledged content must not wait for the refresh to navigate');
         await page.locator('.coach-copy').getByRole('heading', { name: 'Acknowledged knowledge', exact: true }).waitFor();
-        await page.getByRole('tab', { name: 'Styles', exact: true }).click();
+        await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
         await page.waitForURL(`${base}/plato/customizer`);
         const refreshed = page.waitForResponse(response => response.request().method() === 'GET' && response.url().endsWith('/v1/admin/knowledge-base'));
         releaseRefresh();
         await refreshed;
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         assert.equal(new URL(page.url()).pathname, '/plato/customizer', 'a completed refresh must never reclaim navigation');
-        await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+        await page.getByRole('tab', { name: 'Program knowledge', exact: true }).click();
         await page.locator('.coach-copy').getByRole('heading', { name: 'Acknowledged knowledge', exact: true }).waitFor();
       } finally { releaseRefresh(); await context.close(); }
     });
@@ -786,11 +969,11 @@ describe('Classroom Customizer browser regressions', { timeout: 90000 }, () => {
         return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Styles offline"}' });
       });
       await navigate(page, 'customizer');
-      const retry = page.getByRole('button', { name: 'Retry styles', exact: true });
+      const retry = page.getByRole('button', { name: 'Retry appearance', exact: true });
       await retry.focus();
       await page.keyboard.press('Enter');
       await retry.waitFor();
-      assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Retry styles', 'a failed retry keeps focus on Retry');
+      assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Retry appearance', 'a failed retry keeps focus on Retry');
       await page.keyboard.press('Enter');
       await page.getByLabel('Classroom Name', { exact: true }).waitFor();
       assert.equal(await page.evaluate(() => document.activeElement.tagName), 'H1');
