@@ -18,14 +18,25 @@ function anchor(message) {
 // legacy KB fields cannot invent a new assignment or evidence identifier.
 export function reconcileConversationState(previous, messages = []) {
   const anchors = messages.map(anchor).filter(Boolean);
-  const byId = new Map(anchors.map(item => [item.sourceMessageId, item]));
+  const counts = new Map();
+  for (const message of messages) {
+    if (typeof message?.id === 'string') counts.set(message.id, (counts.get(message.id) || 0) + 1);
+  }
+  const byId = new Map(anchors.filter(item => counts.get(item.sourceMessageId) === 1).map(item => [item.sourceMessageId, item]));
   const selected = byId.get(previous?.assignment?.sourceMessageId);
-  const assignment = selected?.role === 'assistant' ? selected : anchors.find(item => item.role === 'assistant') || null;
-  const learnerDirections = (Array.isArray(previous?.learnerDirections) ? previous.learnerDirections : [])
+  const opening = anchors.find(item => item.role === 'assistant');
+  const assignment = counts.get(previous?.assignment?.sourceMessageId) > 1 ? null
+    : selected?.role === 'assistant' ? selected : byId.get(opening?.sourceMessageId) || null;
+  const previousDirections = Array.isArray(previous?.learnerDirections) ? previous.learnerDirections : [];
+  const learnerDirections = previousDirections
     .map(item => byId.get(item?.sourceMessageId)).filter(item => item?.role === 'user');
+  // Preserve earlier additive changes, including a target selected before later
+  // format/scope directions. The existing whole-record save limit bounds state;
+  // exceeding it must reject the save rather than silently forget active work.
   const state = { version: 1, assignment,
-    learnerDirections: [...new Map(learnerDirections.map(item => [item.sourceMessageId, item])).values()].slice(-4),
-    latestCoachPrompt: anchors.findLast(item => item.role === 'assistant') || null };
+    learnerDirections: [...new Map(learnerDirections.map(item => [item.sourceMessageId, item])).values()],
+    latestCoachPrompt: byId.get(anchors.findLast(item => item.role === 'assistant')?.sourceMessageId) || null };
+  if ([...counts.values()].some(count => count > 1)) state.sourceAmbiguity = true;
   if (previous?.correction?.reason === 'assignment-drift'
     && byId.get(previous.correction.afterMessageId)?.role === 'assistant'
     && byId.get(previous.correction.learnerMessageId)?.role === 'user') {
@@ -41,10 +52,10 @@ export function applyConversationTurn(previous, messages, taskChangeSourceId) {
     const item = anchor(message);
     if (!item) continue;
     if (message.role === 'assistant') {
-      state.assignment ||= item;
+      if (!state.sourceAmbiguity) state.assignment ||= item;
       state.latestCoachPrompt = item;
     } else if (message.id === taskChangeSourceId) {
-      state.learnerDirections = [...state.learnerDirections.filter(entry => entry.sourceMessageId !== message.id), item].slice(-4);
+      state.learnerDirections = [...state.learnerDirections.filter(entry => entry.sourceMessageId !== message.id), item];
     }
   }
   return state;

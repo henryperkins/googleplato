@@ -1937,11 +1937,16 @@ control metadata removed. They remain available to explain what the learner is
 answering, but never enter learner `sources` or assessment evidence. Recent history
 is limited to 40 usable messages and 6,000 characters per message.
 
-Conversation state separately retains the original assignment, up to four explicit
+Conversation state separately retains the original assignment, explicit
 learner directions, and the latest coach prompt. Each anchor carries its saved
 message ID, exact bounded text, role and provenance; the server rehydrates anchors
 from saved messages rather than accepting generated summaries. These anchors
-survive history-window limits and assessment-criteria reconciliation. Optional
+survive history-window limits and assessment-criteria reconciliation, including a
+criteria edit between generation and save. Earlier additive directions are not
+discarded when later directions arrive: the existing whole-record save limit
+bounds storage and rejects an oversized save instead of forgetting active work.
+Duplicate message IDs cannot select one ambiguous occurrence as an anchor;
+`sourceAmbiguity` tells the coach to clarify any affected task detail. Optional
 KB_UPDATE `taskChangeSourceId` can retain only the current nonempty learner text;
 attachments and coach-generated URLs cannot replace the assignment. The prompt
 requires an explicit learner selection/change, and interprets the retained exact
@@ -1951,7 +1956,8 @@ text rather than treating an arbitrary link as permission to switch.
 operational repair. It accepts the complete current `base` from the lesson-turn
 GET, `assignmentMessageId`, the latest `learnerMessageId`, and a bounded
 `misleadingInsights` list of exact existing notes to remove. The operation refuses
-impersonation mode, stale snapshots, missing/empty sources and completed lessons.
+impersonation mode, stale snapshots, missing/empty or duplicate source identities,
+and completed lessons.
 It uses `commitLessonTurn` to preserve the entire transcript and all assessment
 fields while restoring the chosen assignment, retaining the actual learner
 observation without a guessed diagnosis, and marking the earlier coach switch for

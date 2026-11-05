@@ -30,6 +30,10 @@ export async function repairCoachContinuity(userId, lessonId, input) {
   const learnerIndex = messages.findLastIndex(message => message.role === 'user');
   const observation = messages[learnerIndex];
   const last = messages.at(-1);
+  if ([input.assignmentMessageId, input.learnerMessageId, last?.id]
+    .some(sourceId => !sourceId || messages.filter(message => message.id === sourceId).length !== 1)) {
+    throw failure('Repair sources must have unique message IDs. Ambiguous history cannot be repaired automatically.');
+  }
   if (assignmentIndex < 0 || assignmentIndex >= learnerIndex || observation?.id !== input.learnerMessageId
     || typeof observation.content !== 'string' || !observation.content.trim() || last?.role !== 'assistant'
     || input.misleadingInsights.some(insight => !kb.insights?.includes(insight))) {
@@ -37,7 +41,8 @@ export async function repairCoachContinuity(userId, lessonId, input) {
   }
   const conversationState = reconcileConversationState({ ...kb.conversationState,
     assignment: { sourceMessageId: input.assignmentMessageId } }, messages);
-  if (conversationState.assignment?.sourceMessageId !== input.assignmentMessageId) throw failure('The selected assignment has no readable text.');
+  if (conversationState.assignment?.sourceMessageId !== input.assignmentMessageId
+    || conversationState.latestCoachPrompt?.sourceMessageId !== last.id) throw failure('The selected coach messages have no readable text.');
   conversationState.correction = { reason: 'assignment-drift', afterMessageId: last.id, learnerMessageId: observation.id };
   const lessonKB = { ...kb, conversationState,
     insights: (kb.insights || []).filter(insight => !input.misleadingInsights.includes(insight)),

@@ -21,10 +21,10 @@ continuity grading. Route tests cover current/legacy history, unverified mastery
 long histories, rubric changes, actual learner task changes, authorization,
 completed-state rejection, concurrent commits and old receipt/recovery replay.
 
-Local qualification passed: 758 client tests; 906 server tests with three PostgreSQL
-skips; lint with zero errors and 19 existing client warnings; client build with the
-existing large-chunk advisory. The PostgreSQL integration suite also runs in the
-existing Cloud Build release gate. No new database schema or dependency is required.
+Final local qualification passed: 758 client tests and 929 server tests, including
+disposable PostgreSQL integration, with zero failures or skips; lint with zero
+errors and 19 existing client warnings; client build with the existing large-chunk
+advisory. No new database schema or dependency is required.
 
 ## Synthetic live coaching evaluation
 Four cases ran against the production-selected Workers AI model
@@ -53,10 +53,54 @@ are retained, including original failure, raw replies, request/prompt hashes, us
 metadata repair and agent editorial observations. These four synthetic examples
 support the specific behavior; they are not an exhaustive model-quality claim.
 
+## Review-driven qualification
+
+The independent whole-branch review found three important issues. Each reproduced
+in a failing regression and passed after correction:
+
+- Later additive directions could evict an earlier selected target. All exact
+  learner directions now remain retained, bounded by the existing saved-record
+  limit rather than an arbitrary count. Five directions plus 45 later messages
+  retain the selected target and all later constraints in provider context.
+- A criteria edit between generation and save could discard a signed direction.
+  The save-time assessment reset now reconciles that turn's conversation state.
+- Duplicate legacy message IDs could select inconsistent source text. Normal
+  reconciliation excludes ambiguous anchors; repair rejects ambiguous assignment,
+  learner and correction identities without mutation.
+
+The review fix pass also tested a proposed omission warning against the live model.
+It was insufficient: the model reverted to the opening target, and withholding
+the opening still allowed it to invent a different target. That design was removed.
+One attempt returned HTTP 503. An exact-retention test using a reserved `.example`
+domain exposed a fixture conflict with the authored requirement for a real public
+website; the model recognized that placeholder. Repeating with Hacker News passed:
+the coach retained the earlier target, homepage scope, keyboard focus, plain text,
+and two-sentence limit after the history rolled over.
+
+The initial eight-call qualification budget was extended once by two calls to
+resolve the review finding, for ten total calls including the HTTP 503 attempt.
+The final successful case used the final prompt and source-retention design.
+The [retained-directions report](coach-conversation-continuity-2026-11-05/live-retained-directions-public-target.json)
+contains the complete synthetic fixture, hashes and response. Earlier experiments
+are retained alongside it, including failures; they are not represented as passes.
+
 ## Release and scoped repair
-Pending final review, release verification, and the backed-up repair of the
-reported thread. Production state must be reread immediately before repair;
-changed learner work must not be overwritten.
+
+PR #40 contains the qualified implementation. GitHub Actions could not start its
+lint/test jobs: the check annotation says, "The job was not started because your
+account is locked due to a billing issue." Local checks pass, but these hosted
+checks and the required approving review remain release gates. No merge,
+deployment or production continuity mutation has been performed.
+
+The reported thread was reread and backed up privately on 2026-11-05 at 08:02 UTC.
+It still contains the same three messages, message version 2 and KB version 2.
+The serving release remains `2ceecb8e8213f1328055cb2821c787a395d2b8cf`, revision
+`plato-shaped-00054-x78`. A prepared repair script defaults to backup-only,
+requires a verified serving commit before applying, validates the exact expected
+message identities/content, uses the full snapshot for optimistic concurrency,
+and verifies unchanged transcript/assessment plus a fresh persisted read.
+It must take a new backup immediately before applying after release. No model call
+or learner message is needed for the repair.
 
 
 ## External review verification
@@ -65,4 +109,7 @@ middleware did not set `userId`. Inspection of `authenticate.js` shows it sets
 both `userId` and `user`. A real SQLite route regression additionally verifies
 that the repair audit row records the authenticated operator and omits transcript
 text. The claimed defect did not reproduce; no production change was needed.
-Independent final code review remains pending.
+The independent review's three material findings are addressed by the regressions
+above. The reviewer did not claim production deployment/repair verification or
+general model reliability; production actions remain pending and the synthetic
+live evidence is limited to the cases actually exercised.

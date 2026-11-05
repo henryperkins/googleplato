@@ -114,6 +114,15 @@ test('repair cannot silently substitute a different message when the selected as
   assert.deepEqual(await db.getLessonState(learner, 'audit'), body.base);
 });
 
+test('repair rejects ambiguous assignment, learner and correction message identities without mutation', async () => {
+  for (const duplicate of messages) {
+    await db.putSyncData(learner, 'messages:audit', [messages[0], { ...duplicate, content: 'A different message using the same ID.' }, ...messages.slice(1)]);
+    const body = await input();
+    assert.equal((await request(body)).status, 400, duplicate.id);
+    assert.deepEqual(await db.getLessonState(learner, 'audit'), body.base);
+  }
+});
+
 test('recovery and old receipt replay cannot restore notes changed by a repair', async () => {
   const savedBefore = await db.getLessonState(learner, 'audit');
   const turn = { userId: learner, lessonId: 'audit', turnId: 'resumed',

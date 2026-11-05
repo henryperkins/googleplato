@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCoachHistory, reconcileConversationState, applyConversationTurn } from '../../src/shared/coachConversation.js';
+import { buildContext } from '../../src/shared/coachContext.js';
 
 const opening = { id: 'old:0', role: 'assistant', content: 'Audit https://www.berkshirehathaway.com on your phone. Keep the four-issue rubric.' };
 const question = { id: 'new:0', role: 'user', content: 'It looks like css is ignored' };
@@ -63,4 +64,34 @@ test('empty, unsupported and oversized history stays bounded without invented an
   assert.equal(history.length, 1);
   assert.equal(JSON.parse(history[0].content).unverifiedCoachMessage.text.length, 6000);
   assert.equal(JSON.parse(history[0].content).unverifiedCoachMessage.truncated, true);
+});
+
+test('five additive task changes retain the earlier target after history rollover', () => {
+  const messages = [opening];
+  let state = reconcileConversationState(null, messages);
+  for (const [index, content] of ['Use https://replacement.example instead.', 'Focus on the homepage only.',
+    'Start with keyboard access.', 'Use plain text instead of a table.', 'Keep findings to two sentences.'].entries()) {
+    const direction = { id: `change-${index}:0`, role: 'user', content };
+    const answer = { id: `change-${index}:1`, role: 'assistant', content: 'Describe the next observation.', assessmentProvenance: 'server-v1' };
+    messages.push(direction, answer);
+    state = applyConversationTurn(state, [direction, answer], direction.id);
+  }
+  messages.push(...Array.from({ length: 45 }, (_, i) => ({ id: `filler-${i}`, role: 'user', content: 'Another observation.' })));
+  const resumed = reconcileConversationState(state, messages);
+  assert.equal(resumed.learnerDirections.length, 5);
+  assert.equal(resumed.learnerDirections[0].text, 'Use https://replacement.example instead.');
+  const context = JSON.parse(buildContext({ name: 'Audit' }, { conversationState: resumed }));
+  assert.deepEqual(context.conversationState.learnerDirections, resumed.learnerDirections);
+  assert.deepEqual(applyConversationTurn(resumed, [question, reply]).learnerDirections, resumed.learnerDirections);
+});
+
+test('duplicate source IDs cannot select the last occurrence as an assignment or direction', () => {
+  const duplicated = [opening, { ...opening, content: 'Use https://wrong.example instead.' }, question, reply];
+  const state = reconcileConversationState(null, duplicated);
+  assert.equal(state.assignment, null);
+  assert.equal(state.sourceAmbiguity, true);
+  const previous = { version: 1, assignment: { sourceMessageId: 'old:0' }, learnerDirections: [{ sourceMessageId: 'new:0' }] };
+  const resumed = reconcileConversationState(previous, [...duplicated, { ...question, content: 'A different learner instruction.' }]);
+  assert.deepEqual(resumed.learnerDirections, []);
+  assert.equal(resumed.sourceAmbiguity, true);
 });

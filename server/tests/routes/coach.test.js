@@ -218,6 +218,21 @@ test('a task-change marker cannot retain attachment placeholders or a different 
   const turn = await send('attachment', { links: [{ url: 'https://example.org', text: 'Reference material.' }] });
   assert.deepEqual(turn.lessonKB.conversationState.learnerDirections, []);
 });
+
+test('criteria changing between generation and save cannot erase the signed learner direction', async () => {
+  await saveOpening();
+  respond(() => ({ progress: 0, kb: { responseType: 'clarification', taskChangeSourceId: 'change:0' } }));
+  const turn = await send('change', { text: 'Please switch to https://replacement.example instead.' });
+  assert.equal(turn.lessonKB.conversationState.learnerDirections.length, 1);
+  await db.putSyncData('_system', 'lesson:l', { markdown: markdown.replace('Require a reason', 'Require two reasons'), status: 'public' });
+  const response = await request('/v1/sync/lesson-turn/l', turn);
+  assert.equal(response.status, 200);
+  const saved = await response.json();
+  assert.equal(saved.lessonKB.data.conversationState.learnerDirections[0]?.text, 'Please switch to https://replacement.example instead.');
+  assert.equal(saved.lessonKB.data.assessmentReviewRequired, true);
+  assert.equal(saved.lessonKB.data.progress, 0);
+  assert.deepEqual(saved.lessonKB.data.evidence, []);
+});
 test('authored criteria edits invalidate active evidence and pending completion is preserved for review', async () => {
   const turn = await opening();
   turn.lessonKB.status = 'completed'; turn.lessonKB.progress = 10; turn.achieved = true; turn.phase = 'completed';
