@@ -48,3 +48,53 @@ Screenshots from the isolated candidate:
 - [Desktop Knowledge editor](assets/customizer-implementation-2026-11-05/knowledge-text-desktop-light-reviewed.png)
 - [Mobile Knowledge review](assets/customizer-implementation-2026-11-05/knowledge-text-mobile-dark-reviewed.png)
 - [Mobile Appearance](assets/customizer-implementation-2026-11-05/appearance-mobile-dark.png)
+
+## Update against main (November 5, 2026)
+
+`main` was merged at `831b7cc`, which includes #42's sign-in reflow and link-field
+focus fixes and #38's invitation-only Google sign-in. There were no conflicts;
+`docs/ARCHITECTURE.md` keeps both the invitation sections and this branch's edits.
+
+A narrow-layout pass at 320, 390 and 430 px, with default, 150% and 200% text,
+found two problems from this branch. Both appear only with enlarged text:
+
+- The renamed section tabs overflowed a centered tab row whose phone styles turn
+  off scrolling, so both labels were clipped and the start of the row could not
+  be reached. This happened from 150% text at 320 px and at 200% text at every
+  width. The editing-mode tabs clipped at 320 px with 200% text.
+- The pinned action bars, whose buttons stack at these sizes, covered 30–90% of
+  the scrolling area. On Appearance at 320 px with 200% text, Save sat below the
+  visible page.
+
+Container queries in rem follow the page's text size, unlike media queries. When
+the Customizer is narrower than 16 rem, which on phones happens only with enlarged
+text, the tabs now wrap onto full-width rows and the action bars scroll with the
+page. Default text is unchanged: the bars stay pinned and cover 13–17% of the
+scrolling area. A browser case covers this and failed before the change.
+
+The shorthand-hex Save test presses by raw coordinates at 1440 × 1000. This
+branch's preview heading moved Save's center just below that viewport, so the
+press missed. The test now scrolls Save into view first. The suite's timeout now
+allows its WebKit run, which takes about 80 seconds.
+
+Unsaved direct-text documents still have no durable recovery, as noted above.
+
+### Validation at the update
+
+Every check ran from a `git archive` export in `node:24-bookworm-slim` with a
+disposable PostgreSQL 17, starting with `deploy/cloudrun/cloudbuild.yaml`'s test
+step verbatim.
+
+| Check | Result |
+| --- | --- |
+| Lint | 0 errors; 17 warnings in other client files. |
+| Client suite | 766 passed. |
+| Server suite | 955 passed, including the PostgreSQL suites; none skipped. |
+| Admin responsive (deploy gate) | 24 passed in Chromium. |
+| Customizer suite | 32 passed in Chromium and 32 in WebKit. |
+| Learner recovery and invitation-only suites | 31 and 6 passed, in Chromium and in WebKit. |
+| Lessons list and publishing suites | 14 and 35 passed in Chromium. |
+
+| 320 px, 200% text: before | After |
+| --- | --- |
+| [Section tabs clipped; action bar covering the page](assets/customizer-implementation-2026-11-05/appearance-320-text200-before.png) | [Tabs on full-width rows; actions scroll with the page](assets/customizer-implementation-2026-11-05/appearance-320-text200-after.png) |
