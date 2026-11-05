@@ -188,9 +188,10 @@ describe('theme contrast', () => {
 
   it("shows a progress bar's whole length on every surface, with its fills at 3:1, in both themes", () => {
     // By day the track is a visible step off the workspace, cards, and
-    // dialogs (--muted was 1:1 on the workspace), under the unbranded fill
-    // and the completed green. lib/branding.js classroom fills are swept in
-    // branding.test.js.
+    // dialogs (--muted was 1:1 on the workspace), under the unbranded fill.
+    // The completed green, which the lesson page's bar ends in, holds too, so
+    // that bar can move onto the track. lib/branding.js classroom fills are
+    // swept in branding.test.js.
     const track = token(light, 'track');
     for (const name of ['workspace', 'card', 'popover']) {
       const ratio = contrastRatio(track, token(light, name));

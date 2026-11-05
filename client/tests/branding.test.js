@@ -245,12 +245,11 @@ describe('night classroom colors', () => {
     }
     // Every progress bar fills with that shade, not the button fill, which
     // fell to 2.65:1 on the night track: the lesson bar, and in the lesson
-    // list both the course summary and the outline's bar. Each turns green
-    // when complete.
-    assert.match(readSrc('components/chat/ProgressBar.jsx'), /progress-fill h-full rounded-full[^"]*\? 'bg-success-foreground' : 'bg-primary-text'/);
-    const fills = [...readSrc('pages/LessonsList.jsx').matchAll(/rounded-full bg-track overflow-hidden[^"]*"\s*>\s*<div\s+className=\{`([^`]*)`\}/g)].map(match => match[1]);
+    // list both the course summary and the outline's bar.
+    assert.match(readSrc('components/chat/ProgressBar.jsx'), /progress-fill h-full rounded-full[^"]*\bbg-primary-text\b/);
+    const fills = [...readSrc('pages/LessonsList.jsx').matchAll(/rounded-full bg-track overflow-hidden[^"]*"\s*>\s*<div\s+className="([^"]*)"/g)].map(match => match[1]);
     assert.equal(fills.length, 2, 'the course summary and outline progress bars');
-    for (const fill of fills) assert.match(fill, /\? 'bg-success-foreground' : 'bg-primary-text'/, fill);
+    for (const fill of fills) assert.match(fill, /\bbg-primary-text\b/, fill);
   });
 
   it('deepens only light-mode fills that fade into the page, keeping their hue', () => {

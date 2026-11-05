@@ -125,8 +125,8 @@
     --input: oklch(0.62 0 0);
     /* A progress bar's empty length. A step darker than the workspace and
        white cards, so the whole bar shows (--muted matched the workspace),
-       and light enough that every classroom's progress fill and the
-       completed green hold 3:1 on it. */
+       and light enough that every classroom's progress fill holds 3:1 on
+       it. */
     --track: oklch(0.88 0 0);
     --ring: oklch(0.336 0.182 285);
     --chart-1: oklch(0.336 0.182 285);

@@ -65,11 +65,8 @@ The critique also found progress under-signalled in light mode. A colorize pass 
   - A new `--track` token is a step darker: 1.32:1 on the workspace and 1.44:1 on the outline's white, where `--muted` stood 1.09:1.
   - At night it is 14% white, a step above the borders. It rises 1.43:1 off the page and 1.55:1 off a dialog, where `--muted` stood 1.11:1.
 - **Fills still read on it.**
-  - Across the 223 classroom colors the contrast tests sweep, every progress fill holds at least 3.48:1 on the day track and 3.72:1 on the night track. The completed green holds at least 6.29:1.
+  - Across the 223 classroom colors the contrast tests sweep, every progress fill holds at least 3.48:1 on the day track and 3.72:1 on the night track.
   - The track is neutral, like the borders. The brand stays in the fill, and a green or amber classroom's track can't be mistaken for a status.
-- **Green when complete.**
-  - The outline drew a completed lesson's bar in the brand color while its card showed a green check. Its bar and its **Completed** label are now green, as on the lesson page.
-  - A course's bar also turns green once every lesson it counts is complete.
 - **High contrast.** Forced colors drop background fills, so both bars vanished and only the count remained. The track now keeps a 1 px outline, and the fill takes the text color.
 
 ## Validation
@@ -102,7 +99,6 @@ The browser check covered:
   - The course track went from 1.00:1 to 1.32:1 on the workspace by day, and from 1.30:1 to 1.43:1 at night.
   - The outline's track went from 1.09:1 to 1.44:1 by day, and from 1.11:1 to 1.55:1 at night.
   - The maroon fill holds 6.45:1 on the day track and 3.75:1 on the night track inside a dialog.
-  - A completed lesson's outline bar, and a finished course's bar, paint the completed green in both themes.
   - In forced colors, both tracks show a solid 1 px outline and both fills paint in the text color.
 
 All browser records are synthetic. Server code is unchanged.
@@ -122,9 +118,7 @@ All browser records are synthetic. Server code is unchanged.
 - `screenshots/colorize-course-light-before.png` and `screenshots/colorize-course-light-after.png`: a returning learner's course bar at 1 of 14, as a short underline and then on its track.
 - `screenshots/colorize-first-run-390-before.png` and `screenshots/colorize-first-run-390-after.png`: a new learner's course at 0 of 14 on a phone, with no bar and then an empty track.
 - `screenshots/colorize-outline-in-progress-before.png` and `screenshots/colorize-outline-in-progress-after.png`: the outline's bar at 60%, its remaining length faint and then visible.
-- `screenshots/colorize-outline-completed-before.png` and `screenshots/colorize-outline-completed-after.png`: a completed lesson's outline, in the brand color and then green.
-- `screenshots/colorize-course-complete-light-before.png` and `screenshots/colorize-course-complete-light-after.png`: a finished course, in the brand color and then green.
-- `screenshots/colorize-course-dark-after.png` and `screenshots/colorize-course-complete-dark-after.png`: the same bars at night.
+- `screenshots/colorize-course-dark-after.png`: the course bar at night.
 - `screenshots/colorize-forced-colors-before.png` and `screenshots/colorize-forced-colors-after.png`: forced colors, with no bar and then an outlined track and its fill.
 
 ## Not in this change
@@ -134,6 +128,8 @@ The same critique's other items are queued as separate passes:
 - **Polish:**
   - Top-align card titles, which still drop beside a wrapped neighbor. Start here doesn't change that: the first title in the fixture wrapped before it too.
   - Move the outline's course label out from above its title.
+
+Outline progress colors stay out of scope unless the owner asks for them. The outline still draws a completed lesson's bar in the brand color while its card shows a green check. The critique suggested green, as on the lesson page.
 
 The harden and colorize passes also found these, outside this page:
 

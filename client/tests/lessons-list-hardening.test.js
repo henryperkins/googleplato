@@ -65,7 +65,7 @@ describe('forced colors and unbroken words', () => {
   });
 
   it('keeps both progress bars when forced colors drop their fills: an outlined track, a fill in the text color', () => {
-    const bars = [...page.matchAll(/className="([^"]*\bbg-track\b[^"]*)"\s*>\s*<div\s+className=\{`([^`]*)`\}/g)];
+    const bars = [...page.matchAll(/className="([^"]*\bbg-track\b[^"]*)"\s*>\s*<div\s+className="([^"]*)"/g)];
     assert.equal(bars.length, 2, 'the course summary and outline progress bars');
     for (const [, track, fill] of bars) {
       assert.match(track, /\bforced-colors:outline-1\b/);

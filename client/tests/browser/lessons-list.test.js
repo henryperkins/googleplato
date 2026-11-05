@@ -42,7 +42,7 @@ const focused = page => page.evaluate(() => {
 });
 const pageLabel = page => page.getByRole('navigation', { name: 'Lessons pagination' }).locator('span').textContent();
 // A progress bar's colors as painted: its surface, then the track and fill
-// over it. CanvasText and the completed green are resolved for comparison.
+// over it. CanvasText is resolved for comparison.
 const barColors = bar => bar.evaluate((track) => {
   const paint = (...layers) => {
     const context = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
@@ -60,7 +60,6 @@ const barColors = bar => bar.evaluate((track) => {
     surface: paint(surface),
     track: paint(surface, getComputedStyle(track).backgroundColor),
     fill: paint(surface, getComputedStyle(track.firstElementChild).backgroundColor),
-    green: paint(resolve('var(--success-foreground)')),
     text: paint(resolve('CanvasText')),
     outline: getComputedStyle(track).outlineStyle,
   };
@@ -168,14 +167,14 @@ describe(`lesson list (${engine})`, () => {
     await returning.context.close();
   });
 
-  it('shows each progress bar whole in both themes, greens a completed lesson, and keeps the bars in forced colors', async () => {
+  it('shows each progress bar whole in both themes, and keeps the bars in forced colors', async () => {
     const courseBar = page => page.getByRole('progressbar', { name: /progress: 1 of 14 public lessons completed$/ });
+    // A status filter keeps the course grouping, so the course's bar leads.
+    const showInProgress = page => page.locator('#status-filter').selectOption('in-progress');
     const outlineBar = async (page) => {
-      await page.getByRole('button', { name: 'View outline' }).click();
-      return page.getByRole('dialog').getByRole('progressbar', { name: 'Completed' });
+      await page.getByRole('button', { name: 'View outline' }).first().click();
+      return page.getByRole('dialog').getByRole('progressbar', { name: '30% complete' });
     };
-    // Only the completed lesson, under its course's bar.
-    const showCompleted = page => page.locator('#status-filter').selectOption('completed');
 
     for (const theme of ['light', 'dark']) {
       const { context, page } = await signIn('a');
@@ -184,11 +183,9 @@ describe(`lesson list (${engine})`, () => {
         await page.reload();
         await page.getByRole('button', { name: /^Open lesson / }).first().waitFor();
       }
-      await showCompleted(page);
+      await showInProgress(page);
       assertVisible(await barColors(courseBar(page)), `${theme} course bar`);
-      const outline = await barColors(await outlineBar(page));
-      assertVisible(outline, `${theme} outline bar`);
-      assert.equal(outline.fill, outline.green, `${theme}: a completed lesson's bar is green`);
+      assertVisible(await barColors(await outlineBar(page)), `${theme} outline bar`);
       await context.close();
     }
 
@@ -196,7 +193,7 @@ describe(`lesson list (${engine})`, () => {
     // the text color. WebKit has no forced colors mode.
     if (engine === 'webkit') return;
     const { context, page } = await signIn('a', { forcedColors: 'active' });
-    await showCompleted(page);
+    await showInProgress(page);
     for (const bar of [courseBar(page), await outlineBar(page)]) {
       const colors = await barColors(bar);
       assert.equal(colors.outline, 'solid');
