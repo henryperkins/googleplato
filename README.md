@@ -1,28 +1,30 @@
 # Login reflow and link-fetch focus evidence
 
 Review artifacts for [PR #42](https://github.com/henryperkins/googleplato/pull/42),
-source commit `36f38bf98e75721b2125da940a2996ce5c6c5e5b`. Screenshots contain synthetic local fixture data.
+source commit `20e58001d85d2a7806fb624b6003e9432acdf7e7`. Screenshots contain synthetic local fixture data.
 This evidence branch is separate from the four-file application change.
 
 ## Source identity
 
 - Base: `6377a9d2182f4915709fb2fbf72da85c14c5ffa0`
-- Current source: `36f38bf98e75721b2125da940a2996ce5c6c5e5b`
+- Current source: `20e58001d85d2a7806fb624b6003e9432acdf7e7`
 - Initial source: `ebab465a9a1bf00d67faf0f892f739e5dcd3f804`
 - Files: `PRODUCT.md`, `client/src/pages/Login.jsx`,
   `client/src/components/chat/ComposeBar.jsx`, and
   `client/tests/browser/learner-recovery.test.js`
 - Combined diff: 201 insertions and 14 deletions
 - SHA-256 of the full-index binary Git diff from the base:
-  `1fe65692cbd417eb0dba134caa25f0b32cb378ffa63741fc14cd46f400fc54f4`
+  `3e6302077f19bebab2f73150c06d18d6057e045fd4aebc64c9cf827e0aaf3594`
 
 The application and browser-test files match qualified commit
-`1bcc8c0d88c61fe79d4a0f1169e83335b9e12463` byte for byte. The final commit only
-clarifies that completing first-sign-in Google setup on an empty database creates
-an admin regardless of email; both role-assignment branches were checked against
-`server/src/routes/auth.js`. Completed runtime checks were reused for this prose
-correction. A separate read-only review found no actionable issue in the preceding
-runtime follow-up. Technical review does not replace formal GitHub approval.
+`1bcc8c0d88c61fe79d4a0f1169e83335b9e12463` byte for byte.
+Later documentation commits clarify initial Google setup, administrator access to
+private lessons, and recovery after temporary failures versus rejected content
+or version conflicts. A separate read-only review checked all recovered product
+claims against source. Its remaining corrections were verified and incorporated;
+see the [documentation review record](documentation-review.md). Completed runtime
+checks were reused for these prose-only corrections. Technical review does not
+replace formal GitHub approval.
 
 ## Review follow-up
 

@@ -1,6 +1,6 @@
 {
-  "source_commit": "36f38bf98e75721b2125da940a2996ce5c6c5e5b",
-  "previous_source_commit": "ebab465a9a1bf00d67faf0f892f739e5dcd3f804",
+  "source_commit": "20e58001d85d2a7806fb624b6003e9432acdf7e7",
+  "previous_source_commit": "36f38bf98e75721b2125da940a2996ce5c6c5e5b",
   "base": "6377a9d2182f4915709fb2fbf72da85c14c5ffa0",
   "source_files": [
     "PRODUCT.md",
@@ -8,7 +8,7 @@
     "client/src/pages/Login.jsx",
     "client/tests/browser/learner-recovery.test.js"
   ],
-  "patch_sha256": "1fe65692cbd417eb0dba134caa25f0b32cb378ffa63741fc14cd46f400fc54f4",
+  "patch_sha256": "3e6302077f19bebab2f73150c06d18d6057e045fd4aebc64c9cf827e0aaf3594",
   "checks": {
     "build": {
       "started_at": "2026-11-05T16:35:15.054621+00:00",
@@ -135,9 +135,28 @@
   "qualified_application_commit": "1bcc8c0d88c61fe79d4a0f1169e83335b9e12463",
   "qualified_patch_sha256": "cf84e00994b00da6955bad1c8c9daa1ff771596d07f784b78684fc705a5e6cd3",
   "application_and_tests_unchanged_since_qualification": true,
-  "final_documentation_change": {
-    "file": "PRODUCT.md",
-    "source_checked": "server/src/routes/auth.js:483-504 and 644-653",
-    "review_comment": 4483275087
-  }
+  "initial_source_commit": "ebab465a9a1bf00d67faf0f892f739e5dcd3f804",
+  "documentation_followups": [
+    {
+      "file": "PRODUCT.md",
+      "source_checked": "server/src/routes/auth.js:483-504 and 644-653",
+      "review_comment": 4483275087
+    },
+    {
+      "file": "PRODUCT.md",
+      "sources_checked": [
+        "server/src/routes/content.js:98-114 and 208-219",
+        "server/src/routes/admin.js:981-1015",
+        "client/src/pages/admin/LessonEditor.jsx:330-350,449-451,573-580",
+        "client/src/lib/lessonSaveQueue.js:55-57",
+        "client/tests/browser/lesson-publishing.test.js:373-391"
+      ],
+      "review_comment": 4483307193,
+      "independent_review_findings_addressed": [
+        "private versus admin lesson access",
+        "temporary failures versus rejected content and version conflicts",
+        "invitation workflow wording versus open Google admission"
+      ]
+    }
+  ]
 }
