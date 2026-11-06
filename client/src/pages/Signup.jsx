@@ -311,8 +311,10 @@ export default function Signup() {
               <Label htmlFor="signup-username">
                 Username <span className="text-muted-foreground text-xs">(optional)</span>
               </Label>
+              <p id="signup-username-hint" className="text-xs text-muted-foreground">Leave it blank and we&rsquo;ll make one for you. You can change it in Settings.</p>
               <Input
                 id="signup-username"
+                aria-describedby="signup-username-hint"
                 ref={usernameRef}
                 type="text"
                 autoCapitalize="none"

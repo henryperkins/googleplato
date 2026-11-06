@@ -247,6 +247,14 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   }, [displayText, draining, snapshot.conversation.length]);
 
   const blocked = !!busy || snapshot.finalizePending || !!snapshot.visibilityPending || saveState.error?.status === 409;
+  // Name what actually holds the composer, for its hint and the message when a
+  // send waits; ComposeBar's defaults describe a reply in progress.
+  const [composerHint, composerMessage] = busy === 'starting' || busy === 'reply' ? []
+    : busy || snapshot.visibilityPending ? ['Send when saving finishes', 'Wait for saving to finish, then send.']
+      : saveState.error?.status === 409 ? ['Send after loading the saved lesson', 'This lesson changed elsewhere. Load the saved lesson, then send.']
+        : snapshot.finalizePending ? ['Send after the lesson is saved', 'Retry saving the lesson, then send.']
+          : snapshot.failedReply ? ['Send after retrying the reply', 'Retry the reply, then send.']
+            : [];
   const previewCurrent = !!snapshot.previewMarkdown && snapshot.previewRevision === snapshot.revision;
   const previewSaved = !isDraft && snapshot.previewMarkdown === initialMarkdown;
   const saveRejected = saveState.error?.status === 400 && snapshot.finalizePending;
@@ -548,8 +556,8 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
             )}
             <ComposeBar className="lesson-editor-composer" placeholder={isDraft ? 'Describe what you want to teach…' : 'Describe the change you want to make…'}
               storageKey={`plato_lesson_editor_draft:${userId}:${lessonId}`}
-              onSend={handleSend} busy={blocked || !!snapshot.failedReply} />
-            <p className="lesson-editor-shortcut mt-2 text-xs text-muted-foreground">Ctrl / ⌘ + Enter to send</p>
+              onSend={handleSend} busy={blocked || !!snapshot.failedReply}
+              busyHint={composerHint} busyMessage={composerMessage} />
             <Button variant="outline" className="lesson-editor-view-preview mt-3 w-full" onClick={() => {
               setActivePane('preview');
               requestAnimationFrame(() => previewRef.current?.focus());

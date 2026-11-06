@@ -206,6 +206,10 @@ export default function KnowledgeBaseEditor({
   }, [draftMarkdown, initialContent]);
 
   const isBusy = !!busy || previewLoading;
+  // ComposeBar's defaults describe a reply in progress; name any other hold.
+  const [composerHint, composerMessage] = busy === 'saving' || busy === 'saved' ? ['Send when saving finishes', 'Wait for saving to finish, then send.']
+    : !busy && previewLoading ? ['Send when the preview is ready', 'Wait for the preview to finish, then send.']
+      : [];
   const generationBlocked = readiness < 3 || chatMessages.length === 0;
   const unreviewedText = draftMarkdown !== previewMarkdown;
   const saveBlocked = !editor.previewCurrent || editor.saved || !savableKnowledgeBase(previewMarkdown, savedMarkdown);
@@ -333,7 +337,8 @@ export default function KnowledgeBaseEditor({
                 {busy === 'starting' && !displayText && <ThinkingSpinner text="Starting..." />}
                 {busy === 'qa' && !displayText && <ThinkingSpinner />}
               </ChatArea>
-              <ComposeBar placeholder="Tell me about your program..." storageKey={storageKey} onSend={handleSend} busy={isBusy} />
+              <ComposeBar placeholder="Tell me about your program..." storageKey={storageKey} onSend={handleSend} busy={isBusy}
+                busyHint={composerHint} busyMessage={composerMessage} />
             </TabsContent>
             <TabsContent value="text" className="knowledge-text-panel space-y-3">
               <Label htmlFor="kb-document-text">Knowledge base text</Label>

@@ -701,9 +701,6 @@ html {
     flex-basis: 100%;
     min-block-size: 2.75rem;
   }
-  .lesson-editor-shortcut {
-    display: none;
-  }
 }
 
 /* Keep desktop density; give touch users real, nonoverlapping hit areas. */

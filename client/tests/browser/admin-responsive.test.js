@@ -31,10 +31,20 @@ async function openPage(viewport, theme = 'light') {
   return { context, page };
 }
 
-async function filterWaitlist(page) {
-  await page.getByRole('button', { name: /^Filters/ }).click();
-  await page.getByRole('menu').getByRole('group', { name: 'Status', exact: true }).getByRole('menuitemcheckbox', { name: /^Wait list/ }).click();
+// The menu hands focus back to its trigger only after it finishes closing. Wait
+// for that, as a keyboard user would: an activation that lands sooner has its
+// focus moved back to the trigger and can't assert where focus stays.
+async function closeMenuWithEscape(page, trigger) {
+  const handle = await trigger.elementHandle();
   await page.keyboard.press('Escape');
+  await page.waitForFunction(el => document.activeElement === el && el.getAttribute('aria-expanded') === 'false', handle);
+}
+
+async function filterWaitlist(page) {
+  const trigger = page.getByRole('button', { name: /^Filters/ });
+  await trigger.click();
+  await page.getByRole('menu').getByRole('group', { name: 'Status', exact: true }).getByRole('menuitemcheckbox', { name: /^Wait list/ }).click();
+  await closeMenuWithEscape(page, trigger);
 }
 
 async function navigate(page, section) {
@@ -439,9 +449,10 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
     try {
       await controlUsers(context);
       await navigate(page, 'users');
-      await page.getByRole('button', { name: /^Filters/ }).click();
+      const filters = page.getByRole('button', { name: /^Filters/ });
+      await filters.click();
       await page.getByRole('menu').getByRole('group', { name: 'Team' }).getByRole('menuitemcheckbox', { name: /^Operations/ }).click();
-      await page.keyboard.press('Escape');
+      await closeMenuWithEscape(page, filters);
       const dialog = page.getByRole('dialog', { name: 'Filter & sort', exact: true });
       await page.getByText('No users match these filters.', { exact: true }).waitFor();
       assert.equal(await page.getByText('No users yet.', { exact: false }).count(), 0);
@@ -594,6 +605,40 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
         assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Users');
       } finally { release(); await context.close(); }
     }
+  });
+
+  it('leaves focus where Tab or a quick activation moves it after a menu closes', async () => {
+    const { context, page } = await openPage({ width: 1280, height: 844 });
+    try {
+      await controlUsers(context);
+      await navigate(page, 'users');
+      const trigger = page.getByRole('button', { name: /^Filters/ });
+      const openByKeyboard = async () => {
+        await trigger.focus();
+        await page.keyboard.press('ArrowDown');
+        await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'menuitemcheckbox');
+      };
+      // The menu's `toggle` close handler is queued; aria-expanded turns false
+      // when it runs. Tab must keep focus on the next control, not the trigger.
+      await openByKeyboard();
+      await page.keyboard.press('Tab');
+      await page.waitForFunction(el => el.getAttribute('aria-expanded') === 'false', await trigger.elementHandle());
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 50)));
+      assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Columns');
+
+      // Escape returns focus to the trigger at once. A control activated before
+      // the queued close event runs (assistive-tech macros can be that fast)
+      // keeps its focus.
+      await openByKeyboard();
+      const focus = await page.evaluate(async () => {
+        document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        const restored = document.activeElement.getAttribute('aria-label');
+        document.getElementById('users-search').focus();
+        await new Promise(resolve => setTimeout(resolve, 50));
+        return { restored, after: document.activeElement.id };
+      });
+      assert.deepEqual(focus, { restored: 'Filters', after: 'users-search' });
+    } finally { await context.close(); }
   });
 
   it('invites an existing account once and names only the action that is running', async () => {

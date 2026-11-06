@@ -58,9 +58,11 @@ export default function UserMobileList({
                     onClick={() => item._type === 'waitlist' ? onEditWaitlist(item) : onEdit(item._user)}
                   >
                     <span className="block underline underline-offset-4">{name}</span>
-                    {item.name && <span className="block text-sm font-normal text-muted-foreground">{item.email}</span>}
                   </button>
                 )}
+                {/* Outside the button: its accessible name must contain all of
+                    its visible text (WCAG 2.5.3), and "Edit <name>" doesn't. */}
+                {item._type !== 'invite' && item.name && <p className="text-sm text-muted-foreground wrap-anywhere">{item.email}</p>}
               </div>
               <Badge variant={item.role === 'admin' ? 'default' : 'outline'} className="mt-2 shrink-0">{status}</Badge>
             </div>

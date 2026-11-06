@@ -180,7 +180,12 @@ function DropdownMenuContent({
           menuItems(pop)[0]?.focus();
         });
       } else if (ctx.focusInsideOnCloseRef.current) {
-        ctx.triggerRef.current?.focus();
+        // `toggle` is queued. The browser (Escape, hidePopover) and closeMenu
+        // already return focus synchronously, and by now Tab or a quick
+        // activation may have moved it to another control. Only rescue focus
+        // left on the page body or inside the hidden menu; never pull it back.
+        const active = document.activeElement;
+        if (!active || active === document.body || pop.contains(active)) ctx.triggerRef.current?.focus();
       }
     };
 

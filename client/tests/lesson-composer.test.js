@@ -49,6 +49,22 @@ describe('message box', () => {
     assert.match(read('src/components/chat/ComposeBar.jsx'), /className="transition-colors disabled:bg-muted disabled:text-muted-foreground"/);
   });
 
+  it('names what holds sending instead of always describing a reply in progress', () => {
+    // The visible hint is also the text field's accessible description, so a
+    // held composer must say why: a retained reply, saving, recovery or reload.
+    const compose = read('src/components/chat/ComposeBar.jsx');
+    assert.match(compose, /busyHint = 'Send when the reply finishes'/);
+    assert.match(compose, /\{busy \? busyHint : sendHint\(sendKey\)\}/);
+    const chat = read('src/pages/LessonChat.jsx');
+    assert.match(chat, /pendingSave \? \['Send after the reply is saved', 'Save the retained reply before sending another response\.'\]/);
+    assert.match(chat, /busyHint=\{busyHint\}\s+busyMessage=\{busyMessage\}/);
+    for (const editor of ['src/pages/admin/LessonEditor.jsx', 'src/pages/admin/KnowledgeBaseEditor.jsx']) {
+      assert.match(read(editor), /busyHint=\{composerHint\} busyMessage=\{composerMessage\}/);
+    }
+    // One preference-aware hint: the editor's fixed "Ctrl / ⌘ + Enter" line is gone.
+    assert.doesNotMatch(read('src/pages/admin/LessonEditor.jsx'), /Enter to send/);
+  });
+
   it('gives primary buttons a hover fill transition on both buttons and links', () => {
     const button = read('src/components/ui/button.jsx');
     assert.match(button, /default:\s*"bg-primary text-primary-foreground hover:bg-primary\/90"/);

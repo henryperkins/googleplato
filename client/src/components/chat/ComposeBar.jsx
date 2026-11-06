@@ -32,6 +32,10 @@ function ComposeBar({
   // the next message can be drafted and the mobile keyboard stays open.
   disabled = false,
   busy = false,
+  // While busy, `busyHint` replaces the send-key hint (and the textarea's
+  // description); `busyMessage` is announced if a send is attempted. Callers
+  // with more than one busy state pass the reason that applies.
+  busyHint = 'Send when the reply finishes',
   busyMessage = 'Wait for the reply to finish, then send.',
   allowImages = false,
   allowLinks = false,
@@ -445,7 +449,7 @@ function ComposeBar({
               </svg>
             </Button>
           )}
-          <span id={shortcutId} className="min-w-0 text-xs text-muted-foreground">{busy ? 'Send when the reply finishes' : sendHint(sendKey)}</span>
+          <span id={shortcutId} className="min-w-0 text-xs text-muted-foreground">{busy ? busyHint : sendHint(sendKey)}</span>
           <span id={statusId} className="min-w-0 text-xs text-muted-foreground" role="status" aria-live="polite">
             {status}
           </span>

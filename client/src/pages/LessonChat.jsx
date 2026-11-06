@@ -133,10 +133,15 @@ function LessonConversation() {
       : pendingSave ? 'Progress not confirmed saved.'
         : submission ? 'Response not sent.'
           : persistence?.status === 'saved' ? 'Progress saved.' : '';
-  const busyMessage = savingProgress ? 'Wait for progress to finish saving, then send.'
-    : pendingSave ? 'Save the retained reply before sending another response.'
-      : submission && submission.status !== 'sending' ? 'Recover the earlier response before sending another.'
-        : 'Wait for the reply to finish, then send.';
+  // One cascade for the composer's persistent hint (also its accessible
+  // description) and the message announced when a send is held, so both name
+  // what actually blocks sending — never "the reply" when none is running.
+  const [busyHint, busyMessage] = upgradeRequired ? ['Reload this page to send', 'Reload this page, then send.']
+    : savingProgress ? ['Send when progress is saved', 'Wait for progress to finish saving, then send.']
+      : pendingSave ? ['Send after the reply is saved', 'Save the retained reply before sending another response.']
+        : submission && submission.status !== 'sending' ? ['Send after recovering the earlier response', 'Recover the earlier response before sending another.']
+          : resuming && !loading ? ['Send when the lesson loads', 'Wait for the lesson to load, then send.']
+            : ['Send when the reply finishes', 'Wait for the reply to finish, then send.'];
 
   const reloadForUpgrade = async () => {
     if (loading || resuming || savingRef.current || impersonating) return;
@@ -745,6 +750,7 @@ function LessonConversation() {
             onSend={handleSend}
             disabled={impersonating}
             busy={busy}
+            busyHint={busyHint}
             busyMessage={busyMessage}
             allowImages
             allowLinks
