@@ -24,10 +24,20 @@ export function progressLabel(kb, fallbackObjectives = []) {
 }
 
 /**
+ * A message's image data URLs by position. Hydration keeps a null where an
+ * image couldn't be loaded, so `urls[i]` always belongs to `imageKeys[i]`.
+ * A message from before multiple images carries one `imageDataUrl`.
+ */
+export function messageImageUrls(metadata) {
+  if (Array.isArray(metadata?.imageDataUrls)) return metadata.imageDataUrls;
+  return metadata?.imageDataUrl ? [metadata.imageDataUrl] : [];
+}
+
+/**
  * The learner's attachments in this lesson, oldest first:
  * `{ kind: 'image', key?, dataUrl?, at }` and `{ kind: 'link', url, title, at }`.
  * Images are referenced by `metadata.imageKeys` (fetched on demand); messages
- * hydrated this session also carry `imageDataUrls`.
+ * hydrated this session also carry `imageDataUrls`, position for position.
  */
 export function collectArtifacts(messages) {
   const out = [];
@@ -35,7 +45,7 @@ export function collectArtifacts(messages) {
     if (m.role !== 'user' || !m.metadata) continue;
     const at = m.timestamp || null;
     const keys = Array.isArray(m.metadata.imageKeys) ? m.metadata.imageKeys : [];
-    const urls = Array.isArray(m.metadata.imageDataUrls) ? m.metadata.imageDataUrls : [];
+    const urls = messageImageUrls(m.metadata);
     const count = Math.max(keys.length, urls.length);
     for (let i = 0; i < count; i++) out.push({ kind: 'image', key: keys[i] || null, dataUrl: urls[i] || null, at });
     for (const l of Array.isArray(m.metadata.links) ? m.metadata.links : []) {

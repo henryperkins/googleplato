@@ -1041,7 +1041,12 @@ is its own `screenshot:<key>` record, and the message stores only
   The opaque "Failed to read image" message that hid all of this was issue #228.
 - `resumeLesson` re-hydrates `imageKeys` → data URLs for rendering via
   `hydrateMessageImages`. Legacy messages that still embed `imageDataUrls`
-  directly render unchanged.
+  directly render unchanged. Hydration keeps positions: `imageDataUrls[i]`
+  belongs to `imageKeys[i]`, and an image that can't be loaded stays in place
+  as `null` (the chat skips it), so a later image never stands in for an
+  earlier key. `messageImageUrls()` (`client/src/lib/lessonWork.js`) is the one
+  reader, shared by the chat and Shared work; it also covers the single
+  `imageDataUrl` of messages from before multiple images.
 - A lazy, idempotent migration (`migrateLegacyImages`, run from `resumeLesson`)
   heals pre-fix conversations whose embedded base64 already bloated the record:
   it extracts each embedded image into a compressed `screenshot:*` record and
@@ -2029,9 +2034,9 @@ opens from the lesson header's **"Progress (N of M Objectives)"** button
 - **Where you are** and the coach's notes, when the lesson KB has them.
   Nothing is generated for the dialog.
 - **Shared work** (`<details>`, started lessons): images and links from the
-  messages' `metadata.imageKeys` / `metadata.links`. Images load only when the
-  section opens, bound to the lesson's owner; a failed image keeps its key and
-  says it failed.
+  messages' `metadata.imageKeys` / `metadata.links` (and a legacy single
+  `imageDataUrl`). Images load only when the section opens, bound to the
+  lesson's owner; a failed image keeps its key and says it failed.
 - **Additional context** (`<details>`): sanitized plugin enrichments, with
   safe http(s) links only.
 

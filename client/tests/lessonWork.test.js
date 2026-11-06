@@ -3,7 +3,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { objectiveStatuses, objectivesMetLabel, progressLabel, collectArtifacts } from '../src/lib/lessonWork.js';
+import { objectiveStatuses, objectivesMetLabel, progressLabel, collectArtifacts, messageImageUrls } from '../src/lib/lessonWork.js';
 
 const evidence = (objectiveId, status = 'met', sourceIds = ['s']) => ({ objectiveId, status, observation: 'Demonstrated', sourceIds });
 const kb = (over = {}) => ({ status: 'active', assessmentVersion: 1, objectives: [{ id: 'a', objective: 'A' }, { id: 'b', objective: 'B' }], sources: [{ id: 's', kind: 'text', confirmed: true }], evidence: [evidence('b')], ...over });
@@ -45,5 +45,21 @@ describe('collectArtifacts', () => {
       { kind: 'image', key: null, dataUrl: 'data:1', at: 2 },
       { kind: 'link', url: 'https://x.org', title: 'X', at: 2 },
     ]);
+  });
+
+  it('pairs keys and hydrated images by position, keeping a gap where one couldn’t load', () => {
+    const messages = [{ role: 'user', timestamp: 4, metadata: { imageKeys: ['screenshot:a', 'screenshot:b'], imageDataUrls: [null, 'data:b'] } }];
+    assert.deepEqual(collectArtifacts(messages), [
+      { kind: 'image', key: 'screenshot:a', dataUrl: null, at: 4 },
+      { kind: 'image', key: 'screenshot:b', dataUrl: 'data:b', at: 4 },
+    ]);
+  });
+
+  it('includes the single imageDataUrl of messages from before multiple images, as the chat does', () => {
+    const messages = [{ role: 'user', timestamp: 7, metadata: { imageDataUrl: 'data:legacy' } }];
+    assert.deepEqual(collectArtifacts(messages), [{ kind: 'image', key: null, dataUrl: 'data:legacy', at: 7 }]);
+    assert.deepEqual(messageImageUrls({ imageDataUrl: 'data:legacy' }), ['data:legacy']);
+    assert.deepEqual(messageImageUrls({ imageDataUrls: ['data:new'], imageDataUrl: 'data:legacy' }), ['data:new']);
+    assert.deepEqual(messageImageUrls(null), []);
   });
 });

@@ -337,6 +337,10 @@ export async function sendMessage(lessonId, lesson, text, imageDataUrl, links, o
  * `metadata.imageDataUrls` (never persisted) so the render path is uniform.
  * Legacy messages that still embed `imageDataUrls` directly (pre-#193) are
  * returned untouched — that field already drives the same render path.
+ *
+ * `imageDataUrls[i]` always belongs to `imageKeys[i]`: an image that can't be
+ * loaded keeps its place as null (renderers skip it), so a later image is
+ * never shown under an earlier one's key.
  */
 export async function hydrateMessageImages(messages, { timeoutMs = 5000 } = {}) {
   return Promise.all((messages || []).map(async (m) => {
@@ -346,10 +350,10 @@ export async function hydrateMessageImages(messages, { timeoutMs = 5000 } = {}) 
     // Keep the durable keys so a later visit can still load the attachments.
     let timeout;
     const urls = await Promise.race([
-      Promise.all(keys.map(k => getScreenshot(k))).then(values => values.filter(Boolean)).catch(() => []),
+      Promise.all(keys.map(k => getScreenshot(k).then(url => url || null, () => null))),
       new Promise(resolve => { timeout = setTimeout(() => resolve([]), timeoutMs); }),
     ]).finally(() => clearTimeout(timeout));
-    if (urls.length === 0) return m;
+    if (!urls.some(Boolean)) return m;
     return { ...m, metadata: { ...m.metadata, imageDataUrls: urls } };
   }));
 }

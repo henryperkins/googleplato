@@ -68,6 +68,7 @@ const {
 } = await import('../src/lib/lessonEngine.js');
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+const PNG_2 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAI=';
 
 beforeEach(() => { sessionStorage.removeItem('plato_impersonation'); });
 
@@ -143,6 +144,21 @@ describe('hydrateMessageImages', () => {
       { role: 'user', content: '[image]', metadata: { imageKeys: ['gone'] } },
     ]);
     assert.equal(msg.metadata.imageDataUrls, undefined);
+  });
+
+  it('keeps each image at its key’s position when an earlier one is missing', async () => {
+    await saveScreenshot('k2', PNG_2);
+    const [msg] = await hydrateMessageImages([
+      { role: 'user', content: '[image]', timestamp: 5, metadata: { imageKeys: ['gone', 'k2'] } },
+    ]);
+    assert.deepEqual(msg.metadata.imageDataUrls, [null, PNG_2]);
+    // Shared work pairs each key with its own image: the second image is
+    // never shown for the first key.
+    const { collectArtifacts } = await import('../src/lib/lessonWork.js');
+    assert.deepEqual(collectArtifacts([msg]), [
+      { kind: 'image', key: 'gone', dataUrl: null, at: 5 },
+      { kind: 'image', key: 'k2', dataUrl: PNG_2, at: 5 },
+    ]);
   });
 
   it('leaves legacy embedded imageDataUrls untouched (pre-#193 records)', async () => {

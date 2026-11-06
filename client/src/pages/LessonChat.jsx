@@ -7,7 +7,7 @@ import { useBranding } from '../contexts/BrandingContext.jsx';
 import LessonOverview from '../components/chat/LessonOverview.jsx';
 import AgentActivity from '../components/chat/AgentActivity.jsx';
 import { nextLessonAfter } from '../lib/lessonOrder.js';
-import { progressLabel } from '../lib/lessonWork.js';
+import { progressLabel, messageImageUrls } from '../lib/lessonWork.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeyboardOffset.js';
 import { useStickyScrollPadding } from '../hooks/useStickyScrollPadding.js';
@@ -514,14 +514,13 @@ function LessonConversation() {
           <div key={idx}>
             {msg.content && <UserMessage content={msg.content} />}
             {(() => {
-              const urls = Array.isArray(msg.metadata?.imageDataUrls)
-                ? msg.metadata.imageDataUrls
-                : msg.metadata?.imageDataUrl ? [msg.metadata.imageDataUrl] : [];
-              if (urls.length === 0) return null;
+              // By position; an image that couldn't be loaded is null and skipped.
+              const urls = messageImageUrls(msg.metadata);
+              if (!urls.some(Boolean)) return null;
               return (
                 <div className="flex justify-end mt-1">
                   <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-bubble p-1.5 flex flex-wrap gap-1">
-                    {urls.map((url, i) => (
+                    {urls.map((url, i) => url && (
                       // Hydrated data URLs are already in memory: lazy loading
                       // saved nothing and decoded late, shifting the scrolled log.
                       <img key={i} src={url} alt={`Your uploaded work ${i + 1}`} decoding="async" className="max-w-full rounded-lg" />
