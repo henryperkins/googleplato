@@ -4,7 +4,7 @@ import { MAX_LOGO_DATA_URL_CHARS, classroomName, classroomNameError, currentLogo
 import db from '../lib/db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
-import { ROLES, normalizeRole } from '../lib/permissions.js';
+import { ROLES, normalizeRole, can } from '../lib/permissions.js';
 import { registerHierarchyRoutes } from './admin-hierarchy.js';
 import { bundledLessonStatus, actOnBundledLesson } from '../lib/bundled-lessons.js';
 import { registerNotificationRoutes } from './admin-notifications.js';
@@ -356,11 +356,20 @@ admin.post('/v1/admin/invites/bulk', async (c) => {
   return c.json({ sent, linkOnly, skipped, total: results.length, results }, 201);
 });
 
+// An invite token is a credential: an email invite's token registers that
+// address with any password, and the link's token signs anyone up. Only a
+// role that may manage invitations sees tokens. Read-only roles (testers get
+// every `*.read`) see the rest, with a stable non-secret `id` for each row.
+const inviteId = (token) => hashToken(token).slice(0, 16);
+const mayManageInvites = (c) => can(c.get('role'), 'invites.write');
+
 // GET /v1/admin/invites
 admin.get('/v1/admin/invites', async (c) => {
   const invites = await db.listInvites();
+  const withTokens = mayManageInvites(c);
   return c.json(invites.map((inv) => ({
-    inviteToken: inv.inviteToken,
+    id: inviteId(inv.inviteToken),
+    ...(withTokens ? { inviteToken: inv.inviteToken } : {}),
     email: inv.email,
     status: inv.status,
     isLink: !!inv.isLink,
@@ -415,7 +424,8 @@ admin.get('/v1/admin/invites/link', async (c) => {
     return c.json(null);
   }
   return c.json({
-    inviteToken: linkInvite.inviteToken,
+    id: inviteId(linkInvite.inviteToken),
+    ...(mayManageInvites(c) ? { inviteToken: linkInvite.inviteToken } : {}),
     createdAt: linkInvite.createdAt,
     usageCount: linkInvite.usageCount || 0,
     maxUsages: linkInvite.maxUsages || null,

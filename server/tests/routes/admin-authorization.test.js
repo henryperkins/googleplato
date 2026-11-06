@@ -84,6 +84,48 @@ describe('admin authorization', () => {
   });
 });
 
+// An email invite's token registers that address with any password, and the
+// link's token signs anyone up: reading them is the same as invites.write.
+describe('invitation tokens are credentials', () => {
+  const EMAIL_TOKEN = 'inv_email_secret_token_value';
+  const LINK_TOKEN = 'inv_link_secret_token_value';
+  beforeEach(() => {
+    const link = { inviteToken: LINK_TOKEN, isLink: true, status: 'pending', usageCount: 2, maxUsages: null, invitedBy: 'usr_admin', createdAt: '2026-11-01T00:00:00Z', ttl: 4102444800 };
+    db.listInvites = async () => [
+      { inviteToken: EMAIL_TOKEN, email: 'invitee@x.com', status: 'pending', createdAt: '2026-11-02T00:00:00Z' },
+      link,
+    ];
+    db.getInviteLinkToken = async () => link;
+  });
+
+  it('testers see invites and the link without any usable token', async () => {
+    const list = await call('usr_test', 'GET', '/v1/admin/invites');
+    assert.equal(list.status, 200);
+    const listText = await list.text();
+    const link = await call('usr_test', 'GET', '/v1/admin/invites/link');
+    assert.equal(link.status, 200);
+    const linkText = await link.text();
+    for (const text of [listText, linkText]) {
+      assert.equal(text.includes(EMAIL_TOKEN) || text.includes(LINK_TOKEN), false, 'no token, in any field');
+    }
+    const rows = JSON.parse(listText);
+    assert.deepEqual(rows.map((r) => [r.email ?? null, r.isLink, 'inviteToken' in r]), [['invitee@x.com', false, false], [null, true, false]]);
+    assert.ok(rows.every((r) => /^[0-9a-f]{16}$/.test(r.id)), 'a stable non-secret id tells rows apart');
+    assert.notEqual(rows[0].id, rows[1].id);
+    const linkBody = JSON.parse(linkText);
+    assert.equal('inviteToken' in linkBody, false);
+    assert.deepEqual([linkBody.usageCount, linkBody.id], [2, rows[1].id], 'usage stays visible; the id matches the list row');
+  });
+
+  it('roles that may manage invitations still get the tokens they act on', async () => {
+    for (const u of ['usr_admin', 'usr_edu']) {
+      const rows = await (await call(u, 'GET', '/v1/admin/invites')).json();
+      assert.deepEqual(rows.map((r) => r.inviteToken), [EMAIL_TOKEN, LINK_TOKEN], u);
+      assert.equal((await (await call(u, 'GET', '/v1/admin/invites/link')).json()).inviteToken, LINK_TOKEN, u);
+    }
+  });
+});
+
 describe('PUT /v1/admin/users/:userId/role', () => {
   let users;
   let audits;

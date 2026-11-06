@@ -2460,6 +2460,13 @@ Four roles. `server/src/lib/permissions.js` is the single source of who may do w
   or a table row is stale. `tests/routes/admin-authorization.test.js` drives
   the real admin app as each role.
 - A refusal returns `403 { code: 'forbidden', permission }`.
+- **A read can still hold a credential.** An email invite's token registers
+  that address with any password, and the shareable link's token signs anyone
+  up. So `GET /v1/admin/invites` and `GET /v1/admin/invites/link` include
+  `inviteToken` only for a role with `invites.write`. Everyone else, testers
+  included, gets the same rows with a stable non-secret `id` (a hash prefix of
+  the token) for telling them apart. Wait-list tokens stay visible: a
+  `waitlist` row can't sign up, and inviting one mints a fresh token.
 - Plugin admin routes still use the SDK's `requireAdmin` (admin only).
 - View as User reads (`?asUserId=`, in `sync.js` and `content.js`) need
   `impersonation.use` (admins and testers).

@@ -734,7 +734,7 @@ export default function AdminUsers() {
     const items = [];
     for (const inv of pendingInvites) {
       if (!inv.isLink) {
-        items.push({ _type: 'invite', _key: inv.inviteToken, email: inv.email, name: inv.name || null, firstName: inv.firstName, lastName: inv.lastName, username: null, userGroup: null, role: null, customFields: null, createdAt: inv.createdAt, _invite: inv });
+        items.push({ _type: 'invite', _key: inv.id || inv.inviteToken, email: inv.email, name: inv.name || null, firstName: inv.firstName, lastName: inv.lastName, username: null, userGroup: null, role: null, customFields: null, createdAt: inv.createdAt, _invite: inv });
       }
     }
     for (const w of waitlistEntries) {
@@ -1144,7 +1144,7 @@ export default function AdminUsers() {
                   </>}
                   {item._type === 'invite' && shows('invites.write') && <>
                     <Button variant="ghost" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Resend invite to ${item.email}`} onClick={() => resendInvite(item.email, item._key)}>Resend</Button>
-                    <Button variant="ghost" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._key, item.email)}>Revoke</Button>
+                    <Button variant="ghost" size="xs" disabled={!!pendingRows[item._key]} focusableWhenDisabled aria-label={`Revoke invite for ${item.email}`} onClick={() => revokeInvite(item._invite.inviteToken, item.email)}>Revoke</Button>
                   </>}
                   {item._user && shows('users.write') && <>
                     <PluginSlot name="adminUserRowAction" context={{ user: item._user }} />

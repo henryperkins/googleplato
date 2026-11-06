@@ -102,7 +102,7 @@ export default function UserMobileList({
                       </Button>
                     )}
                     {item._type === 'invite' && permissions.invites && (
-                      <Button variant="destructive" disabled={pending} focusableWhenDisabled onClick={() => onRevoke(item._key, item.email)} aria-label={`Revoke invite for ${item.email}`}>Revoke invite</Button>
+                      <Button variant="destructive" disabled={pending} focusableWhenDisabled onClick={() => onRevoke(item._invite.inviteToken, item.email)} aria-label={`Revoke invite for ${item.email}`}>Revoke invite</Button>
                     )}
                   </div>
                 </div>
