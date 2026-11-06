@@ -66,3 +66,36 @@ Task 3 must mount the now session-bound AccountInviteNotice on its learner list,
 Self-review checked originating-session boundaries through the full response/cache/React chain, per-page permission parity, both responsive directory paths, conditional authoring version/recovery contracts, imported UI API compatibility, failed notification dispatch/delivery copy and new raw-token/focus regressions. It caught and fixed the keyboard open cancellation, popup replacement on visibility refresh, notification draft unmount across tabs and lingering in-memory target data after role demotion. Parent supplies the independent review.
 
 Task 2 is ready for that review and Task 3 continuation; this is not a claim that the whole integration branch passes its final gate or is deployed.
+
+## Independent review fix round 1
+
+Read `task-2-review.md` verbatim and verified both confirmed P2 findings against the source and rendered regressions. This follow-up is limited to AdminNotifications, GroupsDialog, their focused browser tests and this report. No server, learner, provider, external delivery or deployment work was performed.
+
+### Accepted send versus failed History refresh
+
+The acknowledged POST outcome now has its own success path. Clearing the submitted draft and rotating its request ID still occurs after an accepted send. A following `onSent()` read failure is caught separately: the feedback retains the accepted outcome, identifies that History could not refresh, points to **Refresh notifications**, and explicitly says **Do not resend this message**. It cannot reach the HTTP-send-failure catch or falsely claim an empty draft was retained. The existing failed-POST draft/request-ID behavior and History retry flow remain intact.
+
+The new rendered regression returns exactly a successful message POST (`201`, `message.status='sent'`) followed by a failing History GET (`503`, `History unavailable`). It asserts the accepted-plus-refresh-error message, empty submitted fields, absence of retained-draft copy, disabled Send, and exactly one POST before and after using the read refresh control.
+
+### Group keyboard focus after mutations
+
+Pending group inputs now remain read-only and focusable, and pending buttons use the existing `focusableWhenDisabled` API. The immediate `inFlight` guard remains authoritative against rapid Enter/duplicate activation. After DOM updates, a successful rename returns focus to the renamed row's action; deletion returns focus to the add-group field; a failed rename returns to the originating editor. Escape/Cancel (including unchanged-name completion) returns to the surviving rename action rather than leaving focus on body.
+
+Restoration checks the action's original focus and dialog-open generation. A user who deliberately focuses another surviving control keeps that choice. Closing/reopening or leaving the dialog invalidates old focus work. The implementation changes only group-dialog focus ownership; shared Dialog/AlertDialog behavior is unchanged.
+
+New real Chromium coverage holds the requests open and checks pending focus, non-editability, one rename request despite duplicate Enter, failure text/value/focus, successful rename focus, Escape/Cancel restoration, delete-confirmation return focus while pending and the add-field focus after deletion. A separate case moves focus to the close control while a rename runs, then closes the dialog during a later rename and focuses an outside control; completion preserves both choices.
+
+### Exact red/green evidence and covering checks
+
+Durable evidence is under `/home/ubuntu/.local/state/googleplato/upstream-integration-20261106/task-2-evidence/review-round-1/`.
+
+- Initial added regressions against the reviewed implementation: **2 failed / 1 passed** (`task2-review-round1-red.log`). The first pending-input assertion initially also required a read-only attribute. To ensure the final red proof exercised actual focus behavior rather than that implementation detail, the assertion was changed to non-editability and the exact revised cases were rerun against the original reviewed components from Git, with the fixed component bytes preserved/restored in `finally`.
+- Behavioral red rerun against original components: **2 failed / 1 passed, exit 1** (`task2-review-round1-red-behavior.log`). The group test fails because the failed-rename editor is inactive after re-enabling; the notification test fails because no accepted-send/History-refresh outcome appears (the old handler reports retained-draft failure). Deliberate focus movement/closed-dialog preservation already passed and remains protected.
+- Command for the red/first green focused cases: `E2E_PORT=35461 E2E_DB=/tmp/googleplato-task2-review.db npm --prefix e2e test -- --project=desktop tests/groups.spec.js tests/task2-integration.spec.js --grep 'accepted message|group keyboard focus|completed group rename'`. The fixed first focused run passes **3/3** (`task2-review-round1-green.log`).
+- Final covering browser command: `E2E_PORT=35461 E2E_DB=/tmp/googleplato-task2-review.db npm --prefix e2e test -- --project=desktop tests/groups.spec.js tests/notifications.spec.js tests/task2-integration.spec.js`: **15/15 pass** (`task2-review-round1-final-browser.log`). This also retains existing group CRUD/error, failed-message same-ID retry, truthful delivery-off History, notification permissions/audiences/templates, bell/popups and held wait-list request behavior.
+- `node --test client/tests/failure-states-contract.test.js client/tests/design-tokens-contract.test.js client/tests/focus-styles.test.js`: **29/29 pass** (`task2-review-round1-contracts.log`).
+- `npm --prefix client run lint`: **exit 0, zero errors / 22 warnings**, unchanged warning count (`task2-review-round1-lint.log`).
+- `npm --prefix client run build`: **exit 0**, no undefined/unexported imports; only the ordinary large-chunk advisory (`task2-review-round1-fixed-build.log`). This build ran after restoring the fixed source bytes, and the final 15-case browser run used that build.
+- `git diff --check`: pass. The broad client/server/learner suites were not repeated for this bounded fix round. The earlier full-client **861 / 850 pass / 11 deferred Task 3 failures** remains the documented integration baseline; no claim is made that those deferrals have been fixed.
+
+Both review findings are addressed and ready for the parent's scoped re-review. User impact remains none: there are no actual users, and nothing was pushed or deployed.

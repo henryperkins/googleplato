@@ -149,3 +149,33 @@ test('important messages remain one at a time across a visibility refresh', asyn
   await page.getByRole('dialog', { name: 'Older', exact: true }).getByRole('button', { name: 'Got it' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+test('accepted message stays acknowledged when the following History refresh fails', async ({ page }) => {
+  let posts = 0;
+  let historyAvailable = true;
+  await page.route('**/v1/admin/notifications/messages', route => {
+    if (route.request().method() === 'POST') {
+      posts++;
+      historyAvailable = false;
+      return route.fulfill({ status: 201, json: { message: { id: 'accepted-message', status: 'sent' } } });
+    }
+    return historyAvailable
+      ? route.fulfill({ json: { messages: [] } })
+      : route.fulfill({ status: 503, json: { error: 'History unavailable' } });
+  });
+  await login(page, ADMIN);
+  await page.goto('/plato/notifications');
+  await page.getByLabel('Subject', { exact: true }).fill('Accepted once');
+  await page.getByLabel('Message', { exact: true }).fill('This message is already committed.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByLabel('Subject', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue('');
+  await expect(page.getByText(/Message sent to the classroom\..*History could not be refreshed.*Do not resend/).first()).toBeVisible();
+  await expect(page.getByText(/Your draft is retained/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  expect(posts).toBe(1);
+  historyAvailable = true;
+  await page.getByRole('button', { name: 'Refresh notifications' }).click();
+  expect(posts).toBe(1);
+});

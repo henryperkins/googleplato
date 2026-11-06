@@ -160,9 +160,16 @@ function Compose({ canWrite, onNotice, onSent }) {
       if (result.message?.status === 'failed') throw new Error('Delivery failed. Your message is in History; retry it there or retry this same request.');
       setRequestId(crypto.randomUUID());
       attempted.current = null;
-      onNotice({ text: email ? 'Message processed. History shows email delivery outcomes, including delivery disabled or failed.' : 'Message sent to the classroom.', type: 'success' });
+      const outcome = email ? 'Message processed. History shows email delivery outcomes, including delivery disabled or failed.' : 'Message sent to the classroom.';
+      onNotice({ text: outcome, type: 'success' });
       setSubject(''); setBody(''); setSelected([]);
-      await onSent();
+      try {
+        await onSent();
+      } catch (error) {
+        // The POST is acknowledged. A failed read must not turn it back into
+        // an unsent draft or encourage a second send under the next request ID.
+        onNotice({ text: `${outcome} History could not be refreshed: ${error.message} Use Refresh notifications to check it. Do not resend this message.`, type: 'error' });
+      }
     } catch (e) {
       onNotice({ text: `${e.message} Your draft is retained. History shows any delivery attempt already created.`, type: 'error' });
       await onSent(false).catch(() => {});
