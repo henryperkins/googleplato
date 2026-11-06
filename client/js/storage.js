@@ -25,8 +25,8 @@ export function _populateCache(syncKey, data, version) {
   _versions.set(syncKey, version);
 }
 
-async function fetchSyncData(syncKey, { expectedUserId } = {}) {
-  const session = expectedUserId ? await captureAuthSession() : null;
+async function fetchSyncData(syncKey, { expectedUserId, authSession } = {}) {
+  const session = expectedUserId ? authSession || await captureAuthSession() : null;
   const checkOwner = async () => {
     if (expectedUserId && (session?.userId !== expectedUserId || !await isAuthSessionCurrent(session))) {
       throw new Error('Return to the original account to read your profile.');
@@ -57,8 +57,12 @@ async function fetchSyncData(syncKey, { expectedUserId } = {}) {
  * `false` otherwise — callers that need durability (e.g. the legacy-image
  * migration) check this rather than assuming the cache write stuck.
  */
-export async function putSyncData(syncKey, data, { createOnly = false, expectedUserId } = {}) {
-  if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return false;
+export async function putSyncData(syncKey, data, { createOnly = false, expectedUserId, authSession } = {}) {
+  const session = authSession ? Promise.resolve(authSession) : captureAuthSession();
+  if (expectedUserId) {
+    const origin = await session;
+    if (origin?.userId !== expectedUserId || !await isAuthSessionCurrent(origin)) return false;
+  }
   // Snapshot both owners before yielding. Awaiting telemetry's owner lookup
   // here could let an account switch bind this payload to the next account.
   const owner = getAuthUser();
@@ -78,13 +82,17 @@ export async function putSyncData(syncKey, data, { createOnly = false, expectedU
     });
     if (res.ok) {
       const result = await res.json();
-      if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return false;
       if (!Number.isSafeInteger(result?.version) || result.version <= version) {
         throw Object.assign(new Error('Save acknowledgement is invalid'), { code: 'invalid_ack' });
       }
+      observe({ ok: true, status: res.status });
+      // The server acknowledged this write even if its originating login ended
+      // while the body was pending. Keep that success truthful without letting
+      // an obsolete acknowledgement replace a newer session's cache/version.
+      const origin = await session;
+      if (origin && !await isAuthSessionCurrent(origin)) return true;
       _versions.set(syncKey, result.version);
       if (expectedUserId) _cache.set(syncKey, data);
-      observe({ ok: true, status: res.status });
       return true;
     }
     // Do not read a rejected response body for telemetry: it may never finish.
@@ -135,8 +143,8 @@ export function acceptSavedLessonState(lessonId, state) {
 
 // -- Preferences --------------------------------------------------------------
 
-export async function getPreferences() {
-  const data = await fetchSyncData('preferences');
+export async function getPreferences(options) {
+  const data = await fetchSyncData('preferences', options);
   return data || { name: '' };
 }
 

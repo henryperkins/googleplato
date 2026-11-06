@@ -525,3 +525,16 @@ test('a provider max_tokens stop rejects partial coaching before repair, signing
   assert.doesNotMatch(frames, /coach_turn/);
   assert.deepEqual(await db.getLessonState(userId, 'l'), base);
 });
+
+for (const [label, fields, expected] of [
+  ['multiword first name', { firstName: 'Mary Ann', lastName: 'Evans', name: 'Mary Ann Evans' }, 'Mary Ann'],
+  ['legacy name', { firstName: null, lastName: null, name: 'Ada Lovelace' }, 'Ada'],
+  ['empty name', { firstName: '', lastName: '', name: '' }, ''],
+]) test(`coach context uses canonical ${label} instead of a stale name preference`, async () => {
+  try {
+    await db.updateUser(userId, fields);
+    await db.putSyncData(userId, 'preferences', { name: 'Stale Full Name' });
+    await opening();
+    assert.equal(JSON.parse(bodies[1].messages[0].content).learnerName, expected);
+  } finally { await db.updateUser(userId, { firstName: 'Ada', lastName: '', name: 'Ada' }); }
+});

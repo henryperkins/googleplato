@@ -9,6 +9,7 @@ const AppContext = createContext(null);
 const initialState = {
   lessons: [],
   preferences: { name: '' },
+  preferencesLoaded: false,
   generating: null,
   loaded: false,
   lessonCatalogLoaded: false,
@@ -22,7 +23,7 @@ function reducer(state, action) {
     case 'RESET_DATA':
       return initialState;
     case 'INIT_DATA':
-      return { ...state, ...action.payload, loaded: true, lessonCatalogLoaded: true, loadingLessons: false, lessonsError: null };
+      return { ...state, ...action.payload, loaded: true, preferencesLoaded: true, lessonCatalogLoaded: true, loadingLessons: false, lessonsError: null };
     case 'LOADING_LESSONS':
       return { ...state, loadingLessons: true };
     case 'LESSONS_LOAD_FAILED':
@@ -40,7 +41,8 @@ function reducer(state, action) {
 
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const { loggedIn } = useAuth();
+  const { loggedIn, user } = useAuth();
+  const ownerId = user?.userId;
   const requestIdRef = useRef(0);
 
   const reloadLessons = useCallback(async () => {
@@ -52,14 +54,14 @@ export function AppProvider({ children }) {
       let lessonProgressHydrated = false;
       try { lessonProgressHydrated = await sync.loadAll({ isCurrent }); } catch { /* offline or error */ }
       if (!isCurrent()) return;
-      const [lessons, preferences] = await Promise.all([loadLessons(), getPreferences()]);
+      const [lessons, preferences] = await Promise.all([loadLessons(), getPreferences({ expectedUserId: ownerId })]);
       if (isCurrent()) {
         dispatch({ type: 'INIT_DATA', payload: { preferences, lessons, lessonProgressHydrated } });
       }
     } catch {
       if (isCurrent()) dispatch({ type: 'LESSONS_LOAD_FAILED' });
     }
-  }, []);
+  }, [ownerId]);
 
   // Initial load, manual retry, and foreground refresh share the same recovery
   // path. Failed refreshes keep the last rendered lessons available.

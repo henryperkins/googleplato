@@ -4,6 +4,7 @@ import db from './db.js';
 import ai, { LLM } from './ai-provider.js';
 import { coachTurnActivity, lessonStartActivity } from '../shared/agentActivity.js';
 import { evidenceIsMet } from '../shared/lessonAssessment.js';
+import { nameFields } from './names.js';
 import { normalizeStatus } from './lesson-visibility.js';
 import { parseLessonPrompt } from '../shared/lessonMarkdown.js';
 import { validateLessonKB } from '../shared/lessonInitialization.js';
@@ -99,7 +100,7 @@ async function generate(userId, lessonId, input, onText) {
   // their eventual replies. One small server-owned marker per lesson.
   await db.putSyncData(userId, `coachAttempt:${lessonId}`, { turnId, generation: base.generation });
   const telemetry = { lessonId, turnId, generation: base.generation };
-  const [profile, preferences, user] = await Promise.all([db.getSyncData(userId, 'profileSummary'), db.getSyncData(userId, 'preferences'), db.getUserById(userId)]);
+  const [profile, user] = await Promise.all([db.getSyncData(userId, 'profileSummary'), db.getUserById(userId)]);
   const criteriaHash = lessonCriteriaHash(lesson);
   let kb = structuredClone(base.lessonKB.data);
   if (opening) {
@@ -151,7 +152,7 @@ async function generate(userId, lessonId, input, onText) {
   kb = { ...kb, sources: retainSources(priorSources, sources, sourceIdsForEvidence(kb)) };
   const history = buildCoachHistory(base.messages.data, kb.conversationState);
   const courseProgress = lesson.course ? (await db.getSyncData(userId, `courseProgress:${lesson.course.id}`))?.data?.summary : null;
-  const context = buildContext(lesson, kb, profile?.data, preferences?.data?.name || user?.name || '', courseProgress);
+  const context = buildContext(lesson, kb, profile?.data, nameFields(user).firstName || '', courseProgress);
   const parts = [{ type: 'text', text: opening ? 'Start the lesson.' : JSON.stringify({ learnerSubmission: submission.text || '(See attached sources)', currentSourceIds: sources.map(source => source.id) }) }];
   // Rehydrate retained images, bounded to four, including later confirmation.
   for (const [id, part] of suppliedImages) parts.push({ type: 'text', text: `Reference image source ${id}` }, part);

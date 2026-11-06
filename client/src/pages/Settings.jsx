@@ -9,7 +9,7 @@ import {
   getLearnerProfileSummary,
   getLearnerProfile,
 } from '../../js/storage.js';
-import { updateProfile, getMyFields, authenticatedFetch } from '../../js/auth.js';
+import { updateProfile, getMyFields, authenticatedFetch, captureAuthSession, isAuthSessionCurrent } from '../../js/auth.js';
 import { missingRequired, pickValues, validateCustomField, validateCustomFields } from '../lib/userFields.js';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
 import { addLearnerNote, removeLearnerNote, MAX_LEARNER_NOTE_LENGTH } from '../lib/profileQueue.js';
@@ -40,7 +40,8 @@ function AccountSettings() {
   const [learnerNotes, setLearnerNotes] = useState([]);
   const [removingNote, setRemovingNote] = useState(false);
   const [chatSaving, setChatSaving] = useState(false);
-  const [selectedSendKey, setSelectedSendKey] = useState(() => sendKeyOf(state.preferences));
+  const [pendingSendKey, setPendingSendKey] = useState(null);
+  const selectedSendKey = pendingSendKey ?? sendKeyOf(state.preferences);
   const [chatFeedback, setChatFeedback] = useState(null);
   const [username, setUsername] = useState(user?.username || '');
   const [profileSummary, setProfileSummary] = useState('');
@@ -142,16 +143,18 @@ function AccountSettings() {
 
   const handleSaveName = async (e) => {
     e.preventDefault();
-    if (nameSubmitting || chatSaving) return;
+    if (nameSubmitting || chatSaving || !state.preferencesLoaded) return;
     setNameFeedback(null);
     setNameSubmitting(true);
+    const session = await captureAuthSession();
     const firstName = name.firstName.trim(), lastName = name.lastName.trim();
     const prefs = { ...state.preferences, name: [firstName, lastName].filter(Boolean).join(' ') };
 
     try {
       await updateProfile({ firstName, lastName }, user?.userId);
       await assertTurnOwner(user?.userId);
-      await savePreferences(prefs, { expectedUserId: user?.userId });
+      await savePreferences(prefs, { expectedUserId: user?.userId, authSession: session });
+      if (!await isAuthSessionCurrent(session)) throw new Error('Your preferences were saved for the original session. Reload before continuing.');
       await assertTurnOwner(user?.userId);
       dispatch({ type: 'SET_PREFERENCES', preferences: prefs });
       await refreshUser();
@@ -209,17 +212,19 @@ function AccountSettings() {
   };
 
   const handleChatPreference = async sendKey => {
-    if (chatSaving || nameSubmitting) return;
-    setSelectedSendKey(sendKey);
+    if (chatSaving || nameSubmitting || !state.preferencesLoaded) return;
+    setPendingSendKey(sendKey);
     setChatSaving(true); setChatFeedback(null);
     try {
+      const session = await captureAuthSession();
       const preferences = { ...state.preferences, sendKey };
-      await savePreferences(preferences, { expectedUserId: user?.userId });
+      await savePreferences(preferences, { expectedUserId: user?.userId, authSession: session });
+      if (!await isAuthSessionCurrent(session)) throw new Error('Your preferences were saved for the original session. Reload before continuing.');
       await assertTurnOwner(user?.userId);
       dispatch({ type: 'SET_PREFERENCES', preferences });
       setChatFeedback({ type: 'success', message: 'Saved.' });
-    } catch (error) { setSelectedSendKey(sendKeyOf(state.preferences)); setChatFeedback({ type: 'error', message: error.message }); }
-    finally { setChatSaving(false); }
+    } catch (error) { setChatFeedback({ type: 'error', message: error.message }); }
+    finally { setPendingSendKey(null); setChatSaving(false); }
   };
 
   return (
@@ -270,7 +275,7 @@ function AccountSettings() {
 
           <form className="space-y-3" onSubmit={handleSaveName} noValidate>
             <NameFields idPrefix="account" value={name} onChange={value => { setName(value); setNameFeedback(null); }} readOnly={nameSubmitting} inferred={user?.nameSource === 'auto'} />
-            <Button type="submit" disabled={nameSubmitting || chatSaving} focusableWhenDisabled aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
+            <Button type="submit" disabled={nameSubmitting || chatSaving || !state.preferencesLoaded} focusableWhenDisabled aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
             <SettingsFeedback id="name-feedback" feedback={nameFeedback} />
           </form>
 
@@ -399,7 +404,7 @@ function AccountSettings() {
       <Card>
         <CardHeader><CardTitle><h2>Chat</h2></CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <fieldset disabled={chatSaving || nameSubmitting} className="space-y-2">
+          <fieldset disabled={chatSaving || nameSubmitting || !state.preferencesLoaded} className="space-y-2">
             <legend className="mb-2 text-sm font-medium">Send a message with</legend>
             {[SEND_KEYS.MOD_ENTER, SEND_KEYS.ENTER].map(key => <label key={key} className="flex items-center gap-2 text-sm">
               <input type="radio" name="send-key" value={key} checked={selectedSendKey === key} onChange={() => handleChatPreference(key)} />

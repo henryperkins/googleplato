@@ -147,3 +147,41 @@ test('dedicated coaching rejects max_tokens and keeps submitted work separate fr
   const after = await (await request.get(`/v1/sync/lesson-turn/${id}`, { headers })).json();
   expect(after).toEqual(before);
 });
+
+test('direct Settings load waits for delayed preferences and keeps a pending send-key choice during refresh', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/v1/auth/login', { data: LEARNER })).json();
+  const status = await (await request.get('/v1/sync/status', { headers: { Authorization: `Bearer ${accessToken}` } })).json();
+  const headers = { Authorization: `Bearer ${accessToken}`, 'X-Plato-Client-Protocol': status.protocol, 'X-Plato-Client-Epoch': status.epoch };
+  const current = await (await request.get('/v1/sync/preferences', { headers })).json();
+  const seeded = { ...(current.data || {}), sendKey: 'enter', anotherSetting: 'preserve this acknowledged value' };
+  expect((await request.put('/v1/sync/preferences', { headers, data: { data: seeded, version: current.version || 0 } })).ok()).toBe(true);
+  await login(page, LEARNER);
+  let releaseSync, releaseSave;
+  const syncGate = new Promise(resolve => { releaseSync = resolve; });
+  const saveGate = new Promise(resolve => { releaseSave = resolve; });
+  let holdSync = true;
+  await page.route('**/v1/sync', async route => { if (holdSync) await syncGate; return route.continue(); });
+  await page.goto('/settings');
+  const enter = page.getByRole('radio', { name: /^Enter/ });
+  const modified = page.getByRole('radio', { name: /^(⌘|Ctrl)\+Enter/ });
+  await expect(enter).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save name', exact: true })).toBeDisabled();
+  holdSync = false; releaseSync();
+  await expect(enter).toBeEnabled(); await expect(enter).toBeChecked();
+  await page.route('**/v1/sync/preferences', async route => {
+    if (route.request().method() === 'PUT') await saveGate;
+    return route.continue();
+  });
+  await modified.check(); await expect(modified).toBeChecked();
+  const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/v1/lessons');
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await refreshed;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(modified).toBeChecked();
+  releaseSave();
+  await expect(page.locator('#chat-feedback')).toHaveText('Saved.');
+  await expect(modified).toBeChecked();
+  const saved = await (await request.get('/v1/sync/preferences', { headers })).json();
+  expect(saved.data.sendKey).toBe('mod-enter');
+  expect(saved.data.anotherSetting).toBe(seeded.anotherSetting);
+});

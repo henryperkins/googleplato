@@ -41,11 +41,12 @@ export function addLearnerNote(text, { expectedUserId, at = Date.now() } = {}) {
   const session = captureAuthSession();
   return queueProfileUpdate(async () => {
     await assertProfileOwner(expectedUserId, session);
-    const options = { expectedUserId };
+    const options = { expectedUserId, authSession: await session };
     const profile = await ensureProfileExists('', options);
     const edited = withLearnerNote(profile, text, at);
     if (!text.trim()) throw new Error('Enter a note to save.');
     await saveLearnerProfile(edited, options);
+    await assertProfileOwner(expectedUserId, session);
     let changed = false, modelError = null;
     try {
       const result = await orchestrator.updateProfileFromFeedback(edited, text.trim(), {
@@ -69,7 +70,7 @@ export function removeLearnerNote(selected, { expectedUserId } = {}) {
   const session = captureAuthSession();
   return queueProfileUpdate(async () => {
     await assertProfileOwner(expectedUserId, session);
-    const options = { expectedUserId };
+    const options = { expectedUserId, authSession: await session };
     const profile = await ensureProfileExists('', options);
     const edited = withoutLearnerNote(profile, selected);
     await saveLearnerProfile(edited, options);
@@ -114,11 +115,13 @@ async function saveProfileResult(existing, result, options) {
   }
   const merged = mergeProfile(existing, result.profile);
   await saveLearnerProfile(merged, options);
+  await assertProfileOwner(options.expectedUserId, options.authSession);
   if (result.summary) await saveLearnerProfileSummary(result.summary, options);
   return true;
 }
 
 export async function ensureProfileExists(name = '', options) {
+  if (options?.expectedUserId && !options.authSession) options = { ...options, authSession: await captureAuthSession() };
   if (options?.expectedUserId) await assertTurnOwner(options.expectedUserId);
   let profile = await getLearnerProfile(options);
   if (options?.expectedUserId) await assertTurnOwner(options.expectedUserId);
@@ -126,6 +129,7 @@ export async function ensureProfileExists(name = '', options) {
     profile = defaultProfile();
     profile.name = name;
     await saveLearnerProfile(profile, options);
+    if (options?.expectedUserId) await assertProfileOwner(options.expectedUserId, options.authSession);
     await saveLearnerProfileSummary('New learner — profile will be built as they learn.', options);
   }
   return profile;
@@ -141,7 +145,7 @@ export function updateProfileInBackground(lessonId, assessmentResult, context) {
     const userId = await owner;
     if (!userId) return;
     await assertProfileOwner(userId, session);
-    const options = { expectedUserId: userId };
+    const options = { expectedUserId: userId, authSession: await session };
     const profile = await ensureProfileExists('', options);
     const updated = orchestrator.incrementalProfileUpdate(profile, lessonId, assessmentResult);
     await saveLearnerProfile(updated, options);
@@ -158,8 +162,9 @@ export function updateProfileOnCompletionInBackground(lessonKB, lesson, context)
     const userId = await owner;
     if (!userId) return;
     await assertProfileOwner(userId, session);
-    const options = { expectedUserId: userId };
+    const options = { expectedUserId: userId, authSession: await session };
     const profile = await ensureProfileExists('', options);
+    await assertProfileOwner(userId, session);
     const result = await orchestrator.updateProfileOnCompletion(
       profile, lessonKB, lesson.name, lesson.lessonId, lessonKB.activitiesCompleted, { ...context, userId }
     );
@@ -186,8 +191,9 @@ export function updateProfileFromObservation(lessonKB, observation, context) {
     const userId = await owner;
     if (!userId) return;
     await assertProfileOwner(userId, session);
-    const options = { expectedUserId: userId };
+    const options = { expectedUserId: userId, authSession: await session };
     const profile = await ensureProfileExists('', options);
+    await assertProfileOwner(userId, session);
     const result = await orchestrator.updateProfileFromFeedback(profile, observation, {
       lessonName: lessonKB.name || 'Lesson', activityType: 'coaching', activityGoal: 'Coach observation',
     }, { ...context, userId }, { source: 'coach' });
