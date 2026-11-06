@@ -184,10 +184,15 @@ export async function completeExternalAuth(identity, options = {}) {
     customFields = merged.values;
   }
 
+  // Only one of the classroom's groups, as at password signup: broadcasts and
+  // admin filters match groups by name. A provider's choice comes first; a
+  // wait-list group may have been renamed or deleted since the person joined.
   let profileGroup = null;
-  if (profile?.userGroup) {
-    const settings = await db.getSyncData('_system', 'settings');
-    if ((settings?.data?.userGroups || []).includes(profile.userGroup)) profileGroup = profile.userGroup;
+  let chosenGroup = null;
+  if (profile?.userGroup || options.userGroup) {
+    const groups = (await db.getSyncData('_system', 'settings'))?.data?.userGroups || [];
+    if (groups.includes(profile?.userGroup)) profileGroup = profile.userGroup;
+    if (typeof options.userGroup === 'string' && groups.includes(options.userGroup)) chosenGroup = options.userGroup;
   }
 
   const nameInput = readNameInput(options.firstName !== undefined ? options : { name: displayName }, { required: true });
@@ -213,7 +218,7 @@ export async function completeExternalAuth(identity, options = {}) {
     username,
     passwordHash,
     ...nameInput.fields,
-    userGroup: options.userGroup || profileGroup || null,
+    userGroup: chosenGroup || profileGroup || null,
     role: assignedRole,
     slackUserId: invite?.slackUserId || null,
     customFields,

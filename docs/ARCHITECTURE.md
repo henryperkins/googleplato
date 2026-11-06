@@ -2476,7 +2476,10 @@ research and reporting. It's shown to staff only (everyone with `users.read`: ad
 
 Group names live in `_system:settings.userGroups`. Membership is the name on
 each user (`userGroup`), on wait-list entries and invites (`profile.userGroup`),
-and on messages sent to a group (`audience.group`). `server/src/lib/groups.js`
+and on messages sent to a group (`audience.group`). A new account only ever
+gets a listed group: password signup and an external sign-in
+(`completeExternalAuth`) both drop a chosen group that isn't listed, falling
+back to the invitation's (if still listed) or none. `server/src/lib/groups.js`
 owns them:
 - Names are 1–80 characters and **unique ignoring case**. The list is stored
   sorted A–Z, with "None" and "Other" last; `GET /v1/groups` sorts older lists
