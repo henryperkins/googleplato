@@ -181,8 +181,10 @@ describe('Invitation-only Google sign-in', { timeout: 90000 }, () => {
       await page.keyboard.press('Enter');
       await page.waitForURL(`${base}/waitlist`);
       await page.getByRole('heading', { name: 'Join the wait list', exact: true }).waitFor();
-      assert.equal(await page.getByLabel('First name', { exact: true }).inputValue(), 'New Learner');
-      assert.equal(await page.getByLabel(/^Last name/).inputValue(), '');
+      // Google's full name is split like the server splits one (#402), never
+      // put whole into First name.
+      assert.equal(await page.getByLabel('First name', { exact: true }).inputValue(), 'New');
+      assert.equal(await page.getByLabel(/^Last name/).inputValue(), 'Learner');
       assert.equal(await page.getByLabel('Email', { exact: true }).inputValue(), 'new.learner@example.test');
     } finally { await context.close(); }
   });
