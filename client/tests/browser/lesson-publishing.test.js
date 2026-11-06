@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -15,10 +16,10 @@ const root = fileURLToPath(new URL('../../..', import.meta.url));
 const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
 const browserType = { chromium, firefox, webkit }[browserName];
 assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
-const evidenceRoot = process.env.PLATO_TEST_EVIDENCE || join(root, 'output/playwright');
-const publishingEvidence = join(evidenceRoot, 'lesson-publishing', browserName === 'chromium' ? '' : browserName);
-const mobileEvidence = join(evidenceRoot, 'lesson-mobile-refinement', browserName === 'chromium' ? '' : browserName);
-const workspaceEvidence = join(evidenceRoot, 'lesson-workspace', browserName);
+const evidenceRoot = browserEvidence('lesson-publishing', browserName);
+const publishingEvidence = join(evidenceRoot, 'publishing');
+const mobileEvidence = join(evidenceRoot, 'mobile-refinement');
+const workspaceEvidence = join(evidenceRoot, 'workspace');
 const markdown = '# Reviewed Lesson\n\n## Exemplar\nWrite a clear summary.\n\n## Learning Objectives\n- Can identify the main idea.\n- Can write a concise summary.';
 let browser;
 let server;
@@ -84,7 +85,7 @@ async function review(page) {
   await page.getByRole('complementary', { name: 'Lesson markdown preview' }).getByRole('heading', { name: 'Reviewed Lesson', exact: true }).waitFor();
 }
 
-describe('Lesson publishing workflow', { timeout: 90000 }, () => {
+describe('Lesson publishing workflow', { timeout: 180000 }, () => {
   before(async () => {
     await mkdir(publishingEvidence, { recursive: true });
     await mkdir(mobileEvidence, { recursive: true });

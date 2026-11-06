@@ -1,16 +1,15 @@
+import { browserEvidence } from './evidence.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '');
-const port = Number(process.env.PLATO_AUDIENCE_TEST_PORT || 3497);
-const base = `http://127.0.0.1:${port}`;
-let server, browser, evidence;
+const evidence = browserEvidence('notification-audience');
+let server, browser, base;
 
 // Render the real page and UI components; only authentication and HTTP are
 // synthetic. No persistent server/database or external delivery is involved.
@@ -77,14 +76,12 @@ async function open(t) {
   };
 }
 
-describe('notification audience preview and confirmation', () => {
+describe('notification audience preview and confirmation', { timeout: 120000 }, () => {
   before(async () => {
-    evidence = process.env.PLATO_TEST_EVIDENCE || await mkdtemp(join(tmpdir(), 'plato-audience-'));
-    await mkdir(evidence, { recursive: true });
     server = await createServer({
       configFile: join(root, 'client/vite.config.js'), root: join(root, 'client'),
       cacheDir: join(evidence, 'vite-cache'),
-      server: { host: '127.0.0.1', port, strictPort: true, hmr: false },
+      server: { host: '127.0.0.1', port: 0, strictPort: true, hmr: false },
       plugins: [{
         name: 'notification-audience-test', enforce: 'pre',
         resolveId(id) { if (id === '/__audience-entry.jsx') return '\0audience-review'; },
@@ -101,6 +98,7 @@ describe('notification audience preview and confirmation', () => {
       }],
     });
     await server.listen();
+    base = `http://127.0.0.1:${server.httpServer.address().port}`;
     browser = await chromium.launch();
   });
   after(async () => { await browser?.close(); await server?.close(); });

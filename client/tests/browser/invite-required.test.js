@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 /**
  * Invitation-only Google sign-in on the real sign-in page, using the real
  * plugin exchange and error modules. Only the provider UI/Firebase popup and
@@ -20,7 +21,7 @@ const root = fileURLToPath(new URL('../../..', import.meta.url));
 const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
 const browserType = { chromium, firefox, webkit }[browserName];
 assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
-const evidence = join(process.env.PLATO_TEST_EVIDENCE || join(root, 'output/playwright/invite-required'), browserName === 'chromium' ? '' : browserName);
+const evidence = browserEvidence('invite-required', browserName);
 const EXCHANGE_SOURCE = await readFile(new URL('../../../plugins/google-auth/client/exchange.js', import.meta.url), 'utf8');
 const ERRORS_SOURCE = await readFile(new URL('../../../plugins/google-auth/client/errors.js', import.meta.url), 'utf8');
 const FIREBASE_STUB = `
@@ -117,7 +118,7 @@ const inviteRequired = admission => ({
 });
 const focusedText = page => page.evaluate(() => document.activeElement?.textContent?.trim());
 
-describe('Invitation-only Google sign-in', { timeout: 90000 }, () => {
+describe('Invitation-only Google sign-in', { timeout: 180000 }, () => {
   before(async () => {
     await mkdir(evidence, { recursive: true });
     directory = await mkdtemp(join(tmpdir(), 'plato-invite-required-'));

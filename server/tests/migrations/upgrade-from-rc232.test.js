@@ -231,6 +231,44 @@ describe('upgrade from Beta-RC-232', () => {
     assert.match(cloudBuild, /PLATO_REQUIRE_RC232=1/);
   });
 
+  it('runs every browser regression serially through the local wildcard command', () => {
+    const client = JSON.parse(readFileSync(join(REPO_DIR, 'client/package.json'), 'utf8'));
+    assert.equal(client.scripts['test:browser'], 'node --test --test-concurrency=1 tests/browser/*.test.js');
+  });
+
+  it('runs every browser regression before either Cloud Build gate can pass', () => {
+    for (const filename of ['cloudbuild.yaml', 'cloudbuild.verify.yaml']) {
+      const config = readFileSync(join(REPO_DIR, 'deploy/cloudrun', filename), 'utf8');
+      assert.match(config, /npm run lint\s+npm test\s+npm run build:client/);
+      assert.match(config, new RegExp(`git fetch -q --no-tags --depth=1 origin ${RC232_COMMIT}`));
+      assert.match(config, /playwright install --with-deps chromium\s+ npm --prefix client run test:browser\s*(?:\n|$)/);
+      assert.doesNotMatch(config, /run test:browser:admin/);
+      assert.match(config, /PLATO_REQUIRE_RC232=1/);
+      assert.match(config, /PLATO_RC232_SRC=\/workspace\/server\/\.rc232\/src/);
+      assert.match(config, /POSTGRES_TEST_URL=postgres:\/\/postgres:plato-test@plato-test-pg:5432\/postgres/);
+      assert.match(config, /^timeout: '[0-9]+s'$/m, 'explicit build timeout');
+      const steps = [...config.matchAll(/^ {2}- id: ([^\n]+)\n([\s\S]*?)(?=^ {2}- id: |$(?![\s\S]))/gm)];
+      assert.ok(steps.length >= 4);
+      for (const [, id, step] of steps) assert.match(step, /^ {4}timeout: '[0-9]+s'$/m, `${filename}: explicit ${id} timeout`);
+    }
+  });
+
+  it('verifies candidate heads without building, publishing or deploying an image', () => {
+    const filename = join(REPO_DIR, 'deploy/cloudrun/cloudbuild.verify.yaml');
+    assert.ok(existsSync(filename), 'candidate verification config exists');
+    const verify = readFileSync(filename, 'utf8');
+    assert.deepEqual([...verify.matchAll(/^ {2}- id: (.+)$/gm)].map(match => match[1]), ['source', 'test-db', 'test-db-ready', 'test', 'e2e']);
+    assert.match(verify, /cd e2e\s+npm ci\s+npx playwright install --with-deps chromium\s+npx playwright test/);
+    assert.doesNotMatch(verify, /gcloud run|docker build|docker push|deploy-service|push-sha|push-latest/);
+    const e2e = readFileSync(join(REPO_DIR, 'e2e/playwright.config.js'), 'utf8');
+    assert.match(e2e, /retries: 0,/);
+  });
+
+  it('keeps portable lint checks active when a pull request reopens or becomes ready', () => {
+    const lint = readFileSync(join(REPO_DIR, '.github/workflows/lint.yml'), 'utf8');
+    assert.match(lint, /types: \[opened, synchronize, reopened, ready_for_review\]/);
+  });
+
   // Last: it changes the database. Beta-RC-232 saves a unit by replacing its
   // record, so a rename there drops programId, lessonIds, and bundled. The next
   // start of the new release (lib/unit-repair.js) must put them back.

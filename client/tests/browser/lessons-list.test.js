@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 // Browser checks for the learner's lesson list (/lessons): where focus goes
 // when paging, the lesson card's focus ring, Start here, and the progress
 // bars' colors. Runs against the isolated learner fixture (SQLite, synthetic
@@ -20,7 +21,7 @@ import { contrastRatio } from '../../src/lib/branding.js';
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const engine = process.env.PLATO_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
 const assets = process.env.PLATO_TEST_CLIENT_DIST || join(root, 'client/dist');
-const evidence = process.env.PLATO_TEST_EVIDENCE;
+const evidence = browserEvidence('lessons-list', engine);
 const password = randomBytes(24).toString('base64url');
 let browser, server, directory, base;
 
@@ -90,7 +91,7 @@ const assertVisible = (colors, where) => {
   assert.ok(contrastRatio(colors.fill, colors.track) >= 3, `${where}: fill ${colors.fill} on ${colors.track}`);
 };
 
-describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
+describe(`lesson list (${engine})`, { timeout: 240000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(assets, 'index.html')), 'Build the client before browser tests');
     if (evidence) await mkdir(evidence, { recursive: true });

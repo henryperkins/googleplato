@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -13,6 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, firefox, webkit } from 'playwright';
 
+browserEvidence('admin-responsive', process.env.PLATO_TEST_BROWSER || 'chromium');
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
 const browserType = { chromium, firefox, webkit }[browserName];
@@ -147,7 +149,7 @@ async function controlUsers(context, count = 4) {
 
 // The timeout covers the whole suite. Cloud Build ran its 24 tests in 89 of the
 // former 90 seconds (build 6bf6dd9a, 2026-11-05), so leave room for growth.
-describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
+describe('Rendered admin responsive regressions', { timeout: 300000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(root, 'client/dist/index.html')), 'Run npm run build:client before browser tests');
     directory = await mkdtemp(join(tmpdir(), 'plato-admin-responsive-'));

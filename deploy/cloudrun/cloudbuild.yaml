@@ -6,7 +6,7 @@
 # us-east1, which holds an inline copy of this file: after editing it, run
 # deploy/cloudrun/configure.sh to refresh the trigger's copy.
 #
-# Lint, unit tests (including PostgreSQL), and admin browser regressions gate
+# Lint, unit tests (including PostgreSQL), and all browser regressions gate
 # the build: :latest is pushed only after the new revision serves traffic.
 #
 # To deploy a pushed commit by hand:
@@ -21,6 +21,9 @@ substitutions:
   _IMAGE: us-east1-docker.pkg.dev/idk-4e9b9/plato/app
   _SERVICE: plato-shaped
 
+# Includes dependency/browser installation and serial browser suites.
+timeout: '5400s'
+
 serviceAccount: projects/idk-4e9b9/serviceAccounts/plato-deploy@idk-4e9b9.iam.gserviceaccount.com
 
 options:
@@ -30,6 +33,7 @@ options:
 
 steps:
   - id: source
+    timeout: '300s'
     name: gcr.io/cloud-builders/git
     entrypoint: bash
     args:
@@ -54,6 +58,7 @@ steps:
   # Disposable PostgreSQL for the test gate, reachable as plato-test-pg on the
   # build network. Steps share the /workspace checkout from `source`.
   - id: test-db
+    timeout: '120s'
     name: gcr.io/cloud-builders/docker
     waitFor: [source]
     args:
@@ -66,6 +71,7 @@ steps:
       - postgres:17-bookworm
 
   - id: test-db-ready
+    timeout: '90s'
     name: postgres:17-bookworm
     entrypoint: bash
     waitFor: [test-db]
@@ -74,6 +80,7 @@ steps:
       - 'for i in $(seq 1 60); do pg_isready -q -h plato-test-pg -U postgres && exit 0; sleep 1; done; exit 1'
 
   - id: test
+    timeout: '2400s'
     name: node:24-bookworm-slim
     entrypoint: bash
     waitFor: [test-db-ready]
@@ -91,9 +98,10 @@ steps:
         npm test
         npm run build:client
         npm exec --workspace=client -- playwright install --with-deps chromium
-        npm --prefix client run test:browser:admin
+        npm --prefix client run test:browser
 
   - id: build
+    timeout: '600s'
     name: gcr.io/cloud-builders/docker
     waitFor: [test]
     env: [DOCKER_BUILDKIT=1]
@@ -106,11 +114,13 @@ steps:
       - .
 
   - id: push-sha
+    timeout: '300s'
     name: gcr.io/cloud-builders/docker
     waitFor: [build]
     args: [push, "${_IMAGE}:${_SHA}"]
 
   - id: deploy-service
+    timeout: '600s'
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
     waitFor: [push-sha]
@@ -135,6 +145,7 @@ steps:
           --quiet
 
   - id: push-latest
+    timeout: '300s'
     name: gcr.io/cloud-builders/docker
     waitFor: [deploy-service]
     args: [push, "${_IMAGE}:latest"]

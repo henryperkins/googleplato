@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -15,7 +16,7 @@ import { chromium, webkit } from 'playwright';
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const engine = process.env.PLATO_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
 const assets = process.env.PLATO_TEST_CLIENT_DIST || join(root, 'client/dist');
-const evidence = process.env.PLATO_TEST_EVIDENCE || join(root, 'output/playwright/learner-recovery');
+const evidence = browserEvidence('learner-recovery', engine);
 const password = randomBytes(24).toString('base64url');
 let browser, server, directory, base, storageState;
 const results = [];
@@ -120,7 +121,7 @@ async function withPage(t, run) {
   } finally { await context.close(); }
 }
 
-describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000 }, () => {
+describe(`Learner recovery and responsive layout (${engine})`, { timeout: 360000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(assets, 'index.html')), 'Build the client before browser tests');
     await mkdir(evidence, { recursive: true });

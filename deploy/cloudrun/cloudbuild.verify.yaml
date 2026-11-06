@@ -1,0 +1,101 @@
+# Verify a pushed candidate commit without publishing or changing Cloud Run.
+# Keep source and test steps aligned with cloudbuild.yaml.
+
+substitutions:
+  _SHA: ""
+
+# Includes dependency/browser installation and serial browser suites.
+timeout: '5400s'
+
+serviceAccount: projects/idk-4e9b9/serviceAccounts/plato-deploy@idk-4e9b9.iam.gserviceaccount.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  # The webhook trigger also passes _REF, which only its filter reads.
+  substitutionOption: ALLOW_LOOSE
+
+steps:
+  - id: source
+    timeout: '300s'
+    name: gcr.io/cloud-builders/git
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -eu
+        if ! [[ "${_SHA}" =~ ^[0-9a-f]{40}$ ]] || [ "${_SHA}" = "0000000000000000000000000000000000000000" ]; then
+          echo "_SHA (a valid 40-character commit SHA to verify) is required; got '${_SHA}'" >&2
+          exit 1
+        fi
+        git init -q .
+        git remote add origin https://github.com/henryperkins/googleplato.git
+        git fetch -q --depth=1 origin "${_SHA}"
+        git checkout -q FETCH_HEAD
+        # The upgrade gate (server/tests/migrations/upgrade-from-rc232.test.js)
+        # runs Beta-RC-232's own route handlers. The test image has no git, so
+        # extract that pinned commit's server/src here (main contains it).
+        git fetch -q --no-tags --depth=1 origin 629c77811985085b88dacabe1514b2f221eb0859
+        mkdir -p server/.rc232
+        git archive 629c77811985085b88dacabe1514b2f221eb0859 server/src | tar -x --strip-components=1 -C server/.rc232
+
+  # Disposable PostgreSQL for the test gate, reachable as plato-test-pg on the
+  # build network. Steps share the /workspace checkout from `source`.
+  - id: test-db
+    timeout: '120s'
+    name: gcr.io/cloud-builders/docker
+    waitFor: [source]
+    args:
+      - run
+      - -d
+      - --network=cloudbuild
+      - --name=plato-test-pg
+      - -e
+      - POSTGRES_PASSWORD=plato-test
+      - postgres:17-bookworm
+
+  - id: test-db-ready
+    timeout: '90s'
+    name: postgres:17-bookworm
+    entrypoint: bash
+    waitFor: [test-db]
+    args:
+      - -c
+      - 'for i in $(seq 1 60); do pg_isready -q -h plato-test-pg -U postgres && exit 0; sleep 1; done; exit 1'
+
+  - id: test
+    timeout: '2400s'
+    name: node:24-bookworm-slim
+    entrypoint: bash
+    waitFor: [test-db-ready]
+    env:
+      - POSTGRES_TEST_URL=postgres://postgres:plato-test@plato-test-pg:5432/postgres
+      # The Beta-RC-232 tree the source step extracted; the gate must run it.
+      - PLATO_RC232_SRC=/workspace/server/.rc232/src
+      - PLATO_REQUIRE_RC232=1
+    args:
+      - -c
+      - |
+        set -eu
+        npm ci --no-audit --no-fund
+        npm run lint
+        npm test
+        npm run build:client
+        npm exec --workspace=client -- playwright install --with-deps chromium
+        npm --prefix client run test:browser
+
+  - id: e2e
+    timeout: '1800s'
+    name: node:24-bookworm-slim
+    entrypoint: bash
+    waitFor: [test]
+    env:
+      - CI=true
+      - PLATO_REQUIRE_RC232=1
+    args:
+      - -c
+      - |
+        set -eu
+        cd e2e
+        npm ci
+        npx playwright install --with-deps chromium
+        npx playwright test

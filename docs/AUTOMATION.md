@@ -5,8 +5,8 @@ Do not retry or troubleshoot their billing. The workflow descriptions below
 are historical/portable deployment context. For Cloud Run, Cloud Build is the
 CI: the `test` step in `deploy/cloudrun/cloudbuild.yaml` runs lint and the
 client/server unit tests (including PostgreSQL), builds the client, installs
-Chromium and its system dependencies, then runs the admin responsive browser
-regressions (`npm --prefix client run test:browser:admin`) before any image is
+Chromium and its system dependencies, then runs every browser suite serially
+(`npm --prefix client run test:browser`) before any image is
 built or deployed. Its `source` step also extracts Beta-RC-232's `server/src`
 (the pinned commit in `ROLLBACK_BASELINE`, `server/src/lib/migrations.js`)
 into `server/.rc232`, because the test image has no git, and the `test` step
@@ -15,6 +15,90 @@ gate's rollback checks run instead of skipping. `.dockerignore` keeps that
 tree out of the image. After merging a pipeline change, run
 `deploy/cloudrun/configure.sh` to refresh the `plato-main` trigger's inline
 build configuration.
+
+## Verify a candidate without deployment
+
+For each pushed candidate head, submit the test-only configuration and record
+its build ID with the reviewed commit. It fetches that exact commit, starts a
+disposable PostgreSQL 17, runs the same lint/unit/build/browser gate as the
+deploy pipeline, then runs the separate Playwright end-to-end suite. It has no
+image build, image push, or Cloud Run update steps:
+
+```bash
+gcloud builds submit --no-source --project=idk-4e9b9 --region=us-east1 \
+  --config=deploy/cloudrun/cloudbuild.verify.yaml \
+  --substitutions=_SHA="$(git rev-parse HEAD)"
+```
+
+Never submit `cloudbuild.yaml` for a PR head: it deploys `plato-shaped`.
+After an approved merge, refresh the webhook trigger's inline config with
+`deploy/cloudrun/configure.sh` as described above.
+
+Both configurations explicitly allow 2,400 seconds for the test step and
+5,400 seconds for the entire build; the verify configuration gives end-to-end
+checks 1,800 seconds. Each step also has an explicit timeout. Browser suite
+limits include at least twice their first measured runtime (the admin suite
+previously took about 95 seconds in Cloud Build, so its limit is now 300
+seconds). Record suite durations from Node's test output on the first hosted
+run and increase any budget that has less than 2× headroom. Playwright retries
+stay disabled: the shared fixture must pass on its first attempt.
+
+`PLATO_TEST_EVIDENCE` selects a run directory. Browser suites place artifacts
+under `<run>/<suite>/<browser>/`, so serial runs and individually selected
+suites keep separate evidence. Without the variable they use
+`output/playwright/<suite>/<browser>/`.
+
+For a local Docker rehearsal, export the committed candidate into a disposable
+directory and run the YAML's test command verbatim in `node:24-bookworm-slim`.
+This installs dependencies inside the exported tree, preserving the checkout's
+modules. The PostgreSQL container and network are disposable too. The host
+needs Docker, Git, and Python 3; `PyYAML` is not required. Extract RC-232 exactly
+as the source step does, and supply both required rollback variables:
+
+```bash
+rehearsal=$(mktemp -d)
+network="plato-verify-$$"
+pg="plato-verify-pg-$$"
+cleanup() {
+  docker rm -f "$pg" >/dev/null 2>&1 || true
+  docker network rm "$network" >/dev/null 2>&1 || true
+  rm -rf "$rehearsal"
+}
+trap cleanup EXIT
+
+git archive HEAD | tar -x -C "$rehearsal"
+mkdir -p "$rehearsal/server/.rc232"
+git archive 629c77811985085b88dacabe1514b2f221eb0859 server/src \
+  | tar -x --strip-components=1 -C "$rehearsal/server/.rc232"
+# If the pinned commit is absent, fetch it first using the source step's command.
+
+# Extract the literal test block; do not maintain a second copy of its commands.
+python3 - "$rehearsal" <<'PYTHON'
+import pathlib
+import sys
+root = pathlib.Path(sys.argv[1])
+yaml = (root / 'deploy/cloudrun/cloudbuild.verify.yaml').read_text()
+step = yaml.split('  - id: test\n', 1)[1].split('  - id: ', 1)[0]
+script = step.split('      - |\n', 1)[1]
+(root / 'verify-test.sh').write_text('\n'.join(line[8:] for line in script.splitlines() if line.startswith('        ')) + '\n')
+PYTHON
+
+docker network create "$network"
+docker run -d --network="$network" --network-alias=plato-test-pg \
+  --name="$pg" -e POSTGRES_PASSWORD=plato-test postgres:17-bookworm
+docker run --rm --network="$network" postgres:17-bookworm bash -c \
+  'for i in $(seq 1 60); do pg_isready -q -h plato-test-pg -U postgres && exit 0; sleep 1; done; exit 1'
+docker run --rm --network="$network" -v "$rehearsal:/workspace" -w /workspace \
+  -e POSTGRES_TEST_URL=postgres://postgres:plato-test@plato-test-pg:5432/postgres \
+  -e PLATO_RC232_SRC=/workspace/server/.rc232/src \
+  -e PLATO_REQUIRE_RC232=1 \
+  node:24-bookworm-slim bash /workspace/verify-test.sh
+# Optional: rehearse the verify-only e2e step in the same exported tree.
+docker run --rm --network="$network" -v "$rehearsal:/workspace" -w /workspace \
+  -e CI=true -e PLATO_REQUIRE_RC232=1 node:24-bookworm-slim bash -c \
+  'set -eu; cd e2e; npm ci; npx playwright install --with-deps chromium; npx playwright test'
+```
+
 The independent [deployment monitor](DEPLOYMENT_WATCH.md) runs every five
 minutes through Cloud Scheduler and Cloud Run. It compares remote main, Cloud
 Build activity, and public serving identity, alerts on missed deployments or

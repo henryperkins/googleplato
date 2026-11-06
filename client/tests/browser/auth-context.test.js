@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -11,6 +12,7 @@ import { chromium } from 'playwright';
 
 const require = createRequire(import.meta.url);
 let browser, server, base;
+browserEvidence('auth-context');
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 async function open() {
   const context = await browser.newContext();
@@ -32,7 +34,7 @@ async function open() {
   return { context, page };
 }
 
-describe('AuthContext session publication', () => {
+describe('AuthContext session publication', { timeout: 120000 }, () => {
   before(async () => {
     const reservation = createServer().listen(0, '127.0.0.1');
     await once(reservation, 'listening');
