@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import db from '../../../src/lib/db.js';
-import { getUserMeta, putUserMeta, deleteUserMeta } from '../../../src/lib/plugins/sdk.js';
+import { getUserMeta, putUserMeta, updateUserMeta, deleteUserMeta } from '../../../src/lib/plugins/sdk.js';
 
 function fakeUserSyncStore() {
   const store = new Map();
@@ -23,7 +23,7 @@ function fakeUserSyncStore() {
   };
 }
 
-describe('plugin SDK — getUserMeta / putUserMeta / deleteUserMeta', () => {
+describe('plugin SDK — user metadata', () => {
   let store;
   beforeEach(() => {
     store = fakeUserSyncStore();
@@ -81,5 +81,64 @@ describe('plugin SDK — getUserMeta / putUserMeta / deleteUserMeta', () => {
     await assert.rejects(() => putUserMeta('usr_x', 'demo', null), /must be an object/);
     await assert.rejects(() => putUserMeta('usr_x', 'demo', 'string'), /must be an object/);
     await assert.rejects(() => deleteUserMeta('', 'demo'), /required/);
+  });
+
+  it('updateUserMeta uses one consistent read and a strict conditional write', async () => {
+    await putUserMeta('usr_x', 'demo', { count: 1 });
+    const read = db.getSyncData;
+    const write = db.putSyncData;
+    let reads = 0;
+    let writeArgs;
+    db.getSyncData = async (...args) => {
+      reads++;
+      assert.deepEqual(args[2], { consistentRead: true });
+      return read(...args);
+    };
+    db.putSyncData = async (...args) => {
+      writeArgs = args;
+      return write(...args);
+    };
+
+    await updateUserMeta('usr_x', 'demo', (meta) => ({ count: meta.count + 1 }));
+
+    assert.equal(reads, 1);
+    assert.equal(writeArgs[3], 1);
+    assert.deepEqual(writeArgs[4], { strictVersion: true });
+    const raw = await store.getSyncData('usr_x', 'userMeta:demo');
+    assert.deepEqual(raw.data, { count: 2 });
+  });
+
+  it('updateUserMeta validates its updater and returned object', async () => {
+    await assert.rejects(() => updateUserMeta('usr_x', 'demo', null), /updater must be a function/);
+    await assert.rejects(() => updateUserMeta('usr_x', 'demo', () => null), /updater must return an object/);
+    await assert.rejects(() => updateUserMeta('usr_x', 'demo', () => []), /updater must return an object/);
+    await assert.rejects(() => updateUserMeta('usr_x', 'demo', () => 'string'), /updater must return an object/);
+  });
+
+  it('updateUserMeta propagates a conflict when two updates read the same snapshot', async () => {
+    await putUserMeta('usr_x', 'demo', { count: 1 });
+    const read = db.getSyncData;
+    let reads = 0;
+    let releaseReads;
+    const bothRead = new Promise((resolve) => { releaseReads = resolve; });
+    db.getSyncData = async (...args) => {
+      const snapshot = await read(...args);
+      reads++;
+      if (reads === 2) releaseReads();
+      await bothRead;
+      return snapshot;
+    };
+
+    const results = await Promise.allSettled([
+      updateUserMeta('usr_x', 'demo', (meta) => ({ ...meta, writer: 'a' })),
+      updateUserMeta('usr_x', 'demo', (meta) => ({ ...meta, writer: 'b' })),
+    ]);
+
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    assert.equal(rejected.reason.name, 'ConditionalCheckFailedException');
+    const raw = await store.getSyncData('usr_x', 'userMeta:demo');
+    assert.equal(raw.version, 2);
+    assert.ok(['a', 'b'].includes(raw.data.writer));
   });
 });

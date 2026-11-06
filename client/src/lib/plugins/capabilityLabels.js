@@ -18,6 +18,7 @@ const STATIC_LABELS = {
   'agent': 'Provide AI agents',
   'syncData.namespace': 'Store per-user data',
   'lessonEnrichment': 'Add reference material when a lesson starts',
+  'auth.provider': 'Verify external identities and create plato sessions',
 };
 
 const HOOK_LABELS = {
@@ -27,6 +28,7 @@ const HOOK_LABELS = {
   lessonStarted: 'Run when a lesson starts',
   lessonCompleted: 'Run when a lesson is completed',
   coachExchangeRecorded: 'Run when a coach exchange is recorded',
+  userDeleted: 'Run before a user and their records are deleted',
 };
 
 const SLOT_LABELS = {
@@ -36,6 +38,7 @@ const SLOT_LABELS = {
   adminProfileFields: 'Show a section on the Edit User page',
   learnerProfileFields: 'Show a field in the learner profile',
   learnerHomeBanner: 'Show a banner on the learner home',
+  publicAuthProvider: 'Show a sign-in option on public account pages',
 };
 
 // camelCase / snake_case / kebab-case -> "bot user token"

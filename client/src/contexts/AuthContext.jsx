@@ -75,9 +75,9 @@ export function AuthProvider({ children }) {
     return authUser;
   }, []);
 
-  const loginWithGoogle = useCallback(async (options = {}) => {
+  const adoptExternalSession = useCallback(async (session, provider) => {
     const ticket = ++publication.current;
-    const authUser = await authModule.loginWithGoogle(options);
+    const authUser = await authModule.adoptAuthSession(session, provider);
     if (ticket !== publication.current) return authUser;
     setLoading(false);
     setLoggedIn(true);
@@ -162,7 +162,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      loggedIn, user, loading, login, loginWithGoogle, logout, refreshUser, sessionExpired, signedOutReason,
+      loggedIn, user, loading, login, adoptExternalSession, logout, refreshUser, sessionExpired, signedOutReason,
       impersonatedUser, startImpersonation, stopImpersonation,
     }}>
       {children}

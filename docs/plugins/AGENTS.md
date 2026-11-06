@@ -258,7 +258,13 @@ export default {
 
 Errors propagate to the admin — partial cleanup failures are loud, not silent. The host audit-logs `plugin_data_uninstalled` with the admin's user id.
 
-### Recipe 11 — minimal vitest skeleton for a plugin route
+### Recipe 11 — add a public external-auth provider
+
+Declare `auth.provider`, `ui.slot.publicAuthProvider`, an `authProvider` manifest object, and a `publicAuthProvider` client slot. Only flat, non-writeOnly keys named in `authProvider.publicSettings` are exposed by public `GET /v1/auth/providers`; disabled providers are omitted and not imported.
+
+The plugin route verifies its provider token, then delegates to `completeExternalAuth(identity, options)` from the SDK. Core owns admission, invitations, roles, account creation, `userCreated`, and plato tokens. Do not recreate those rules or add a provider-specific core route. See `plugins/google-auth/` and [EXTENSION_REFERENCE.md](./EXTENSION_REFERENCE.md#public-auth-provider-declaration) for the full contract.
+
+### Recipe 12 — minimal node:test skeleton for a plugin route
 
 ```js
 // plugins/<id>/server/index.test.js

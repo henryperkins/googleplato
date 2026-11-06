@@ -4,8 +4,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
-// Link the production module to a controlled SDK boundary, without importing
-// Firebase's browser persistence or changing the normal test command's flags.
+// Link the google-auth plugin module to a controlled SDK boundary, without
+// importing Firebase's browser persistence or changing the normal test flags.
 test('Firebase sign-in and sign-out lifecycle regressions', async () => {
   const fixture = fileURLToPath(new URL('./fixtures/firebaseAuthLifecycle.js', import.meta.url));
   try {

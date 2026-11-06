@@ -49,6 +49,23 @@ export async function putUserMeta(userId, pluginId, data) {
   return dbDefault.putSyncData(userId, `userMeta:${pluginId}`, data, existing?.version || 0);
 }
 
+export async function updateUserMeta(userId, pluginId, updater) {
+  if (!userId || !pluginId) throw new Error('userId and pluginId required');
+  if (typeof updater !== 'function') throw new Error('updater must be a function');
+  const existing = await dbDefault.getSyncData(userId, `userMeta:${pluginId}`, { consistentRead: true });
+  const data = await updater(existing?.data ?? null);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('updater must return an object');
+  }
+  return dbDefault.putSyncData(
+    userId,
+    `userMeta:${pluginId}`,
+    data,
+    existing?.version || 0,
+    { strictVersion: true }
+  );
+}
+
 export async function deleteUserMeta(userId, pluginId) {
   if (!userId || !pluginId) throw new Error('userId and pluginId required');
   return dbDefault.deleteSyncData(userId, `userMeta:${pluginId}`);
@@ -60,6 +77,11 @@ export { requireAdmin } from '../../middleware/requireAdmin.js';
 export { generateInviteToken } from '../crypto.js';
 
 export { APP_URL } from '../../config.js';
+
+// Public auth plugins verify their provider token, then delegate admission and
+// plato session issuance to this single host-owned implementation.
+export { completeExternalAuth } from '../external-auth.js';
+export { createRemoteJWKSet, jwtVerify } from 'jose';
 
 export { logger as hostLogger } from '../logger.js';
 

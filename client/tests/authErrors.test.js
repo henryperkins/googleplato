@@ -1,13 +1,14 @@
 /**
- * Sign-in error copy (client/src/lib/authErrors.js): learners never see raw
- * Firebase codes or console instructions, and a closed Google window isn't
- * reported as an error.
+ * Core sign-in error copy plus the google-auth plugin's Firebase error boundary.
+ * Learners never see raw Firebase codes or console instructions, and a closed
+ * Google window isn't reported as an error.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  OFFLINE_MESSAGE, googleSignInError, passwordSignInError, requestError, missingFieldsMessage,
+  OFFLINE_MESSAGE, passwordSignInError, requestError, missingFieldsMessage,
 } from '../src/lib/authErrors.js';
+import { googleSignInError } from '../../plugins/google-auth/client/errors.js';
 
 function firebaseError(code) {
   const err = new Error(`Firebase: Error (${code}).`);

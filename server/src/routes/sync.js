@@ -500,9 +500,12 @@ sync.post('/v1/sync/lesson-started', async (c) => {
     return c.json({ error: 'lesson.markdown exceeds 100k character limit' }, 413);
   }
 
-  // Collect startup steps from enabled plugins that declare lessonStartupSteps
+  // Collect startup steps from enabled plugins that declare lessonStartupSteps.
+  // If activation cannot be verified, fail the plugin surface open as empty.
   const startupSteps = [];
-  for (const entry of pluginRegistry.list()) {
+  let activationReady = true;
+  try { await pluginRegistry.reconcile({ force: true }); } catch { activationReady = false; }
+  for (const entry of activationReady ? pluginRegistry.list() : []) {
     if (entry.enabled && entry.manifest?.extensionPoints?.lessonStartupSteps) {
       const steps = entry.manifest.extensionPoints.lessonStartupSteps;
       for (const step of steps) {

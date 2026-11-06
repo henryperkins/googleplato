@@ -16,7 +16,6 @@ const session = id => ({ accessToken: `access-${id}`, refreshToken: `refresh-${i
 globalThis.localStorage = browserStorage();
 globalThis.sessionStorage = browserStorage();
 globalThis.window = {};
-globalThis.indexedDB = { databases: async () => [] };
 const storage = await import('../js/storage.js');
 const auth = await import('../js/auth.js');
 
@@ -24,7 +23,6 @@ beforeEach(async () => {
   await storage.clearAuth();
   sessionStorage.clear();
   localStorage.setItem('plato_auth', JSON.stringify(session('a')));
-  globalThis.indexedDB.databases = async () => [];
   globalThis.fetch = async () => json({ ok: true });
 });
 
@@ -276,25 +274,6 @@ test('a delayed Settings response body cannot replace the next account profile',
   localStorage.setItem('plato_auth', JSON.stringify(session('b')));
   body.resolve({ userId: 'a', customFields: { goal: 'A draft' } });
   await rejected;
-  assert.deepEqual(await storage.getAuthTokens(), session('b'));
-});
-
-test('legacy Firebase detection cannot block logout or erase the next account', async () => {
-  const probe = deferred();
-  const old = session('a');
-  delete old.provider;
-  localStorage.setItem('plato_auth', JSON.stringify(old));
-  globalThis.indexedDB.databases = () => probe.promise;
-  globalThis.fetch = async url => url === '/v1/auth/login' ? json(session('b')) : json({ ok: true });
-  const logout = auth.logout();
-  await nextTurn();
-  try {
-    assert.equal(await storage.getAuthTokens(), null);
-    await auth.login('b@example.test', 'test-password');
-  } finally {
-    probe.resolve([]);
-    await logout;
-  }
   assert.deepEqual(await storage.getAuthTokens(), session('b'));
 });
 

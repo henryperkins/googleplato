@@ -277,10 +277,21 @@ timings, retries, enrichment frequency, and lesson cost estimates including
 abandoned attempts. Missing provider usage remains unknown. See
 [inference telemetry](INFERENCE_TELEMETRY.md) for definitions and coverage limits.
 
-## Google sign-in and canonical server storage
+## Optional Google sign-in and canonical server storage
 
-Google sign-in uses Firebase Auth's popup. The server verifies the Firebase ID
-token at `POST /v1/auth/firebase` and returns plato access and refresh tokens.
+Google sign-in is owned by the independently switchable `google-auth` plugin.
+While enabled, public provider discovery (`GET /v1/auth/providers`) returns its
+allowlisted Firebase web configuration and Login, Setup, and Signup lazy-load
+its `publicAuthProvider` slot. The browser popup sends a Firebase ID token to
+`POST /v1/plugins/google-auth/exchange`; the plugin verifies the signature,
+issuer, audience, subject, Google provider claim, and verified email. While
+disabled, discovery omits it, its route returns 404, and neither its server nor
+client module is imported. There is no core Firebase route or compatibility
+alias. Disabling the plugin does not revoke existing plato sessions.
+
+The plugin delegates the verified identity to core `completeExternalAuth`.
+Core alone performs account lookup/creation, invitation checks, role assignment,
+classroom setup, `userCreated` hooks (including Slack), and plato token issuance.
 A verified email that matches an existing account signs in to it. A new account
 needs an invitation, as password signup does: an invite token (email or link) or
 a pending email invite for that address, whose profile it takes. The one
@@ -304,13 +315,11 @@ the named Plato database. Keep the Firebase project and its unrelated databases.
 See [Firestore retirement](FIRESTORE_RETIREMENT.md) for inventory evidence,
 local rules testing, cutover order, and publication status.
 
-- **Firebase Auth stays lazy.** Login, Signup and Setup preload `firebaseAuth.js`
-  at idle (`preloadFirebase`) so the Google popup can open directly from the click.
-  The production browser bundle has no Firestore SDK data path. The Firebase
-  package remains necessary for Auth.
-- **Provider detection is for sign-out.** `usesFirebase()` reads the provider in
-  `plato_auth`; for older sessions it probes `firebaseLocalStorageDb`. This keeps
-  Google cleanup and account-switch protection without loading a data mirror.
+- **Firebase Auth is plugin-lazy.** Only an enabled provider's client chunk can
+  import Firebase. The plugin opens the popup synchronously from the click and
+  signs out Firebase's temporary browser state after every exchange attempt,
+  including rejected admissions and failures. Ordinary plato logout and refresh
+  never import Firebase or probe its IndexedDB state.
 - **Password reset is plato's.** `/forgot-password` uses the server's
   `POST /v1/auth/forgot-password` endpoint. Firebase resets are not used for
   plato password accounts. With delivery enabled, the public endpoint returns

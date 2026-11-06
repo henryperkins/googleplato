@@ -11,7 +11,7 @@ import { validateLessonKB } from '../shared/lessonInitialization.js';
 import { parseCoachResponse, visibleCoachText, reconcileLessonKB, buildContext, submissionSources, retainSources, sourceIdsForEvidence, applyCoachResponseToKB, profileObservationForTurn } from '../shared/coachContract.js';
 import { signCoachTurn, digest, receiptKey } from './coach-receipt.js';
 import { inferenceContext, withInferenceContext } from './inference-telemetry.js';
-import { emit } from './plugins/hooks.js';
+import pluginRegistry from './plugins/registry.js';
 import { logger } from './logger.js';
 import { readCoachResult, storeCoachResult } from './coach-recovery.js';
 import { assessCoachResponse } from './coach-assessment.js';
@@ -59,7 +59,7 @@ export async function collectLessonEnrichments(userId, lesson, lessonKB, telemet
   let timer;
   try {
     return await Promise.race([
-      withInferenceContext(inferenceContext(userId, { ...telemetry, lessonId: lesson.lessonId, agentRole: 'lesson-enrichment' }), () => emit('lessonStarted', { userId, lessonId: lesson.lessonId, lesson, lessonKB })),
+      withInferenceContext(inferenceContext(userId, { ...telemetry, lessonId: lesson.lessonId, agentRole: 'lesson-enrichment' }), () => pluginRegistry.emit('lessonStarted', { userId, lessonId: lesson.lessonId, lesson, lessonKB })),
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 30000); }),
     ]) || [];
   } catch { logger.warn('lesson_enrichment_unavailable', {}); return []; }

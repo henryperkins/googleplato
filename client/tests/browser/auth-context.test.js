@@ -81,6 +81,60 @@ describe('AuthContext session publication', () => {
       assert.equal(await page.evaluate(() => window.publishedUsers.includes('Stale A')), false);
     } finally { await context.close(); }
   });
+  it('adopts an external session only while its starting generation is current', async () => {
+    const { context, page } = await open();
+    try {
+      const result = await page.evaluate(async () => {
+        let completions = 0;
+        const guarded = window.authHarness.createPublicAuthSessionGuard()(
+          { id: 'google-auth' },
+          { onSession: async (session, provider) => {
+            completions += 1;
+            await window.authHarness.adoptExternalSession(session, provider);
+          } },
+        );
+        await guarded.beforeStart();
+        await guarded.onSession({
+          accessToken: 'access-external', refreshToken: 'refresh-external',
+          user: { userId: 'external', name: 'External learner', role: 'learner' },
+        }, 'google-auth');
+        return { completions, stored: JSON.parse(localStorage.getItem('plato_auth')) };
+      });
+      assert.equal(result.completions, 1);
+      assert.equal(result.stored.user.userId, 'external');
+      assert.equal(result.stored.provider, 'google-auth');
+    } finally { await context.close(); }
+  });
+
+  for (const transition of ['switch', 'logout', 'relogin']) {
+    it(`does not adopt a delayed external session after ${transition}`, async () => {
+      const { context, page } = await open();
+      try {
+        const result = await page.evaluate(async transition => {
+          let completions = 0;
+          const guarded = window.authHarness.createPublicAuthSessionGuard()(
+            { id: 'google-auth' },
+            { onSession: async (session, provider) => {
+              completions += 1;
+              await window.authHarness.adoptExternalSession(session, provider);
+            } },
+          );
+          await guarded.beforeStart();
+          await window.authHarness.logout();
+          if (transition !== 'logout') await window.authHarness.login(transition === 'switch' ? 'b' : 'a', 'test');
+          await guarded.onSession({
+            accessToken: 'access-stale', refreshToken: 'refresh-stale',
+            user: { userId: 'stale', name: 'Stale provider', role: 'learner' },
+          }, 'google-auth');
+          return { completions, stored: JSON.parse(localStorage.getItem('plato_auth')) };
+        }, transition);
+        assert.equal(result.completions, 0, 'stale completion must not publish or navigate');
+        assert.equal(result.stored?.user?.userId || null, transition === 'logout' ? null : transition === 'switch' ? 'b' : 'a');
+        assert.notEqual(result.stored?.accessToken, 'access-stale');
+      } finally { await context.close(); }
+    });
+  }
+
   it('cannot start impersonation from a body belonging to a previous login', async () => {
     const { context, page } = await open();
     try {

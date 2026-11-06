@@ -84,7 +84,7 @@ describe('Focus survives async work', () => {
     assert.match(invite, /useEffect\(\(\) => \{ headingRef\.current\?\.focus\(\); \}, \[\]\)/);
     assert.match(invite, /<CardTitle as="h1" ref=\{headingRef\} tabIndex=\{-1\}/);
     const login = read('pages/Login.jsx');
-    assert.match(login, /if \(e\?\.admission\) \{\s*setAdmission\(e\.admission\);\s*return;/);
+    assert.match(login, /onAdmission: setAdmission,/);
     assert.match(login, /<CardTitle as="h1" ref=\{headingRef\} tabIndex=\{-1\}/);
     assert.match(login, /returningRef\.current = false;\s*headingRef\.current\?\.focus\(\);/);
   });

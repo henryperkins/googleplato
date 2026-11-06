@@ -67,9 +67,10 @@ test('signed repair, evidence overview and save-only retry retain exact activity
   await expect(page.getByRole('heading', { level: 3, name: COURSE.name })).toBeVisible();
   await page.getByLabel('Course', { exact: true }).selectOption(PROGRAM.id);
   await page.getByLabel('Unit', { exact: true }).selectOption(COURSE.id);
-  await page.getByLabel('Status', { exact: true }).selectOption('not-started');
-  // The count covers the whole course despite the filters. Earlier specs in a
-  // full run complete other lessons here too (flows.spec), so count them.
+  // Keep the just-completed lesson visible so its course header stays rendered.
+  // The count still covers the whole course despite the filters. Earlier specs
+  // in a full run complete other lessons here too (flows.spec), so count them.
+  await page.getByLabel('Status', { exact: true }).selectOption('completed');
   let completed = 0;
   for (const lesson of LESSONS) {
     const kb = await (await request.get(`/v1/sync/lessonKB:${lesson.id}`, { headers })).json().catch(() => null);

@@ -47,8 +47,9 @@ Phase 1.1+ (declarative; not yet runtime-enforced — same trust model as
 ### `user.metadata.write`
 
 Allows writing `userMeta:<pluginId>` for any user via
-`putUserMeta(userId, pluginId, data)` and `deleteUserMeta(userId, pluginId)`.
-Available since Plugin API 1.1.0.
+`putUserMeta(userId, pluginId, data)`, `updateUserMeta(userId, pluginId, updater)`,
+and `deleteUserMeta(userId, pluginId)`. `putUserMeta` and `deleteUserMeta` are
+available since Plugin API 1.1.0; atomic `updateUserMeta` is available since 1.6.0.
 
 By design, `userMeta:*` records are admin-owned. Every learner-facing
 path that touches the user's own data excludes them — `/v1/sync` bulk GET
@@ -77,6 +78,14 @@ Phase 3.
 Allows writing arbitrary `plugin:<id>:*` keys to per-user sync-data. The whitelist regex in `server/src/routes/sync.js` is consulted at write time; only plugins with this capability and a matching `extensionPoints.syncDataNamespace` declaration can write.
 
 Phase 3.
+
+### `auth.provider`
+
+Allows a plugin to declare public external-auth metadata, verify its own provider token in a plugin route, and call `completeExternalAuth` for host-owned admission and plato session issuance. It does not grant permission to bypass invitations, choose admin roles, or issue provider-specific core sessions.
+
+Required when `extensionPoints.authProvider` is set. A visible provider also declares `ui.slot.publicAuthProvider`. Public browser configuration must be explicitly allowlisted through `authProvider.publicSettings`; undeclared, object-valued, and `writeOnly` keys are rejected.
+
+Available since Plugin API 1.6.0.
 
 ### `lessonEnrichment`
 

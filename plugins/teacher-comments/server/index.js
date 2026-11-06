@@ -17,12 +17,14 @@ import {
   authenticate,
   requireAdmin,
   getUserMeta,
-  putUserMeta,
+  updateUserMeta,
   deleteUserMeta,
 } from '../../../src/lib/plugins/sdk.js';
 
 const PLUGIN_ID = 'teacher-comments';
 const MAX_LEN = 4000;
+const MAX_UPDATE_ATTEMPTS = 5;
+const COMMENT_NOT_FOUND = 'COMMENT_NOT_FOUND';
 
 const routes = new Hono();
 routes.use('*', authenticate, requireAdmin);
@@ -32,11 +34,10 @@ function newId() {
 }
 
 /**
- * Read a thread, normalizing both the new array shape and the legacy single-
- * comment shape into `{ comments: [...] }` (newest first).
+ * Normalize both the new array shape and the legacy single-comment shape into
+ * `{ comments: [...] }` (newest first).
  */
-async function readThread(userId) {
-  const meta = await getUserMeta(userId, PLUGIN_ID);
+function normalizeThread(meta) {
   if (!meta) return { comments: [] };
   if (Array.isArray(meta.comments)) {
     return { comments: [...meta.comments].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')) };
@@ -55,6 +56,24 @@ async function readThread(userId) {
     };
   }
   return { comments: [] };
+}
+
+async function readThread(userId) {
+  return normalizeThread(await getUserMeta(userId, PLUGIN_ID));
+}
+
+async function updateThread(userId, updater) {
+  for (let attempt = 0; attempt < MAX_UPDATE_ATTEMPTS; attempt++) {
+    try {
+      return await updateUserMeta(userId, PLUGIN_ID, (meta) => updater(normalizeThread(meta)));
+    } catch (err) {
+      if (err.name !== 'ConditionalCheckFailedException' || attempt === MAX_UPDATE_ATTEMPTS - 1) throw err;
+    }
+  }
+}
+
+function conflictResponse(c) {
+  return c.json({ error: 'Comments changed concurrently. Retry.' }, 409);
 }
 
 // GET /admin/comments/:userId — full thread for a user.
@@ -81,9 +100,12 @@ routes.post('/admin/comments/:userId', async (c) => {
     authorName: adminUser.name || null,
   };
 
-  const existing = await readThread(userId);
-  const next = { comments: [comment, ...existing.comments] };
-  await putUserMeta(userId, PLUGIN_ID, next);
+  try {
+    await updateThread(userId, (existing) => ({ comments: [comment, ...existing.comments] }));
+  } catch (err) {
+    if (err.name === 'ConditionalCheckFailedException') return conflictResponse(c);
+    throw err;
+  }
 
   return c.json(comment, 201);
 });
@@ -92,15 +114,20 @@ routes.post('/admin/comments/:userId', async (c) => {
 routes.delete('/admin/comments/:userId/:commentId', async (c) => {
   const userId = c.req.param('userId');
   const commentId = c.req.param('commentId');
-  const existing = await readThread(userId);
-  const next = existing.comments.filter((cm) => cm.id !== commentId);
-  if (next.length === existing.comments.length) {
-    return c.json({ error: 'Comment not found' }, 404);
-  }
-  if (next.length === 0) {
-    await deleteUserMeta(userId, PLUGIN_ID);
-  } else {
-    await putUserMeta(userId, PLUGIN_ID, { comments: next });
+  try {
+    await updateThread(userId, (existing) => {
+      const next = existing.comments.filter((cm) => cm.id !== commentId);
+      if (next.length === existing.comments.length) {
+        const err = new Error('Comment not found');
+        err.code = COMMENT_NOT_FOUND;
+        throw err;
+      }
+      return { comments: next };
+    });
+  } catch (err) {
+    if (err.code === COMMENT_NOT_FOUND) return c.json({ error: 'Comment not found' }, 404);
+    if (err.name === 'ConditionalCheckFailedException') return conflictResponse(c);
+    throw err;
   }
   return c.json({ ok: true });
 });

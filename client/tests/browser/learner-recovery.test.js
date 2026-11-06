@@ -175,6 +175,7 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
         await page.setViewportSize({ width, height });
         await page.goto(`${base}/login`);
         await page.getByRole('textbox', { name: 'Email or Username', exact: true }).waitFor();
+        await page.getByRole('button', { name: 'Continue with Google', exact: true }).waitFor();
         await page.evaluate(({ theme, scale }) => {
           document.documentElement.classList.toggle('dark', theme === 'dark');
           document.documentElement.style.fontSize = `${scale * 100}%`;
@@ -374,24 +375,26 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
       const response = await route.fetch();
       const catalog = await response.json();
       const template = catalog.find(item => item.lessonId === 'feedback');
+      const communicationProgram = { id: 'communication-program', name: 'Communication practice', position: 1 };
       const lessons = catalog.map(item => ({
         ...item,
+        // Legacy standalone courses now render as units. Put those lessons in
+        // a real course to exercise course-level progress in the new hierarchy.
+        program: !item.program && item.unit?.id === 'communication' ? communicationProgram : item.program,
         status: item.lessonId === 'long-title' || (completedIsPrivate && item.lessonId === 'completed') ? 'private' : item.status,
       }));
       lessons.push(
-        { ...template, lessonId: 'fresh-public', name: 'Unstarted public practice', markdown: '# Unstarted public practice' },
-        { ...template, lessonId: 'private-only', name: 'Shared private practice', markdown: '# Shared private practice', status: 'private', course: { id: 'private-course', name: 'Private practice' } },
-        { ...template, lessonId: 'uncategorized', name: 'Uncategorized practice', markdown: '# Uncategorized practice', course: null },
+        { ...template, program: communicationProgram, lessonId: 'fresh-public', name: 'Unstarted public practice', markdown: '# Unstarted public practice' },
+        { ...template, program: { id: 'private-course', name: 'Private practice', position: 2 }, unit: null, lessonId: 'private-only', name: 'Shared private practice', markdown: '# Shared private practice', status: 'private', course: { id: 'private-course', name: 'Private practice' } },
+        { ...template, program: null, unit: null, lessonId: 'uncategorized', name: 'Uncategorized practice', markdown: '# Uncategorized practice', course: null },
       );
       await route.fulfill({ json: lessons });
     });
     await page.goto(`${base}/lessons`);
     const progress = page.getByRole('progressbar', { name: /progress: 1 of 14 public lessons completed$/ });
-    // While every status shows, this learner's 13 lessons in progress lead the
-    // list and fill page 1, so the course group and its progress start on page 2.
-    const inProgressPage = page.getByRole('list', { name: 'Lessons in progress' });
+    // Course progress comes from the full catalog on either page, not only
+    // the visible cards or the active status filter.
     const nextPage = async () => {
-      await inProgressPage.waitFor();
       await page.getByRole('button', { name: 'Next page', exact: true }).click();
       await page.getByText('Page 2 of 2', { exact: true }).waitFor();
     };
@@ -1000,12 +1003,14 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal(await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).inputValue(), 'A private feedback draft');
   }));
 
-  it('acknowledges unchanged profile feedback without writes and still retains malformed responses', t => withPage(t, async page => {
+  it('saves notes independently of unchanged or malformed optional profile rewrites', t => withPage(t, async page => {
     await page.goto(`${base}/settings`);
     let result = { changed: false };
     const writes = [];
     page.on('request', request => {
-      if (request.method() === 'PUT' && /\/v1\/sync\/profile(?:Summary)?$/.test(request.url())) writes.push(request.url());
+      if (request.method() === 'PUT' && /\/v1\/sync\/profile(?:Summary)?$/.test(request.url())) {
+        writes.push({ url: request.url(), data: request.postDataJSON()?.data });
+      }
     });
     await page.route('**/v1/ai/messages', route => route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(result) }] }) }));
@@ -1014,16 +1019,25 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     await input.fill('My profile already describes my preferences.');
     await page.getByRole('button', { name: 'Update profile', exact: true }).click();
     await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden', timeout: 3000 });
-    await page.getByRole('status').filter({ hasText: 'Your profile is already up to date.' }).waitFor();
-    assert.deepEqual(writes, []);
+    await page.getByRole('status').filter({ hasText: 'Your note is saved.' }).waitFor();
+    await page.getByRole('list', { name: 'Your notes' }).getByText('My profile already describes my preferences.', { exact: true }).waitFor();
+    assert.equal(writes.length, 1, 'the note has one durable write; unchanged profile data is not rewritten again');
+    assert.match(writes[0].url, /\/v1\/sync\/profile$/);
+    assert.ok(writes[0].data.learnerNotes.some(note => note.text === 'My profile already describes my preferences.'));
     await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
     assert.equal(await input.inputValue(), '');
     result = {};
     await input.fill('Retain this feedback if the response is malformed.');
     await page.getByRole('button', { name: 'Update profile', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: 'The profile update was empty.' }).waitFor();
-    assert.equal(await input.inputValue(), 'Retain this feedback if the response is malformed.');
-    assert.deepEqual(writes, []);
+    await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden', timeout: 3000 });
+    await page.getByRole('status').filter({ hasText: 'Your note is saved. The optional profile rewrite was unavailable; your note will be included in future updates.' }).waitFor();
+    await page.getByRole('list', { name: 'Your notes' }).getByText('Retain this feedback if the response is malformed.', { exact: true }).waitFor();
+    assert.equal(writes.length, 2, 'the malformed optional rewrite adds no second profile mutation');
+    assert.match(writes[1].url, /\/v1\/sync\/profile$/);
+    assert.ok(writes[1].data.learnerNotes.some(note => note.text === 'Retain this feedback if the response is malformed.'));
+    assert.equal(writes.filter(write => /profileSummary$/.test(write.url)).length, 0);
+    await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+    assert.equal(await input.inputValue(), '', 'the independently saved note is not retained as an unsubmitted draft');
   }));
 
   it('delayed feedback generation cannot save into the next account', t => withPage(t, async page => {

@@ -1,14 +1,7 @@
 /**
- * Vite-time plugin discovery. `import.meta.glob` with `eager: true` causes Vite to
- * statically include every match in the bundle; we get back a synchronous map
- * once the bundle is loaded. Same pattern Astro and SvelteKit use for plugin
- * discovery.
- *
- * Plugin folders live at <repo-root>/plugins/<id>/. From this file
- * (client/src/lib/plugins/loader.js) the relative path is ../../../../plugins.
- *
- * server.fs.allow in vite.config.js is set to the repo root so dev mode can
- * serve files outside client/.
+ * Vite-time plugin discovery. Manifests are eager metadata; client modules are
+ * lazy factories and are evaluated only for an enabled plugin. In particular,
+ * a disabled public auth provider cannot initialize its provider SDK.
  */
 
 const manifestModules = import.meta.glob('../../../../plugins/*/plugin.json', {
@@ -16,28 +9,39 @@ const manifestModules = import.meta.glob('../../../../plugins/*/plugin.json', {
   import: 'default',
 });
 
-const clientModules = import.meta.glob('../../../../plugins/*/client/index.js', {
-  eager: true,
-});
+const clientModules = import.meta.glob('../../../../plugins/*/client/index.js');
 
 function idFromPath(path) {
-  // path like '../../../../plugins/slack/plugin.json'
-  const m = path.match(/\/plugins\/([^/]+)\//);
-  return m ? m[1] : null;
+  const match = path.match(/\/plugins\/([^/]+)\//);
+  return match ? match[1] : null;
 }
 
+let discoveryPromise;
+let moduleDiscovery;
+
 export async function discoverPlugins() {
-  const manifests = {};
-  const modules = {};
-  for (const [path, manifest] of Object.entries(manifestModules)) {
-    const id = idFromPath(path);
-    if (!id || !manifest || typeof manifest !== 'object') continue;
-    manifests[id] = manifest;
+  if (!discoveryPromise) {
+    discoveryPromise = Promise.resolve().then(() => {
+      const manifests = {};
+      const modules = {};
+      for (const [path, manifest] of Object.entries(manifestModules)) {
+        const id = idFromPath(path);
+        if (!id || !manifest || typeof manifest !== 'object') continue;
+        manifests[id] = manifest;
+      }
+      for (const [path, load] of Object.entries(clientModules)) {
+        const id = idFromPath(path);
+        if (id) modules[id] = load;
+      }
+      moduleDiscovery = modules;
+      return { manifests, modules };
+    });
   }
-  for (const [path, mod] of Object.entries(clientModules)) {
-    const id = idFromPath(path);
-    if (!id) continue;
-    modules[id] = mod;
-  }
-  return { manifests, modules };
+  return discoveryPromise;
+}
+
+export async function loadPluginClient(id) {
+  if (!moduleDiscovery) await discoverPlugins();
+  const load = moduleDiscovery?.[id];
+  return load ? load() : null;
 }

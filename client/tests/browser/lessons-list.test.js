@@ -45,6 +45,7 @@ const deferred = () => {
 };
 const progressRequest = /\/v1\/sync\/lessonKB(?:%3A|:)/i;
 const cards = page => page.getByRole('button', { name: /^Open lesson / });
+const cardSnapshots = async locator => Promise.all((await locator.all()).map(card => card.ariaSnapshot()));
 const refresh = async page => {
   const catalog = page.waitForResponse(response => new URL(response.url()).pathname === '/v1/lessons');
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -163,10 +164,10 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
       const control = document.activeElement;
       const card = control.closest('[data-slot=card]');
       const cardStyle = getComputedStyle(card);
-      return { control: control.textContent.trim().slice(0, 12), button: getComputedStyle(control).outlineStyle,
+      return { control: control.querySelector('span[dir=auto]')?.textContent.trim().slice(0, 12) ?? control.textContent.trim().slice(0, 12), button: getComputedStyle(control).outlineStyle,
         card: cardStyle.outlineStyle === 'none' ? 'none' : `${cardStyle.outlineStyle} ${cardStyle.outlineWidth}` };
     });
-    assert.deepEqual(await ring(), { control: 'Give constru', button: 'none', card: 'solid 3px' });
+    assert.deepEqual(await ring(), { control: 'Welcome to p', button: 'none', card: 'solid 3px' });
     // View outline, inside the same card, keeps its own ring.
     await page.keyboard.press('Tab');
     assert.deepEqual(await ring(), { control: 'View outline', button: 'solid', card: 'none' });
@@ -176,12 +177,12 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
   it('marks Start here on the first lesson only for a learner who has started nothing', async () => {
     const fresh = await signIn('admin');
     const cards = fresh.page.getByRole('button', { name: /^Open lesson / });
-    assert.match(await cards.first().getAttribute('aria-label'), /\. Not started\. Start here\.$/);
-    assert.equal(await fresh.page.getByRole('button', { name: /Start here\.$/ }).count(), 1);
+    assert.match(await cards.first().ariaSnapshot(), /Start here\.[\s\S]*Not started/);
+    assert.equal(await fresh.page.getByRole('button', { name: /Start here\./ }).count(), 1);
     await fresh.context.close();
 
     const returning = await signIn('a');
-    assert.equal(await returning.page.getByRole('button', { name: /Start here\.$/ }).count(), 0);
+    assert.equal(await returning.page.getByRole('button', { name: /Start here\./ }).count(), 0);
     await returning.context.close();
   });
 
@@ -203,14 +204,14 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await page.getByText('Loading lessons…', { exact: true }).waitFor();
     await screenshot(page, 'progress-loading');
     fallback.resolve();
-    const first = cards(page).first();
+    const first = page.getByRole('button', { name: /^Open lesson Give constructive feedback/ });
     await first.waitFor();
-    assert.match(await first.getAttribute('aria-label'), /^Open lesson Give constructive feedback\. In progress, 30% complete\.$/);
+    assert.match(await first.ariaSnapshot(), /^- button "Open lesson Give constructive feedback[\s\S]*In progress, 30% complete/);
     assert.equal(await page.getByText('Start here', { exact: true }).count(), 0);
     await page.locator('#status-filter').focus();
     await page.keyboard.press('Tab');
     await page.waitForLoadState('networkidle');
-    assert.equal(await first.evaluate(button => button === document.activeElement), true);
+    assert.equal(await cards(page).first().evaluate(button => button === document.activeElement), true);
     await screenshot(page, 'progress-recovered');
   });
 
@@ -229,9 +230,10 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     assert.equal(await page.getByText('Start here', { exact: true }).count(), 0);
     failing = false;
     await page.getByRole('button', { name: 'Try again', exact: true }).click();
-    await page.getByRole('list', { name: 'Lessons in progress' }).waitFor();
+    const recovered = page.getByRole('button', { name: /^Open lesson Give constructive feedback/ });
+    await recovered.waitFor();
     assert.equal(await page.getByRole('alert').count(), 0);
-    assert.match(await cards(page).first().getAttribute('aria-label'), /In progress, 30% complete/);
+    assert.match(await recovered.ariaSnapshot(), /In progress, 30% complete/);
   });
 
   it('keeps loading after an initial catalog failure while retry progress is pending', async t => {
@@ -261,8 +263,9 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await page.getByText('Loading lessons…', { exact: true }).waitFor();
     await screenshot(page, 'catalog-retry-loading');
     fallback.resolve();
-    await cards(page).first().waitFor();
-    assert.match(await cards(page).first().getAttribute('aria-label'), /In progress, 30% complete/);
+    const recovered = page.getByRole('button', { name: /^Open lesson Give constructive feedback/ });
+    await recovered.waitFor();
+    assert.match(await recovered.ariaSnapshot(), /In progress, 30% complete/);
     assert.equal(await page.getByRole('alert').count(), 0);
   });
 
@@ -299,9 +302,10 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     });
     t.after(async () => { blocked.resolve(); await context.close(); });
     await page.waitForLoadState('networkidle');
-    assert.equal(await page.getByRole('list', { name: 'Lessons in progress' }).getByRole('button', { name: /^Open lesson / }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: /^Open lesson .*In progress, 30% complete/ }).count(), 1);
     refreshed = true;
     await refresh(page);
+    await page.locator('#status-filter').selectOption('in-progress');
     await page.getByRole('button', { name: /^Open lesson Practice giving thoughtful.* In progress/ }).waitFor({ timeout: 3000 });
     assert.equal(perLessonReads, 0, 'successful bulk sync already knows which lessons have no progress record');
     await screenshot(page, 'fresh-bulk-progress');
@@ -326,22 +330,22 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     });
     t.after(async () => { release.resolve(); await context.close(); });
     await page.waitForLoadState('networkidle');
-    const before = await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
+    const before = await cardSnapshots(cards(page));
     await page.locator('#status-filter').focus();
     await page.keyboard.press('Tab');
     failing = true;
     await refresh(page);
     await reached.promise;
-    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+    assert.deepEqual(await cardSnapshots(cards(page)), before);
     assert.equal(await cards(page).first().evaluate(button => button === document.activeElement), true);
     release.resolve();
     await page.getByRole('alert').filter({ hasText: 'lesson progress' }).waitFor();
-    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+    assert.deepEqual(await cardSnapshots(cards(page)), before);
     assert.equal(await cards(page).first().evaluate(button => button === document.activeElement), true);
     failing = false;
     await page.getByRole('button', { name: 'Try again', exact: true }).click();
     await page.getByRole('alert').waitFor({ state: 'detached' });
-    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+    assert.deepEqual(await cardSnapshots(cards(page)), before);
   });
 
   it('does not let a superseded fallback overwrite a successful refresh or drop focus', async t => {
@@ -368,6 +372,7 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await reached.promise;
     refreshed = true;
     await refresh(page);
+    await page.locator('#status-filter').selectOption('in-progress');
     const current = page.getByRole('button', { name: /^Open lesson Practice giving thoughtful.* In progress/ });
     await current.waitFor();
     await current.focus();
@@ -375,7 +380,7 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await page.waitForLoadState('networkidle');
     assert.equal(fallbackReads, 1, 'cancelled catalog reads stop before the next lesson');
     assert.equal(await current.evaluate(button => button === document.activeElement), true);
-    assert.equal(await cards(page).first().getAttribute('aria-label'), await current.getAttribute('aria-label'));
+    assert.equal(await cards(page).first().ariaSnapshot(), await current.ariaSnapshot());
     assert.equal(await page.getByRole('alert').count(), 0);
   });
 
@@ -398,7 +403,7 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     const aborted = page.waitForEvent('requestfailed', { predicate: request => progressRequest.test(request.url()), timeout: 5000 });
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('plato:lesson-completed', { detail: { lessonId: 'feedback' } })));
     await reached.promise;
-    await cards(page).first().click();
+    await page.getByRole('button', { name: /^Open lesson Give constructive feedback/ }).click();
     await page.waitForURL('**/lessons/feedback');
     const request = await aborted;
     assert.match(request.failure().errorText, /abort|cancel/i);
@@ -428,8 +433,8 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     assert.equal(await cards(page).count(), 0);
     await page.getByText('Loading lessons…', { exact: true }).waitFor();
     release.resolve();
-    await page.getByRole('button', { name: /\. Not started\. Start here\.$/ }).waitFor();
-    assert.equal(await page.getByRole('list', { name: 'Lessons in progress' }).count(), 0);
+    await page.getByRole('button', { name: /Start here\./ }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /In progress,/ }).count(), 0);
   });
 
   it("lines up card titles across a row, each status mark on its title's first line", async () => {
@@ -437,7 +442,7 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     const { context, page } = await signIn('admin');
     const rows = await page.evaluate(() => {
       const byRow = new Map();
-      for (const item of document.querySelectorAll('ul[role=list] > li')) {
+      for (const item of document.querySelectorAll('ul[aria-label] > li')) {
         const title = item.querySelector('.lesson-open span[dir=auto]');
         const mark = title.parentElement.nextElementSibling;
         const box = title.getBoundingClientRect();
@@ -458,11 +463,10 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
   });
 
   it('shows each progress bar whole in both themes, and keeps the bars in forced colors', async () => {
-    const courseBar = page => page.getByRole('progressbar', { name: /progress: 1 of 14 public lessons completed$/ });
-    // A status filter keeps the course grouping, so the course's bar leads.
-    const showInProgress = page => page.locator('#status-filter').selectOption('in-progress');
+    const courseBar = page => page.getByRole('progressbar', { name: 'Getting Started with plato progress: 0 of 3 public lessons completed' });
     const outlineBar = async (page) => {
-      await page.getByRole('button', { name: 'View outline' }).first().click();
+      const open = page.getByRole('button', { name: /^Open lesson Give constructive feedback/ });
+      await page.getByRole('listitem').filter({ has: open }).getByRole('button', { name: 'View outline' }).click();
       return page.getByRole('dialog').getByRole('progressbar', { name: '30% complete' });
     };
 
@@ -473,7 +477,6 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
         await page.reload();
         await page.getByRole('button', { name: /^Open lesson / }).first().waitFor();
       }
-      await showInProgress(page);
       assertVisible(await barColors(courseBar(page)), `${theme} course bar`);
       assertVisible(await barColors(await outlineBar(page)), `${theme} outline bar`);
       await context.close();
@@ -483,7 +486,6 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     // the text color. WebKit has no forced colors mode.
     if (engine === 'webkit') return;
     const { context, page } = await signIn('a', { forcedColors: 'active' });
-    await showInProgress(page);
     for (const bar of [courseBar(page), await outlineBar(page)]) {
       const colors = await barColors(bar);
       assert.equal(colors.outline, 'solid');

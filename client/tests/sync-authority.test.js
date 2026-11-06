@@ -6,7 +6,7 @@ test('a compatible Google session cannot hydrate writable state from the Firesto
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
     globalThis.window = {};
-    globalThis.localStorage = { getItem: () => JSON.stringify({ accessToken: 'token', provider: 'firebase', user: { userId: 'google' } }) };
+    globalThis.localStorage = { getItem: () => JSON.stringify({ accessToken: 'token', provider: 'google-auth', user: { userId: 'google' } }) };
     globalThis.fetch = async url => new Response(JSON.stringify(url.endsWith('/status')
       ? { protocol: '1', epoch: 'first' }
       : [{ dataKey: 'lessons:live', data: { lessonId: 'live' }, version: 1 }]));
