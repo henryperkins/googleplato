@@ -976,6 +976,41 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal(await submission(page), null);
   }));
 
+  it('Settings splits a cached pre-#402 name, then follows the refreshed account until edited', t => withPage(t, async page => {
+    // Sign in as c without revoking the shared session of a.
+    await page.goto(`${base}/login`);
+    await page.evaluate(() => localStorage.removeItem('plato_auth'));
+    await page.goto(`${base}/login`);
+    await login(page, 'c');
+    // The person had corrected their split on another device…
+    await page.evaluate(async () => {
+      const auth = JSON.parse(localStorage.getItem('plato_auth'));
+      const res = await fetch('/v1/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.accessToken}` }, body: JSON.stringify({ firstName: 'Mary Ann', lastName: 'Evans' }) });
+      if (!res.ok) throw new Error(`fixture PATCH ${res.status}`);
+      // …but this browser still caches the account as it was before #402.
+      localStorage.setItem('plato_auth', JSON.stringify({ ...auth, user: { userId: 'c', email: 'learner-c@example.test', username: 'learner-c', name: 'Mary Ann Evans', role: 'learner' } }));
+    });
+    const refreshed = deferred(), held = deferred();
+    await page.route(url => new URL(url).pathname === '/v1/me', async route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      refreshed.resolve(); await held.promise; await route.continue();
+    });
+    await page.goto(`${base}/settings`);
+    const first = page.getByRole('textbox', { name: 'First name', exact: true });
+    const last = page.getByRole('textbox', { name: /^Last name/ });
+    await refreshed.promise;
+    await first.waitFor();
+    assert.deepEqual([await first.inputValue(), await last.inputValue()], ['Mary', 'Ann Evans'], 'a cached full name is split, never put whole into First name');
+    held.resolve();
+    await page.waitForFunction(() => document.getElementById('account-first-name')?.value === 'Mary Ann');
+    assert.equal(await last.inputValue(), 'Evans', 'the refreshed account replaces fields the person has not edited');
+    const saved = page.waitForRequest(request => new URL(request.url()).pathname === '/v1/me' && request.method() === 'PATCH');
+    await page.getByRole('button', { name: 'Save name', exact: true }).click();
+    const body = JSON.parse((await saved).postData());
+    assert.deepEqual([body.firstName, body.lastName], ['Mary Ann', 'Evans']);
+    await page.getByText('Saved!', { exact: true }).first().waitFor();
+  }));
+
   it('Settings fields and feedback stay with their owner through A B A and reload', t => withPage(t, async page => {
     await page.goto(`${base}/settings`); await page.getByLabel('Learning goal').fill('A private goal 🌱');
     await page.getByLabel('Phone', { exact: true }).fill('+1 (555) 010-1234');

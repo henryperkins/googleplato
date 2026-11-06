@@ -1,4 +1,5 @@
 import NameFields from '../components/NameFields.jsx';
+import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
@@ -32,7 +33,15 @@ export default function Waitlist() {
   const prefill = location.state?.prefill || {};
   const [open, setOpen] = useState(null);
   const [email, setEmail] = useState((typeof prefill.email === 'string' && prefill.email) || savedDraft.email || '');
-  const [firstName, setFirstName] = useState((typeof prefill.firstName === 'string' && prefill.firstName) || prefill.name || savedDraft.firstName || savedDraft.name || '');
+  // The prefill (a Google account's name) or a draft saved before first/last
+  // names (#402) can carry only a full `name`: split it, never put it all in
+  // the first-name field.
+  const [initialName] = useState(() => {
+    const fromPrefill = formNameParts(prefill);
+    const fromDraft = formNameParts(savedDraft);
+    return { firstName: fromPrefill.firstName || fromDraft.firstName, lastName: fromPrefill.lastName || fromDraft.lastName };
+  });
+  const [firstName, setFirstName] = useState(initialName.firstName);
   const [group, setGroup] = useState(savedDraft.group || '');
   const [groups, setGroups] = useState([]);
   const [userFields, setUserFields] = useState([]);
@@ -45,7 +54,7 @@ export default function Waitlist() {
   const navigate = useNavigate();
   const firstNameRef = useRef(null);
   const lastNameRef = useRef(null);
-  const [lastName, setLastName] = useState(savedDraft.lastName || '');
+  const [lastName, setLastName] = useState(initialName.lastName);
   const emailRef = useRef(null);
   const doneRef = useRef(null);
   const branding = usePublicBranding('Join the wait list');

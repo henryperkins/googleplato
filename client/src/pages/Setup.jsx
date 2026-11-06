@@ -1,4 +1,5 @@
 import NameFields from '../components/NameFields.jsx';
+import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useEffect, useRef } from 'react';
 import PasswordField from '../components/PasswordField.jsx';
 import PublicAuthProviders from '../lib/plugins/PublicAuthProviders.jsx';
@@ -29,7 +30,8 @@ export default function Setup() {
   });
   const [classroomName, setClassroomName] = useState(savedDraft.classroomName || '');
   const [email, setEmail] = useState(savedDraft.email || '');
-  const [firstName, setFirstName] = useState(savedDraft.firstName || savedDraft.name || '');
+  // A draft saved before first/last names (#402) has only `name`: split it.
+  const [firstName, setFirstName] = useState(() => formNameParts(savedDraft).firstName);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -38,7 +40,7 @@ export default function Setup() {
   const [providerSubmitting, setProviderSubmitting] = useState(false);
   const firstNameRef = useRef(null);
   const lastNameRef = useRef(null);
-  const [lastName, setLastName] = useState(savedDraft.lastName || '');
+  const [lastName, setLastName] = useState(() => formNameParts(savedDraft).lastName);
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import NameFields from '../components/NameFields.jsx';
+import { formNameParts } from '../../../server/src/shared/names.js';
 import { sendKeyOf, SEND_KEYS, sendHint } from '../lib/chatPrefs.js';
 import PasswordField from '../components/PasswordField.jsx';
 import {
@@ -36,7 +37,19 @@ export default function Settings() {
 function AccountSettings() {
   const { state, dispatch } = useApp();
   const { user, refreshUser } = useAuth();
-  const [name, setName] = useState({ firstName: user?.firstName || user?.name || '', lastName: user?.lastName || '' });
+  // A cached account can predate first/last names (#402), with only `name`;
+  // /v1/me brings the split moments later. The fields follow the account's
+  // name until the person edits them, and never start with a whole name as
+  // the first name (saving it would store that, with no last name).
+  const accountName = formNameParts(user);
+  const accountNameKey = `${accountName.firstName}\n${accountName.lastName}`;
+  const [name, setName] = useState(accountName);
+  const [nameEdited, setNameEdited] = useState(false);
+  const [shownAccountName, setShownAccountName] = useState(accountNameKey);
+  if (shownAccountName !== accountNameKey) {
+    setShownAccountName(accountNameKey);
+    if (!nameEdited) setName(accountName);
+  }
   const [learnerNotes, setLearnerNotes] = useState([]);
   const [removingNote, setRemovingNote] = useState(false);
   const [chatSaving, setChatSaving] = useState(false);
@@ -157,6 +170,7 @@ function AccountSettings() {
       if (!await isAuthSessionCurrent(session)) throw new Error('Your preferences were saved for the original session. Reload before continuing.');
       await assertTurnOwner(user?.userId);
       dispatch({ type: 'SET_PREFERENCES', preferences: prefs });
+      setNameEdited(false);
       await refreshUser();
       setNameFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
@@ -274,7 +288,7 @@ function AccountSettings() {
           <Separator />
 
           <form className="space-y-3" onSubmit={handleSaveName} noValidate>
-            <NameFields idPrefix="account" value={name} onChange={value => { setName(value); setNameFeedback(null); }} readOnly={nameSubmitting} inferred={user?.nameSource === 'auto'} />
+            <NameFields idPrefix="account" value={name} onChange={value => { setName(value); setNameEdited(true); setNameFeedback(null); }} readOnly={nameSubmitting} inferred={user?.nameSource === 'auto'} />
             <Button type="submit" disabled={nameSubmitting || chatSaving || !state.preferencesLoaded} focusableWhenDisabled aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
             <SettingsFeedback id="name-feedback" feedback={nameFeedback} />
           </form>

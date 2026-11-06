@@ -12,22 +12,13 @@
  * last name. A last name is optional everywhere (people with one name exist).
  */
 
+import { cleanName as clean, joinName, splitName } from '../shared/names.js';
+
+// The split itself lives in shared/names.js, so the client's forms split an
+// old single name exactly the same way.
+export { joinName, splitName };
+
 export const MAX_NAME_PART = 100;
-
-const clean = (v) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : '');
-
-export function joinName(firstName, lastName) {
-  return [clean(firstName), clean(lastName)].filter(Boolean).join(' ');
-}
-
-/** `{ firstName, lastName, parts }` from a single full name. */
-export function splitName(full) {
-  const s = clean(full);
-  if (!s) return { firstName: '', lastName: '', parts: 0 };
-  const i = s.indexOf(' ');
-  if (i < 0) return { firstName: s, lastName: '', parts: 1 };
-  return { firstName: s.slice(0, i), lastName: s.slice(i + 1), parts: s.split(' ').length };
-}
 
 /**
  * The name fields for an API response. Records without `firstName` (written

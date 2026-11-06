@@ -20,6 +20,9 @@ for (const id of ['a', 'b', 'admin']) {
   await db.putSyncData(id, 'profile', { name: `Learner ${id}`, activeLessons: ['feedback'], masteredLessons: [] }, 0);
   await db.putSyncData(id, 'profileSummary', 'Synthetic learner practicing feedback.', 0);
 }
+// An account from before first/last names (#402): a three-part name, no split.
+await db.createUser({ userId: 'c', email: 'learner-c@example.test', username: 'learner-c', name: 'Mary Ann Evans',
+  role: 'user', passwordHash: await hashPassword(process.env.PLATO_TEST_PASSWORD) });
 const names = ['Give constructive feedback', 'Practice giving thoughtful, specific, actionable feedback across a challenging workplace conversation with several participants', 'Completed communication practice', ...Array.from({ length: 11 }, (_, i) => `Practice communication ${i + 4}`)];
 for (const [index, name] of names.entries()) {
   const id = index === 0 ? 'feedback' : index === 1 ? 'long-title' : index === 2 ? 'completed' : `practice-${index + 1}`;

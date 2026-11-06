@@ -1,4 +1,5 @@
 import NameFields from '../components/NameFields.jsx';
+import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -35,7 +36,8 @@ export default function Signup() {
   });
 
   const [email, setEmail] = useState(savedDraft.email || '');
-  const [firstName, setFirstName] = useState(savedDraft.firstName || savedDraft.name || '');
+  // A draft saved before first/last names (#402) has only `name`: split it.
+  const [firstName, setFirstName] = useState(() => formNameParts(savedDraft).firstName);
   const [username, setUsername] = useState(savedDraft.username || '');
   const [group, setGroup] = useState(savedDraft.group || '');
   const [password, setPassword] = useState('');
@@ -52,7 +54,7 @@ export default function Signup() {
   const emailRef = useRef(null);
   const firstNameRef = useRef(null);
   const lastNameRef = useRef(null);
-  const [lastName, setLastName] = useState(savedDraft.lastName || '');
+  const [lastName, setLastName] = useState(() => formNameParts(savedDraft).lastName);
   const usernameRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);
@@ -96,8 +98,9 @@ export default function Signup() {
       .then(d => {
         if (cancelled || !d) return;
         if (d.email) setEmail(prev => prev || d.email);
-        if (d.firstName || d.name) setFirstName(prev => prev || d.firstName || d.name);
-        if (d.lastName) setLastName(prev => prev || d.lastName);
+        const invited = formNameParts(d);
+        if (invited.firstName) setFirstName(prev => prev || invited.firstName);
+        if (invited.lastName) setLastName(prev => prev || invited.lastName);
         if (d.userGroup) setGroup(prev => prev || d.userGroup);
         if (d.customFields) setFieldValues(prev => ({ ...d.customFields, ...prev }));
       })

@@ -2583,6 +2583,18 @@ name (optional) with `given-name` / `family-name` autocomplete, and the
 Edit User, and Edit Wait List Entry. The Users list sorts by last name, and
 the CSV has First Name and Last Name columns.
 
+**Forms start from split parts.** The split itself lives in
+`server/src/shared/names.js` (`splitName`, re-exported by `lib/names.js`), so
+the client splits exactly like the server. `formNameParts(source)` gives a
+form its starting first and last name from a user record, a saved draft, or a
+prefill, splitting a lone `name`. Settings, signup, setup, and the wait list
+all use it, so an account cached before #402, an old draft, or a Google
+prefill (`{ email, name }`) never starts with the whole name as the first name.
+Saving that would store it as the person's own entry (`nameSource: 'user'`)
+with no last name. Settings also follows the account's name as `/v1/me`
+refreshes it, until the person edits the fields, so the stored parts (perhaps
+corrected elsewhere) replace what the cache implied.
+
 ## Notifications (#388, #389, #400)
 
 Everything plato emails on its own (automations, invitations) or on an
