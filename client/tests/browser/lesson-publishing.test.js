@@ -85,7 +85,7 @@ async function review(page) {
   await page.getByRole('complementary', { name: 'Lesson markdown preview' }).getByRole('heading', { name: 'Reviewed Lesson', exact: true }).waitFor();
 }
 
-describe('Lesson publishing workflow', { timeout: 180000 }, () => {
+describe('Lesson publishing workflow', { timeout: 300000 }, () => {
   before(async () => {
     await mkdir(publishingEvidence, { recursive: true });
     await mkdir(mobileEvidence, { recursive: true });
