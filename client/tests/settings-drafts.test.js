@@ -66,3 +66,17 @@ test('unavailable storage retains drafts in memory without exposing them to anot
   assert.equal(store.read('a', 'feedback'), 'Retained');
   assert.equal(store.read('b', 'feedback'), '');
 });
+
+test('a submitted note keeps its identity with the owner until the text changes', () => {
+  const storage = disk();
+  const page = createSettingsDraftStore({ storage: () => storage });
+  assert.equal(page.read('a', 'noteAt'), null);
+  page.write('a', 'noteAt', 1730000000000);
+  const later = createSettingsDraftStore({ storage: () => storage });
+  assert.equal(later.read('a', 'noteAt'), 1730000000000, 'survives a reload or a new session');
+  assert.equal(later.read('b', 'noteAt'), null, 'never another owner’s');
+  later.clear('a', 'noteAt');
+  assert.equal(createSettingsDraftStore({ storage: () => storage }).read('a', 'noteAt'), null);
+  storage.setItem('plato_settings_draft_v1:a:noteAt', JSON.stringify({ userId: 'a', kind: 'noteAt', value: 'not a time' }));
+  assert.equal(createSettingsDraftStore({ storage: () => storage }).read('a', 'noteAt'), null);
+});

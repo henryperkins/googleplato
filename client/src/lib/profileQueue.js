@@ -46,23 +46,30 @@ export function addLearnerNote(text, { expectedUserId, at = Date.now() } = {}) {
     const edited = withLearnerNote(profile, text, at);
     if (!text.trim()) throw new Error('Enter a note to save.');
     await saveLearnerProfile(edited, options);
-    await assertProfileOwner(expectedUserId, session);
-    let changed = false, modelError = null;
+    // The note is durable from here. A later failure (the account changing
+    // during the optional rewrite, say) still rejects, but says the note was
+    // saved, so the caller drops its draft instead of offering it again.
     try {
-      const result = await orchestrator.updateProfileFromFeedback(edited, text.trim(), {
-        lessonName: 'Settings', activityType: 'feedback', activityGoal: 'Learner-provided profile correction',
-      }, { userId: expectedUserId }, { source: 'learner' });
       await assertProfileOwner(expectedUserId, session);
-      changed = await saveProfileResult(edited, result, options);
+      let changed = false, modelError = null;
+      try {
+        const result = await orchestrator.updateProfileFromFeedback(edited, text.trim(), {
+          lessonName: 'Settings', activityType: 'feedback', activityGoal: 'Learner-provided profile correction',
+        }, { userId: expectedUserId }, { source: 'learner' });
+        await assertProfileOwner(expectedUserId, session);
+        changed = await saveProfileResult(edited, result, options);
+      } catch (error) {
+        // An account change must reject, including after the durable note save.
+        await assertProfileOwner(expectedUserId, session);
+        modelError = error.message || 'Profile rewrite unavailable.';
+      }
+      await assertProfileOwner(expectedUserId, session);
+      const summary = await getLearnerProfileSummary(options).catch(error => { modelError ||= error.message; return ''; });
+      await assertProfileOwner(expectedUserId, session);
+      return { profile: await getLearnerProfile(options), summary, changed, noteSaved: true, modelError };
     } catch (error) {
-      // An account change must reject, including after the durable note save.
-      await assertProfileOwner(expectedUserId, session);
-      modelError = error.message || 'Profile rewrite unavailable.';
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), { noteSaved: true });
     }
-    await assertProfileOwner(expectedUserId, session);
-    const summary = await getLearnerProfileSummary(options).catch(error => { modelError ||= error.message; return ''; });
-    await assertProfileOwner(expectedUserId, session);
-    return { profile: await getLearnerProfile(options), summary, changed, noteSaved: true, modelError };
   }, { propagateError: true });
 }
 

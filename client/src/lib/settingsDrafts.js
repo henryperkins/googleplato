@@ -1,6 +1,9 @@
 const keyFor = (userId, kind) => `plato_settings_draft_v1:${encodeURIComponent(userId)}:${kind}`;
 const legacyKeys = ['plato_settings_fields_draft', 'plato_profile_feedback_draft'];
-const empty = kind => kind === 'fields' ? {} : '';
+// 'noteAt' is the identity (time) a submitted feedback draft's note was given,
+// kept until the text changes, so submitting that draft again can't add a
+// second copy of the same note.
+const empty = kind => kind === 'fields' ? {} : kind === 'noteAt' ? null : '';
 
 // Never assign an unowned legacy draft to the next person who signs in.
 export function createSettingsDraftStore({ storage = () => sessionStorage } = {}) {
@@ -20,6 +23,7 @@ export function createSettingsDraftStore({ storage = () => sessionStorage } = {}
         const entry = JSON.parse(storage().getItem(key));
         if (entry?.userId !== userId || entry.kind !== kind) return empty(kind);
         if (kind === 'feedback' && typeof entry.value === 'string') return entry.value;
+        if (kind === 'noteAt') return Number.isSafeInteger(entry.value) ? entry.value : null;
         if (kind === 'fields' && entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
           return Object.fromEntries(Object.entries(entry.value).filter(([, value]) => typeof value === 'string'));
         }
@@ -34,7 +38,7 @@ export function createSettingsDraftStore({ storage = () => sessionStorage } = {}
     },
     clear(userId, kind, expected) {
       const current = this.read(userId, kind);
-      if (expected !== undefined && (kind === 'feedback' ? current !== expected
+      if (expected !== undefined && (kind !== 'fields' ? current !== expected
         : Object.keys(current).length !== Object.keys(expected).length
           || Object.keys(current).some(key => current[key] !== expected[key]))) return false;
       this.write(userId, kind, empty(kind));

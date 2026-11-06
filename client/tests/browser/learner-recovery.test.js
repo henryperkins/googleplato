@@ -1088,8 +1088,40 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal((await api(page, '/v1/sync/profile')).data.goal, undefined);
     assert.ok(!(await page.locator('body').innerText()).includes('Private summary A'));
     await logout(page); await login(page, 'a'); await settings(page);
+    // A's note was saved before the switch: it's listed once, and its draft is
+    // gone, so it can't be submitted again as a second copy.
+    await page.getByRole('list', { name: 'Your notes' }).getByText('Private pending feedback A', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
-    assert.equal(await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).inputValue(), 'Private pending feedback A');
+    assert.equal(await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).inputValue(), '');
+    assert.equal((await api(page, '/v1/sync/profile')).data.learnerNotes.filter(note => note.text === 'Private pending feedback A').length, 1);
+  }));
+
+  it('a note saved just before signing in again is not added twice', t => withPage(t, async page => {
+    await page.goto(`${base}/settings`);
+    const reached = deferred(), released = deferred();
+    let calls = 0;
+    await page.route('**/v1/ai/messages', async route => {
+      if (++calls === 1) { reached.resolve(); await released.promise; }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: [{ type: 'text', text: '{"changed":false}' }] }) });
+    });
+    await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).fill('I learn best from short examples');
+    await page.getByRole('button', { name: 'Update profile', exact: true }).click(); await reached.promise;
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    // Same account, new session: Settings mounts (reading the draft, still
+    // there) while the earlier submission's rewrite is held open.
+    await logout(page); await login(page, 'a'); await settings(page);
+    released.resolve();
+    await page.getByRole('list', { name: 'Your notes' }).getByText('I learn best from short examples', { exact: true }).waitFor();
+    const input = page.getByRole('textbox', { name: 'Profile feedback', exact: true });
+    await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+    if (await input.inputValue()) {
+      // This page read the draft before the earlier submission finished:
+      // sending it again finds the note already saved.
+      await page.getByRole('button', { name: 'Update profile', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden' });
+    }
+    assert.equal((await api(page, '/v1/sync/profile')).data.learnerNotes.filter(note => note.text === 'I learn best from short examples').length, 1);
   }));
 
   it('lesson titles and metadata fit narrow enlarged text in both themes', t => withPage(t, async page => {

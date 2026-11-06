@@ -139,10 +139,28 @@ test('a saved note survives optional model failure and is reported as saved with
   assert.equal(writes.filter(w => w.url === '/v1/sync/profile').length, 1);
 });
 
+test('a note saved before the account changed rejects as saved, so its draft is dropped', async () => {
+  const started = deferred(), body = deferred();
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => url === '/v1/ai/messages'
+    ? { ok: true, json: () => { started.resolve(); return body.promise; } } : baseFetch(url, options);
+  const pending = profile.addLearnerNote('Saved before the switch', { expectedUserId: 'a', at: 30 });
+  const outcome = pending.then(() => null, error => error);
+  await started.promise;
+  assert.ok(writes.some(w => w.url === '/v1/sync/profile' && w.data.learnerNotes.some(n => n.text === 'Saved before the switch')));
+  switchAccount('b');
+  body.resolve({ content: [{ type: 'text', text: '{"changed":false}' }] });
+  const error = await outcome;
+  assert.match(error?.message || '', /original account/);
+  assert.equal(error.noteSaved, true);
+});
+
 test('manual failures reject the awaited result while the queue continues', async () => {
   const baseFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => options?.method === 'PUT' ? new Response('{}', { status: 503 }) : baseFetch(url, options);
-  await assert.rejects(profile.addLearnerNote('retained in draft', { expectedUserId: 'a' }), /confirmed saved/);
+  const unsaved = await profile.addLearnerNote('retained in draft', { expectedUserId: 'a' }).then(() => null, error => error);
+  assert.match(unsaved?.message || '', /confirmed saved/);
+  assert.equal(unsaved.noteSaved, undefined, 'a note that was never saved keeps its draft');
   let ran = false;
   await profile.queueProfileUpdate(async () => { ran = true; });
   assert.equal(ran, true);

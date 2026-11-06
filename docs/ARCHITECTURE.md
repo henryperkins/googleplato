@@ -2370,7 +2370,13 @@ verbatim note first, and then optionally rewrites soft profile fields. Model
 output cannot alter `learnerNotes`. Notes are capped at ten of 500 characters.
 A failed durable note write rejects to Settings while the queue continues. A
 failed optional rewrite reports that the note was saved, clears only the exact
-submitted draft, and never appends a duplicate on retry. Removal resolves the
+submitted draft, and never appends a duplicate on retry. Any rejection after
+the durable save (the account or session changing during the optional
+rewrite) carries `noteSaved: true`, and Settings drops that owner's draft
+instead of keeping it to submit again. The note's `at` is also kept with the
+owner's draft (`settingsDrafts` kind `noteAt`) until the text changes, so a
+page that loaded the draft before the earlier submission finished resubmits
+the same identity and finds the note already saved. Removal resolves the
 selected identity after earlier queued operations, so cap shifts cannot remove
 a different note. Optimistic conflicts remain explicit; no latest-version
 rewrite bypasses server CAS. Owner-bound profile/summary reads fail explicitly

@@ -490,16 +490,30 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
     setError('');
     try {
       await assertTurnOwner(userId);
-      noteAt.current ??= Date.now();
+      // The note's identity (its time) is kept with this owner's draft until
+      // the text changes. Submitting the same draft again, here or from a
+      // later session, then finds the note already saved instead of adding a
+      // second copy (withLearnerNote skips a note with the same text and time).
+      noteAt.current ??= settingsDrafts.read(userId, 'noteAt') || Date.now();
+      settingsDrafts.write(userId, 'noteAt', noteAt.current);
       const result = await addLearnerNote(text.trim(), { expectedUserId: userId, at: noteAt.current });
       await assertTurnOwner(userId);
       settingsDrafts.clear(userId, 'feedback', text);
+      settingsDrafts.clear(userId, 'noteAt');
       onOpenChange(false);
       setText('');
       noteAt.current = null;
       if (onDone) onDone(result);
     } catch (e) {
-      setError(aiErrorMessage(e, 'profile-feedback'));
+      if (e?.noteSaved) {
+        // Saved before a later step failed (the account changed during the
+        // optional rewrite, say): don't keep it as a draft to submit again.
+        settingsDrafts.clear(userId, 'feedback', text);
+        setText('');
+        setError('Your note was saved, but your profile couldn’t be updated here. Reload to see it.');
+      } else {
+        setError(aiErrorMessage(e, 'profile-feedback'));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -524,7 +538,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
             value={text}
             readOnly={submitting}
             aria-describedby="profile-feedback-error"
-            onChange={(e) => { settingsDrafts.write(userId, 'feedback', e.target.value); setText(e.target.value); noteAt.current = null; setError(''); }}
+            onChange={(e) => { settingsDrafts.write(userId, 'feedback', e.target.value); settingsDrafts.clear(userId, 'noteAt'); setText(e.target.value); noteAt.current = null; setError(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); } }}
           />
           <p id="profile-feedback-error" className={error ? 'text-sm text-destructive' : 'sr-only'} role="alert">
