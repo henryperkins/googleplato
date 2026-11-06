@@ -10,6 +10,8 @@
  * - A rename writes the group list first (version-checked), then the
  *   memberships, and reports counts and any failures. A failed membership
  *   write can be retried by renaming again; nothing is lost.
+ * - A delete works the same way: the list first, then the memberships. A
+ *   failed membership write is finished by deleting again.
  */
 import defaultDb from './db.js';
 
@@ -93,7 +95,20 @@ export async function renameGroup(oldName, name, { db = defaultDb } = {}) {
   return { ...result, moved };
 }
 
+/**
+ * Remove a group from the list, then from every member and invite. Members
+ * still carrying the name keep matching messages sent to the group, so a
+ * delete whose membership writes partly failed (`moved.failed`) is finished
+ * by deleting again: the name is no longer listed, but someone still carries
+ * it. A name nobody lists or carries is 404.
+ */
 export async function deleteGroup(name, { db = defaultDb } = {}) {
+  const listed = (await db.getSyncData('_system', 'settings'))?.data?.userGroups || [];
+  if (!listed.includes(name)) {
+    const moved = await moveMembers(db, name, null);
+    if (!moved.users && !moved.invites && !moved.failed) return { error: 'Group not found', status: 404 };
+    return { userGroups: listed, moved };
+  }
   const result = await editGroups(db, (groups) => (
     groups.includes(name) ? { groups: groups.filter((g) => g !== name) } : { error: 'Group not found', status: 404 }
   ));

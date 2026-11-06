@@ -57,6 +57,10 @@ export default function GroupsDialog({ open, onOpenChange, groups, memberCounts,
   // A rename that couldn't move everyone: { from, to }. Saving the same
   // rename again finishes it (the server sees `to` listed and `from` gone).
   const [unfinished, setUnfinished] = useState(null);
+  // A delete that couldn't take everyone out of the group: its name. Members
+  // still carrying it keep matching the group's messages, and deleting again
+  // finishes it (the server sees the name gone from the list but still used).
+  const [unfinishedDelete, setUnfinishedDelete] = useState(null);
 
   async function call(fn, done) {
     if (inFlight.current) return false;
@@ -108,8 +112,33 @@ export default function GroupsDialog({ open, onOpenChange, groups, memberCounts,
     const origin = deleteButtons.current.get(name);
     const confirmation = document.activeElement;
     const scope = focusScope.current;
-    const ok = await call(() => adminApi('DELETE', `/v1/admin/groups/${encodeURIComponent(name)}`), () => `Deleted ${name}.`);
+    const ok = await call(() => adminApi('DELETE', `/v1/admin/groups/${encodeURIComponent(name)}`), (d) => {
+      const failed = d.moved?.failed || 0;
+      setUnfinishedDelete(failed ? name : null);
+      return `Deleted ${name}.${failed ? ` ${people(failed)} couldn’t be taken out of it yet.` : ''}`;
+    });
     setFocusRequest({ scope, origin, confirmation, kind: ok ? 'add' : 'delete', name });
+  }
+
+  async function finishRemove(name) {
+    const origin = document.activeElement;
+    const scope = focusScope.current;
+    let remaining = 0;
+    const ok = await call(async () => {
+      try {
+        return await adminApi('DELETE', `/v1/admin/groups/${encodeURIComponent(name)}`);
+      } catch (e) {
+        // Another admin finished it first: nobody carries the name any more.
+        if (e.status === 404) return { userGroups: groups, moved: { failed: 0 } };
+        throw e;
+      }
+    }, (d) => {
+      remaining = d.moved?.failed || 0;
+      setUnfinishedDelete(remaining ? name : null);
+      return remaining ? `${people(remaining)} still couldn’t be taken out of ${name}. Try again in a moment.` : `Nobody is in ${name} any more.`;
+    });
+    // The button goes away once everyone is out; focus the Add field then.
+    if (ok && !remaining) setFocusRequest({ scope, origin, kind: 'add', name });
   }
 
   return (
@@ -160,6 +189,11 @@ export default function GroupsDialog({ open, onOpenChange, groups, memberCounts,
           {unfinished && (
             <Button focusableWhenDisabled variant="outline" size="sm" onClick={() => finishMove(unfinished)} disabled={busy}>
               Finish moving people from {unfinished.from} to {unfinished.to}
+            </Button>
+          )}
+          {unfinishedDelete && (
+            <Button focusableWhenDisabled variant="outline" size="sm" onClick={() => finishRemove(unfinishedDelete)} disabled={busy}>
+              Finish removing people from {unfinishedDelete}
             </Button>
           )}
           <p className="sr-only" role="status" aria-live="polite">{status}</p>

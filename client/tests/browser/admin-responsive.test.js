@@ -607,6 +607,35 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
     }
   });
 
+  it('says when a group delete left people behind and finishes it from the dialog', async () => {
+    const { context, page } = await openPage({ width: 1280, height: 844 });
+    try {
+      await controlUsers(context);
+      const deletes = [];
+      await context.route('**/v1/admin/groups/**', async route => {
+        if (route.request().method() !== 'DELETE') return route.fallback();
+        deletes.push(decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()));
+        const failed = deletes.length === 1 ? 1 : 0;
+        await route.fulfill({ json: { userGroups: [], moved: { users: failed ? 3 : 1, invites: 0, messages: 0, failed } } });
+      });
+      await navigate(page, 'users');
+      await page.getByRole('button', { name: 'Manage', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'User Groups', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'User Groups' });
+      await dialog.getByRole('button', { name: 'Delete group Autumn cohort', exact: true }).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Delete group', exact: true }).click();
+      const status = dialog.getByRole('status');
+      await status.filter({ hasText: 'Deleted Autumn cohort.' }).waitFor();
+      assert.equal(await status.textContent(), 'Deleted Autumn cohort. 1 person couldn’t be taken out of it yet.');
+      const finish = dialog.getByRole('button', { name: 'Finish removing people from Autumn cohort', exact: true });
+      await finish.click();
+      await status.filter({ hasText: 'Nobody is in Autumn cohort any more.' }).waitFor();
+      assert.equal(await finish.count(), 0);
+      await page.waitForFunction(() => document.activeElement?.id === 'new-group-name');
+      assert.deepEqual(deletes, ['Autumn cohort', 'Autumn cohort']);
+    } finally { await context.close(); }
+  });
+
   it('leaves focus where Tab or a quick activation moves it after a menu closes', async () => {
     const { context, page } = await openPage({ width: 1280, height: 844 });
     try {

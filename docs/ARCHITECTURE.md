@@ -2468,8 +2468,14 @@ owns them:
   dialog offers **Finish moving people from X to Y**, which sends the same
   rename again; with the new name listed and the old one gone, the server
   only moves the remaining members.
-- **Delete** clears the group from users and invites. Messages already sent
-  keep their audience.
+- **Delete** (`DELETE /v1/admin/groups/:name`) removes the name from the
+  list first, then clears it from users and invites, and returns the same
+  `moved` counts. Messages already sent keep their audience, so anyone still
+  carrying the name keeps seeing them. If some membership writes fail, the
+  dialog says how many people were left in the group and offers **Finish
+  removing people from X**, which deletes again: with the name gone from the
+  list but still carried, the server only clears the remaining memberships. A
+  name nobody lists or carries is 404 (the dialog treats that as finished).
 
 The User Groups dialog (`client/src/pages/admin/GroupsDialog.jsx`) has inline
 rename (Enter saves, Escape cancels), member counts, and a delete
