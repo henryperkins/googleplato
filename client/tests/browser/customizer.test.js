@@ -12,6 +12,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, firefox, webkit } from 'playwright';
 import Database from 'better-sqlite3';
+import { contrastRatio, hexToOklchParts } from '../../src/lib/branding.js';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 let browser;
@@ -125,6 +126,140 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       body: JSON.stringify({ theme: { primary: '#8b1a1a' }, classroomName: '', logoBase64: null }),
     });
     assert.equal(response.status, 200);
+  });
+
+  it('finds logo colors, keeps edits deliberate, and saves the same palette the classroom renders', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1100 });
+    try {
+      await navigate(page, 'customizer');
+      await page.getByLabel('Classroom Name', { exact: true }).fill('Logo palette studio');
+      const file = { name: 'studio.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="80"><rect x="0" width="200" height="80" fill="#137e8e"/><rect x="200" width="120" height="80" fill="#f5b800"/></svg>') };
+      await page.getByLabel('Logo image (optional)', { exact: true }).setInputFiles(file);
+      await page.getByRole('button', { name: 'Use #137e8e as primary', exact: true }).waitFor();
+      assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#8b1a1a', 'uploading does not replace manually chosen colors');
+      await page.getByRole('button', { name: 'Use logo colors', exact: true }).click();
+      assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#137e8e');
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#f5b800');
+      assert.equal(await page.getByLabel('Match primary', { exact: true }).isChecked(), false);
+      const swatch = page.getByRole('button', { name: 'Use #137e8e as accent', exact: true });
+      await swatch.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await swatch.getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#137e8e');
+      await page.getByRole('button', { name: 'Use logo colors', exact: true }).click();
+      const vars = await page.locator('figure').last().locator('.classroom-theme').evaluate(element => ({
+        primary: element.style.getPropertyValue('--classroom-primary-dark'),
+        header: element.style.getPropertyValue('--classroom-header-bg-dark'),
+      }));
+      assert.ok(hexToOklchParts(vars.header).c < 0.011, 'the header is charcoal, not a dark teal');
+      assert.equal(await page.locator('summary').filter({ hasText: 'Color contrast checks pass' }).count(), 2);
+      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/logo-color-themes'), browserName);
+      await mkdir(assets, { recursive: true });
+      await page.screenshot({ path: join(assets, 'logo-palette-desktop.png'), fullPage: true });
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      await page.reload();
+      await page.getByRole('button', { name: 'Use #137e8e as primary', exact: true }).waitFor();
+      assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#137e8e');
+      assert.equal(await page.getByLabel('Accent color hex code', { exact: true }).inputValue(), '#f5b800');
+      await page.getByRole('button', { name: 'Dark mode', exact: true }).click();
+      await page.getByRole('button', { name: 'Visit Classroom', exact: true }).click();
+      const live = await page.locator('html').evaluate(element => ({
+        primary: element.style.getPropertyValue('--classroom-primary-dark'),
+        header: element.style.getPropertyValue('--classroom-header-bg-dark'),
+      }));
+      assert.deepEqual(live, vars, 'saved classroom uses the exact preview colors');
+      await page.screenshot({ path: join(assets, 'logo-palette-classroom-dark.png'), fullPage: true });
+    } finally { await context.close(); }
+  });
+
+  it('derives readable colors from arbitrary monochrome, pale, dark and neon uploads on a phone', async () => {
+    const { context, page } = await openPage({ width: 390, height: 844 }, 'dark');
+    try {
+      await navigate(page, 'customizer');
+      for (const color of ['#ffffff', '#000000', '#bae6fd', '#082f49', '#00ff00', '#ff00ff']) {
+        const file = { name: 'mark.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect x="20" y="20" width="120" height="40" fill="${color}"/></svg>`) };
+        await page.getByLabel('Logo image (optional)', { exact: true }).setInputFiles(file);
+        await page.getByRole('button', { name: `Use ${color} as primary`, exact: true }).waitFor();
+        await page.getByRole('button', { name: 'Use logo colors', exact: true }).click();
+        assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), color);
+        assert.equal(await page.getByLabel('Match primary', { exact: true }).isChecked(), true);
+        for (const mode of ['Light', 'Dark']) {
+          await page.getByRole('button', { name: `${mode} preview`, exact: true }).click();
+          const figure = page.getByRole('figure', { name: `${mode} mode preview`, exact: true });
+          await page.waitForFunction(() => [...document.querySelectorAll('figure img')].every(img => img.style.backgroundColor));
+          const matte = await figure.locator('img').evaluate(img => getComputedStyle(img).backgroundColor);
+          assert.ok(contrastRatio(color, matte) >= 3, `${color} logo remains visible on its backing`);
+          const pairs = await figure.evaluate(element => {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const ctx = canvas.getContext('2d');
+            const hex = value => {
+              ctx.clearRect(0, 0, 1, 1);
+              ctx.fillStyle = value;
+              ctx.fillRect(0, 0, 1, 1);
+              return '#' + [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map(v => v.toString(16).padStart(2, '0')).join('');
+            };
+            const button = getComputedStyle(element.querySelector('button'));
+            const link = getComputedStyle(element.querySelector('.text-link'));
+            const workspace = getComputedStyle(element.querySelector('.bg-workspace'));
+            return [[hex(button.color), hex(button.backgroundColor)], [hex(link.color), hex(workspace.backgroundColor)], [hex(workspace.color), hex(workspace.backgroundColor)]];
+          });
+          for (const [text, background] of pairs) assert.ok(contrastRatio(text, background) >= 4.5, `${color} ${mode}: ${text} on ${background}`);
+          assert.equal(await figure.locator('summary').textContent(), 'Color contrast checks pass');
+          // The samples are inert for navigation but still have real hover styles.
+          const button = figure.locator('button').first();
+          await button.scrollIntoViewIfNeeded();
+          const bounds = await button.boundingBox();
+          await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+          const hover = await button.evaluate(el => {
+            const s = getComputedStyle(el);
+            return [s.color, s.backgroundColor];
+          });
+          assert.ok(contrastRatio(...hover) >= 4.5, `${color} ${mode} hover keeps readable text`);
+        }
+      }
+      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/logo-color-themes'), browserName);
+      await mkdir(assets, { recursive: true });
+      await page.getByRole('figure', { name: 'Dark mode preview', exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(assets, 'logo-palette-phone.png') });
+      await page.setViewportSize({ width: 320, height: 844 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.getByRole('button', { name: 'Remove logo image', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: 'Use logo colors', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+      assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#8b1a1a');
+    } finally { await context.close(); }
+  });
+
+  it('keeps manual editing and saving available when logo analysis fails, and can retry it', async () => {
+    const { context, page } = await openPage({ width: 1440, height: 1000 });
+    try {
+      await page.addInitScript(() => {
+        const original = HTMLCanvasElement.prototype.getContext;
+        window.restoreLogoCanvas = () => { HTMLCanvasElement.prototype.getContext = original; };
+        HTMLCanvasElement.prototype.getContext = function (type, options) {
+          return options?.willReadFrequently ? null : original.call(this, type, options);
+        };
+      });
+      await navigate(page, 'customizer');
+      await page.getByLabel('Logo image (optional)', { exact: true }).setInputFiles({ name: 'mark.svg', mimeType: 'image/svg+xml',
+        buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#137e8e"/></svg>') });
+      await page.getByRole('button', { name: 'Retry logo colors', exact: true }).waitFor();
+      await page.getByLabel('Primary color hex code', { exact: true }).fill('#123456');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
+      await page.evaluate(() => window.restoreLogoCanvas());
+      await page.getByRole('button', { name: 'Retry logo colors', exact: true }).click();
+      await page.getByRole('button', { name: 'Use #137e8e as primary', exact: true }).waitFor();
+      assert.equal(await page.getByLabel('Primary color hex code', { exact: true }).inputValue(), '#123456', 'a late analysis cannot replace an edit');
+      await page.getByRole('button', { name: 'Remove logo image', exact: true }).click();
+      assert.equal(await page.getByRole('group', { name: 'Logo colors for primary', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+      await page.getByRole('button', { name: 'Use #137e8e as primary', exact: true }).waitFor();
+    } finally { await context.close(); }
   });
 
   it('tracks saves, later edits, discard and staged defaults', async () => {

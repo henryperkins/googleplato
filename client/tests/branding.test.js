@@ -13,6 +13,7 @@ import {
   darkBubbleColor,
   darkFillColor,
   darkHeaderColor,
+  darkTextColor,
   generateFavicon,
   hexToOklch,
   hexToOklchParts,
@@ -23,6 +24,7 @@ import {
   readableColor,
   setFavicon,
   themeColorNotes,
+  themeContrastReport,
 } from '../src/lib/branding.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -137,21 +139,17 @@ describe('night classroom colors', () => {
     assert.equal(readableColor('#f5c518', '#f5f5f5'), '#886b00');
   });
 
-  it('puts every brand header deep in the night band: white text that reads, never sinking into the page', () => {
+  it('gives any brand a charcoal header with a restrained undertone and readable text', () => {
     for (const hex of SWEEP) {
       const header = darkHeaderColor(hex);
       const { l, c } = hexToOklchParts(header);
-      assert.ok(l >= 0.325 && l <= 0.485, `${hex} -> ${header} at L ${l.toFixed(3)}`);
-      assert.ok(c <= 0.105, `${hex} -> ${header} glows at chroma ${c.toFixed(3)}`);
+      assert.ok(l >= 0.315 && l <= 0.325, `${hex} -> ${header} at L ${l.toFixed(3)}`);
+      assert.ok(c <= 0.011, `${hex} -> ${header} is visibly colored at chroma ${c.toFixed(3)}`);
       assert.ok(contrastRatio(contrastText(header), header) >= 4.5, `${hex} header text`);
       assert.ok(contrastRatio(header, DARK_PAGE) >= 1.5, `${hex} header vs page`);
     }
-    // A full-width band at the brand's own strength outshone the page: maroon
-    // stays maroon, but as a deeper, calmer oxblood.
-    const maroon = hexToOklchParts('#8b1a1a');
-    const night = hexToOklchParts(darkHeaderColor('#8b1a1a'));
-    assert.ok(hueGap(night.h, maroon.h) < 3, 'keeps the hue');
-    assert.ok(night.l < maroon.l && night.c < maroon.c, `${darkHeaderColor('#8b1a1a')} is deeper and calmer`);
+    assert.equal(darkHeaderColor('#ffffff'), darkHeaderColor('#000000'), 'monochrome logos stay neutral');
+    assert.notEqual(darkHeaderColor('#ff0000'), darkHeaderColor('#0000ff'), 'the undertone responds to any brand');
   });
 
   it('makes every brand fill stand out from a dark card with readable text', () => {
@@ -160,8 +158,8 @@ describe('night classroom colors', () => {
       assert.ok(contrastRatio(fill, DARK_CARD) >= 3, `${hex} -> ${fill} vs card`);
       assert.ok(contrastRatio(contrastText(fill), fill) >= 4.5, `${hex} fill text`);
     }
-    assert.equal(darkFillColor('#dc2626'), '#dc2626', 'a fill that already stands out stays as chosen');
-    assert.equal(darkFillColor('#141414'), '#e8e8e8', 'near-black inverts to light gray');
+    assert.equal(darkFillColor('#137e8e'), '#137e8e', 'a restrained fill that already stands out stays as chosen');
+    assert.equal(darkFillColor('#141414'), '#a4a4a4', 'near-black inverts to restrained light gray');
     assert.ok(hueGap(hexToOklchParts(darkFillColor('#8b1a1a')).h, hexToOklchParts('#8b1a1a').h) < 3);
   });
 
@@ -292,18 +290,39 @@ describe('night classroom colors', () => {
 
   it('explains in the Customizer what fails in light mode and what dark mode changes', () => {
     assert.deepEqual(themeColorNotes(null), []);
-    assert.deepEqual(themeColorNotes({ primary: '#470d99' }).map(n => n.level), ['info']);
+    assert.ok(themeColorNotes({ primary: '#470d99' }).every(n => n.level === 'info'));
     const yellow = themeColorNotes({ primary: '#f5c518' });
-    assert.deepEqual(yellow.map(n => n.level), ['warning', 'info', 'info']);
+    assert.deepEqual(yellow.map(n => n.level), ['warning', 'info', 'info', 'info']);
     assert.match(yellow[0].text, /header in this color barely stands out from white \(1\.6:1\)/);
     assert.match(yellow[1].text, /In light mode, buttons use a deeper shade/);
-    assert.match(yellow[2].text, /In dark mode, learners' messages use a deeper shade with white text/);
+    assert.match(yellow[2].text, /bright colors use a softer shade/);
+    assert.match(yellow[3].text, /In dark mode, learners' messages use a deeper shade with white text/);
     assert.match(themeColorNotes({ primary: '#f8fafc' })[1].text, /In light mode, buttons turn near-black/);
     assert.deepEqual(themeColorNotes({ primary: '#8b1a1a' }).map(n => n.text), ['In dark mode, buttons use a lighter shade so they stand out from dark cards.']);
     assert.match(themeColorNotes({ primary: '#141414' }).map(n => n.text).join(' '), /light gray.*messages turn gray with white text/);
     // Every night header deepens, so none gets a note: the dark preview shows it.
     assert.equal(/header/.test(themeColorNotes({ primary: '#1d4ed8' }).map(n => n.text).join(' ')), false);
   });
+});
+
+it('checks every generated role across arbitrary primary and independent accent colors', () => {
+  assert.deepEqual(themeContrastReport(null), []);
+  for (let r = 0; r <= 255; r += 51) {
+    for (let g = 0; g <= 255; g += 51) {
+      for (let b = 0; b <= 255; b += 51) {
+        const hex = values => '#' + values.map(v => v.toString(16).padStart(2, '0')).join('');
+        const primary = hex([r, g, b]);
+        const accent = hex([255 - g, 255 - b, 255 - r]);
+        for (const report of themeContrastReport({ primary, accent })) {
+          for (const check of report.checks) assert.ok(check.passes, `${primary}/${accent} ${report.mode}: ${check.label} ${check.ratio}`);
+        }
+        const night = hexToOklchParts(darkFillColor(primary));
+        assert.ok(night.l <= 0.725, `${primary} night fill is too bright`);
+        assert.ok(night.c <= 0.185, `${primary} night fill is too saturated`);
+        assert.ok(hexToOklchParts(darkTextColor(accent)).c <= 0.145, `${accent} night text is too saturated`);
+      }
+    }
+  }
 });
 
 it('derived branding text meets normal-text contrast for configurable colors', () => {

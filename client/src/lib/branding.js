@@ -131,15 +131,13 @@ export function readableColor(hex, background, minimum = 4.6) {
 // Surface references (index.css). Fills (buttons, chat bubbles, badges) must
 // stand out, 3:1, from every surface they sit on: by day the darkest is the
 // workspace, oklch(0.97 0.001 106.424); at night the lightest is the popover
-// that dialogs use, oklch(0.235 …) in the brand's tint. A dark header's
-// lightness stays in the night band, so it neither glares nor sinks into the
-// page (oklch(0.15 …)).
+// that dialogs use, oklch(0.235 …) in the brand's tint. The charcoal header
+// stays separate from the page (oklch(0.15 …)) without filling it with color.
 const LIGHT_WORKSPACE = '#f5f5f4';
 const DARK_POPOVER_LIGHTNESS = 0.235;
-const DARK_PAGE = '#0e0e0e';
-const NIGHT_BAND = [0.33, 0.48];
-// The most color a night header carries: enough to name the brand, not to glow.
-const NIGHT_HEADER_CHROMA = 0.1;
+const NIGHT_HEADER_LIGHTNESS = 0.32;
+// A charcoal with a trace of the brand, not a muddy version of its primary.
+const NIGHT_HEADER_CHROMA = 0.008;
 // Below this chroma a color reads as gray, and its hue is noise.
 const ACHROMATIC = 0.03;
 
@@ -154,40 +152,38 @@ function tintChroma(c) {
 }
 
 /**
- * The header color in dark mode, which also fills the sign-in backdrop: a
- * deep band of the brand. It takes the brand's hue at the floor of the night
- * band with its chroma capped, so maroon reads as oxblood, blue as navy, and
- * yellow as bronze. A full-width band of the brand as chosen, or lifted toward
- * the top of the band, outshone everything beneath it at night.
+ * A neutral charcoal for the header and sign-in backdrop. The primary's hue
+ * supplies only an undertone; recognizable brand color lives in the logo,
+ * buttons and links. Neutral logos stay neutral instead of acquiring a hue
+ * from floating-point noise. This is a visual-comfort choice, not a health claim.
  */
 export function darkHeaderColor(hex) {
   const normalized = normalizeHex(hex);
   if (!normalized) return null;
   const { c, h } = hexToOklchParts(normalized);
-  const chroma = c < ACHROMATIC ? 0 : Math.min(c, NIGHT_HEADER_CHROMA);
-  // Saturated blues carry little luminance for their lightness: lift the band
-  // until it still separates from the page.
-  let band = NIGHT_BAND[0];
-  while (band < NIGHT_BAND[1] && contrastRatio(oklchToHex(band, chroma, h), DARK_PAGE) < 1.5) band += 0.005;
-  return oklchToHex(band, chroma, h);
+  const chroma = c < ACHROMATIC ? 0 : Math.min(c * 0.05, NIGHT_HEADER_CHROMA);
+  return oklchToHex(NIGHT_HEADER_LIGHTNESS, chroma, h);
 }
 
 /**
  * The button fill in dark mode: the brand when it already stands out from the
  * night surfaces (3:1 against the popover, the lightest of them), else lifted
- * until it does. A near-black brand turns light gray instead, the way a
- * monochrome mark inverts at night.
+ * until it does. Bright or neon colors soften first, without changing hue.
+ * A near-black brand turns a restrained light gray.
  */
 export function darkFillColor(hex) {
   const normalized = normalizeHex(hex);
   if (!normalized) return null;
   const { l, c, h } = hexToOklchParts(normalized);
   const surface = oklchToHex(DARK_POPOVER_LIGHTNESS, tintChroma(c), h);
-  if (contrastRatio(normalized, surface) >= 3) return normalized;
-  if (c < ACHROMATIC) return oklchToHex(0.93, 0, 0);
+  // Bright/neon source colors are accents, not little lamps on a dark page.
+  const restrained = l > 0.72 || c > 0.18
+    ? oklchToHex(Math.min(l, 0.72), Math.min(c, 0.18), h) : normalized;
+  if (contrastRatio(restrained, surface) >= 3) return restrained;
+  if (c < ACHROMATIC) return oklchToHex(0.72, 0, 0);
   // Ease saturation as lightness climbs: full chroma at night lightness
   // reads pastel (maroon becomes salmon) or neon, never the brand at ease.
-  const liftedChroma = c * 0.92;
+  const liftedChroma = Math.min(c * 0.92, 0.18);
   let failing = l, passing = 1;
   for (let i = 0; i < 24; i++) {
     const mid = (failing + passing) / 2;
@@ -207,7 +203,7 @@ export function darkBubbleColor(hex) {
   const fill = darkFillColor(hex);
   if (!fill || contrastText(fill) === '#ffffff') return fill;
   const { c, h } = hexToOklchParts(normalizeHex(hex));
-  const chroma = c < ACHROMATIC ? 0 : c * 0.92;
+  const chroma = c < ACHROMATIC ? 0 : Math.min(c * 0.92, 0.18);
   const surface = oklchToHex(DARK_POPOVER_LIGHTNESS, tintChroma(c), h);
   let failing = 0, passing = hexToOklchParts(fill).l;
   for (let i = 0; i < 24; i++) {
@@ -241,8 +237,8 @@ export function lightFillColor(hex) {
 /**
  * Notes for the Customizer: a warning when the header won't stand out in light
  * mode (there it uses the color as chosen), what each mode changes to keep the
- * buttons visible, and when night bubbles deepen. Every night header takes a
- * deep shade, so it gets no note; the dark preview shows it.
+ * buttons visible, and when night bubbles deepen. The preview separately
+ * explains the charcoal header shared by every dark palette.
  */
 export function themeColorNotes(theme) {
   const primary = normalizeHex(theme?.primary);
@@ -267,7 +263,9 @@ export function themeColorNotes(theme) {
   if (darkFillColor(primary) !== primary) {
     notes.push({
       level: 'info',
-      text: c < ACHROMATIC
+      text: hexToOklchParts(primary).l > 0.72 || c > 0.18
+        ? 'In dark mode, bright colors use a softer shade on buttons, while the logo keeps its original colors.'
+        : c < ACHROMATIC
         ? 'In dark mode, buttons turn light gray, since near-black buttons would disappear on dark cards.'
         : 'In dark mode, buttons use a lighter shade so they stand out from dark cards.',
     });
@@ -281,6 +279,49 @@ export function themeColorNotes(theme) {
     });
   }
   return notes;
+}
+
+/** A readable brand accent at night, without preserving neon saturation. */
+export function darkTextColor(hex) {
+  const normalized = normalizeHex(hex);
+  if (!normalized) return hex;
+  const { l, c, h } = hexToOklchParts(normalized);
+  const softened = oklchToHex(Math.min(l, 0.82), Math.min(c, 0.14), h);
+  return readableColor(softened, '#303030');
+}
+
+/** Exact emitted colors, including rounded OKLCH text tokens, for UI feedback. */
+export function themeContrastReport(theme) {
+  const vars = buildThemeVars(theme);
+  if (!vars['--primary']) return [];
+  const hex = value => {
+    if (value.startsWith('#')) return value;
+    const [, l, c, h] = value.match(/^oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)$/);
+    return oklchToHex(Number(l), Number(c), Number(h));
+  };
+  const hue = Number(vars['--classroom-tint-hue']);
+  const tint = Number(vars['--classroom-tint-chroma']);
+  return ['light', 'dark'].map(mode => {
+    const dark = mode === 'dark';
+    const surfaces = dark ? [0.15, 0.195, 0.235, 0.27, 0.29].map(l => oklchToHex(l, tint, hue)) : ['#ffffff', LIGHT_WORKSPACE];
+    const button = vars[dark ? '--classroom-primary-dark' : '--primary'];
+    const buttonText = vars[dark ? '--classroom-primary-foreground-dark' : '--primary-foreground'];
+    const header = vars[dark ? '--classroom-header-bg-dark' : '--classroom-header-bg'];
+    const headerText = vars[dark ? '--classroom-header-text-dark' : '--classroom-header-text'];
+    const bubble = dark ? vars['--classroom-bubble-dark'] : button;
+    const bubbleText = dark ? vars['--classroom-bubble-foreground-dark'] : buttonText;
+    const link = hex(vars[`--classroom-link-${mode}`]);
+    const check = (label, ratio, minimum) => ({ label, ratio, minimum, passes: ratio >= minimum });
+    const checks = [
+      check('Header text', contrastRatio(headerText, header), 4.5),
+      check('Button text', contrastRatio(buttonText, button), 4.5),
+      check('Message text', contrastRatio(bubbleText, bubble), 4.5),
+      check('Links', Math.min(...surfaces.map(bg => contrastRatio(link, bg))), 4.5),
+      check('Focus rings', Math.min(...surfaces.map(bg => contrastRatio(link, bg))), 3),
+      check('Button boundaries', Math.min(...surfaces.slice(0, 3).map(bg => contrastRatio(button, bg))), 3),
+    ];
+    return { mode, header, button, link, checks, passes: checks.every(check => check.passes) };
+  });
 }
 
 /** Build CSS var overrides from theme primary/accent. */
@@ -299,7 +340,7 @@ export function buildThemeVars(theme) {
     vars['--primary'] = fill;
     vars['--primary-foreground'] = contrastText(fill);
     vars['--classroom-primary-text-light'] = hexToOklch(readableColor(primary, '#f5f5f5'));
-    vars['--classroom-primary-text-dark'] = hexToOklch(readableColor(primary, '#303030'));
+    vars['--classroom-primary-text-dark'] = hexToOklch(darkTextColor(primary));
     // The night classroom (index.css `.dark .classroom-theme`): its own header,
     // fills, and learner bubbles, and the trace of the brand's hue its
     // surfaces carry.
@@ -318,7 +359,7 @@ export function buildThemeVars(theme) {
   }
   if (accent) {
     vars['--classroom-link-light'] = hexToOklch(readableColor(accent, '#f5f5f5'));
-    vars['--classroom-link-dark'] = hexToOklch(readableColor(accent, '#303030'));
+    vars['--classroom-link-dark'] = hexToOklch(darkTextColor(accent));
     vars['--classroom-ring-light'] = vars['--classroom-link-light'];
     vars['--classroom-ring-dark'] = vars['--classroom-link-dark'];
     // Restore the pre-rework contract: consumers that apply these vars

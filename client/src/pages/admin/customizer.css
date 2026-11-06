@@ -30,6 +30,29 @@
   align-items: start;
 }
 
+.logo-color-swatch {
+  position: relative;
+}
+
+.logo-color-swatch[aria-pressed="true"] {
+  border-color: var(--foreground);
+}
+
+.logo-color-selected {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 1px;
+  border-radius: var(--radius-sm);
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.theme-contrast-details summary:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
 @container (min-width: 38rem) {
   .customizer-identity-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

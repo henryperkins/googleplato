@@ -149,15 +149,15 @@
    (plato purple, or the classroom's own, set below) so the room reads as a
    calm neutral dark with the brand living in its header and fills, and rise
    in lightness with elevation: the page, then cards and chrome (the lesson
-   header and message box are bg-card), then menus. The header is a deep band
-   of the brand; fills are lit just enough to stand out, with their saturation
+   header and message box are bg-card), then menus. The header is charcoal
+   with a faint brand undertone; fills stand out, with their saturation
    eased so lifted shades do not turn pastel or neon at night. */
 .dark {
     --tint-hue: 285;
     --tint-chroma: 0.007;
     --primary: oklch(0.565 0.17 285);
     --primary-foreground: oklch(0.985 0 0);
-    --header: oklch(0.33 0.1 285);
+    --header: oklch(0.32 0.008 285);
     --header-foreground: oklch(0.985 0 0);
     --bubble: var(--primary);
     --bubble-foreground: var(--primary-foreground);
@@ -347,6 +347,14 @@
   --bubble-foreground: var(--primary-foreground);
 }
 
+/* Generated fills and labels are checked together. A translucent hover fill
+   can lose that contrast, so classroom buttons keep the pair and underline. */
+.classroom-theme [data-slot="button"].bg-primary:hover {
+  background-color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* The classroom at night: its hue tints the surfaces, and its header, fills,
    and learner bubbles take the dark values buildThemeVars derives
    (lib/branding.js). Fallbacks match the plato defaults in `.dark`. */
@@ -354,7 +362,7 @@
 .dark .classroom-theme:not(.light *) {
   --tint-hue: var(--classroom-tint-hue, 285);
   --tint-chroma: var(--classroom-tint-chroma, 0.007);
-  --header: var(--classroom-header-bg-dark, oklch(0.33 0.1 285));
+  --header: var(--classroom-header-bg-dark, oklch(0.32 0.008 285));
   --header-foreground: var(--classroom-header-text-dark, oklch(0.985 0 0));
   --primary-text: var(--classroom-primary-text-dark, oklch(0.79 0.105 285));
   --link: var(--classroom-link-dark, var(--primary-text));

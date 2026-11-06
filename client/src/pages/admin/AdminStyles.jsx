@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useBlocker } from 'react-router-dom';
-import { Info, TriangleAlert } from 'lucide-react';
+import { Check, Info, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from '@/components/ui/alert-dialog';
-import { buildThemeVars, normalizeHex, themeColorNotes } from '../../lib/branding.js';
+import ClassroomLogo from '../../components/ClassroomLogo.jsx';
+import { buildThemeVars, normalizeHex, themeColorNotes, themeContrastReport } from '../../lib/branding.js';
+import { readLogoPalette, suggestLogoTheme } from '../../lib/logoPalette.js';
 import { MAX_CLASSROOM_NAME, dataUrlBlob, downloadOriginalLogo, prepareLogo } from '../../lib/logoUpload.js';
 import { invalidatePublicBranding } from '../../lib/publicBranding.js';
 import { DEFAULT_STYLES, changedStyles, normalizeColor, publishedStyles, stylesFrom } from '../../lib/stylesDraft.js';
@@ -33,6 +35,8 @@ export default function AdminStyles({ initialData, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [styleMessage, setStyleMessage] = useState(null);
   const [previewMode, setPreviewMode] = useState('light');
+  const [logoPalette, setLogoPalette] = useState(null);
+  const [paletteAttempt, setPaletteAttempt] = useState(0);
   const fileInput = useRef(null);
   const saveButton = useRef(null);
   const uploadEpoch = useRef(0);
@@ -45,13 +49,27 @@ export default function AdminStyles({ initialData, onSaved }) {
   const safeAccent = draft.matchPrimary ? safePrimary : preview.accent;
   const previewVars = buildThemeVars({ primary: safePrimary, accent: safeAccent });
   const colorNotes = themeColorNotes({ primary: safePrimary });
+  const contrastReport = themeContrastReport({ primary: safePrimary, accent: safeAccent });
   const classroomName = draft.classroomName.trim() || 'plato';
   const blockedOriginal = Boolean(logoBlocked && draft.logoBase64 && draft.logoBase64 === saved.logoBase64);
+  const paletteSource = blockedOriginal ? null : draft.logoBase64;
+  const palette = logoPalette?.source === paletteSource ? logoPalette : null;
+  const logoColors = palette?.colors || [];
   // Only rasters were padded: earlier versions stored SVG files unchanged.
   const showLegacyNotice = !blockedOriginal && legacyLogo && Boolean(draft.logoBase64) && draft.logoBase64 === saved.logoBase64
     && !draft.logoBase64.startsWith('data:image/svg+xml');
 
   useEffect(() => () => { uploadEpoch.current++; }, []);
+  useEffect(() => {
+    if (!paletteSource) return;
+    const controller = new AbortController();
+    readLogoPalette(paletteSource, { signal: controller.signal }).then(colors => {
+      if (!controller.signal.aborted) setLogoPalette({ source: paletteSource, colors });
+    }).catch(() => {
+      if (!controller.signal.aborted) setLogoPalette({ source: paletteSource, colors: [], error: true });
+    });
+    return () => controller.abort();
+  }, [paletteSource, paletteAttempt]);
   useEffect(() => {
     if (!dirty && !busy) return;
     const beforeUnload = event => { event.preventDefault(); event.returnValue = ''; };
@@ -102,6 +120,23 @@ export default function AdminStyles({ initialData, onSaved }) {
     change(matchPrimary ? { matchPrimary } : { matchPrimary, accent });
     if (!matchPrimary) setPreview(previous => ({ ...previous, accent }));
     setColorErrors(previous => ({ ...previous, accent: '' }));
+  }
+
+  function applyLogoColors() {
+    if (busy) return;
+    const colors = suggestLogoTheme(logoColors);
+    if (!colors) return;
+    change(colors);
+    setPreview({ primary: colors.primary, accent: colors.accent });
+    setColorErrors({});
+    setStyleMessage({ text: 'Logo colors selected. Review both modes, then Save.', type: 'info' });
+  }
+
+  function applyLogoSwatch(field, hex) {
+    if (busy) return;
+    change({ [field]: hex, ...(field === 'accent' ? { matchPrimary: false } : {}) });
+    setPreview(previous => ({ ...previous, [field]: hex }));
+    setColorErrors(previous => ({ ...previous, [field]: '' }));
   }
 
   function restore(values, text) {
@@ -241,8 +276,20 @@ export default function AdminStyles({ initialData, onSaved }) {
       <section className="space-y-3 border-t border-border pt-5" aria-labelledby="appearance-colors-heading">
         <div className="space-y-1">
           <h2 id="appearance-colors-heading" className="text-lg font-semibold">Colors</h2>
-          <p className="text-sm leading-relaxed text-muted-foreground max-w-prose">Readable text and dark-mode shades are derived automatically.</p>
+          <p className="text-sm leading-relaxed text-muted-foreground max-w-prose">Start with your logo, or choose your own colors. Each mode gets readable shades of the same palette.</p>
         </div>
+        {paletteSource && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={applyLogoColors}
+              disabled={busy || !logoColors.length} focusableWhenDisabled>Use logo colors</Button>
+            <span className="text-xs leading-normal text-muted-foreground" role="status">
+              {!palette ? 'Finding logo colors…' : palette.error ? 'Colors could not be read. You can still choose them below.'
+                : logoColors.length ? `${logoColors.length} logo ${logoColors.length === 1 ? 'color found' : 'colors found'}. Choose individual swatches below to fine-tune.`
+                  : 'No clear colors found. Choose colors below or try another logo.'}
+            </span>
+            {palette?.error && <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setLogoPalette(null); setPaletteAttempt(value => value + 1); }}>Retry logo colors</Button>}
+          </div>
+        )}
         <div className="customizer-color-grid">
           {['primary', 'accent'].map(field => {
             const matching = field === 'accent' && draft.matchPrimary;
@@ -271,6 +318,18 @@ export default function AdminStyles({ initialData, onSaved }) {
                     )}
                   </div>
                   {colorErrors[field] && <p id={`theme-${field}-error`} className="text-xs text-destructive" role="alert">{colorErrors[field]}</p>}
+                  {logoColors.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1" role="group" aria-label={`Logo colors for ${field}`}>
+                      {logoColors.map(hex => {
+                        const selected = hex === (field === 'primary' ? safePrimary : safeAccent);
+                        return <Button key={hex} variant="ghost" className="logo-color-swatch size-11 p-1.5" disabled={busy}
+                          aria-label={`Use ${hex} as ${field}`} aria-pressed={selected} title={hex} onMouseDown={holdHexFocus} onClick={() => applyLogoSwatch(field, hex)}>
+                          <span className="size-7 rounded-md border border-input" style={{ backgroundColor: hex }} aria-hidden="true" />
+                          {selected && <Check className="logo-color-selected size-3" aria-hidden="true" />}
+                        </Button>;
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -291,7 +350,7 @@ export default function AdminStyles({ initialData, onSaved }) {
               <div className={mode}>
                 <div className="classroom-theme rounded-lg overflow-hidden border" style={previewVars}>
                   <div className="px-4 py-2 flex min-h-12 items-center gap-2 text-sm bg-header text-header-foreground">
-                    {draft.logoBase64 && !blockedOriginal ? <img src={draft.logoBase64} alt={classroomName} height="32" className="h-8 w-auto max-w-full object-contain" />
+                    {draft.logoBase64 && !blockedOriginal ? <ClassroomLogo src={draft.logoBase64} alt={classroomName} height="32" className="h-8 w-auto max-w-full object-contain" fallback={<span className="truncate font-semibold">{classroomName}</span>} />
                       : <span className="truncate font-semibold">{classroomName}</span>}
                   </div>
                   {/* Samples of the real controls, not controls: no tab stops. */}
@@ -299,14 +358,29 @@ export default function AdminStyles({ initialData, onSaved }) {
                     <p>Body text on the page background.</p>
                     <span className="text-link underline">Accent link</span>
                     <div className="flex flex-wrap items-center gap-2 mt-2">
-                      <Button type="button" size="sm">Button</Button>
-                      <Button type="button" size="sm" variant="outline">Outline</Button>
+                      <Button type="button" size="sm" className="transition-none">Button</Button>
+                      <Button type="button" size="sm" variant="outline" className="transition-none">Outline</Button>
                       <p className="ml-auto max-w-full rounded-2xl rounded-br-sm bg-bubble px-3 py-1 text-bubble-foreground">A learner&apos;s message</p>
                     </div>
                   </div>
                 </div>
               </div>
-              <figcaption className="text-xs text-muted-foreground">{mode === 'light' ? 'Light mode' : 'Dark mode'}</figcaption>
+              <figcaption className="text-xs text-muted-foreground">{mode === 'light' ? 'Light mode · Brand header' : 'Dark mode · Charcoal header'}</figcaption>
+              <details className="theme-contrast-details text-xs">
+                <summary className="touch-target cursor-pointer rounded-md py-1 text-muted-foreground">
+                  {contrastReport.find(report => report.mode === mode).passes ? 'Color contrast checks pass' : 'Review color contrast'}
+                </summary>
+                <dl className="space-y-1 pt-1">
+                  {contrastReport.find(report => report.mode === mode).checks.map(check => (
+                    <div key={check.label} className={`flex flex-wrap justify-between gap-x-2 ${check.passes ? 'text-muted-foreground' : 'text-warning-foreground'}`}>
+                      <dt>{check.label}</dt>
+                      <dd className="tabular-nums">{check.ratio.toFixed(2)}:1 · {check.passes ? 'Pass' : 'Below'} {check.minimum}:1</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="mt-2 leading-relaxed text-muted-foreground">Checks cover generated interface colors. Check the logo itself in both previews.</p>
+                {mode === 'dark' && <p className="mt-2 leading-relaxed text-muted-foreground">Charcoal carries a subtle brand undertone. Bright accents soften for dark surfaces. Learners keep their own light or dark preference.</p>}
+              </details>
             </figure>
           ))}
         </div>

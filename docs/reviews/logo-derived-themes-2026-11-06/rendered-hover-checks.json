@@ -1,0 +1,112 @@
+{
+  "hoverChecks": [
+    {
+      "mode": "dark",
+      "foreground": "#ffffff",
+      "background": "#d14337",
+      "hovered": true,
+      "decoration": "underline",
+      "ratio": 4.596100244969306
+    },
+    {
+      "mode": "light",
+      "foreground": "#ffffff",
+      "background": "#e0261f",
+      "hovered": true,
+      "decoration": "underline",
+      "ratio": 4.701678711846029
+    }
+  ],
+  "contrast": [
+    {
+      "mode": "light",
+      "header": "#e0261f",
+      "button": "#e0261f",
+      "link": "#007c7e",
+      "checks": [
+        {
+          "label": "Header text",
+          "ratio": 4.701678711846029,
+          "minimum": 4.5,
+          "passes": true
+        },
+        {
+          "label": "Button text",
+          "ratio": 4.701678711846029,
+          "minimum": 4.5,
+          "passes": true
+        },
+        {
+          "label": "Message text",
+          "ratio": 4.701678711846029,
+          "minimum": 4.5,
+          "passes": true
+        },
+        {
+          "label": "Links",
+          "ratio": 4.600444697612504,
+          "minimum": 4.5,
+          "passes": true
+        },
+        {
+          "label": "Focus rings",
+          "ratio": 4.600444697612504,
+          "minimum": 3,
+          "passes": true
+        },
+        {
+          "label": "Button boundaries",
+          "ratio": 4.309824983157629,
+          "minimum": 3,
+          "passes": true
+        }
+      ],
+      "passes": true
+    },
+    {
+      "mode": "dark",
+      "header": "#373130",
+      "button": "#d14337",
+      "link": "#30a8ab",
+      "checks": [
+        {
+          "label": "Header text",
+          "ratio": 12.770225915327982,
+          "minimum": 4.5,
+          "passes": true
+        },
+        {
+          "label": "Button text",
+          "ratio": 4.596100244969306,
+          "minimum": 4.5,
+          "passes": true
+        },
+        {
+          "label": "Message text",
+          "ratio": 4.596100244969306,
+          "minimum": 4.5,
+          "passes": true
+        },
+        {
+          "label": "Links",
+          "ratio": 4.928858893764578,
+          "minimum": 4.5,
+          "passes": true
+        },
+        {
+          "label": "Focus rings",
+          "ratio": 4.928858893764578,
+          "minimum": 3,
+          "passes": true
+        },
+        {
+          "label": "Button boundaries",
+          "ratio": 3.6343950014841044,
+          "minimum": 3,
+          "passes": true
+        }
+      ],
+      "passes": true
+    }
+  ]
+}
