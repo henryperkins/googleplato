@@ -3,6 +3,39 @@
   container-type: inline-size;
 }
 
+.customizer-identity-grid {
+  display: grid;
+  gap: 1rem 1.5rem;
+  align-items: start;
+}
+
+/* Beside the name field, the logo field takes its height, so the two hints
+   start on one line: 40px, or 44px where text fields grow for touch. Its
+   2rem button sets the content height; padding makes up the rest, less the
+   1px borders, so the match holds at any text size. */
+.customizer-identity-grid input[type="file"] {
+  padding-block: calc(0.25rem - 1px);
+}
+
+@media (max-width: 47.999rem), (pointer: coarse) {
+  .customizer-identity-grid input[type="file"] {
+    padding-block: calc(0.375rem - 1px);
+  }
+}
+
+.customizer-color-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  align-items: start;
+}
+
+@container (min-width: 38rem) {
+  .customizer-identity-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .knowledge-viewer-header {
   display: flex;
   flex-wrap: wrap;
@@ -124,7 +157,8 @@
     border-top: 1px solid var(--border);
   }
 
-  .knowledge-save-actions[data-pristine="true"] {
+  .knowledge-save-actions[data-pristine="true"],
+  .customizer-actions[data-pristine="true"] {
     position: static;
   }
 
@@ -162,7 +196,6 @@
 
   .customizer-actions [role="status"] {
     flex-basis: 100%;
-    order: -1;
   }
 
   .customizer-actions {
@@ -214,7 +247,8 @@
     overflow-wrap: break-word;
   }
 
-  .knowledge-base-editor button:not([role="tab"]) {
+  .knowledge-base-editor button:not([role="tab"]),
+  .customizer-appearance button:not(figure button) {
     max-width: 100%;
     height: auto;
     min-height: 2.75rem;

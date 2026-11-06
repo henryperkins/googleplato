@@ -133,6 +133,37 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       await navigate(page, 'customizer');
       const save = page.getByRole('button', { name: 'Save', exact: true });
       assert.equal(await save.isDisabled(), true);
+      const desktopLayout = await page.evaluate(() => {
+        const name = document.getElementById('classroom-name').getBoundingClientRect();
+        const logo = document.getElementById('logo-file').getBoundingClientRect();
+        const nameHint = document.getElementById('classroom-name-hint').getBoundingClientRect();
+        const logoHint = document.getElementById('logo-file-hint').getBoundingClientRect();
+        const saveBox = [...document.querySelectorAll('.customizer-actions button')][0].getBoundingClientRect();
+        const headings = [...document.querySelectorAll('.customizer-appearance h2')].map(h => {
+          const cs = getComputedStyle(h);
+          return { text: h.textContent.trim(), size: cs.fontSize, weight: cs.fontWeight };
+        });
+        return {
+          sameRow: Math.abs(name.top - logo.top) < 4 && logo.left >= name.right,
+          fieldsMatch: Math.abs(name.height - logo.height) < 1,
+          hintsAligned: Math.abs(nameHint.top - logoHint.top) < 1,
+          nestedCards: document.querySelectorAll('.customizer-appearance [data-slot="card"]').length,
+          saveAboveFold: saveBox.bottom <= window.innerHeight,
+          headings,
+          sections: [...document.querySelectorAll('.customizer-appearance section')].map(section => document.getElementById(section.getAttribute('aria-labelledby'))?.textContent),
+        };
+      });
+      assert.equal(desktopLayout.sameRow, true, 'identity fields sit side by side on wide containers');
+      assert.equal(desktopLayout.fieldsMatch, true, 'the logo field matches the height of the name field beside it');
+      assert.equal(desktopLayout.hintsAligned, true, 'the name and logo hints start on one line');
+      assert.deepEqual(desktopLayout.sections, ['Classroom Identity', 'Colors', 'Classroom preview'], 'each section is named by its visible heading');
+      assert.equal(desktopLayout.nestedCards, 0, 'appearance sections do not wrap preview cards inside outer cards');
+      assert.equal(desktopLayout.saveAboveFold, true, 'Save fits within the 1440x1000 desktop viewport');
+      assert.deepEqual(desktopLayout.headings, [
+        { text: 'Classroom Identity', size: '18px', weight: '600' },
+        { text: 'Colors', size: '18px', weight: '600' },
+        { text: 'Classroom preview', size: '18px', weight: '600' },
+      ]);
       await page.getByLabel('Classroom Name', { exact: true }).fill('  Studio & Academy  ');
       assert.equal(await save.isEnabled(), true);
       await save.click();
@@ -310,6 +341,13 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
         const bounds = await image.evaluate(img => ({ width: img.naturalWidth, height: img.naturalHeight, displayWidth: img.getBoundingClientRect().width, displayHeight: img.getBoundingClientRect().height }));
         assert.deepEqual(bounds, { width: 512, height: 128, displayWidth: 128, displayHeight: 32 });
       }
+      // Remove stays with the logo field, not under the name beside it.
+      const removeColumn = await page.evaluate(() => {
+        const remove = [...document.querySelectorAll('button')].find(button => button.textContent === 'Remove logo image').getBoundingClientRect();
+        const field = document.getElementById('logo-file').getBoundingClientRect();
+        return { left: Math.round(remove.left - field.left), below: remove.top >= field.bottom };
+      });
+      assert.deepEqual(removeColumn, { left: 0, below: true });
       await page.getByRole('button', { name: 'Remove logo image', exact: true }).click();
       assert.equal(await page.evaluate(() => document.activeElement.id), 'logo-file');
       assert.equal(await page.getByLabel('Logo image (optional)', { exact: true }).inputValue(), '');
@@ -1244,6 +1282,16 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
           for (const view of ['appearance', 'knowledge']) {
             if (view === 'appearance') {
               await navigate(page, 'customizer');
+              const pristineBar = await page.locator('.customizer-actions').evaluate(bar => ({
+                pinned: getComputedStyle(bar).position === 'sticky',
+                statusOrder: getComputedStyle(bar.querySelector('[role="status"]')).order,
+              }));
+              assert.deepEqual(pristineBar, { pinned: false, statusOrder: '0' }, 'untouched phone appearance does not pin a disabled bar or reorder status before buttons');
+              const match = await page.getByLabel('Match primary', { exact: true }).evaluate(box => ({
+                themed: getComputedStyle(box).accentColor !== 'auto',
+                target: box.closest('label').getBoundingClientRect().height >= 44,
+              }));
+              assert.deepEqual(match, { themed: true, target: true }, 'Match primary takes the admin primary and a 44px touch target');
               await page.getByLabel('Classroom Name', { exact: true }).fill('Enlarged text check');
             } else {
               await page.goto(`${base}/plato/customizer/knowledge/edit?mode=text`);

@@ -83,7 +83,8 @@ describe('Admin state as text and semantics', () => {
     assert.match(customizer, /<p id="logo-file-error" className="text-sm text-destructive" role="alert">/);
     assert.match(customizer, /aria-describedby=\{logoError \? 'logo-file-error logo-file-hint' : 'logo-file-hint'\}/);
     assert.match(customizer, /aria-invalid=\{colorErrors\[field\] \? true : undefined\}/);
-    assert.match(customizer, /<CardTitle as="h2">Colors<\/CardTitle>/);
+    assert.match(customizer, /<section [^>]*aria-labelledby="appearance-colors-heading">/);
+    assert.match(customizer, /<h2 id="appearance-colors-heading" [^>]*>Colors<\/h2>/);
   });
 
   it('keeps the plugin switch label fixed so state comes from aria-checked', () => {

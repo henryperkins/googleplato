@@ -155,7 +155,10 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit, saved }) {
           </CardContent>
         </Card>
       ) : (
-        <p className="text-sm text-muted-foreground max-w-prose">No knowledge base yet. Describe your program goals, learners, and teaching approach with the assistant, or write the reference yourself. Review it before saving.</p>
+        // Where the saved document will appear, in the lesson list's empty-state boundary.
+        <div className="rounded-lg border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">
+          <p className="mx-auto max-w-prose">No knowledge base yet. Describe your program goals, learners, and teaching approach with the assistant, or write the reference yourself. Review it before saving.</p>
+        </div>
       )}
     </div>
   );
