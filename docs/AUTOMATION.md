@@ -37,8 +37,11 @@ does not repeat it.
 via `--model` in `claude_args` to Bedrock cross-region inference profiles:
 `us.anthropic.claude-sonnet-4-5-20250929-v1:0` for review/pilot,
 `us.anthropic.claude-haiku-4-5-20251001-v1:0` for intake/revise. The role is
-`arn:aws:iam::722741357267:role/plato-github-bedrock` (separate AWS account from
-prod plato). Bedrock cross-region inference profiles route across
+`arn:aws:iam::380610849750:role/plato-gha-bedrock-agents` (the dase account,
+same as prod plato), trusted for `pull_request` and `main` only and allowed only
+these two models. Each workflow sets its own `role-session-name`
+(`plato-<workflow>`), so Bedrock invocation logs and CloudTrail show which
+workflow spent what. These calls count toward the Agentic Development budget. Bedrock cross-region inference profiles route across
 us-east-1/us-east-2/us-west-2, so model access must be granted in all three
 regions on the role's account. No `ANTHROPIC_API_KEY` or
 `CLAUDE_CODE_OAUTH_TOKEN` secrets are used.
@@ -150,6 +153,19 @@ post-action verify step fails the job if the agent exits without posting a
 review. Only one automated reviewer should be active at a time; if the hosted
 Claude GitHub App is also installed with auto-review enabled, disable it there to
 prevent duplicate reviews.
+
+## Tests, lint, and accessibility (`test.yml`, `lint.yml`, `a11y.yml`)
+
+Run on every PR (drafts included) and on pushes to `main` / `playground`, on
+Node 24 to match the Lambda runtime.
+- **`test.yml`**: `npm test` for client and server. The server job fetches
+  the `Beta-RC-232` tag for the upgrade gate
+  (`server/tests/migrations/upgrade-from-rc232.test.js`).
+- **`lint.yml`**: ESLint for both.
+- **`a11y.yml`**: the Playwright + axe suite in `e2e/` against a fresh
+  `dev-sqlite` with `AI_PROVIDER=mock`. It fails on any serious or critical
+  WCAG 2.1 A/AA violation on any page or dialog, or a broken keyboard flow.
+  On failure the Playwright report is uploaded as an artifact.
 
 ## Deploy dispatch & environments
 
