@@ -6,6 +6,11 @@
  * it shows up.
  *
  * Prints one JSON line: { results: { [label]: { status, count? } } }.
+ *
+ * With `--rename <json>` (`[[unitId, name], ...]`) it instead renames those
+ * units through RC-232's own PUT /v1/admin/courses/:courseId, which replaces
+ * the unit record, as an admin would during a rollback. Results are labeled
+ * `rename <unitId>`.
  */
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
@@ -39,6 +44,19 @@ const checks = [
 ];
 
 const results = {};
+const renameAt = process.argv.indexOf('--rename');
+if (renameAt > 0) {
+  for (const [unitId, name] of JSON.parse(process.argv[renameAt + 1])) {
+    const res = await app.request(`/v1/admin/courses/${unitId}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    results[`rename ${unitId}`] = { status: res.status };
+  }
+  process.stdout.write(JSON.stringify({ results }) + '\n');
+  process.exit(0);
+}
 for (const [label, token, path, count] of checks) {
   const res = await app.request(path, { headers: { Authorization: `Bearer ${token}` } });
   let body = null;

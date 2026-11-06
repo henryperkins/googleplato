@@ -8,6 +8,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import db from './db.js';
 import { ensureBundledLessons } from './bundled-lessons.js';
+import { repairUnits } from './unit-repair.js';
+import { logger } from './logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -95,6 +97,15 @@ async function seedOnce() {
 
   const bundled = await ensureBundledLessons({ db });
   seeded += bundled.installed.length + bundled.updated.length;
+
+  // Units an older release rewrote (a rollback, or an old instance during a
+  // rolling deploy) get their course, lesson order, and marker back.
+  try {
+    const units = await repairUnits({ db });
+    if (units.repaired.length || units.ambiguous.length) logger.warn('units_repaired', units);
+  } catch (err) {
+    logger.error('unit_repair_failed', { error: err?.message });
+  }
 
   // Lessons are NOT seeded, with one exception: lessons bundled with plato
   // (Getting Started, #443) are installed and kept current by

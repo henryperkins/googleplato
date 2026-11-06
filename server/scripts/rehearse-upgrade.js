@@ -37,6 +37,7 @@ const SERVER = join(dirname(fileURLToPath(import.meta.url)), '..');
 const db = (await import('../src/lib/db.js')).default;
 const { runMigrations } = await import('../src/lib/migrations.js');
 const { ensureBundledLessons, BUNDLED_LESSONS, BUNDLED_COURSE } = await import('../src/lib/bundled-lessons.js');
+const { repairUnits } = await import('../src/lib/unit-repair.js');
 
 const sha = (v) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
 async function snapshot() {
@@ -68,13 +69,15 @@ lines.push('## Before', '', '```', JSON.stringify(byPrefix(before.out), null, 1)
 
 const outcome = await runMigrations();
 const bundled = await ensureBundledLessons({ db });
+const units = await repairUnits({ db });
 lines.push('## Migrations', '');
 for (const { id, result } of outcome.ran) {
   lines.push(`- \`${id}\`: scanned ${result.scanned}, updated ${result.updated}, skipped ${result.skipped}, errors ${result.errors}${(result.notes || []).map((n) => `; ${n}`).join('')}`);
   check(result.errors === 0, `${id} had no errors`);
 }
 if (outcome.skipped) lines.push(`- skipped: ${outcome.skipped}`);
-lines.push(`- bundled lessons: installed ${bundled.installed.join(', ') || 'none'}`, '');
+lines.push(`- bundled lessons: installed ${bundled.installed.join(', ') || 'none'}`);
+lines.push(`- units repaired: ${units.repaired.join(', ') || 'none'}${units.ambiguous.length ? `; listed by two courses: ${units.ambiguous.join(', ')}` : ''}`, '');
 
 const after = await snapshot();
 const added = [...after.out.keys()].filter((k) => !before.out.has(k));

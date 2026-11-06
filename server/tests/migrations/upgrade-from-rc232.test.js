@@ -22,7 +22,8 @@ process.env.SQLITE_PATH = DB_PATH;
 
 const { default: db } = await import('../../src/lib/db-sqlite.js');
 const { runMigrations, MIGRATIONS } = await import('../../src/lib/migrations.js');
-const { ensureBundledLessons } = await import('../../src/lib/bundled-lessons.js');
+const { ensureBundledLessons, BUNDLED_COURSE, BUNDLED_LESSONS } = await import('../../src/lib/bundled-lessons.js');
+const { repairUnits } = await import('../../src/lib/unit-repair.js');
 const { seedRc232, snapshot, diffSnapshots, FIXTURE } = await import('./fixtures/rc232.js');
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -56,6 +57,36 @@ function cleanup() {
   for (const f of [DB_PATH, `${DB_PATH}-wal`, `${DB_PATH}-shm`]) if (existsSync(f)) unlinkSync(f);
 }
 
+// Beta-RC-232's server/src, extracted once for every test that runs its code.
+let rc232Src;
+function rc232Source(t) {
+  if (rc232Src) return rc232Src;
+  const hasTag = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${TAG}^{commit}`], { cwd: REPO_DIR }).status === 0;
+  if (!hasTag) {
+    // CI fetches the tag (see .github/workflows/test.yml); locally: git fetch --tags
+    t.skip(`${TAG} tag not available locally`);
+    return null;
+  }
+  rmSync(RC232_DIR, { recursive: true, force: true });
+  mkdirSync(RC232_DIR, { recursive: true });
+  const archive = execFileSync('git', ['archive', TAG, 'server/src'], { cwd: REPO_DIR, maxBuffer: 64 * 1024 * 1024 });
+  execFileSync('tar', ['-x', '--strip-components=1', '-C', RC232_DIR], { input: archive });
+  rc232Src = join(RC232_DIR, 'src');
+  return rc232Src;
+}
+
+// Runs Beta-RC-232's own route handlers against the test database.
+function runRc232(src, args = []) {
+  const child = spawnSync(process.execPath, [join(SERVER_DIR, 'tests/migrations/rc232-compat-check.js'), src, ...args], {
+    cwd: SERVER_DIR,
+    env: { ...process.env, DB_BACKEND: 'sqlite', SQLITE_PATH: DB_PATH, SKIP_EMAIL: 'true' },
+    encoding: 'utf8',
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const line = child.stdout.trim().split('\n').filter((l) => l.startsWith('{"results"')).pop();
+  return JSON.parse(line).results;
+}
+
 describe('upgrade from Beta-RC-232', () => {
   let before1;
   let after1;
@@ -63,8 +94,10 @@ describe('upgrade from Beta-RC-232', () => {
   before(async () => {
     await seedRc232(db);
     before1 = await snapshot(db);
-    // Same order as startup (index.js): bundled content is seeded first, then
-    // the migrations run. Covered by the rollback check below too.
+    // Upstream's startup order: bundled content first, then the migrations.
+    // It's the harder case for m004 (the bundled course already exists). The
+    // fork's startup (index.js, start.js) migrates first, then seeds; the
+    // second-start check below runs that order.
     assert.deepEqual((await ensureBundledLessons({ db })).installed, ['getting-started', 'getting-started-sharing', 'getting-started-behind']);
     const outcome = await runMigrations();
     for (const { id, result } of outcome.ran) assert.equal(result.errors, 0, `${id} reported errors: ${JSON.stringify(result)}`);
@@ -157,29 +190,14 @@ describe('upgrade from Beta-RC-232', () => {
     const outcome = await runMigrations();
     assert.equal(outcome.ran.length, 0);
     await ensureBundledLessons({ db });
+    assert.deepEqual(await repairUnits({ db }), { repaired: [], ambiguous: [] });
     assert.deepEqual(diffSnapshots(after1, await snapshot(db)), { added: [], removed: [], changed: [] });
   });
 
   it('Beta-RC-232 route handlers still serve the migrated data (rollback safety)', (t) => {
-    const hasTag = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${TAG}^{commit}`], { cwd: REPO_DIR }).status === 0;
-    if (!hasTag) {
-      // CI fetches the tag (see .github/workflows/test.yml); locally: git fetch --tags
-      t.skip(`${TAG} tag not available locally`);
-      return;
-    }
-    rmSync(RC232_DIR, { recursive: true, force: true });
-    mkdirSync(RC232_DIR, { recursive: true });
-    const archive = execFileSync('git', ['archive', TAG, 'server/src'], { cwd: REPO_DIR, maxBuffer: 64 * 1024 * 1024 });
-    execFileSync('tar', ['-x', '--strip-components=1', '-C', RC232_DIR], { input: archive });
-
-    const child = spawnSync(process.execPath, [join(SERVER_DIR, 'tests/migrations/rc232-compat-check.js'), join(RC232_DIR, 'src')], {
-      cwd: SERVER_DIR,
-      env: { ...process.env, DB_BACKEND: 'sqlite', SQLITE_PATH: DB_PATH, SKIP_EMAIL: 'true' },
-      encoding: 'utf8',
-    });
-    assert.equal(child.status, 0, child.stderr);
-    const line = child.stdout.trim().split('\n').filter((l) => l.startsWith('{"results"')).pop();
-    const { results } = JSON.parse(line);
+    const src = rc232Source(t);
+    if (!src) return;
+    const results = runRc232(src);
     for (const [label, r] of Object.entries(results)) assert.equal(r.status, 200, `RC-232 ${label} → ${r.status}`);
 
     const publicVisible = FIXTURE.lessons.filter((l) => l.status === 'public').length;
@@ -189,5 +207,40 @@ describe('upgrade from Beta-RC-232', () => {
     assert.equal(results['admin waitlist'].count, FIXTURE.waitlist.length);
     assert.equal(results['learner lessons'].count, publicVisible + 1, 'public + the private lesson shared with Ada');
     assert.equal(results['learner kb'].count, 10, "Ada's completed lesson keeps progress 10");
+  });
+
+  // Last: it changes the database. Beta-RC-232 saves a unit by replacing its
+  // record, so a rename there drops programId, lessonIds, and bundled. The next
+  // start of the new release (lib/unit-repair.js) must put them back.
+  it('a unit renamed under Beta-RC-232 gets its course, order, and marker back on the next start', async (t) => {
+    const src = rc232Source(t);
+    if (!src) return;
+    const { Hono } = await import('hono');
+    const { default: admin } = await import('../../src/routes/admin.js');
+    const { signAccessToken } = await import('../../src/lib/jwt.js');
+    const app = new Hono().route('/', admin);
+    // An order an admin set on the new release.
+    const reorder = await app.request('/v1/admin/units/course-found01/order', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await signAccessToken('usr_admin', 'admin')}` },
+      body: JSON.stringify({ lessonIds: ['les-f2', 'les-f1'] }),
+    });
+    assert.equal(reorder.status, 200, await reorder.text());
+
+    const renames = [['course-found01', 'Foundations (renamed on RC-232)'], [BUNDLED_COURSE.unitId, 'Orientation (renamed on RC-232)']];
+    const results = runRc232(src, ['--rename', JSON.stringify(renames)]);
+    for (const [unitId] of renames) assert.equal(results[`rename ${unitId}`].status, 200, unitId);
+    const unit = async (id) => (await db.getSyncData('_system', `course:${id}`)).data;
+    assert.equal((await unit('course-found01')).programId, undefined, 'RC-232 replaced the record');
+
+    // The next start: migrations (none pending), bundled content, the repair.
+    assert.equal((await runMigrations()).ran.length, 0);
+    await ensureBundledLessons({ db });
+    assert.deepEqual((await repairUnits({ db })).repaired.sort(), ['course-found01', BUNDLED_COURSE.unitId].sort());
+    const found = await unit('course-found01');
+    assert.deepEqual([found.name, found.programId, found.lessonIds], ['Foundations (renamed on RC-232)', 'prog-default', ['les-f2', 'les-f1']]);
+    const gs = await unit(BUNDLED_COURSE.unitId);
+    assert.deepEqual([gs.name, gs.programId, gs.lessonIds, gs.bundled],
+      ['Orientation (renamed on RC-232)', BUNDLED_COURSE.programId, BUNDLED_LESSONS.map((b) => b.id), { id: BUNDLED_COURSE.id }]);
   });
 });

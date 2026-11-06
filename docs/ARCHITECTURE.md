@@ -1573,7 +1573,7 @@ stats.
 
 | UI | Record | Membership | Order |
 |---|---|---|---|
-| Course | `_system:program:<id>` `{ name, description, unitIds }` | top level | by name |
+| Course | `_system:program:<id>` `{ name, description, unitIds, lessonOrder? }` | top level | by name |
 | Unit | `_system:course:<id>` `{ name, programId, lessonIds }` | `unit.programId` | `program.unitIds` |
 | Lesson | `_system:lesson:<id>` | `lesson.course` (the unit id) | `unit.lessonIds` |
 
@@ -1622,6 +1622,26 @@ replaced the old Courses modal.
 **Migration:** `m004_default_program` puts every existing unit into one
 default Course, named after the classroom, with the name-sorted lesson order
 it already had, so nothing reorders on upgrade.
+
+**Rollback and rolling-deploy repair** (`server/src/lib/unit-repair.js`).
+Releases from before the hierarchy (Beta-RC-232, and this fork's own before
+the launch integration) save a unit by replacing its record, so a rename made
+there, during a rollback or by an old instance mid-deploy, drops `programId`,
+`lessonIds`, and the Getting Started unit's `bundled` marker. m004 is already
+recorded and the bundled course installs once, so neither would run again.
+Those releases never write course records, so:
+- `PUT /v1/admin/units/:id/order` also keeps the order on the unit's course,
+  as `program.lessonOrder[unitId]`. Moving a unit carries the copy to its new
+  course; deleting the unit drops it.
+- Every start (`seedDefaultContent`, after the bundled course) gives a unit
+  with **no `programId` key** back to the one course whose `unitIds` lists it,
+  with its `lessonOrder` copy, and the Getting Started unit its marker (and its
+  canonical order when it has no copy). Only absent fields are filled. An
+  explicit `programId: null` is an admin's own unassignment, a unit that two
+  courses list is left for an admin (`units_repaired` reports both), and a
+  unit that changed since it was read waits for the next start.
+- `server/tests/migrations/upgrade-from-rc232.test.js` renames units through
+  Beta-RC-232's own PUT handler and checks the next start restores them.
 
 **Learner side:** `loadLessons()` carries `unit` and `program` onto each lesson
 and returns them in hierarchy order. `client/src/lib/lessonOrder.js` holds the

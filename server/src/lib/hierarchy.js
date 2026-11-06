@@ -10,6 +10,10 @@
  * | Unit     | `_system:course:<id>`    | `unit.programId`              | `program.unitIds`  |
  * | Lesson   | `_system:lesson:<id>`    | `lesson.course` (the unit id) | `unit.lessonIds`   |
  *
+ * The order route also keeps each unit's order on its course
+ * (`program.lessonOrder[unitId]`), where releases that predate the hierarchy
+ * can't drop it; lib/unit-repair.js restores units they rewrote.
+ *
  * Order arrays only order; they never decide membership. `orderIds` lists the
  * ids an array names that are still members, then any members it's missing,
  * sorted by name, which is exactly the pre-hierarchy behavior. A missing or

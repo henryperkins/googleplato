@@ -31,6 +31,20 @@ function nameTaken(items, prefix, selfId, name) {
 
 const actorName = (u) => u.username || u.email;
 
+// A unit's lesson order is also kept on its course record (`lessonOrder`).
+// Older releases (Beta-RC-232, and this fork before the launch integration)
+// rename a unit by replacing its record, which drops `lessonIds`, but they
+// never write course records, so lib/unit-repair.js restores the order from
+// this copy. Never writes `undefined` (DynamoDB's document client refuses it).
+function withOrder(d, unitId, lessonIds) {
+  return Array.isArray(lessonIds) ? { ...d, lessonOrder: { ...(d.lessonOrder || {}), [unitId]: lessonIds } } : d;
+}
+function withoutOrder(d, unitId) {
+  if (!d.lessonOrder || !(unitId in d.lessonOrder)) return d;
+  const { [unitId]: _dropped, ...rest } = d.lessonOrder;
+  return { ...d, lessonOrder: rest };
+}
+
 /**
  * Write with a version check; on a lost race, re-read and apply `change` once
  * more. If `change` returns the record unchanged (the same object), nothing
@@ -126,10 +140,10 @@ export function registerHierarchyRoutes(admin) {
     // membership, but keeping them tidy keeps the next reorder exact.)
     if (programId !== undefined && programId !== (prev.programId || null)) {
       if (prev.programId) {
-        await updateRecord(`program:${prev.programId}`, (d) => ({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }));
+        await updateRecord(`program:${prev.programId}`, (d) => withoutOrder({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }, id));
       }
       if (programId) {
-        await updateRecord(`program:${programId}`, (d) => ({ ...d, unitIds: [...(d.unitIds || []).filter((u) => u !== id), id] }));
+        await updateRecord(`program:${programId}`, (d) => withOrder({ ...d, unitIds: [...(d.unitIds || []).filter((u) => u !== id), id] }, id, prev.lessonIds));
       }
     }
     return c.json({ unitId: id, courseId: id, ok: true });
@@ -150,7 +164,7 @@ export function registerHierarchyRoutes(admin) {
       await updateRecord(key, (d) => (d.course === id ? { ...d, course: null, authoringOperationId: null } : d));
     }
     if (item.data?.programId) {
-      await updateRecord(`program:${item.data.programId}`, (d) => ({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }));
+      await updateRecord(`program:${item.data.programId}`, (d) => withoutOrder({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }, id));
     }
     return c.json({ ok: true });
   }
@@ -166,6 +180,7 @@ export function registerHierarchyRoutes(admin) {
       return c.json({ error: "lessonIds must list each of the unit's lessons exactly once" }, 400);
     }
     await updateRecord(`course:${id}`, (d) => ({ ...d, lessonIds }));
+    if (unit.programId) await updateRecord(`program:${unit.programId}`, (d) => withOrder(d, id, lessonIds));
     return c.json({ unitId: id, lessonIds });
   });
 

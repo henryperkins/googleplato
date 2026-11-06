@@ -147,7 +147,9 @@ role name, so do this right after redeploying:
 
 Edits made under Beta-RC-232 survive a later re-upgrade. A name changed
 there wins over the stored first and last name, and a Getting Started that it
-saved is taken back as an edited copy, with "update available". Restoring the
+saved is taken back as an edited copy, with "update available". A unit renamed
+there keeps its new name and, on the next start, gets back its course, its
+lesson order, and (for Getting Started) its marker. Restoring the
 backup from step 1 is the last resort; it also loses anything learners did
 after the upgrade.
 
