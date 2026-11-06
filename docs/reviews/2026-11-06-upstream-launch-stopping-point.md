@@ -1,103 +1,147 @@
 # Upstream integration stopping point — 2026-11-06
 
-Stopped at the maintainer's request: **assess progress, document, and come to a stopping point**. Tasks 1–3 are implemented, committed and independently reviewed. Task 4 is incomplete. This is not a release-ready candidate. This fork has **no actual users**.
+The integration has paused twice today, both times at the maintainer's request.
+This record describes the **second** stop, after Task 4 resumed. The first
+stop's record is this file's previous version (`ad22d73`). This is **not** a
+release-ready candidate. This fork has **no actual users**.
 
 ## Source and preservation
 
 - Worktree: `/home/ubuntu/.codex/worktrees/660d/googleplato`
-- Branch: `feat/upstream-launch-integration`
-- Reviewed implementation checkpoint: `e9a420edd66bbf9d20c600b6b663027389a9f7f4`
-- Fork base and unchanged primary `main`: `257680dacebcf37a107e9b0c511dea396e15872e`
-- Integrated upstream playground: `1105f340a7ebd48185ab287277e779ad8be2fddc`; upstream main: `8a01e9fad990176fc4fa2019fb1414133ab9cebe`
-- Fresh fetch before stopping found those remote heads unchanged and local/remote fork main at 0/0. The primary checkout remains clean. Unrelated worktrees and services were preserved.
-- No feature branch push, draft PR, main merge or production deployment occurred.
+- Branch: `feat/upstream-launch-integration`. The working tree is clean.
+- Commits since the first stop, all local:
+  - `43a25e7` Log oversized sync refusals once and adapt CI to the root workspace
+  - `2fa5d6c` Keep menu focus where Tab moves it and name what holds the composer
+  - `1326159` Adapt the upstream e2e suite to the fork's contracts
+  - `cd6ceaf` Document the launch data contracts and production assembly
+  - this record
+- Tasks 1–3 were reviewed through `e9a420e`. The Task 4 commits above have
+  **not** been independently reviewed.
+- Fork base `257680d` equals `origin/main`. A fetch at this stop found upstream
+  playground `1105f34` and upstream main `8a01e9f` unchanged.
+- No push, pull request, main merge or deployment has happened.
+- Evidence root: `/home/ubuntu/.local/state/googleplato/upstream-integration-20261106`.
+  The first stop's checkpoint is in `stop-checkpoint/`; this resume's logs,
+  traces and results are in `task-4-resume/`.
 
-Fifteen tracked Task 4 files remain **uncommitted** and intentionally intact. They contain partial CI/docs/test-harness work and one focused logging correction. Do not discard them or treat them as reviewed. This handoff is a separate documentation-only commit.
+## Completed work
 
-The durable evidence root is `/home/ubuntu/.local/state/googleplato/upstream-integration-20261106`. `source-recovery.bundle` preserves the original history. `stop-checkpoint/` preserves the working diff, file hashes, copied task/review reports, and a verified incremental branch bundle. The live SDD ledger remains at `.superpowers/sdd/2026-11-06-upstream-launch/progress.md`; it must not be deleted while the plan is incomplete.
-
-## Completed implementation
-
-1. **Backend:** role/name/hierarchy and invitation contracts, notifications and schedules, PostgreSQL helpers, actual Cloud Run initialization, and plugin adaptations. Corrected unsafe export paths, initial conditional-write races and failed delivery retry behavior. Independent review passed after delivery-finalization and retryable-initialization fixes.
-2. **Administration/authentication:** role-aware routes and tables, split names, groups, course structure, messages, existing-account invitations and complete session-bound identity refresh. Independent review passed after notification acknowledgement and keyboard focus fixes.
-3. **Learner:** overview, canonical objective evidence, truthful signed agent activity, hierarchy navigation, chat preferences, profile corrections and complete independent recovery journals. Preserved server-owned assessment, signed receipts, atomic transcript/progress saves, exact replay and persistence-only retry. Independent review passed after same-user re-login acknowledgement guards, delayed preference hydration and canonical first-name fixes. The final test-only correction preserves truthful durable acknowledgement and newer-account cache/version isolation.
-
-The six originally reproduced playground defects are addressed in those reviewed tasks. The separate agreement/ping proposals and historical product ideas are excluded by the approved scope. Existing Bedrock/Workers AI selection, authentication, branding, URL safeguards and fork persistence protections remain binding contracts.
+1. **Backend, administration and authentication, learner** (Tasks 1–3): unchanged
+   since the first stop. All six reproduced playground defects are fixed, and
+   the fork's signed, server-owned assessment, atomic saves, exact recovery and
+   persistence-only retry are preserved.
+2. **Task 4, in progress:**
+   - The preserved CI and fork-context edits are committed, with a single
+     content-free log event for an oversized save (`43a25e7`).
+   - Both browser failures left untriaged at the first stop are root-caused
+     and fixed (`2fa5d6c`):
+     - **Chat send-key failure.** Fixture ordering: the previous test ended
+       mid-save, so the server kept the generated reply. That exposed a real
+       defect. In any busy state, the composer's hint, which is also its
+       accessible description, said "Send when the reply finishes". That
+       included a retained reply waiting on Retry saving, when no reply was
+       running. LessonChat and both editors now name the actual hold. The
+       lesson editor's fixed "Ctrl / ⌘ + Enter" line, which contradicted an
+       Enter-to-send preference, is removed.
+     - **Admin wait-list focus failure.** A pre-existing fork dropdown defect.
+       The queued popover `toggle` event restored focus to the trigger after
+       focus had moved, so Tab out of an open menu jumped back to the trigger
+       about 300 ms later. The queued restore now only rescues focus left on
+       the page body or inside the menu.
+   - The full e2e runs found two more defects, both fixed in `2fa5d6c`:
+     - the upstream signup hint for an optional username was missing;
+     - the mobile Users edit button contained the email, which its accessible
+       name lacks (WCAG 2.5.3, pre-existing).
+   - The upstream e2e suite is adapted to the fork's contracts (`1326159`). Each
+     assertion written for upstream's client-side coaching now checks the
+     fork's signed equivalent rather than restoring upstream behavior.
+   - The documentation is complete (`cd6ceaf`). It adds the
+     `ARCHITECTURE.md#launch-data-contracts-2026-11-06` section that `CLAUDE.md`
+     links to, Data migrations, and adapted upstream launch sections. It also
+     updates `CLAUDE.md`, `CLOUD_RUN_STORAGE.md`, `SAVE_OBSERVABILITY.md` and
+     `OBSERVABILITY.md`, and adds a fork note to upstream's release notes. Every
+     internal anchor was checked.
 
 ## Verification actually completed
 
-| Check | Result and boundary |
+| Check | Result |
 | --- | --- |
-| Full client suite | 864 passed; zero failures/skips |
-| Full server suite with real local PostgreSQL 17 | 1,213 passed; zero failures/skips; before the uncommitted Task 4 logging change |
-| Baseline lint | Exit 0; client 0 errors / 24 warnings, server clean; before Task 4 edits |
-| Client production build | Passed; existing bundle-size advisory |
-| Executed plugin suite / manifest validation | 7 tests passed; all 3 manifests valid |
-| Task 4 oversized-save logging correction | Regression failed first; 53 focused server tests passed after correction; full server/PostgreSQL rerun pending |
-| Local synthetic preview | Root, JS asset, health, QA sign-in and real signed atomic mocked lesson completion passed; desktop/390px/320px overview smoke passed |
+| `chat.spec.js` on the pre-fix build (RED) | The new Retry-saving test failed on the hint ("Send when the reply finishes"), as intended |
+| `chat.spec.js` on the fixed build | 10/10 passed |
+| New menu-focus regression | RED on the pre-fix build (Tab ended on the trigger); GREEN after the fix |
+| Wait-list focus test, plus the menu test | 5 runs, all passed. The original helper with no focus wait passed 6/6 on the fixed build |
+| `client/tests/lesson-composer.test.js` | 6/6 passed |
+| Client production build | Passed; it is the build the preview serves |
+| Full e2e suite, 117 tests, run 1 | 109 passed, 8 failed; each failure was triaged and addressed |
+| Full e2e, run 2 | 116 passed, 1 failed (a hard-coded next-lesson name) |
+| Full e2e, run 3 | 115 passed, 2 failed. Both are addressed in `1326159` but **not yet rerun**: a course count that depends on other specs, and a mobile `networkidle` timeout caused by the live Google sign-in SDK, now stubbed |
+| Screenshots | Six reviewed by eye: catalog, completed overview (desktop and 320 px), Settings at 320 px, admin wait-list editor at 390 px |
 
-Task 1–3 scoped tests and browser evidence remain valid within their recorded scope. Full integrated browser qualification is **unfinished**:
+**Not rerun after the Task 4 changes:** the full client unit suite, the full
+server suite with PostgreSQL 17, lint, the plugin tests and manifests, and the
+fork's full browser suites (only focused admin-responsive tests ran). The last
+full results, 864 client and 1,213 server tests, predate these changes.
+Renderer evidence isn't device or assistive-technology proof. No live
+provider, email, Slack, DynamoDB or Lambda run was made.
 
-| Browser attempt | Passed | Failed | Interrupted/cancelled | Did not run |
-| --- | ---: | ---: | ---: | ---: |
-| Full launch suite, 116 planned | 25 | 2 | 1 | 88 |
-| Focused a11y/chat/flows, 70 planned | 30 | 1 | 0 | 39 |
-| Fork runner's final summary | 14 | 1 | 7 | Not fully enumerated |
+## Preview
 
-The initial launch failures involved obsolete account-menu/dialog selectors. The pending test changes passed the corrected desktop axe checks in the focused run. Two failures remain untriaged: the chat send-key test sees the composer's busy description, and the fork admin test times out checking focus after inviting/removing a wait-list row. Do not assume either is only a fixture problem. Cancellation entries are consequences of stopping, not independent application failures. All owned test runners and their leftover test server were stopped; port 3497 is clear.
+The public preview now works.
+- **Cause of the 404.** An existing zone-level Cloud Connector rule sent every
+  hostname not on its exclusion list to an R2 bucket. The task's tunnel and DNS
+  record were correct all along. With the maintainer's approval, the preview
+  hostname was added to that exclusion list; nothing else in the rule changed.
+  Rollback details are in the private evidence directory.
+- `https://googleplato-upstream-preview.hperkins.com/` and `/v1/health` return
+  200, and the site serves the current client build.
+- **Not yet verified over HTTPS:** sign-in and a streamed lesson save.
+- The preview's server process started before the Task 4 commits. The
+  server-side changes since then are a removed log line and comments, but
+  restart it on the final candidate before verifying.
 
-Detailed commands, logs, failure anchors, traces and limitations are in `stop-checkpoint/sdd/task-4-stopping-report.md` and `task-4-evidence/`. Repository Playwright was used because the Browser plugin is unavailable. No physical-device, screen-reader, live provider, external email/Slack, real DynamoDB/Lambda or production qualification is claimed. Browser smoke used SQLite, not PostgreSQL.
+These resources still run: the local mock preview unit
+`googleplato-upstream-app-20261106.service` (127.0.0.1:3496, synthetic SQLite,
+mock AI, email off), the tunnel unit `googleplato-upstream-tunnel-20261106.service`
+(tunnel `2d79c8f0-5323-441e-951d-b6daf7827544`), DNS record
+`fae029160bfdca67c4f65059a610fc87`, the Cloud Connector exclusion entry, and the
+PostgreSQL helper container `googleplato-upstream-pg-20261106` (localhost:55436).
+To tear the preview down, remove the exclusion entry along with the DNS record
+and tunnel.
 
-## Preview and resources left running
+## Resume from here
 
-The **local** preview remains available at `http://127.0.0.1:3496` via `googleplato-upstream-app-20261106.service`. It uses a dedicated SQLite database, synthetic accounts, `AI_PROVIDER=mock`, disabled email and a sanitized environment without inherited live provider credentials. The fresh demo learner is untouched; QA used a separate account.
+1. Rerun the full e2e suite and expect 117/117. Then run the fork's browser
+   suites, the full client suite, the server suite with PostgreSQL 17, lint
+   (after the tests, not alongside them), and the plugin tests and manifests.
+2. Get one independent whole-branch review, read-only, covering the priority
+   seams in the SDD workspace's `final-review-preparation.md` plus the Task 4
+   commits. Then one fix wave and a scoped re-review.
+3. Restart the preview on the final candidate. Over HTTPS, verify sign-in and a
+   streamed lesson save.
+4. Refresh the remote heads, push the feature branch, and open the approved
+   **draft** PR with validation and selected screenshots. Merge and deployment
+   are a later stage.
 
-Private synthetic access details and environment files are mode 0600 in `task-4-evidence/preview/{access.json,preview.env}`. Its database, logs, HTTP/browser smoke reports and screenshots are in the same directory. Screenshots have not yet been visually reviewed or selected for the PR.
+Non-blocking observations for the PR:
+- On phones the admin bottom nav wraps to two rows with seven destinations.
+- Course and unit headings on the lessons page look nearly alike.
+- Upstream's #503 injected-authority measurement wasn't repeated against the
+  fork's coach prompt.
+- The Cloud Build gate doesn't run the e2e suite.
 
-The **public preview is not working yet**: `https://googleplato-upstream-preview.hperkins.com/` and `/v1/health` returned Cloudflare HTML 404. Local requests with that same Host returned 200. The zone is active, public DNS resolves, the dedicated tunnel reports healthy with four connections, and its configured ingress points to 127.0.0.1:3496. The cause is unproven; routing investigation stopped at the maintainer's request. Do not share this as a verified usable preview.
+## Decisions recorded
 
-Only these new task resources were added; existing DNS, tunnels and services were not changed:
-
-- Tunnel: `googleplato-upstream-20261106`, ID `2d79c8f0-5323-441e-951d-b6daf7827544`
-- Tunnel user unit: `googleplato-upstream-tunnel-20261106.service`
-- DNS CNAME ID: `fae029160bfdca67c4f65059a610fc87`, zone `50896d7393e8c876951df2eb422b6414`
-- PostgreSQL helper container: `googleplato-upstream-pg-20261106`, localhost port 55436
-
-Resource IDs, origin and status are recorded in `preview-routing-plan.json`. Connector credentials remain private under `preview-private/`; no credentials belong in Git or the handoff. Public request evidence is retained in `public-root*`, `public-health-response.txt` and `local-preview-host-response.html`.
-
-## Exact unfinished source scope
-
-```text
-.github/workflows/a11y.yml
-.github/workflows/code-review.yml
-AGENTS.md
-CLAUDE.md
-REVIEW.md
-client/tests/browser/invite-required.test.js
-client/tests/browser/lesson-publishing.test.js
-e2e/README.md
-e2e/playwright.config.js
-e2e/tests/a11y.spec.js
-e2e/tests/flows.spec.js
-server/src/lib/jobs.js
-server/src/lib/migrations.js
-server/src/routes/sync.js
-server/tests/routes/save-observability.test.js
-```
-
-The config now uses a unique test database without deleting a shared `/tmp` path. CI changes adapt to the root workspace lock and Node 24; factual fork-context edits remove upstream live-user assumptions. The only server runtime change removes duplicate, metadata-bearing oversize logging in favor of the existing single content-free observation. Jobs/migrations edits are comments. A known incomplete doc link in CLAUDE.md targets `docs/ARCHITECTURE.md#launch-data-contracts-2026-11-06`, which has not been written.
-
-## Resume from here, only when requested
-
-1. Read this handoff, the copied Task 4 stopping report, plan/brief and current diff. Do not restart completed Tasks 1–3.
-2. Investigate the two recorded browser failures with their existing traces; fix substantiated behavior or fixture issues without weakening signed-save, role, recovery, focus or axe assertions. Complete the unfinished architecture/storage/observability documentation and review representative screenshots.
-3. Rerun focused failures, then complete the 116-scenario launch matrix and meaningful fork browser suites. Rerun the full server/PostgreSQL suite after the logging change; repeat other gates only when subsequent changes require it.
-4. Complete one independent whole-branch review and address substantiated findings. The approved plan's review procedure and source base are recorded in the SDD workspace.
-5. Diagnose the public 404 without changing existing services or routes. Account Worker custom-domain configuration and effective tunnel ingress remain possible next read-only checks, not established causes. Verify root/assets/health/sign-in and actual streamed lesson saving over HTTPS.
-6. When qualification and review pass, refresh remote heads, push the feature branch and open the approved draft PR with validation and screenshots. Main merge/deployment remain a later stage.
-
-## Decisions recorded during execution
-
-1. Treated the approved six-step proposal as authorization to execute the detailed plan without another approval checkpoint. If that interpretation was wrong, the work is confined to the integration branch for rework.
-2. Used an isolated worktree and an intermediate merge scaffold that temporarily retained fork conflict versions until each task reconciled them. Intermediate checkpoints were not release qualification; any missed reconciliation must be corrected before merge.
-3. Chose a new task-owned named tunnel and unused personal-domain hostname for the approved streaming preview because Quick Tunnels exclude SSE. If that host choice is unwanted, only the recorded task DNS/tunnel/units need removal; no product or production migration is involved.
+1. The approved six-step proposal was treated as authorization to execute the
+   detailed plan. The work stays confined to the integration branch.
+2. An isolated worktree and an intermediate merge scaffold were used.
+   Intermediate checkpoints are not release qualification.
+3. A task-owned named tunnel and an unused personal-domain hostname serve the
+   streaming preview, because Quick Tunnels exclude SSE. The maintainer chose
+   to add that hostname to the zone's Cloud Connector exclusion list rather
+   than move to another zone.
+4. Upstream e2e assertions that encode upstream's client-side coaching were
+   adapted to the fork's signed contracts, never the reverse.
+5. Two pre-existing fork accessibility defects (dropdown focus, mobile
+   label-in-name) were fixed because the integrated suites fail on them.
+6. `runMigrationsBounded` stays, unused at startup, for upstream parity; its
+   comment now says so.
