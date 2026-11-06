@@ -36,6 +36,19 @@ export function setEmailTransport(fn) {
   transport = fn || sesTransport;
 }
 
+const UNCERTAIN_EMAIL_ERROR_NAMES = new Set(['AbortError', 'TimeoutError', 'NetworkingError', 'RequestTimeout', 'RequestTimeoutException']);
+const UNCERTAIN_EMAIL_ERROR_CODES = new Set([
+  'ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EPIPE', 'ERR_SOCKET_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET',
+]);
+
+/** Whether a transport failure can leave delivery acknowledged but unseen by us. */
+export function isUncertainEmailError(error) {
+  const values = [error?.name, error?.code, error?.cause?.name, error?.cause?.code];
+  if (values.some(value => UNCERTAIN_EMAIL_ERROR_NAMES.has(value) || UNCERTAIN_EMAIL_ERROR_CODES.has(value))) return true;
+  return /timed?\s*out|timeout|socket hang up|connection reset/i.test(String(error?.message || ''));
+}
+
 // ── Automations ──────────────────────────────────────────────────────────
 
 export const AUTOMATIONS = Object.freeze({

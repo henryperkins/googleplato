@@ -11,7 +11,7 @@ process.env.DB_BACKEND = 'sqlite';
 process.env.SQLITE_PATH = DB_PATH;
 const { default: db } = await import('../../src/lib/db-sqlite.js');
 const m = await import('../../src/lib/messages.js');
-const { setEmailTransport, setOptOut } = await import('../../src/lib/notifications.js');
+const { setEmailTransport, setOptOut, readNotifyState } = await import('../../src/lib/notifications.js');
 const jobs = await import('../../src/lib/jobs.js');
 
 const mails = [];
@@ -143,7 +143,7 @@ describe('send-message job', () => {
     const msg = await m.createMessage(m.validateMessage(draft({ email: true, audience: { type: 'role', roles: ['learner'] } })).message, admin, db);
     // First attempt: one of the two sends fails, then the run dies before recording the result.
     let calls = 0;
-    setEmailTransport(async (raw) => { calls++; mails.push(raw); if (calls === 1) throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); });
+    setEmailTransport(async (raw) => { calls++; mails.push(raw); if (calls === 1) throw Object.assign(new Error('SES refused'), { name: 'AccessDeniedException' }); });
     await m.sendMessageEmails({ id: msg.id }, { db }).catch(() => {});
     setEmailTransport(async (raw) => { mails.push(raw); });
     const before = mails.length;
@@ -151,6 +151,27 @@ describe('send-message job', () => {
     const counts = await m.sendMessageEmails({ id: msg.id }, { db });
     assert.equal(mails.length - before, 1, 'only the person whose send failed gets a retry');
     assert.equal(counts.emailed, 2);
+  });
+
+  it('an uncertain acknowledgement keeps its recipient claim and never emails twice', async () => {
+    const msg = await m.createMessage(m.validateMessage(draft({ email: true, audience: { type: 'users', userIds: ['usr_ada'] } })).message, admin, db);
+    let calls = 0;
+    setEmailTransport(async (raw) => {
+      calls++;
+      mails.push(raw);
+      throw Object.assign(new Error('acknowledgement timed out'), { name: 'TimeoutError' });
+    });
+    await m.sendMessageEmails({ id: msg.id }, { db }).catch(() => {});
+    assert.equal(calls, 1);
+    assert.equal((await db.getSyncData('_system', `message:${msg.id}`)).data.status, 'failed');
+    const pending = (await readNotifyState('usr_ada', db)).emailPending?.[msg.id];
+    assert.ok(pending, 'an uncertain outcome keeps the claim that suppresses duplicates');
+
+    setEmailTransport(async (raw) => { calls++; mails.push(raw); });
+    await m.sendMessageEmails({ id: msg.id }, { db }).catch(() => {});
+    assert.equal(calls, 1, 'retry never repeats a transport attempt whose outcome is uncertain');
+    assert.equal(mails.length, 1);
+    assert.ok((await readNotifyState('usr_ada', db)).emailPending?.[msg.id]);
   });
 
   it('an in-app-only message is sent at once and never emails', async () => {

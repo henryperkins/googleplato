@@ -11,7 +11,7 @@ process.env.DB_BACKEND = 'sqlite';
 process.env.SQLITE_PATH = DB_PATH;
 const { default: db } = await import('../../src/lib/db-sqlite.js');
 const { runInactivityNudges, runWeeklyDigest, digestContent } = await import('../../src/lib/learner-emails.js');
-const { setEmailTransport, setOptOut, writeAutomations } = await import('../../src/lib/notifications.js');
+const { setEmailTransport, setOptOut, writeAutomations, readNotifyState } = await import('../../src/lib/notifications.js');
 
 const DAY = 86400000;
 const mails = [];
@@ -66,6 +66,20 @@ describe('inactivity nudge', () => {
     assert.equal((await runInactivityNudges({ db, now: t })).nudged, 1, 'not stuck for 14 days');
   });
 
+  it('an uncertain acknowledgement keeps the nudge claim and sends nothing on retry', async () => {
+    await writeAutomations({ inactivityNudge: true }, db);
+    setEmailTransport(async (raw) => {
+      mails.push(raw);
+      throw Object.assign(new Error('acknowledgement timed out'), { name: 'TimeoutError' });
+    });
+    const t = Date.now() + 8 * DAY;
+    assert.deepEqual(await runInactivityNudges({ db, now: t }), { learners: 1, nudged: 0, optedOut: 0, notSent: 1 });
+    assert.ok((await readNotifyState('usr_ada', db)).nudges?.['les-a']);
+    setEmailTransport(async (raw) => { mails.push(raw); });
+    assert.deepEqual(await runInactivityNudges({ db, now: t }), { learners: 1, nudged: 0, optedOut: 0, notSent: 0 });
+    assert.equal(mails.length, 1);
+  });
+
   it('skips completed lessons, lessons they can’t see, and opted-out learners', async () => {
     await writeAutomations({ inactivityNudge: true }, db);
     await db.putSyncData('usr_ada', 'lessonKB:les-a', { status: 'completed', progress: 10 }, 1);
@@ -102,6 +116,20 @@ describe('weekly digest', () => {
     assert.equal((await runWeeklyDigest({ db, now: t })).sent, 0);
     setEmailTransport(async (raw) => { mails.push(raw); });
     assert.equal((await runWeeklyDigest({ db, now: t })).sent, 1);
+  });
+
+  it('an uncertain digest acknowledgement keeps its claim and sends nothing on retry', async () => {
+    await writeAutomations({ weeklyDigest: true }, db);
+    setEmailTransport(async (raw) => {
+      mails.push(raw);
+      throw Object.assign(new Error('connection reset'), { code: 'ECONNRESET' });
+    });
+    const t = Date.now() + DAY;
+    assert.deepEqual(await runWeeklyDigest({ db, now: t }), { learners: 1, sent: 0, nothingToSay: 0, optedOut: 0, notSent: 1 });
+    assert.ok((await readNotifyState('usr_ada', db)).lastDigestAt);
+    setEmailTransport(async (raw) => { mails.push(raw); });
+    assert.deepEqual(await runWeeklyDigest({ db, now: t }), { learners: 1, sent: 0, nothingToSay: 0, optedOut: 0, notSent: 0 });
+    assert.equal(mails.length, 1);
   });
 
   it('an in-progress lesson untouched for 30+ days alone earns no digest', () => {

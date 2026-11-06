@@ -7,6 +7,31 @@ const origWarn = console.warn;
 console.warn = () => {};
 after(() => { console.warn = origWarn; });
 
+describe('buildContext — narrowed user view', () => {
+  it('normalizes legacy roles and stale split-name records for single and list reads', async () => {
+    const legacy = {
+      userId: 'usr_legacy', email: 'legacy@example.test', role: 'user',
+      firstName: 'Stale', lastName: 'Record', name: 'Current Name', nameSource: 'user',
+    };
+    const registry = {
+      _db: {
+        getUserById: async () => legacy,
+        listAllUsers: async () => [legacy],
+      },
+    };
+    const ctx = buildContext('test-plugin', {}, registry);
+    for (const user of [await ctx.db.getUserById('usr_legacy'), ...(await ctx.db.listAllUsers())]) {
+      assert.equal(user.role, 'learner');
+      assert.deepEqual(
+        [user.firstName, user.lastName, user.name, user.nameSource],
+        ['Current', 'Name', 'Current Name', 'auto'],
+      );
+      assert.equal(user.email, legacy.email);
+      assert.notStrictEqual(user, legacy, 'the raw adapter record is not mutated or exposed');
+    }
+  });
+});
+
 describe('buildContext — ctx.ai and ctx.LLM', () => {
   it('provides ctx.ai as the host ai provider instance', () => {
     const ctx = buildContext('test-plugin', {});

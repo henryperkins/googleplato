@@ -32,7 +32,7 @@ import { APP_URL } from '../config.js';
 import { getClassroom, escapeHtml } from './email.js';
 import {
   validateTemplate, renderEmail, sendNotificationEmail, readNotifyState, updateNotifyState,
-  unsubscribeUrl, UNSUBSCRIBE_KINDS,
+  unsubscribeUrl, UNSUBSCRIBE_KINDS, isUncertainEmailError,
 } from './notifications.js';
 import { registerJob } from './jobs.js';
 
@@ -242,13 +242,16 @@ export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
           try {
             result = await sendNotificationEmail({ to: u.email, ...rendered, classroom, unsubscribe, ...(send ? { send } : {}) });
           } catch (error) {
-            // A known failure releases only this attempt's pending claim. A
-            // late failure cannot remove another attempt's acknowledged send.
-            await updateNotifyState(u.userId, st => {
-              if (st.emailPending?.[id]?.owner !== owner) return st;
-              const { [id]: _drop, ...rest } = st.emailPending;
-              return { ...st, emailPending: rest };
-            }, db).catch(() => {});
+            // Only a known pre-send refusal releases this attempt's claim.
+            // An uncertain acknowledgement keeps it: a retry must not repeat
+            // a message the provider might already have accepted.
+            if (!isUncertainEmailError(error)) {
+              await updateNotifyState(u.userId, st => {
+                if (st.emailPending?.[id]?.owner !== owner) return st;
+                const { [id]: _drop, ...rest } = st.emailPending;
+                return { ...st, emailPending: rest };
+              }, db).catch(() => {});
+            }
             throw error;
           }
           await updateNotifyState(u.userId, st => {

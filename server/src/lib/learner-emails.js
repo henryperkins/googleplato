@@ -22,7 +22,7 @@ import { APP_URL } from '../config.js';
 import { normalizeRole } from './permissions.js';
 import { normalizeStatus } from './lesson-visibility.js';
 import { nameFields } from './names.js';
-import { readAutomations, readNotifyState, updateNotifyState, sendTemplated } from './notifications.js';
+import { readAutomations, readNotifyState, updateNotifyState, sendTemplated, isUncertainEmailError } from './notifications.js';
 import { registerJob } from './jobs.js';
 import { logger } from './logger.js';
 
@@ -99,7 +99,12 @@ export async function runInactivityNudges({ db = defaultDb, now = Date.now() } =
         link: `${APP_URL}/lessons/${encodeURIComponent(pick.lessonId)}`,
       },
     }, { db }).catch(async (err) => {
-      // SES refused: release the claim so the next run tries again.
+      if (isUncertainEmailError(err)) {
+        // The provider may have accepted the email. Keep the claim so a retry
+        // cannot duplicate it; only definite pre-send refusals are retryable.
+        logger.warn('learner_email_unconfirmed', { job: 'inactivity-nudge' });
+        return { failed: true, uncertain: true };
+      }
       logger.error('learner_email_failed', { job: 'inactivity-nudge', error: err?.message || String(err) });
       await claimFor(u.userId, (st) => {
         if (st.nudges?.[pick.lessonId] !== stamp) return null;
@@ -155,6 +160,10 @@ export async function runWeeklyDigest({ db = defaultDb, now = Date.now() } = {})
       to: u.email, userId: u.userId, kind: 'digest',
       vars: { firstName: nameFields(u).firstName, ...content, link: `${APP_URL}/lessons` },
     }, { db }).catch(async (err) => {
+      if (isUncertainEmailError(err)) {
+        logger.warn('learner_email_unconfirmed', { job: 'weekly-digest' });
+        return { failed: true, uncertain: true };
+      }
       logger.error('learner_email_failed', { job: 'weekly-digest', error: err?.message || String(err) });
       await claimFor(u.userId, (st) => (st.lastDigestAt === stamp ? { ...st, lastDigestAt: null } : null), db).catch(() => {});
       return { failed: true };
