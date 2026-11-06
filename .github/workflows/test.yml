@@ -43,6 +43,13 @@ jobs:
         working-directory: ${{ matrix.workspace }}
     steps:
       - uses: actions/checkout@v4
+      # The server suite's upgrade gate runs Beta-RC-232's own route handlers
+      # (server/tests/migrations/upgrade-from-rc232.test.js). The checkout is
+      # shallow and this fork has no tags, so fetch that pinned commit, which
+      # main contains. Under CI the gate fails, rather than skips, without it.
+      - if: matrix.workspace == 'server'
+        working-directory: .
+        run: git fetch --no-tags --depth=1 origin 629c77811985085b88dacabe1514b2f221eb0859
       - uses: actions/setup-node@v4
         with:
           node-version: 24

@@ -3,7 +3,8 @@ import globals from 'globals';
 
 export default [
   {
-    ignores: ['node_modules/**', 'client-dist/**', 'client-content/**', '.aws-sam/**', 'data/**'],
+    // .rc232*: Beta-RC-232's server/src, extracted for the upgrade gate and rehearsal.
+    ignores: ['node_modules/**', 'client-dist/**', 'client-content/**', '.aws-sam/**', 'data/**', '.rc232/**', '.rc232-rehearsal-*/**'],
   },
   js.configs.recommended,
   {

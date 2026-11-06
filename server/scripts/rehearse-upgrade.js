@@ -35,7 +35,7 @@ for (const [env, t] of [['USERS_TABLE', 'users'], ['INVITES_TABLE', 'invites'], 
 process.env.DB_BACKEND = 'dynamodb';
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), '..');
 const db = (await import('../src/lib/db.js')).default;
-const { runMigrations, MIGRATIONS, incompleteMigrations } = await import('../src/lib/migrations.js');
+const { runMigrations, MIGRATIONS, incompleteMigrations, ROLLBACK_BASELINE } = await import('../src/lib/migrations.js');
 const { ensureBundledLessons, BUNDLED_LESSONS, BUNDLED_COURSE } = await import('../src/lib/bundled-lessons.js');
 const { repairUnits } = await import('../src/lib/unit-repair.js');
 
@@ -103,12 +103,13 @@ check(!gs || gs.status === 'private', 'Getting Started arrived private');
 const again = await runMigrations();
 check(again.ran.length === 0 && again.skipped === 'none_pending', `a second run does nothing (${again.skipped || 'ran'})`);
 
-// Rollback: Beta-RC-232's handlers against the migrated tables.
-const tag = 'Beta-RC-232';
+// Rollback: Beta-RC-232's handlers against the migrated tables, from the
+// pinned commit (git fetch --no-tags --depth=1 origin <commit> if missing).
+const tag = `${ROLLBACK_BASELINE.tag} (${ROLLBACK_BASELINE.commit.slice(0, 7)})`;
 // Inside server/ so the extracted code resolves server/node_modules (ESM ignores NODE_PATH).
 const tmp = mkdtempSync(join(SERVER, '.rc232-rehearsal-'));
 try {
-  const archive = execFileSync('git', ['archive', tag, 'server/src'], { cwd: join(SERVER, '..'), maxBuffer: 64 * 1024 * 1024 });
+  const archive = execFileSync('git', ['archive', ROLLBACK_BASELINE.commit, 'server/src'], { cwd: join(SERVER, '..'), maxBuffer: 64 * 1024 * 1024 });
   execFileSync('tar', ['-x', '--strip-components=1', '-C', tmp], { input: archive });
   const admin = after.users.find((u) => u.role === 'admin');
   const learner = after.users.filter((u) => u.role !== 'admin').sort((a, b) => (b.lessonsCompleted || 0) - (a.lessonsCompleted || 0))[0];

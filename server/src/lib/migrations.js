@@ -31,6 +31,13 @@ import { splitName } from './names.js';
 const STATE_KEY = 'migrations';
 const LOCK_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * The release migrations must stay rollback-compatible with, pinned by commit:
+ * this fork's remote has no tags, and its main contains the commit, so CI
+ * fetches it by SHA (.github/workflows/test.yml, deploy/cloudrun/cloudbuild.yaml).
+ */
+export const ROLLBACK_BASELINE = Object.freeze({ tag: 'Beta-RC-232', commit: '629c77811985085b88dacabe1514b2f221eb0859' });
+
 // Ordered registry. Append only — never reorder or remove an entry that may
 // already be recorded as applied on some install.
 export const MIGRATIONS = [

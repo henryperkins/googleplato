@@ -44,6 +44,12 @@ steps:
         git remote add origin https://github.com/henryperkins/googleplato.git
         git fetch -q --depth=1 origin "${_SHA}"
         git checkout -q FETCH_HEAD
+        # The upgrade gate (server/tests/migrations/upgrade-from-rc232.test.js)
+        # runs Beta-RC-232's own route handlers. The test image has no git, so
+        # extract that pinned commit's server/src here (main contains it).
+        git fetch -q --no-tags --depth=1 origin 629c77811985085b88dacabe1514b2f221eb0859
+        mkdir -p server/.rc232
+        git archive 629c77811985085b88dacabe1514b2f221eb0859 server/src | tar -x --strip-components=1 -C server/.rc232
 
   # Disposable PostgreSQL for the test gate, reachable as plato-test-pg on the
   # build network. Steps share the /workspace checkout from `source`.
@@ -71,7 +77,11 @@ steps:
     name: node:24-bookworm-slim
     entrypoint: bash
     waitFor: [test-db-ready]
-    env: [POSTGRES_TEST_URL=postgres://postgres:plato-test@plato-test-pg:5432/postgres]
+    env:
+      - POSTGRES_TEST_URL=postgres://postgres:plato-test@plato-test-pg:5432/postgres
+      # The Beta-RC-232 tree the source step extracted; the gate must run it.
+      - PLATO_RC232_SRC=/workspace/server/.rc232/src
+      - PLATO_REQUIRE_RC232=1
     args:
       - -c
       - |

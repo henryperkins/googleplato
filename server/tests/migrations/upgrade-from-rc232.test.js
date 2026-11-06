@@ -12,7 +12,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,7 +21,7 @@ process.env.DB_BACKEND = 'sqlite';
 process.env.SQLITE_PATH = DB_PATH;
 
 const { default: db } = await import('../../src/lib/db-sqlite.js');
-const { runMigrations, MIGRATIONS } = await import('../../src/lib/migrations.js');
+const { runMigrations, MIGRATIONS, ROLLBACK_BASELINE } = await import('../../src/lib/migrations.js');
 const { ensureBundledLessons, BUNDLED_COURSE, BUNDLED_LESSONS } = await import('../../src/lib/bundled-lessons.js');
 const { repairUnits } = await import('../../src/lib/unit-repair.js');
 const { seedRc232, snapshot, diffSnapshots, FIXTURE } = await import('./fixtures/rc232.js');
@@ -29,7 +29,7 @@ const { seedRc232, snapshot, diffSnapshots, FIXTURE } = await import('./fixtures
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const REPO_DIR = join(SERVER_DIR, '..');
 const RC232_DIR = join(SERVER_DIR, '.rc232');
-const TAG = 'Beta-RC-232';
+const { tag: TAG, commit: RC232_COMMIT } = ROLLBACK_BASELINE;
 
 // What the migrations are allowed to add or change, as snapshot-key regexes.
 // Anything else differing from the RC-232 fixture fails the test.
@@ -57,22 +57,35 @@ function cleanup() {
   for (const f of [DB_PATH, `${DB_PATH}-wal`, `${DB_PATH}-shm`]) if (existsSync(f)) unlinkSync(f);
 }
 
-// Beta-RC-232's server/src, extracted once for every test that runs its code.
+// Beta-RC-232's server/src, found once for every test that runs its code:
+// - PLATO_RC232_SRC: a tree CI extracted already (Cloud Build's test image
+//   has no git);
+// - otherwise the pinned commit, extracted from this clone.
+// When neither is there, CI fails (the rollback check must run, not skip);
+// a local run skips with the command that fixes it.
 let rc232Src;
 function rc232Source(t) {
   if (rc232Src) return rc232Src;
-  const hasTag = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${TAG}^{commit}`], { cwd: REPO_DIR }).status === 0;
-  if (!hasTag) {
-    // CI fetches the tag (see .github/workflows/test.yml); locally: git fetch --tags
-    t.skip(`${TAG} tag not available locally`);
+  const prepared = process.env.PLATO_RC232_SRC;
+  if (prepared) {
+    assert.ok(existsSync(join(prepared, 'routes/admin.js')), `PLATO_RC232_SRC holds no ${TAG} server/src: ${prepared}`);
+    return (rc232Src = prepared);
+  }
+  const git = (...args) => spawnSync('git', args, { cwd: REPO_DIR, encoding: 'utf8' });
+  if (git('cat-file', '-e', `${RC232_COMMIT}^{commit}`).status !== 0) {
+    const fix = `${TAG} (${RC232_COMMIT}) isn't in this clone. Run: git fetch --no-tags --depth=1 origin ${RC232_COMMIT}`;
+    if (process.env.CI || process.env.PLATO_REQUIRE_RC232) assert.fail(`${fix}. CI must run the rollback check, not skip it.`);
+    t.skip(fix);
     return null;
   }
+  // Where a clone has the tag, it must still be the pinned commit.
+  const tagged = git('rev-parse', '--verify', '--quiet', `${TAG}^{commit}`);
+  if (tagged.status === 0) assert.equal(tagged.stdout.trim(), RC232_COMMIT, `${TAG} no longer points at the pinned commit`);
   rmSync(RC232_DIR, { recursive: true, force: true });
   mkdirSync(RC232_DIR, { recursive: true });
-  const archive = execFileSync('git', ['archive', TAG, 'server/src'], { cwd: REPO_DIR, maxBuffer: 64 * 1024 * 1024 });
+  const archive = execFileSync('git', ['archive', RC232_COMMIT, 'server/src'], { cwd: REPO_DIR, maxBuffer: 64 * 1024 * 1024 });
   execFileSync('tar', ['-x', '--strip-components=1', '-C', RC232_DIR], { input: archive });
-  rc232Src = join(RC232_DIR, 'src');
-  return rc232Src;
+  return (rc232Src = join(RC232_DIR, 'src'));
 }
 
 // Runs Beta-RC-232's own route handlers against the test database.
@@ -207,6 +220,15 @@ describe('upgrade from Beta-RC-232', () => {
     assert.equal(results['admin waitlist'].count, FIXTURE.waitlist.length);
     assert.equal(results['learner lessons'].count, publicVisible + 1, 'public + the private lesson shared with Ada');
     assert.equal(results['learner kb'].count, 10, "Ada's completed lesson keeps progress 10");
+  });
+
+  it('both CI paths fetch the pinned commit and require the rollback check', () => {
+    const github = readFileSync(join(REPO_DIR, '.github/workflows/test.yml'), 'utf8');
+    assert.match(github, new RegExp(`git fetch --no-tags --depth=1 origin ${RC232_COMMIT}`));
+    const cloudBuild = readFileSync(join(REPO_DIR, 'deploy/cloudrun/cloudbuild.yaml'), 'utf8');
+    assert.match(cloudBuild, new RegExp(`git fetch -q --no-tags --depth=1 origin ${RC232_COMMIT}`));
+    assert.match(cloudBuild, /PLATO_RC232_SRC=\/workspace\/server\/\.rc232\/src/);
+    assert.match(cloudBuild, /PLATO_REQUIRE_RC232=1/);
   });
 
   // Last: it changes the database. Beta-RC-232 saves a unit by replacing its

@@ -119,10 +119,13 @@ log as `migration_applied` / `migration_failed`.
   fixture (`tests/migrations/fixtures/rc232.js`), runs every migration, and
   fails on any record removed or any change outside its `ALLOWED` list. It
   checks that a second run is a no-op. Then it runs **Beta-RC-232's own route
-  handlers**, extracted from the git tag, against the migrated database. Run the
-  server suite sequentially before lint: the extracted RC-232 tree is a
-  temporary directory that a concurrent lint can race. Extend `ALLOWED` and the
-  fixture in the same PR as the migration.
+  handlers** against the migrated database: from `PLATO_RC232_SRC` when CI
+  extracted them already (Cloud Build), otherwise extracted from the pinned
+  commit (`ROLLBACK_BASELINE` in `lib/migrations.js`; this fork's remote has
+  no tags). Without either it fails under `CI` or `PLATO_REQUIRE_RC232`, and
+  skips locally with the `git fetch` command that fixes it. ESLint and
+  `.dockerignore` skip the extracted `server/.rc232` tree. Extend `ALLOWED`
+  and the fixture in the same PR as the migration.
 - `node server/scripts/migrate.js` reports, read-only, what each pending
   migration would change on any backend. `--apply` exists for rehearsals on
   restored copies. It exits 1 unless the migrations are actually complete:

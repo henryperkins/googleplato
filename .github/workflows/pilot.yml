@@ -18,6 +18,10 @@ jobs:
         with:
           fetch-depth: 1
 
+      # The server suite's upgrade gate needs Beta-RC-232's pinned commit and
+      # fails under CI without it (see test.yml).
+      - run: git fetch --no-tags --depth=1 origin 629c77811985085b88dacabe1514b2f221eb0859
+
       # Prevent the agent / claude-code-action from committing its own workspace
       # artifacts (e.g. .claude-pr/CLAUDE.md, a context copy the action stages
       # inside the checkout). Writing to .git/info/exclude is per-clone — no

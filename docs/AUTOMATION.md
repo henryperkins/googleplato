@@ -7,7 +7,12 @@ CI: the `test` step in `deploy/cloudrun/cloudbuild.yaml` runs lint and the
 client/server unit tests (including PostgreSQL), builds the client, installs
 Chromium and its system dependencies, then runs the admin responsive browser
 regressions (`npm --prefix client run test:browser:admin`) before any image is
-built or deployed. After merging a pipeline change, run
+built or deployed. Its `source` step also extracts Beta-RC-232's `server/src`
+(the pinned commit in `ROLLBACK_BASELINE`, `server/src/lib/migrations.js`)
+into `server/.rc232`, because the test image has no git, and the `test` step
+passes it as `PLATO_RC232_SRC` with `PLATO_REQUIRE_RC232=1`, so the upgrade
+gate's rollback checks run instead of skipping. `.dockerignore` keeps that
+tree out of the image. After merging a pipeline change, run
 `deploy/cloudrun/configure.sh` to refresh the `plato-main` trigger's inline
 build configuration.
 The independent [deployment monitor](DEPLOYMENT_WATCH.md) runs every five
@@ -165,8 +170,10 @@ prevent duplicate reviews.
 Run on every PR (drafts included) and on pushes to `main` / `playground`, on
 Node 24 to match the Lambda runtime.
 - **`test.yml`**: `npm test` for client and server. The server job fetches
-  the `Beta-RC-232` tag for the upgrade gate
-  (`server/tests/migrations/upgrade-from-rc232.test.js`).
+  Beta-RC-232's pinned commit for the upgrade gate
+  (`server/tests/migrations/upgrade-from-rc232.test.js`): the checkout is
+  shallow and this fork has no tags. Under `CI` the gate fails, rather than
+  skips, when that commit is missing (`pilot.yml` fetches it too).
 - **`lint.yml`**: ESLint for both.
 - **`a11y.yml`**: the Playwright + axe suite in `e2e/` against a fresh
   `dev-sqlite` with `AI_PROVIDER=mock`. It fails on any serious or critical
