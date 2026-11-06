@@ -228,6 +228,23 @@ export async function runMigrations({
   return { ran, skipped: null };
 }
 
+/**
+ * Why a runMigrations() outcome left work undone, or null when it didn't.
+ * 'none_pending' is success (nothing to do). 'locked' and 'lost_race' are not
+ * failures of a migration, but nothing ran: another process holds (or just
+ * took) the lock, so the data isn't migrated yet. Scripts and rehearsals must
+ * report that, not exit 0. (Startup waits for the other process instead:
+ * lib/launch.js.)
+ */
+export function incompleteMigrations(outcome) {
+  if (!outcome) return 'migrations did not report an outcome';
+  if (outcome.skipped === 'locked') return 'another run holds the migration lock (a stale lock expires after 5 minutes)';
+  if (outcome.skipped === 'lost_race') return 'another run took the migration lock first';
+  if (outcome.skipped && outcome.skipped !== 'none_pending') return `migrations were skipped: ${outcome.skipped}`;
+  const failed = (outcome.ran || []).filter(({ result }) => result.errors > 0).map(({ id }) => id);
+  return failed.length ? `finished with errors: ${failed.join(', ')}` : null;
+}
+
 const STARTUP_BUDGET_MS = 20_000;
 
 /**

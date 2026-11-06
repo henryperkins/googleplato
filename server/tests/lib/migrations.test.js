@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { runMigrations, runMigrationsBounded, MIGRATIONS } from '../../src/lib/migrations.js';
+import { runMigrations, runMigrationsBounded, MIGRATIONS, incompleteMigrations } from '../../src/lib/migrations.js';
 
 // In-memory stand-in with the same version semantics as the real backends.
 function fakeDb() {
@@ -107,6 +107,22 @@ describe('runMigrations', () => {
     assert.deepEqual(seen, [true]);
     assert.equal(out.ran[0].result.updated, 3);
     assert.equal(db.rows.size, 0);
+  });
+});
+
+describe('incompleteMigrations', () => {
+  const ok = { id: 'm1', result: { scanned: 1, updated: 1, skipped: 0, errors: 0 } };
+  it('is null when everything ran cleanly or nothing was pending', () => {
+    assert.equal(incompleteMigrations({ ran: [ok], skipped: null }), null);
+    assert.equal(incompleteMigrations({ ran: [], skipped: 'none_pending' }), null);
+  });
+  it('names a held or lost lock: nothing ran, so the data is not migrated', () => {
+    assert.match(incompleteMigrations({ ran: [], skipped: 'locked' }), /holds the migration lock/);
+    assert.match(incompleteMigrations({ ran: [], skipped: 'lost_race' }), /took the migration lock first/);
+  });
+  it('names migrations that finished with errors', () => {
+    assert.match(incompleteMigrations({ ran: [ok, { id: 'm2', result: { errors: 2 } }], skipped: null }), /errors: m2$/);
+    assert.ok(incompleteMigrations(null));
   });
 });
 

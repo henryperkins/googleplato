@@ -18,7 +18,7 @@
  *   INVITES_TABLE=plato-rehearsal-invites ... node scripts/migrate.js --apply
  */
 const apply = process.argv.includes('--apply');
-const { runMigrations, MIGRATIONS } = await import('../src/lib/migrations.js');
+const { runMigrations, MIGRATIONS, incompleteMigrations } = await import('../src/lib/migrations.js');
 const db = (await import('../src/lib/db.js')).default;
 
 const state = (await db.getSyncData('_system', 'migrations'))?.data || { applied: {} };
@@ -28,9 +28,12 @@ for (const m of MIGRATIONS) {
 }
 
 const outcome = await runMigrations({ dryRun: !apply });
-if (outcome.skipped) console.log(`\nNothing ran: ${outcome.skipped}`);
+if (outcome.skipped === 'none_pending') console.log('\nNothing to run: every migration is applied.');
 for (const { id, result } of outcome.ran) {
   console.log(`\n${id}: scanned ${result.scanned}, ${apply ? 'updated' : 'would update'} ${result.updated}, skipped ${result.skipped}, errors ${result.errors}`);
   for (const note of result.notes || []) console.log(`  - ${note}`);
 }
-process.exit(outcome.ran.some((r) => r.result.errors > 0) ? 1 : 0);
+// A held or lost lock means nothing ran: that's incomplete, not success.
+const incomplete = incompleteMigrations(outcome);
+if (incomplete) console.error(`\nMigrations are not complete: ${incomplete}.`);
+process.exit(incomplete ? 1 : 0);

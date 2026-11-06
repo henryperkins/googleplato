@@ -125,7 +125,12 @@ log as `migration_applied` / `migration_failed`.
   fixture in the same PR as the migration.
 - `node server/scripts/migrate.js` reports, read-only, what each pending
   migration would change on any backend. `--apply` exists for rehearsals on
-  restored copies.
+  restored copies. It exits 1 unless the migrations are actually complete:
+  a held or lost lock (`locked`, `lost_race`) means nothing ran, so it isn't
+  success, while `none_pending` is. `server/scripts/rehearse-upgrade.js`
+  fails the same way, checks that every migration is recorded as applied, and
+  requires the second run to report `none_pending`. Both use
+  `incompleteMigrations()` (`lib/migrations.js`).
 
 `putSyncData` with no expected version is an unconditional overwrite. Use
 `db.createSyncData` when you mean "create only if absent".

@@ -35,7 +35,7 @@ for (const [env, t] of [['USERS_TABLE', 'users'], ['INVITES_TABLE', 'invites'], 
 process.env.DB_BACKEND = 'dynamodb';
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), '..');
 const db = (await import('../src/lib/db.js')).default;
-const { runMigrations } = await import('../src/lib/migrations.js');
+const { runMigrations, MIGRATIONS, incompleteMigrations } = await import('../src/lib/migrations.js');
 const { ensureBundledLessons, BUNDLED_LESSONS, BUNDLED_COURSE } = await import('../src/lib/bundled-lessons.js');
 const { repairUnits } = await import('../src/lib/unit-repair.js');
 
@@ -76,6 +76,13 @@ for (const { id, result } of outcome.ran) {
   check(result.errors === 0, `${id} had no errors`);
 }
 if (outcome.skipped) lines.push(`- skipped: ${outcome.skipped}`);
+// A held or lost lock means nothing ran, so every later check would pass on
+// unmigrated data. Fail instead.
+const incomplete = incompleteMigrations(outcome);
+check(!incomplete, incomplete ? `migrations ran: ${incomplete}` : 'migrations ran');
+const applied = (await db.getSyncData('_system', 'migrations', { consistentRead: true }))?.data?.applied || {};
+const unapplied = MIGRATIONS.filter((m) => !applied[m.id]).map((m) => m.id);
+check(unapplied.length === 0, `every migration is recorded as applied${unapplied.length ? `; not: ${unapplied.join(', ')}` : ''}`);
 lines.push(`- bundled lessons: installed ${bundled.installed.join(', ') || 'none'}`);
 lines.push(`- units repaired: ${units.repaired.join(', ') || 'none'}${units.ambiguous.length ? `; listed by two courses: ${units.ambiguous.join(', ')}` : ''}`, '');
 
@@ -94,7 +101,7 @@ check(work.every((k) => after.out.get(k) === before.out.get(k)), `learner work u
 const gs = (await db.getSyncData('_system', 'lesson:getting-started'))?.data;
 check(!gs || gs.status === 'private', 'Getting Started arrived private');
 const again = await runMigrations();
-check(again.ran.length === 0, 'a second run does nothing');
+check(again.ran.length === 0 && again.skipped === 'none_pending', `a second run does nothing (${again.skipped || 'ran'})`);
 
 // Rollback: Beta-RC-232's handlers against the migrated tables.
 const tag = 'Beta-RC-232';
