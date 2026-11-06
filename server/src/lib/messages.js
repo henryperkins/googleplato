@@ -6,7 +6,7 @@
  * A message is `_system:message:<id>` =
  *   { subject, body,
  *     audience: { type: 'all' | 'role' | 'group' | 'users', roles?, group?, userIds?, allRoles? },
- *     inApp, email, important, status: 'sending' | 'sent', counts?, createdAt, createdBy, createdByName }
+ *     inApp, email, important, status: 'sending' | 'failed' | 'sent', counts?, createdAt, createdBy, createdByName }
  *
  * Who it reaches:
  * - `all` — everyone, any role. `group` — the group's members, any role.
@@ -21,7 +21,8 @@
  * audience, so nothing is written per recipient. Read state lives in the
  * user's server-only `notify:state` (`read: { [messageId]: iso }`). Email
  * goes out in the `send-message` background job (lib/jobs.js), honoring the
- * `messages` opt-out.
+ * `messages` opt-out. A durable execution lease serializes delivery attempts;
+ * per-user pending claims are distinct from acknowledged emailed recipients.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import defaultDb from './db.js';
@@ -155,63 +156,135 @@ export async function markRead(userId, ids, db = defaultDb) {
 
 const fill = (s, vars) => s.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, k) => (vars[k] == null ? '' : String(vars[k])));
 
-/** The `send-message` job: email every recipient, a few at a time, then record counts. */
-export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
-  const item = await db.getSyncData('_system', `message:${id}`);
-  if (!item || !item.data.email || item.data.status === 'sent') return { skipped: true };
-  const message = item.data;
-  const [people, classroom] = await Promise.all([recipientsOf(message, db), getClassroom()]);
-  const counts = { recipients: people.length, emailed: 0, optedOut: 0, blocked: 0, skipped: 0, failed: 0 };
-  const queue = [...people];
-  async function worker() {
-    for (let u = queue.shift(); u; u = queue.shift()) {
-      try {
-        if ((await readNotifyState(u.userId, db)).optOut?.messages) { counts.optedOut++; continue; }
-        // Claim this recipient before sending. Lambda retries an async job
-        // that timed out or failed; the claim makes a retry skip everyone
-        // already emailed instead of emailing them twice.
-        let claimed = false;
-        await updateNotifyState(u.userId, (st) => {
-          claimed = !st.optOut?.messages && !st.emailed?.[id]; // recomputed if the write is retried
-          if (!claimed) return st;
-          // Only recent messages need remembering; keep the record small.
-          const recent = Object.entries(st.emailed || {}).sort((a, b) => b[1].localeCompare(a[1])).slice(0, 49);
-          return { ...st, emailed: { ...Object.fromEntries(recent), [id]: new Date().toISOString() } };
-        }, db);
-        if (!claimed) { counts.emailed++; continue; }
-        const unsubscribe = unsubscribeUrl(u.userId, 'messages');
-        const label = UNSUBSCRIBE_KINDS.messages;
-        const rendered = renderEmail(message, { firstName: nameFields(u).firstName, classroomName: classroom.name, link: APP_URL }, {
-          classroom,
-          footerText: `To stop getting ${label} by email, unsubscribe: ${unsubscribe}`,
-          footerHtml: `<p style="color: #777; font-size: 12px; line-height: 1.5; margin: 16px 0 0;">Don’t want ${escapeHtml(label)} by email? <a href="${escapeHtml(unsubscribe)}" style="color: #777;">Unsubscribe</a>.</p>`,
-        });
-        let r;
-        try {
-          r = await sendNotificationEmail({ to: u.email, ...rendered, classroom, unsubscribe, ...(send ? { send } : {}) });
-        } catch (err) {
-          // SES said no: release the claim so a retry can try this person
-          // again. (A run killed mid-send keeps its claims: at most once.)
-          await updateNotifyState(u.userId, (st) => {
-            if (!st.emailed?.[id]) return st;
-            const { [id]: _drop, ...rest } = st.emailed;
-            return { ...st, emailed: rest };
-          }, db).catch(() => {});
-          throw err;
-        }
-        if (r.sent) counts.emailed++;
-        else if (r.blocked) counts.blocked++;
-        else counts.skipped++;
-      } catch {
-        counts.failed++;
-      }
+const DELIVERY_LEASE_MS = 10 * 60 * 1000;
+
+async function claimDelivery(id, db) {
+  const owner = randomBytes(16).toString('hex');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const item = await db.getSyncData('_system', `message:${id}`);
+    if (!item || !item.data.email || item.data.status === 'sent') return { skipped: true };
+    if (item.data.deliveryLease?.until > Date.now()) return { active: true };
+    const until = Date.now() + DELIVERY_LEASE_MS;
+    try {
+      await db.putSyncData('_system', `message:${id}`, {
+        ...item.data, status: 'sending', deliveryLease: { owner, until },
+      }, item.version, { strictVersion: true });
+      return { owner, until, message: item.data };
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
     }
   }
-  await Promise.all(Array.from({ length: SEND_CONCURRENCY }, worker));
-  const latest = await db.getSyncData('_system', `message:${id}`);
-  await db.putSyncData('_system', `message:${id}`, { ...latest.data, status: counts.failed ? 'failed' : 'sent', counts, ...(counts.failed ? {} : { sentAt: new Date().toISOString() }) }, latest.version);
-  if (counts.failed) throw new Error(`Message delivery failed for ${counts.failed} recipient(s)`);
-  return counts;
+  return { active: true };
+}
+
+// Every renewal/finalization checks durable ownership and the exact version.
+// A worker that outlives its lease cannot overwrite a newer attempt's outcome.
+async function updateDelivery(id, owner, change, db) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const item = await db.getSyncData('_system', `message:${id}`);
+    if (item?.data.deliveryLease?.owner !== owner) throw new Error('Message delivery ownership changed');
+    try {
+      await db.putSyncData('_system', `message:${id}`, change(item.data), item.version, { strictVersion: true });
+      return;
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException' || attempt === 2) throw error;
+    }
+  }
+}
+
+/** The owning `send-message` attempt sends recipients and publishes its outcome. */
+export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
+  const lease = await claimDelivery(id, db);
+  if (!lease.owner) return lease;
+  const { owner, message } = lease;
+  let renewal = null;
+  async function renewLease() {
+    if (lease.until > Date.now() + DELIVERY_LEASE_MS / 2) return;
+    const until = Date.now() + DELIVERY_LEASE_MS;
+    renewal ||= updateDelivery(id, owner, data => ({
+      ...data, deliveryLease: { owner, until },
+    }), db).then(() => { lease.until = until; }).finally(() => { renewal = null; });
+    await renewal;
+  }
+  const counts = { recipients: 0, emailed: 0, optedOut: 0, blocked: 0, skipped: 0, failed: 0 };
+  let finalized = false;
+  try {
+    const [people, classroom] = await Promise.all([recipientsOf(message, db), getClassroom()]);
+    counts.recipients = people.length;
+    const queue = [...people];
+    async function worker() {
+      for (let u = queue.shift(); u; u = queue.shift()) {
+        try {
+          await renewLease();
+          let claimed = false, pending = false, optedOut = false;
+          await updateNotifyState(u.userId, st => {
+            claimed = false;
+            optedOut = !!st.optOut?.messages;
+            pending = !!st.emailPending?.[id];
+            if (optedOut || st.emailed?.[id] || pending) return st;
+            claimed = true;
+            return { ...st, emailPending: { ...st.emailPending, [id]: { owner, at: new Date().toISOString() } } };
+          }, db);
+          if (!claimed) {
+            if (optedOut) counts.optedOut++;
+            else if (pending) { counts.failed++; counts.pending = (counts.pending || 0) + 1; }
+            else counts.emailed++;
+            continue;
+          }
+          const unsubscribe = unsubscribeUrl(u.userId, 'messages');
+          const label = UNSUBSCRIBE_KINDS.messages;
+          const rendered = renderEmail(message, { firstName: nameFields(u).firstName, classroomName: classroom.name, link: APP_URL }, {
+            classroom,
+            footerText: `To stop getting ${label} by email, unsubscribe: ${unsubscribe}`,
+            footerHtml: `<p style="color: #777; font-size: 12px; line-height: 1.5; margin: 16px 0 0;">Don’t want ${escapeHtml(label)} by email? <a href="${escapeHtml(unsubscribe)}" style="color: #777;">Unsubscribe</a>.</p>`,
+          });
+          let result;
+          try {
+            result = await sendNotificationEmail({ to: u.email, ...rendered, classroom, unsubscribe, ...(send ? { send } : {}) });
+          } catch (error) {
+            // A known failure releases only this attempt's pending claim. A
+            // late failure cannot remove another attempt's acknowledged send.
+            await updateNotifyState(u.userId, st => {
+              if (st.emailPending?.[id]?.owner !== owner) return st;
+              const { [id]: _drop, ...rest } = st.emailPending;
+              return { ...st, emailPending: rest };
+            }, db).catch(() => {});
+            throw error;
+          }
+          await updateNotifyState(u.userId, st => {
+            if (st.emailPending?.[id]?.owner !== owner) return st;
+            const { [id]: _drop, ...rest } = st.emailPending;
+            const recent = Object.entries(st.emailed || {}).sort((a, b) => b[1].localeCompare(a[1])).slice(0, 49);
+            return { ...st, emailPending: rest, ...(result.sent ? {
+              emailed: { ...Object.fromEntries(recent), [id]: new Date().toISOString() },
+            } : {}) };
+          }, db);
+          if (result.sent) counts.emailed++;
+          else if (result.blocked) counts.blocked++;
+          else counts.skipped++;
+        } catch {
+          counts.failed++;
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: SEND_CONCURRENCY }, worker));
+    await updateDelivery(id, owner, data => ({ ...data,
+      deliveryLease: null, deliveryError: counts.failed ? 'Email delivery failed. Retry this message.' : null,
+      status: counts.failed ? 'failed' : 'sent', counts,
+      ...(counts.failed ? {} : { sentAt: new Date().toISOString() }),
+    }), db);
+    finalized = true;
+    if (counts.failed) throw new Error(`Message delivery failed for ${counts.failed} recipient(s)`);
+    return counts;
+  } finally {
+    if (!finalized) {
+      // Setup/storage errors release execution ownership as well. An expired
+      // owner never changes the status of a newer run or clears its lease.
+      await updateDelivery(id, owner, data => ({ ...data, deliveryLease: null, status: 'failed',
+        deliveryError: 'Email delivery failed. Retry this message.', counts,
+      }), db).catch(() => {});
+    }
+  }
 }
 
 registerJob('send-message', (payload) => sendMessageEmails(payload));

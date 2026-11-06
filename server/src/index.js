@@ -38,50 +38,45 @@ server.use('*', cors({
 }));
 
 // First-request initialization: admin bootstrap, content seeding
-let initChecked = false;
+let initialization = null;
 server.use('*', async (c, next) => {
-  if (!initChecked) {
-    initChecked = true;
-    // Admin bootstrap
-    if (ADMIN_EMAIL && ADMIN_PASSWORD) {
-      try {
-        const count = await db.countUsers();
-        if (count === 0) {
-          const userId = generateUserId();
-          const passwordHash = await hashPassword(ADMIN_PASSWORD);
-          await db.createUser({
-            userId,
-            email: ADMIN_EMAIL.toLowerCase(),
-            passwordHash,
-            name: 'Admin',
-            role: 'admin',
-          });
-          console.log(`Admin bootstrapped: ${ADMIN_EMAIL}`);
-        }
-      } catch (err) {
-        console.error('Admin bootstrap failed:', err.message);
-      }
-    }
-    await initializeLaunch();
-    // Seed/update prompts and lessons
-    try {
-      const seeded = await seedDefaultContent();
-      if (seeded > 0) console.log(`Seeded ${seeded} content item(s)`);
-    } catch (err) {
-      console.error('Seed failed (non-fatal):', err.message);
-    }
-    // Plugin registry: discover and activate plugins. Routes are NOT mounted here —
-    // Hono throws "Can not add a route since the matcher is already built" if you
-    // call server.route() mid-request. Instead we register a static catch-all (below)
-    // that dispatches via the registry once it's booted.
-    try {
-      await pluginRegistry.boot();
-    } catch (err) {
-      logger.error('plugin_registry_boot_failed', { error: err?.message, stack: err?.stack });
-    }
+  if (!initialization) {
+    initialization = initializeServer().catch(error => {
+      initialization = null;
+      throw error;
+    });
   }
+  await initialization;
   await next();
 });
+
+async function initializeServer() {
+  // Admin bootstrap
+  if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+    try {
+      const count = await db.countUsers();
+      if (count === 0) {
+        const userId = generateUserId();
+        const passwordHash = await hashPassword(ADMIN_PASSWORD);
+        await db.createUser({
+          userId,
+          email: ADMIN_EMAIL.toLowerCase(),
+          passwordHash,
+          name: 'Admin',
+          role: 'admin',
+        });
+        console.log(`Admin bootstrapped: ${ADMIN_EMAIL}`);
+      }
+    } catch (err) {
+      console.error('Admin bootstrap failed:', err.message);
+    }
+  }
+  await initializeLaunch();
+  // Routes are statically mounted below; registry boot populates dispatchers.
+  const seeded = await seedDefaultContent();
+  if (seeded > 0) console.log(`Seeded ${seeded} content item(s)`);
+  await pluginRegistry.boot();
+}
 
 server.use('*', viewAsReadOnly);
 server.use('*', scheduleLaunchJobs);

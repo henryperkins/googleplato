@@ -56,6 +56,73 @@ async function qualify(t, db) {
     assert.equal(sent.length, 2);
     assert.equal((await db.getSyncData('_system', `message:${message.id}`)).data.status, 'sent');
   });
+  await t.test('an overlapping attempt cannot turn a known transport failure into sent', async () => {
+    await db.createUser({ userId: 'usr_overlap', email: 'overlap@example.test', passwordHash: 'hash', name: 'Overlap', role: 'learner' });
+    const message = await createMessage({ subject: 'Overlap', body: 'Hello', email: true, inApp: true, audience: { type: 'users', userIds: ['usr_overlap'] } }, { userId: 'usr_actor', name: 'Admin' }, db);
+    let transportStarted;
+    const started = new Promise(resolve => { transportStarted = resolve; });
+    let failTransport;
+    const transport = new Promise((resolve, reject) => { failTransport = reject; });
+    let releaseFinalRead;
+    const finalRead = new Promise(resolve => { releaseFinalRead = resolve; });
+    let reachedFinalRead;
+    const atFinalRead = new Promise(resolve => { reachedFinalRead = resolve; });
+    let reads = 0;
+    let pauseAt = Infinity;
+    let firstReleased = false;
+    let transportCalls = 0;
+    const wrapped = Object.create(db);
+    wrapped.getSyncData = async (owner, key, ...args) => {
+      if (owner === '_system' && key === `message:${message.id}` && ++reads === pauseAt && !firstReleased) {
+        reachedFinalRead();
+        await finalRead;
+      }
+      return db.getSyncData(owner, key, ...args);
+    };
+    t.after(() => releaseFinalRead());
+    const first = sendMessageEmails({ id: message.id }, { db: wrapped, send: async () => { transportCalls++; transportStarted(); await transport; } }).catch(error => error);
+    await started;
+    pauseAt = reads + 2; // B's final read, after its initial read and skipped claim.
+    const second = sendMessageEmails({ id: message.id }, { db: wrapped, send: async () => { transportCalls++; } });
+    await Promise.race([second, atFinalRead]);
+    firstReleased = true;
+    failTransport(new Error('known transport failure'));
+    assert.match((await first).message, /delivery failed/);
+    assert.equal((await db.getSyncData('_system', `message:${message.id}`)).data.status, 'failed');
+    releaseFinalRead();
+    await second;
+    assert.equal((await db.getSyncData('_system', `message:${message.id}`)).data.status, 'failed');
+    await sendMessageEmails({ id: message.id }, { db, send: async () => { transportCalls++; } });
+    assert.equal(transportCalls, 2, 'the sole failed recipient remains retryable');
+    assert.equal((await db.getSyncData('_system', `message:${message.id}`)).data.status, 'sent');
+  });
+
+  await t.test('lease takeover preserves a pending transport and late known failure remains retryable', async () => {
+    await db.createUser({ userId: 'usr_takeover', email: 'takeover@example.test', passwordHash: 'hash', name: 'Takeover', role: 'learner' });
+    const message = await createMessage({ subject: 'Lease', body: 'Hello', email: true, inApp: true, audience: { type: 'users', userIds: ['usr_takeover'] } }, { userId: 'usr_actor', name: 'Admin' }, db);
+    let transportStarted;
+    const started = new Promise(resolve => { transportStarted = resolve; });
+    let failTransport;
+    const transport = new Promise((resolve, reject) => { failTransport = reject; });
+    let calls = 0;
+    const first = sendMessageEmails({ id: message.id }, { db, send: async () => { calls++; transportStarted(); await transport; } }).catch(error => error);
+    await started;
+    try {
+      const current = await db.getSyncData('_system', `message:${message.id}`);
+      assert.ok(current.data.deliveryLease, 'execution ownership is durable');
+      await db.putSyncData('_system', `message:${message.id}`, { ...current.data, deliveryLease: { ...current.data.deliveryLease, until: Date.now() - 1 } }, current.version);
+      await assert.rejects(sendMessageEmails({ id: message.id }, { db, send: async () => { calls++; } }), /delivery failed/);
+      const waiting = await db.getSyncData('_system', `message:${message.id}`);
+      assert.equal(waiting.data.status, 'failed');
+      assert.equal(waiting.data.counts.pending, 1, 'uncertain pending claims cannot count as completed');
+      failTransport(new Error('late known failure'));
+      await first;
+      await sendMessageEmails({ id: message.id }, { db, send: async () => { calls++; } });
+      assert.equal(calls, 2);
+      assert.equal((await db.getSyncData('_system', `message:${message.id}`)).data.status, 'sent');
+    } finally { failTransport(new Error('test cleanup')); await first; }
+  });
+
 }
 
 test('launch contracts on SQLite', async t => qualify(t, sqlite));

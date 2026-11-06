@@ -129,8 +129,12 @@ async function deliverMessage(id) {
     if (!result?.error) return null;
   } catch { /* The recipient job already recorded its failure counts. */ }
   const item = await db.getSyncData('_system', `message:${id}`);
-  if (item && item.data.status !== 'sent') {
-    await db.putSyncData('_system', `message:${id}`, { ...item.data, status: 'failed', deliveryError: 'Email delivery failed. Retry this message.' }, item.version);
+  if (item && item.data.status !== 'sent' && !item.data.deliveryLease) {
+    try {
+      await db.putSyncData('_system', `message:${id}`, { ...item.data, status: 'failed', deliveryError: 'Email delivery failed. Retry this message.' }, item.version, { strictVersion: true });
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+    }
   }
   return 'Email delivery failed. Retry this message.';
 }
