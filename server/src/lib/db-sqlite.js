@@ -302,6 +302,19 @@ const db = {
     sqlite.prepare(`UPDATE users SET ${sets}, updatedAt = ? WHERE userId = ?`).run(...values);
   },
 
+  // Invite fill-only CAS: compare both profile attributes and require the
+  // account to exist. Other account attributes are never replaced.
+  async updateUserProfileIf(userId, expected, updates) {
+    const keys = Object.keys(updates);
+    if (!keys.length || keys.some(key => !['userGroup', 'customFields'].includes(key))) throw new Error('Invalid profile updates');
+    const values = keys.map(key => key === 'customFields' && updates[key] != null ? JSON.stringify(updates[key]) : updates[key]);
+    return sqlite.prepare(`UPDATE users SET ${keys.map(key => `${key} = ?`).join(', ')}, updatedAt = ?
+      WHERE userId = ? AND userGroup IS ? AND customFields IS ?`).run(
+      ...values, new Date().toISOString(), userId, expected.userGroup ?? null,
+      expected.customFields == null ? null : JSON.stringify(expected.customFields)
+    ).changes === 1;
+  },
+
   async deleteUser(userId) {
     sqlite.prepare('DELETE FROM users WHERE userId = ?').run(userId);
   },

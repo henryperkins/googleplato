@@ -91,6 +91,44 @@ const db = {
     }));
   },
 
+  // Compare the complete prior profile while updating only its attributes.
+  // attribute_exists prevents UpdateItem from recreating a deleted account.
+  async updateUserProfileIf(userId, expected, updates) {
+    const keys = Object.keys(updates);
+    if (!keys.length || keys.some(key => !['userGroup', 'customFields'].includes(key))) throw new Error('Invalid profile updates');
+    const names = { '#id': 'userId', '#group': 'userGroup', '#fields': 'customFields', '#updatedAt': 'updatedAt' };
+    const values = { ':now': new Date().toISOString() };
+    const conditions = ['attribute_exists(#id)'];
+    for (const [key, alias, valueAlias] of [['userGroup', '#group', ':expectedGroup'], ['customFields', '#fields', ':expectedFields']]) {
+      if (Object.hasOwn(expected, key)) {
+        conditions.push(`${alias} = ${valueAlias}`);
+        values[valueAlias] = expected[key];
+      } else conditions.push(`attribute_not_exists(${alias})`);
+    }
+    const assignments = [];
+    if (Object.hasOwn(updates, 'userGroup')) {
+      assignments.push('#group = :group');
+      values[':group'] = updates.userGroup;
+    }
+    if (Object.hasOwn(updates, 'customFields')) {
+      assignments.push('#fields = :fields');
+      values[':fields'] = updates.customFields;
+    }
+    assignments.push('#updatedAt = :now');
+    try {
+      await doc.send(new UpdateCommand({
+        TableName: USERS_TABLE, Key: { userId },
+        UpdateExpression: `SET ${assignments.join(', ')}`,
+        ConditionExpression: conditions.join(' AND '),
+        ExpressionAttributeNames: names, ExpressionAttributeValues: values,
+      }));
+      return true;
+    } catch (error) {
+      if (error.name === 'ConditionalCheckFailedException') return false;
+      throw error;
+    }
+  },
+
   async deleteUser(userId) {
     await doc.send(new DeleteCommand({
       TableName: USERS_TABLE,

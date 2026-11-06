@@ -1,5 +1,9 @@
 # Upstream integration stopping point — 2026-11-06
 
+> Historical checkpoint. The integration subsequently completed; see
+> [Launch integration closeout](2026-11-06-upstream-launch-closeout.md) for the
+> current candidate, validation, preview and draft PR.
+
 The integration has paused twice today, both times at the maintainer's request.
 This record describes the **second** stop, after Task 4 resumed. The first
 stop's record is this file's previous version (`ad22d73`). This is **not** a

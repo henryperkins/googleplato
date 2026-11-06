@@ -169,13 +169,17 @@ User email and username uniqueness are enforced case-insensitively. Invite usage
 limits and activity counters are atomic database updates. Expired refresh/reset
 tokens cannot authenticate and expired token/invite rows are removed at startup.
 
-The launch integration added three conditional operations, implemented
+The launch integration added conditional operations, implemented
 identically on SQLite, DynamoDB and PostgreSQL. `createSyncData` inserts only
 when the record is absent; on PostgreSQL it runs under the same per-learner
 advisory lock, so two first writes to `notify:state` or `_system:jobs:schedule`
 produce exactly one winner. `setUserRoleIf` and `setUserNameSplitIf` change a
 user only while it still holds the expected role or name, and leave `updatedAt`
-alone; the role and name migrations use them. Message delivery serializes
+alone; the role and name migrations use them. `updateUserProfileIf` compares
+the current group and custom-field map before an invitation may fill missing
+values. A concurrent profile edit causes a re-read and retry, while a deleted
+account is never recreated. Invitation contention returns 409 without consuming
+the invite if five attempts cannot commit. Message delivery serializes
 attempts with a version-checked execution lease on the `_system:message:*`
 record, and records each recipient as pending before the send and as emailed
 only after the transport confirms. See

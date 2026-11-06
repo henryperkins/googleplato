@@ -1,6 +1,6 @@
 # Upstream Launch Integration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Integrate the approved upstream launch into this fork and deliver a verified preview and draft PR.
 
@@ -44,8 +44,8 @@
 - Produce firstName,lastName,nameSource,forUserId persisted by create functions. New clients consume names/roles/hierarchy/account-invite/message endpoints from upstream.
 - Keep fork AI endpoints and signed turn API. Frontend tasks use the existing coach protocol; do not replace it with generic AI calls.
 
-- [ ] Capture baseline tests and original merge stages; reconcile server diffs using the recorded base/fork/upstream sources. Preserve fork safeguards rather than replacing whole protected modules.
-- [ ] Add real-adapter regression assertions before fixing the reviewed defects and new PostgreSQL helpers:
+- [x] Capture baseline tests and original merge stages; reconcile server diffs using the recorded base/fork/upstream sources. Preserve fork safeguards rather than replacing whole protected modules.
+- [x] Add real-adapter regression assertions before fixing the reviewed defects and new PostgreSQL helpers:
 
 ```js
 assert.equal((await Promise.allSettled([
@@ -55,11 +55,11 @@ assert.equal((await Promise.allSettled([
 assert.equal((await db.getUserById('test')).firstName, 'Mary Ann');
 ```
 
-- [ ] Implement the missing helpers/fields, roles/names/hierarchy/content and invitation route changes. Keep strict writes, auth, branding, public-only metrics, receipt/sync and logging protections.
-- [ ] Fix notify/scheduler first-write races, message delivery retry/dispatch errors and export-path containment with focused tests that fail before the fix. Preserve token-free delivery-off result semantics in templated invitation email.
-- [ ] Wire migrations and startup/new middleware/routes/jobs into Cloud Run. Verify app startup, unsubscribe and view-as enforcement through the actual HTTP assembly. Preserve bootstrap credential cleanup/graceful shutdown.
-- [ ] Update Slack manifest/runtime behavior using existing extension APIs; execute plugin tests and manifest validation.
-- [ ] Run focused tests during edits, then full server suite with disposable PostgreSQL 17 and server lint. Record any compatibility test updates with a reason. Commit the task and self-review.
+- [x] Implement the missing helpers/fields, roles/names/hierarchy/content and invitation route changes. Keep strict writes, auth, branding, public-only metrics, receipt/sync and logging protections.
+- [x] Fix notify/scheduler first-write races, message delivery retry/dispatch errors and export-path containment with focused tests that fail before the fix. Preserve token-free delivery-off result semantics in templated invitation email.
+- [x] Wire migrations and startup/new middleware/routes/jobs into Cloud Run. Verify app startup, unsubscribe and view-as enforcement through the actual HTTP assembly. Preserve bootstrap credential cleanup/graceful shutdown.
+- [x] Update Slack manifest/runtime behavior using existing extension APIs; execute plugin tests and manifest validation.
+- [x] Run focused tests during edits, then full server suite with disposable PostgreSQL 17 and server lint. Record any compatibility test updates with a reason. Commit the task and self-review.
 
 ### Task 2: Integrate authentication, administration and course UI
 
@@ -70,12 +70,12 @@ assert.equal((await db.getUserById('test')).firstName, 'Mary Ann');
 - Produce session-bound refreshCurrentUser and existing context refreshUser behavior, preserving expectedUserId/sessionGeneration protections.
 - Keep current base-nova dialog/button/table APIs, current branding provider boundaries, Google auth, return-path and setup loading behavior.
 
-- [ ] Compare every conflicted admin/auth/UI path to the upstream diff and fork base; bring across features while preserving fork forms, focus handling, branding, deep links and extracted editors.
-- [ ] Write a delayed-body/refresh test that changes session A to B and asserts A is never published or saved with B credentials; implement the owner/session check on the complete response-to-cache/context chain.
-- [ ] Integrate role-aware admin navigation, CourseStructure, Users filtering/columns, group rename/order, notifications, split names and existing-account invite UI.
-- [ ] Keep current nested startup/error handling, invitation-only Google flow, code-reviewed knowledge/lesson saving and current theme/logo handling.
-- [ ] Update/extend meaningful unit and browser coverage for new role/route/name/invite/hierarchy behavior, without weakening existing regressions.
-- [ ] Run focused tests then client suite, lint and production build; self-review and commit. Task 3 will supply learner overview/chat/profile feature integration.
+- [x] Compare every conflicted admin/auth/UI path to the upstream diff and fork base; bring across features while preserving fork forms, focus handling, branding, deep links and extracted editors.
+- [x] Write a delayed-body/refresh test that changes session A to B and asserts A is never published or saved with B credentials; implement the owner/session check on the complete response-to-cache/context chain.
+- [x] Integrate role-aware admin navigation, CourseStructure, Users filtering/columns, group rename/order, notifications, split names and existing-account invite UI.
+- [x] Keep current nested startup/error handling, invitation-only Google flow, code-reviewed knowledge/lesson saving and current theme/logo handling.
+- [x] Update/extend meaningful unit and browser coverage for new role/route/name/invite/hierarchy behavior, without weakening existing regressions.
+- [x] Run focused tests then client suite, lint and production build; self-review and commit. Task 3 will supply learner overview/chat/profile feature integration.
 
 ### Task 3: Integrate learner features with signed turns and durable recovery
 
@@ -87,12 +87,12 @@ assert.equal((await db.getUserById('test')).firstName, 'Mary Ann');
 - Existing submission/draft journals hold failed submissions independently of newer text/images/links.
 - Learner note add/remove APIs serialize read/edit/save in profileQueue with expectedUserId.
 
-- [ ] Compare all upstream learner changes against fork base and integrate lesson overview, objective checklist, agent details, next-lesson hierarchy, compose/send-key preferences, direct streaming, learner notes and onboarding content.
-- [ ] Add regressions for attachment recovery (old four-image/three-link submission plus newer draft), profile-note additions/removals concurrent with deferred model responses, and account changes before persistence.
-- [ ] Implement learner-note queueing/rebasing with the existing owner guards; retain user-owned notes regardless of model output.
-- [ ] Preserve signed assessment, task continuity, atomically saved transcript/progress, source evidence, request identity, replay and persistence-only Retry saving. Update metadata tests to verify tampered signed payloads still fail.
-- [ ] Keep the fork's extracted authoring hook callers working; adapt assessment/onboarding copy to selected providers and actual semantics.
-- [ ] Run focused tests then full client/server suites covering modified protocol and client build/lint; self-review and commit.
+- [x] Compare all upstream learner changes against fork base and integrate lesson overview, objective checklist, agent details, next-lesson hierarchy, compose/send-key preferences, direct streaming, learner notes and onboarding content.
+- [x] Add regressions for attachment recovery (old four-image/three-link submission plus newer draft), profile-note additions/removals concurrent with deferred model responses, and account changes before persistence.
+- [x] Implement learner-note queueing/rebasing with the existing owner guards; retain user-owned notes regardless of model output.
+- [x] Preserve signed assessment, task continuity, atomically saved transcript/progress, source evidence, request identity, replay and persistence-only Retry saving. Update metadata tests to verify tampered signed payloads still fail.
+- [x] Keep the fork's extracted authoring hook callers working; adapt assessment/onboarding copy to selected providers and actual semantics.
+- [x] Run focused tests then full client/server suites covering modified protocol and client build/lint; self-review and commit.
 
 ### Task 4: Qualify, document, preview and open the draft PR
 
@@ -100,11 +100,23 @@ assert.equal((await db.getUserById('test')).firstName, 'Mary Ann');
 
 **Interfaces:** Consume the integrated app from Tasks 1-3 and prove its actual HTTP/PostgreSQL and browser contracts.
 
-- [ ] Run full root npm test with PostgreSQL 17, root lint, client build, plugin tests and manifests once on the final candidate. Include meaningful new six-defect and adapter/HTTP regressions.
-- [ ] Run browser journeys on seeded isolated SQLite and/or PostgreSQL: setup/sign-in/accounts, admin/educator/tester/learner permissions, invitations, hierarchy and lesson authoring, signed lesson completion/save retry, profile corrections, notification composing/read/opt-out/unsubscribe. Include desktop and 390px/320px layout/keyboard checks.
-- [ ] Repair discovered implementation defects with focused tests and rerun only the relevant checks until final code changes justify a full gate.
-- [ ] Document hierarchy/roles/names/notifications, data contracts/production assembly and known validation boundaries. Correct documentation that assumes this fork has active users.
-- [ ] Request independent whole-branch review using a diff package and verification logs; fix substantiated issues and obtain scoped re-review.
-- [ ] Start a persistent synthetic preview on unused ports with a task-owned database; verify root, assets, health, sign-in and core journeys. Expose a usable link through an existing supported preview path and verify it before sharing.
-- [ ] Commit final docs/tests, push feat/upstream-launch-integration, open a draft PR against main with scope, validation and screenshots. Verify remote branch SHA and PR head/base. Report preview access and evidence, preserving the main checkout.
+- [x] Run full root npm test with PostgreSQL 17, root lint, client build, plugin tests and manifests once on the final candidate. Include meaningful new six-defect and adapter/HTTP regressions.
+- [x] Run browser journeys on seeded isolated SQLite and/or PostgreSQL: setup/sign-in/accounts, admin/educator/tester/learner permissions, invitations, hierarchy and lesson authoring, signed lesson completion/save retry, profile corrections, notification composing/read/opt-out/unsubscribe. Include desktop and 390px/320px layout/keyboard checks.
+- [x] Repair discovered implementation defects with focused tests and rerun only the relevant checks until final code changes justify a full gate.
+- [x] Document hierarchy/roles/names/notifications, data contracts/production assembly and known validation boundaries. Correct documentation that assumes this fork has active users.
+- [x] Request independent whole-branch review using a diff package and verification logs; fix substantiated issues and obtain scoped re-review.
+- [x] Start a persistent synthetic preview on unused ports with a task-owned database; verify root, assets, health, sign-in and core journeys. Expose a usable link through an existing supported preview path and verify it before sharing.
+- [x] Commit final docs/tests, push feat/upstream-launch-integration, open a draft PR against main with scope, validation and screenshots. Verify remote branch SHA and PR head/base. Report preview access and evidence, preserving the main checkout.
+
+### Task 5: Close the complete-review findings on the existing launch candidate
+
+**Files:** `server/src/lib/account-invites.js`, `server/src/lib/{db-sqlite,db-dynamodb,postgres-database}.js`, focused server adapter/invitation tests, focused client/browser tests if an uncovered review finding requires them, and the current design/review documentation.
+
+**Interfaces:** Preserve the existing invitation response `{ userGroup, fields }`, deriving both from fields actually filled at the atomic write. The database mutation must read/compare current group and custom-field state at commit and must not recreate a deleted account. Preserve names, roles, authentication metadata and unrelated custom fields. Keep all three backends equivalent.
+
+- [x] Reproduce acceptance with an authentication-time profile snapshot followed by a concurrent saved field/group edit. Assert the saved values survive and the response/audit report only newly filled values. Include contention between reading the latest user and committing the merge; a second ordinary read alone is insufficient.
+- [x] Implement the smallest atomic fill-only adapter operation or conditional read/retry protocol. For PostgreSQL exercise independent connections against the dedicated PostgreSQL 17 helper; for SQLite use the real adapter; for DynamoDB exercise generated conditional commands with controlled transport without external AWS calls.
+- [x] Verify learner-note queueing, exact-audience previews, notification claims/retries/dispatch recovery, PostgreSQL create-only/name/invitation fields, and fresh startup against the later review. Reuse prior successful evidence on unchanged code and execute focused checks where the later findings require new proof.
+- [x] Run the amended server suite with isolated PostgreSQL schemas, lint, and the meaningful invitation/browser flow. Run broader gates only if amended code or an unresolved concern warrants them. Keep external AI/email/Slack mocked or off.
+- [x] Obtain an independent review of the closeout diff and resolve substantiated findings. Refresh the synthetic preview on the final candidate, update the existing draft PR #43, verify remote SHA, and record accurate final evidence. Preserve the primary checkout and every unrelated service/database.
 

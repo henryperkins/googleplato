@@ -138,6 +138,16 @@ contracts it added, and where the fork deliberately differs from upstream.
 Feature detail is in the linked sections. This fork has no actual users, so
 nothing here describes a live-user migration.
 
+Launch qualification starts with an empty, task-owned application database.
+The adapters initialize the current tables, setup creates the initial
+administrator and settings, and startup installs the three-lesson Getting
+Started course in its final Course–Unit–Lesson structure. The retained migration
+registry is idempotent and has no historical learner data to convert on a fresh
+installation. Historical backfills and upgrade rehearsals are not required
+operator steps for this launch. Existing authored content, settings and
+databases are preserved separately; an empty test installation does not reset
+an existing environment.
+
 **Records.**
 
 | Record | Holds | Written by |
@@ -161,6 +171,14 @@ conditional operations:
   `setUserNameSplitIf(userId, expectedName, parts)` change the user only while
   it still holds the expected value. They leave `updatedAt` alone and report
   whether they wrote.
+- `updateUserProfileIf(userId, expected, updates)` compares the current group
+  and complete custom-field map with the supplied snapshot, then updates only
+  those profile attributes and `updatedAt`. It returns false on a changed or
+  missing account and never recreates a deleted user. Invitation acceptance
+  re-reads consistently and retries a lost comparison up to five times, so it
+  fills only values still missing at commit. Exhausted contention returns 409
+  with the invitation still pending; the response and audit name only fields
+  actually filled. Names, roles, credentials and unrelated fields are retained.
 
 PostgreSQL's create-only insert runs inside the existing per-user advisory
 transaction. `server/tests/lib/launch-adapters.test.js` proves a single winner
@@ -197,6 +215,12 @@ same scheduled job. Upstream used a version-0 upsert, which allowed both.
   and offers Retry to anyone with `notifications.write`. Composing again with
   the same `requestId` reuses the same message id (`msg_r…`), so it can
   re-dispatch a message that isn't `sent` but never creates a duplicate.
+
+The notification composer binds each resolved audience preview to the exact
+current audience. A changed, pending or failed preview cannot enable Send or
+reuse an earlier count. Confirmation and submission use the same reviewed
+audience and message snapshot, so the displayed count cannot describe another
+recipient selection.
 
 **Jobs.** On Cloud Run and in local development, `dispatchJob` runs a job in
 process and the HTTP request awaits it, because Cloud Run doesn't guarantee CPU

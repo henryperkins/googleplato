@@ -118,6 +118,18 @@ export async function createPostgresDatabase(pool) {
     getUserByEmail: email => one('users', "lower(document->>'email') = $1", [email.toLowerCase()]),
     getUserByUsername: username => one('users', "lower(document->>'username') = $1", [username.toLowerCase()]),
     updateUser: (userId, fields) => patch('users', userId, { ...fields, userId, updatedAt: now() }),
+    // Profile CAS protects the fill-only invite merge without replacing
+    // unrelated account attributes or ever inserting a missing account.
+    async updateUserProfileIf(userId, expected, updates) {
+      const keys = Object.keys(updates);
+      if (!keys.length || keys.some(key => !['userGroup', 'customFields'].includes(key))) throw new Error('Invalid profile updates');
+      const snapshot = { userGroup: expected.userGroup, customFields: expected.customFields };
+      const result = await pool.query(`UPDATE users SET document = document || $3::jsonb
+        WHERE id = $1 AND document->'userGroup' IS NOT DISTINCT FROM ($2::jsonb->'userGroup')
+        AND document->'customFields' IS NOT DISTINCT FROM ($2::jsonb->'customFields')`,
+      [userId, JSON.stringify(snapshot), JSON.stringify({ ...updates, updatedAt: now() })]);
+      return result.rowCount === 1;
+    },
     deleteUser: userId => remove('users', userId),
     async incrementUserCounter(userId, field, delta = 1) {
       if (field !== 'lessonsCompleted') throw new Error(`Unsupported counter field: ${field}`);

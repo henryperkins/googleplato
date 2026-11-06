@@ -27,6 +27,12 @@ protection, and versioning. For the *error-reporting* side of monitoring (tiers,
 how to add a detector), see [`OBSERVABILITY.md`](OBSERVABILITY.md) — this doc
 does not repeat it.
 
+This fork's application deployment uses Cloud Run and PostgreSQL; see
+[`CLOUD_RUN_STORAGE.md`](CLOUD_RUN_STORAGE.md). The AWS agent workflows remain
+configurable independently. The AWS hosting topology and domains described
+below are upstream reference material, rather than the fork's current hosting
+configuration.
+
 ## Claude workflow auth (Bedrock OIDC)
 
 `pilot.yml`, `code-review.yml`, `issue-intake.yml`, and `revise.yml` all use
@@ -36,14 +42,14 @@ does not repeat it.
 `use_bedrock: "true"` to `anthropics/claude-code-action@v1`. Models are pinned
 via `--model` in `claude_args` to Bedrock cross-region inference profiles:
 `us.anthropic.claude-sonnet-4-5-20250929-v1:0` for review/pilot,
-`us.anthropic.claude-haiku-4-5-20251001-v1:0` for intake/revise. The role is
-`arn:aws:iam::380610849750:role/plato-gha-bedrock-agents` (the dase account,
-same as prod plato), trusted for `pull_request` and `main` only and allowed only
-these two models. Each workflow sets its own `role-session-name`
+`us.anthropic.claude-haiku-4-5-20251001-v1:0` for intake/revise. Configure
+`AWS_BEDROCK_ROLE_ARN` for the AWS account that runs the fork's agent jobs, with
+OIDC trust for this repository and the intended refs, and access to the chosen
+model profiles. Each workflow sets its own `role-session-name`
 (`plato-<workflow>`), so Bedrock invocation logs and CloudTrail show which
-workflow spent what. These calls count toward the Agentic Development budget. Bedrock cross-region inference profiles route across
-us-east-1/us-east-2/us-west-2, so model access must be granted in all three
-regions on the role's account. No `ANTHROPIC_API_KEY` or
+workflow spent what. Track those invocations in the role's AWS account, and
+grant model access in the regions covered by the configured cross-region
+inference profiles. No `ANTHROPIC_API_KEY` or
 `CLAUDE_CODE_OAUTH_TOKEN` secrets are used.
 
 > A PR that modifies a `claude-code-action` workflow file fails that workflow's
@@ -192,8 +198,8 @@ private fork's Actions tab with an optional `ref` input.
 
 ### Renaming the deploy fork breaks OIDC
 
-The deploy job assumes `arn:aws:iam::380610849750:role/plato-deploy` via OIDC,
-and that role's trust policy matches on the token's `sub` claim. **Renaming the
+In the optional AWS deployment, the deploy job assumes its configured deployment
+role via OIDC, and that role's trust policy matches on the token's `sub` claim. **Renaming the
 fork silently breaks every deploy** with `Not authorized to perform
 sts:AssumeRoleWithWebIdentity` — the `test` job still passes, so only the deploy
 step fails. Update the role's `StringLike` condition on

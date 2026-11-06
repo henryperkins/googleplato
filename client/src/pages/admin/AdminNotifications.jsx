@@ -107,7 +107,7 @@ function Compose({ canWrite, onNotice, onSent }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [preview, setPreview] = useState(null);
-  const [confirming, setConfirming] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
   const [sending, setSending] = useState(false);
   // One id per message: a retried send is recognized and not sent twice.
   const attempted = useRef(null);
@@ -125,6 +125,7 @@ function Compose({ canWrite, onNotice, onSent }) {
       : type === 'role' ? { type, roles } : { type: 'all' }
   ), [type, group, selected, roles]);
   const audienceReady = type === 'all' || (type === 'role' && roles.length > 0) || (type === 'group' && group) || (type === 'users' && selected.length > 0);
+  const audienceKey = JSON.stringify(audience);
   const toggleRole = (r) => setRoles((cur) => (cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r]));
 
   useEffect(() => {
@@ -132,11 +133,22 @@ function Compose({ canWrite, onNotice, onSent }) {
     let cancelled = false;
     const t = setTimeout(() => {
       adminApi('POST', '/v1/admin/notifications/preview', { audience })
-        .then((p) => { if (!cancelled) setPreview(p); })
-        .catch(() => { if (!cancelled) setPreview(null); });
+        .then((data) => { if (!cancelled) setPreview({ audienceKey, audience, status: 'ready', data }); })
+        .catch(() => { if (!cancelled) setPreview({ audienceKey, audience, status: 'error' }); });
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [audience, audienceReady]);
+  }, [audience, audienceKey, audienceReady]);
+
+  // Matching during render invalidates a previous count before the effect or
+  // debounce runs. A cancelled request can never authorize another audience.
+  const currentPreview = audienceReady && preview?.audienceKey === audienceKey && preview.audience === audience ? preview : null;
+  const count = currentPreview?.status === 'ready' ? currentPreview.data.count : null;
+  const payload = { subject, body, inApp, email, important: inApp && important, audience };
+  const fingerprint = JSON.stringify(payload);
+  const canSend = canWrite && !sending && audienceReady && subject.trim() && body.trim()
+    && (inApp || email) && Number.isFinite(count) && count > 0;
+  const confirmationCurrent = !!confirmation && !!canSend && confirmation.fingerprint === fingerprint
+    && confirmation.audienceKey === audienceKey && confirmation.preview === currentPreview;
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -148,11 +160,12 @@ function Compose({ canWrite, onNotice, onSent }) {
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   async function send() {
-    setConfirming(false);
+    if (!confirmationCurrent) { setConfirmation(null); return; }
+    const reviewed = confirmation;
+    setConfirmation(null);
     setSending(true);
     try {
-      const payload = { subject, body, inApp, email, important: inApp && important, audience };
-      const fingerprint = JSON.stringify(payload);
+      const { payload, fingerprint } = reviewed;
       const id = attempted.current && attempted.current.fingerprint !== fingerprint ? crypto.randomUUID() : requestId;
       attempted.current = { fingerprint, id };
       setRequestId(id);
@@ -160,7 +173,7 @@ function Compose({ canWrite, onNotice, onSent }) {
       if (result.message?.status === 'failed') throw new Error('Delivery failed. Your message is in History; retry it there or retry this same request.');
       setRequestId(crypto.randomUUID());
       attempted.current = null;
-      const outcome = email ? 'Message processed. History shows email delivery outcomes, including delivery disabled or failed.' : 'Message sent to the classroom.';
+      const outcome = payload.email ? 'Message processed. History shows email delivery outcomes, including delivery disabled or failed.' : 'Message sent to the classroom.';
       onNotice({ text: outcome, type: 'success' });
       setSubject(''); setBody(''); setSelected([]);
       try {
@@ -178,13 +191,12 @@ function Compose({ canWrite, onNotice, onSent }) {
     }
   }
 
-  const count = audienceReady ? preview?.count : null;
-  const channels = [inApp && 'in the classroom', email && 'by email'].filter(Boolean).join(' and ');
+  const channels = [confirmation?.payload.inApp && 'in the classroom', confirmation?.payload.email && 'by email'].filter(Boolean).join(' and ');
   const radio = 'flex items-center gap-2 text-sm';
 
   return (
     <Card>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-5" onChange={() => setConfirmation(null)}>
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium mb-1">To</legend>
           <label className={radio}><input type="radio" name="audience" className="accent-primary" checked={type === 'all'} onChange={() => setType('all')} /> Everyone</label>
@@ -259,18 +271,20 @@ function Compose({ canWrite, onNotice, onSent }) {
         </div>
 
         <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
-          {count == null ? '' : `Goes to ${peopleCount(count)}${email && preview?.emailOptedOut ? `; ${preview.emailOptedOut} turned off email` : ''}.`}
+          {count == null ? (currentPreview?.status === 'error' ? 'Could not preview this audience.' : '') : `Goes to ${peopleCount(count)}${email && currentPreview.data.emailOptedOut ? `; ${currentPreview.data.emailOptedOut} turned off email` : ''}.`}
         </p>
-        <Button onClick={() => setConfirming(true)} disabled={!canWrite || sending || !audienceReady || !subject.trim() || !body.trim() || (!inApp && !email) || !count}>
+        <Button onClick={() => {
+          if (canSend) setConfirmation({ payload: structuredClone(payload), fingerprint, audienceKey, count, preview: currentPreview });
+        }} disabled={!canSend}>
           {sending ? 'Sending…' : 'Send'}
         </Button>
         {!canWrite && <p className="text-xs text-muted-foreground">Only admins can send messages.</p>}
       </CardContent>
       <ConfirmModal
-        open={confirming}
-        onOpenChange={setConfirming}
-        title={`Send to ${peopleCount(count || 0)}?`}
-        message={`“${subject.trim()}” goes out ${channels} now. It can’t be unsent.`}
+        open={confirmationCurrent}
+        onOpenChange={(open) => { if (!open) setConfirmation(null); }}
+        title={`Send to ${peopleCount(confirmation?.count || 0)}?`}
+        message={`“${confirmation?.payload.subject.trim() || ''}” goes out ${channels} now. It can’t be unsent.`}
         confirmLabel="Send"
         variant="default"
         onConfirm={send}

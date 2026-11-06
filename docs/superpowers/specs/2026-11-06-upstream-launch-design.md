@@ -37,3 +37,13 @@ No actual users means there is no live-user transition to protect. Existing auth
 - Plugin tests and manifest validation pass.
 - A verified usable preview and draft PR identify the final commit, tests and limitations. No auto-deployment is triggered from this feature branch.
 
+## Fresh-install closeout approved 2026-11-06
+
+The maintainer approved continuing the launch integration after reviewing the complete upstream inventory at `/home/ubuntu/.local/state/googleplato/upstream-reviews/20261106T180351Z/upstream-review.md`. Continue the existing clean candidate at `640b33e2b2f5551dcb53339d0deb32f2befabdda`, which already includes fork main `bdcc5982594190d5a1203b3dbee30ba1713c4a31` and is published as draft PR #43. Reuse verified completed work and its evidence.
+
+Fresh installation means an empty application database initialized with the final schema and bundled course. Historical data conversion/backfills and upgrade rehearsals are outside the required work. Existing authored content, settings, databases, unrelated working changes and services remain protected; no database reset or production cutover is authorized.
+
+The later review additionally requires account-invitation acceptance to merge only currently missing profile values atomically, preserving concurrent learner/admin edits on every backend. Notification confirmation must be tied to a successfully resolved preview for the exact current audience. Confirm the existing fixes for learner-note serialization, notification claims, definite-send retries, dispatch recovery and PostgreSQL creation/name/invitation contracts. The separate agreement proposal #500 remains outside this launch scope.
+
+Deliver the completed candidate, appropriate regression/integration/browser evidence, refreshed preview and updated draft PR. Main merge and production deployment remain later stages.
+

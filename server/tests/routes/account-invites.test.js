@@ -53,7 +53,7 @@ describe('/v1/me/invite', () => {
     db.getSyncData = async (_u, key) => (key === 'settings' ? { data: SETTINGS } : null);
     db.getInviteByEmail = async () => invite;
     db.getInvite = async (t) => (t === invite.inviteToken ? invite : null);
-    db.updateUser = async (id, u) => { updates.push([id, u]); };
+    db.updateUserProfileIf = async (id, _expected, u) => { updates.push([id, u]); user = { ...user, ...u }; return true; };
     db.markInviteUsed = async (t) => { used.push(t); };
     db.deleteInvite = async (t) => { deleted.push(t); };
     db.createAuditLog = async (a) => { audits.push(a); };

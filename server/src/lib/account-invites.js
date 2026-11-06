@@ -43,8 +43,19 @@ export async function acceptInvite(user, token, { db = defaultDb } = {}) {
   const inv = await db.getInvite(token);
   if (!live(inv) || inv.forUserId !== user.userId) return { error: 'Invite not found', status: 404 };
   const settings = (await db.getSyncData('_system', 'settings'))?.data || {};
-  const merged = mergeProfile(user, inv.profile, settings);
-  if (Object.keys(merged.updates).length) await db.updateUser(user.userId, merged.updates);
+  // Authentication is a snapshot. Recompute after every failed comparison so
+  // a learner/admin edit between this read and write always wins over an invite.
+  let merged;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const current = await db.getUserById(user.userId, { consistentRead: true });
+    if (!current) return { error: 'Account not found', status: 404 };
+    const candidate = mergeProfile(current, inv.profile, settings);
+    if (!Object.keys(candidate.updates).length || await db.updateUserProfileIf(user.userId, current, candidate.updates)) {
+      merged = candidate;
+      break;
+    }
+  }
+  if (!merged) return { error: 'Profile changed while accepting invite. Please retry.', status: 409 };
   await db.markInviteUsed(inv.inviteToken);
   await db.createAuditLog({
     action: 'account_invite_accepted', userId: user.userId, performedBy: user.userId,
