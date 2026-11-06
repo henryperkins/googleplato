@@ -6,7 +6,7 @@ import { generateRefreshToken, hashToken } from '../lib/crypto.js';
 import { signAccessToken } from '../lib/jwt.js';
 import { validateUsername } from './auth.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
-import { listEvents, emit as emitHook } from '../lib/plugins/hooks.js';
+import { listEvents } from '../lib/plugins/hooks.js';
 import { STATIC_CAPABILITIES } from '../lib/plugins/capabilities.js';
 import { PLUGIN_API_VERSION } from '../lib/plugins/version.js';
 import {
@@ -182,7 +182,7 @@ me.delete('/v1/me', async (c) => {
   // Emit userDeleted BEFORE the cascade so plugins can read their per-user data
   // (userMeta:<id> records) while it still exists. Hook errors are caught by
   // emit(); they never block the deletion.
-  await emitHook('userDeleted', { userId, email: user.email, role: user.role });
+  await pluginRegistry.emit('userDeleted', { userId, email: user.email, role: user.role });
 
   // Delete all sync data (cascades plugin userMeta:* records too) with one
   // bulk delete — never a full read plus one delete per row (PR-8).
@@ -198,7 +198,8 @@ me.delete('/v1/me', async (c) => {
 // GET /v1/plugins — enabled plugins + sanitized settings (writeOnly fields
 // stripped). Not admin-only; the client loader uses this to filter which slots
 // render.
-me.get('/v1/plugins', (c) => {
+me.get('/v1/plugins', async (c) => {
+  await pluginRegistry.reconcile({ force: true });
   const list = pluginRegistry.list().filter((e) => e.manifest && !e.loadError);
   return c.json(list.map((e) => ({
     ...pluginRegistry.publicView(e),
@@ -217,6 +218,7 @@ me.get('/v1/plugins/extension-points', (c) => {
       { name: 'adminSettingsPanel', capability: 'ui.slot.adminSettingsPanel', context: 'admin', props: { pluginId: 'string', settings: 'object', onSave: '(next) => Promise<void>' }, location: 'client/src/pages/admin/AdminPlugins.jsx', phase: '1' },
       { name: 'adminUserRowAction', capability: 'ui.slot.adminUserRowAction', context: 'admin', props: { user: 'AdminUser' }, location: 'client/src/pages/admin/AdminUsers.jsx', phase: '1.1' },
       { name: 'adminProfileFields', capability: 'ui.slot.adminProfileFields', context: 'admin', props: { user: 'AdminUser' }, location: 'client/src/pages/admin/AdminUsers.jsx (Edit User card)', phase: '1.1' },
+      { name: 'publicAuthProvider', capability: 'ui.slot.publicAuthProvider', context: 'public', props: { pluginId: 'string', provider: 'PublicAuthProviderDescriptor', surface: "'login' | 'setup' | 'signup'", options: 'object', busy: 'boolean', setBusy: '(busy) => void', beforeStart: '() => boolean | Promise<boolean>', onSession: '(session, pluginId) => Promise<void>', onAdmission: '(admission) => void', onError: '(message, error) => void' }, location: 'client/src/lib/plugins/PublicAuthProviders.jsx (Login, Setup, Signup)', phase: '1.4' },
     ],
     hooks: {
       coreEmits: listEvents(),
@@ -230,6 +232,12 @@ me.get('/v1/plugins/extension-points', (c) => {
         { name: 'coachExchangeRecorded', payload: '{ userId, lessonId, messageCount }', emitPoint: '(not yet wired)', phase: '3' },
       ],
       note: 'Plugins MAY also emit/subscribe to arbitrary events using the convention <plugin-id>.<event>.',
+    },
+    authProvider: {
+      capability: 'auth.provider',
+      manifest: '{ label: string, publicSettings: string[] }',
+      discovery: 'GET /v1/auth/providers (public; enabled providers only)',
+      note: 'publicSettings must name flat, non-writeOnly settingsSchema properties.',
     },
     capabilities: {
       static: STATIC_CAPABILITIES,

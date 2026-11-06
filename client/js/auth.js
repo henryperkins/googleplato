@@ -5,7 +5,7 @@
 
 import {
   getAuthTokens, saveAuthTokens, clearAuth,
-  saveAuthUser, saveAuthProvider, usesFirebase,
+  saveAuthUser, saveAuthProvider,
 } from './storage.js';
 import { compatibilityHeaders, isCompatibilityPath, requireClientUpgrade } from './clientCompatibility.js';
 
@@ -103,67 +103,19 @@ export async function login(email, password) {
 }
 
 /**
- * Preload only Firebase Auth ahead of a Google sign-in, so the popup
- * opens straight from the click (Safari blocks popups opened after a slow
- * await). Pages with a "Continue with Google" button call this once idle.
+ * Adopt a server-issued session returned by an enabled external auth plugin.
+ * Providers return the same access/refresh shape as password login; plato does
+ * not retain their provider token or load their SDK for ordinary sessions.
  */
-export function preloadFirebase() {
-  if (typeof window === 'undefined') return;
-  const load = () => { import('./firebaseAuth.js').catch(() => {}); };
-  if ('requestIdleCallback' in window) window.requestIdleCallback(load, { timeout: 3000 });
-  else setTimeout(load, 1000);
-}
-
-/**
- * Log in or onboard using Google Sign-In via Firebase Auth.
- * Exchanges the verified Firebase ID token at `/v1/auth/firebase` for the
- * same server-owned account and tokens used by password sessions.
- */
-export async function loginWithGoogle(options = {}) {
-  sessionGeneration += 1;
-  const { signInWithGooglePopup, signOutFirebase } = await import('./firebaseAuth.js');
-  const { idToken } = await signInWithGooglePopup();
-
-  const res = await fetch(`${SERVICE_URL}/v1/auth/firebase`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      idToken,
-      inviteToken: options.inviteToken || undefined,
-      classroomName: options.classroomName || undefined,
-      name: options.name || undefined,
-      username: options.username || undefined,
-      userGroup: options.userGroup || undefined,
-      customFields: options.customFields || undefined,
-    }),
-  });
-
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    await signOutFirebase();
-    const err = new Error(body.error || "Google sign-in didn't work. Try again.");
-    err.status = res.status;
-    err.code = body.code;
-    err.email = body.email;
-    if (body.code === 'invite_required') {
-      // Membership is by invitation and this Google account has none. The
-      // server created nothing; these say where the verified owner stands.
-      err.admission = {
-        email: typeof body.email === 'string' ? body.email : '',
-        name: typeof body.name === 'string' ? body.name : '',
-        waitlisted: body.waitlisted === true,
-        inviteExpired: body.inviteExpired === true,
-      };
-    }
-    throw err;
+export async function adoptAuthSession(session, provider) {
+  if (!session?.accessToken || !session?.refreshToken || !session?.user?.userId) {
+    throw new Error('The sign-in provider returned an invalid session.');
   }
-
-  const { accessToken, refreshToken, user } = body;
-  await saveAuthTokens({ accessToken, refreshToken });
-  await saveAuthUser(user);
-  saveAuthProvider('firebase');
-
-  return user;
+  sessionGeneration += 1;
+  await saveAuthTokens({ accessToken: session.accessToken, refreshToken: session.refreshToken });
+  await saveAuthUser(session.user);
+  saveAuthProvider(provider || 'external');
+  return session.user;
 }
 
 /**
@@ -171,17 +123,13 @@ export async function loginWithGoogle(options = {}) {
  * turns stay in their owner-scoped session storage for that owner's next login.
  */
 export async function logout() {
-  const generation = ++sessionGeneration;
+  sessionGeneration += 1;
   const previousTokens = getAuthTokens();
-  // Start detection while the old provider is still available, without waiting
-  // for legacy IndexedDB probing before clearing the local session.
-  const firebaseSession = typeof window !== 'undefined' ? usesFirebase() : Promise.resolve(false);
   // Both storage calls execute synchronously before their promises settle.
   // Do not yield between taking the snapshot and removing the old credentials.
   await clearAuth();
   const tokens = await previousTokens;
   if (tokens?.refreshToken) void revokeSession(tokens.refreshToken);
-  void signOutPreviousFirebase(firebaseSession, generation);
 }
 
 async function revokeSession(refreshToken) {
@@ -204,26 +152,8 @@ async function revokeSession(refreshToken) {
   finally { clearTimeout(timeout); }
 }
 
-async function signOutPreviousFirebase(firebaseSession, generation) {
-  let timeout;
-  let expired = false;
-  try {
-    const sdk = await Promise.race([
-      firebaseSession.then(async wasFirebase => {
-        if (!wasFirebase || expired || generation !== sessionGeneration) return null;
-        return import('./firebaseAuth.js');
-      }),
-      new Promise(resolve => {
-        timeout = setTimeout(() => { expired = true; resolve(null); }, LOGOUT_CLEANUP_TIMEOUT_MS);
-      }),
-    ]);
-    if (!sdk) return;
-    const currentTokens = await getAuthTokens();
-    if (currentTokens || generation !== sessionGeneration) return;
-    await sdk.signOutFirebase();
-  } catch { /* Best effort; never clear credentials belonging to a new login. */ }
-  finally { clearTimeout(timeout); }
-}
+// External providers clean up their own popup state before session adoption.
+// Ordinary plato logout is deliberately provider-independent.
 
 /**
  * Check if the user is logged in (has stored tokens).

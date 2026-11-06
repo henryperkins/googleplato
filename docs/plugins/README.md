@@ -15,7 +15,8 @@ Open `/plato/plugins` and toggle the plugin on.
 ## What plugins can do (Phase 1)
 
 - Add HTTP routes under `/v1/plugins/<id>/`
-- Render React components inside named UI slots (e.g. `adminSettingsPanel`)
+- Render React components inside named UI slots (e.g. `adminSettingsPanel`, `publicAuthProvider`)
+- Add an external sign-in provider while core retains admission and plato sessions
 - Store and read plugin-scoped settings (with admin UI auto-rendered from JSON Schema)
 - Run lifecycle methods (`onActivate`, `onDeactivate`)
 - Emit and subscribe to events on the open hook bus

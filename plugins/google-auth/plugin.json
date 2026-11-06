@@ -1,0 +1,59 @@
+{
+  "$schema": "../../docs/plugins/plugin.schema.json",
+  "id": "google-auth",
+  "name": "Google Sign-In",
+  "version": "1.0.0",
+  "apiVersion": "^1.4.0",
+  "description": "Optional Google sign-in through Firebase Authentication, alongside plato's password accounts and invitation rules.",
+  "author": "plato community",
+  "license": "AGPL-3.0-or-later",
+  "defaultEnabled": true,
+  "capabilities": [
+    "server.routes",
+    "settings.read",
+    "settings.write",
+    "ui.slot.publicAuthProvider",
+    "auth.provider"
+  ],
+  "extensionPoints": {
+    "serverRoutes": "server/index.js#default",
+    "slots": {
+      "publicAuthProvider": "client/GoogleAuthProvider.jsx"
+    },
+    "authProvider": {
+      "label": "Google",
+      "publicSettings": ["apiKey", "authDomain", "projectId", "appId", "messagingSenderId"]
+    }
+  },
+  "settingsSchema": {
+    "type": "object",
+    "required": ["apiKey", "authDomain", "projectId", "appId"],
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "default": "AIzaSyDqsndJNzd-s4c-xcNB7lCVjH8ITu3yOLY",
+        "description": "Public Firebase web API key for Google sign-in."
+      },
+      "authDomain": {
+        "type": "string",
+        "default": "idk-4e9b9.firebaseapp.com",
+        "description": "Firebase Auth domain. Add this deployment's hostname to Firebase authorized domains."
+      },
+      "projectId": {
+        "type": "string",
+        "default": "idk-4e9b9",
+        "description": "Firebase project ID used for both the browser and ID-token issuer/audience verification."
+      },
+      "appId": {
+        "type": "string",
+        "default": "1:790704980390:web:7c0bfd1a2868f6f3fc4f67",
+        "description": "Public Firebase web application ID."
+      },
+      "messagingSenderId": {
+        "type": "string",
+        "default": "790704980390",
+        "description": "Optional Firebase messaging sender ID."
+      }
+    }
+  }
+}

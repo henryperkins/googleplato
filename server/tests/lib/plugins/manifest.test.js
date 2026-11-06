@@ -83,4 +83,64 @@ describe('validateManifest', () => {
     assert.equal(r.ok, false);
     assert.ok(r.errors.some((e) => e.includes('version')));
   });
+
+  it('accepts a manifest-declared userDeleted hook', () => {
+    const m = {
+      ...valid,
+      capabilities: ['hook.userDeleted'],
+      extensionPoints: { hooks: ['userDeleted'] },
+    };
+    const r = validateManifest(m, { expectedId: 'demo' });
+    assert.equal(r.ok, true, r.errors?.join('; '));
+  });
+
+  it('validates a public auth provider and its required capability', () => {
+    const extensionPoints = {
+      slots: { publicAuthProvider: 'client/Provider.jsx' },
+      authProvider: { label: 'Google', publicSettings: ['apiKey', 'projectId'] },
+    };
+    const settingsSchema = {
+      type: 'object',
+      properties: { apiKey: { type: 'string' }, projectId: { type: 'string' } },
+    };
+    const missing = validateManifest({
+      ...valid,
+      extensionPoints,
+      settingsSchema,
+      capabilities: ['ui.slot.publicAuthProvider', 'settings.read', 'settings.write'],
+    }, { expectedId: 'demo' });
+    assert.equal(missing.ok, false);
+    assert.ok(missing.errors.some(error => error.includes('auth.provider')));
+
+    const accepted = validateManifest({
+      ...valid,
+      extensionPoints,
+      settingsSchema,
+      capabilities: ['ui.slot.publicAuthProvider', 'auth.provider', 'settings.read', 'settings.write'],
+    }, { expectedId: 'demo' });
+    assert.equal(accepted.ok, true, accepted.errors?.join('; '));
+
+    const secret = validateManifest({
+      ...valid,
+      extensionPoints: { authProvider: { label: 'OAuth', publicSettings: ['clientSecret'] } },
+      settingsSchema: { type: 'object', properties: { clientSecret: { type: 'string', writeOnly: true } } },
+      capabilities: ['auth.provider', 'settings.read', 'settings.write'],
+    }, { expectedId: 'demo' });
+    assert.equal(secret.ok, false);
+    assert.ok(secret.errors.some(error => error.includes('must not be writeOnly')));
+
+    const nested = validateManifest({
+      ...valid,
+      extensionPoints: { authProvider: { label: 'OAuth', publicSettings: ['credentials'] } },
+      settingsSchema: {
+        type: 'object',
+        properties: {
+          credentials: { type: 'object', properties: { token: { type: 'string', writeOnly: true } } },
+        },
+      },
+      capabilities: ['auth.provider', 'settings.read', 'settings.write'],
+    }, { expectedId: 'demo' });
+    assert.equal(nested.ok, false);
+    assert.ok(nested.errors.some(error => error.includes('must be a scalar')));
+  });
 });

@@ -2,11 +2,10 @@ import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
-import { preloadFirebase } from '../../js/auth.js';
-import { googleSignInError, passwordSignInError } from '../lib/authErrors.js';
+import { passwordSignInError } from '../lib/authErrors.js';
 import { returnPath } from '../lib/returnPath.js';
 import PasswordField from '../components/PasswordField.jsx';
-import GoogleIcon from '../components/GoogleIcon.jsx';
+import PublicAuthProviders from '../lib/plugins/PublicAuthProviders.jsx';
 import PublicFooter from '../components/PublicFooter.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,8 +27,8 @@ export default function Login() {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [googleSubmitting, setGoogleSubmitting] = useState(false);
-  const { login, loginWithGoogle, signedOutReason } = useAuth();
+  const [providerSubmitting, setProviderSubmitting] = useState(false);
+  const { login, adoptExternalSession, signedOutReason } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   // Back to the page that sent the learner here (e.g. a lesson whose session expired).
@@ -37,7 +36,7 @@ export default function Login() {
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const headingRef = useRef(null);
-  // Set when a Google account has no invitation; shows InviteRequired instead of the form.
+  // Set when an external identity has no invitation; shows InviteRequired instead of the form.
   const [admission, setAdmission] = useState(null);
   const returningRef = useRef(false);
   const branding = usePublicBranding(admission ? 'Invitation required' : 'Sign in');
@@ -57,7 +56,7 @@ export default function Login() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => { preloadFirebase(); }, []);
+  // Public providers load themselves only when enabled.
 
   // Back from the invitation page, the form returns; its heading takes focus.
   useEffect(() => {
@@ -79,7 +78,7 @@ export default function Login() {
 
   async function handleLogin(e) {
     if (e) e.preventDefault();
-    if (submitting || googleSubmitting) return;
+    if (submitting || providerSubmitting) return;
     const emailErr = validateField('email', email);
     const passwordErr = validateField('password', password);
     if (emailErr || passwordErr) {
@@ -104,31 +103,17 @@ export default function Login() {
     }
   }
 
-  async function handleGoogleLogin() {
-    if (googleSubmitting || submitting) return;
-    setGoogleSubmitting(true);
-    setError('');
-    try {
-      await loginWithGoogle();
-      try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
-      navigate(returnTo, { replace: true });
-    } catch (e) {
-      if (e?.admission) {
-        setAdmission(e.admission);
-        return;
-      }
-      const msg = googleSignInError(e);
-      if (msg) setError(msg);
-    } finally {
-      setGoogleSubmitting(false);
-    }
+  async function handleProviderSession(session, provider) {
+    await adoptExternalSession(session, provider);
+    try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
+    navigate(returnTo, { replace: true });
   }
 
   if (!branding) return null;
 
   const { logo, classroomName } = branding;
 
-  // A Google account without an invitation: the invitation page replaces the form.
+  // An external account without an invitation: the invitation page replaces the form.
   if (admission) {
     return (
       <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] bg-header text-header-foreground">
@@ -165,26 +150,17 @@ export default function Login() {
               {error}
             </div>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            className="h-auto min-h-10 w-full flex-wrap gap-2 whitespace-normal py-2"
-            onClick={handleGoogleLogin}
-            disabled={submitting || googleSubmitting} focusableWhenDisabled
-            aria-busy={googleSubmitting ? 'true' : undefined}
-          >
-            {googleSubmitting ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-            ) : (
-              <GoogleIcon className="h-4 w-4 shrink-0" />
-            )}
-            <span className="min-w-0 max-w-full break-words">{googleSubmitting ? 'Signing in with Google...' : 'Continue with Google'}</span>
-          </Button>
-          <div className="relative flex items-center py-1">
-            <div className="grow border-t border-border" />
-            <span className="mx-3 min-w-0 text-center text-xs text-muted-foreground">or sign in with password</span>
-            <div className="grow border-t border-border" />
-          </div>
+          <PublicAuthProviders
+            surface="login"
+            dividerText="or sign in with password"
+            context={{
+              busy: submitting || providerSubmitting,
+              setBusy: setProviderSubmitting,
+              onSession: handleProviderSession,
+              onAdmission: setAdmission,
+              onError: setError,
+            }}
+          />
           <form className="space-y-4" onSubmit={handleLogin} noValidate>
             <div className="space-y-2">
               <Label htmlFor="login-email">Email or Username</Label>
@@ -259,7 +235,7 @@ export default function Login() {
             <Button
               type="submit"
               className="h-auto min-h-10 w-full flex-wrap gap-2 whitespace-normal py-2"
-              disabled={submitting || googleSubmitting} focusableWhenDisabled
+              disabled={submitting || providerSubmitting} focusableWhenDisabled
               aria-busy={submitting ? 'true' : undefined}
             >
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}

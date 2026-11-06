@@ -1,14 +1,14 @@
 /**
- * Invitation-only Google sign-in on the real sign-in page. Only Google is
- * substituted: the lazily loaded Firebase chunk (the popup) and the server's
- * answer to the verified token, which the test server can't verify.
+ * Invitation-only Google sign-in on the real sign-in page, using the real
+ * plugin exchange and error modules. Only the provider UI/Firebase popup and
+ * the server's verified-token answer are substituted at the built chunk edge.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,23 +21,83 @@ const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
 const browserType = { chromium, firefox, webkit }[browserName];
 assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
 const evidence = join(root, 'output/playwright/invite-required', browserName === 'chromium' ? '' : browserName);
-const GOOGLE_STUB = `
-export const app = {};
-export const auth = {};
-export function onAuthStateChanged() { return () => {}; }
-export async function signInWithGooglePopup() { return { firebaseUser: {}, idToken: 'stub-google-token' }; }
+const EXCHANGE_SOURCE = await readFile(new URL('../../../plugins/google-auth/client/exchange.js', import.meta.url), 'utf8');
+const ERRORS_SOURCE = await readFile(new URL('../../../plugins/google-auth/client/errors.js', import.meta.url), 'utf8');
+const FIREBASE_STUB = `
+export async function signInWithGooglePopup() { return { idToken: 'stub-google-token' }; }
 export async function signOutFirebase() {}
+`;
+// Current Rollup output inlines firebaseAuth.js into the plugin's client-*.js
+// chunk. This provider stub still executes the real exchange/errors modules.
+// A manually constructed element keeps the stub independent of hashed React chunks.
+const PROVIDER_STUB = `
+import { exchangeGoogleToken } from '/__test__/google-auth/exchange.js';
+import { googleSignInError } from '/__test__/google-auth/errors.js';
+const element = (type, props) => ({
+  $$typeof: Symbol.for('react.transitional.element'), type, key: null, ref: null, props, _owner: null,
+});
+function Provider(props) {
+  return element('button', {
+    type: 'button',
+    children: 'Continue with Google',
+    onClick: async () => {
+      if (props.busy) return;
+      if (props.beforeStart && await props.beforeStart() === false) return;
+      props.setBusy?.(true);
+      props.onError?.('');
+      try {
+        const body = await exchangeGoogleToken('stub-google-token', props.options || {});
+        await props.onSession(body, props.pluginId);
+      } catch (error) {
+        if (error?.admission && props.onAdmission) props.onAdmission(error.admission);
+        else props.onError?.(googleSignInError(error, { audience: props.surface === 'setup' ? 'admin' : 'learner' }), error);
+      } finally {
+        props.setBusy?.(false);
+      }
+    },
+  });
+}
+export default { slots: { publicAuthProvider: Provider } };
 `;
 let browser;
 let server;
 let directory;
 let base;
 
+async function routeGoogleModules(context, { loaded, substitute = true }) {
+  await context.route('**/__test__/google-auth/exchange.js', route => route.fulfill({ contentType: 'text/javascript', body: EXCHANGE_SOURCE }));
+  await context.route('**/__test__/google-auth/errors.js', route => route.fulfill({ contentType: 'text/javascript', body: ERRORS_SOURCE }));
+  await context.route('**/assets/client-*.js', async route => {
+    const response = await route.fetch();
+    const source = await response.text();
+    if (!source.includes('Continue with Google') && !source.includes('/v1/plugins/google-auth/exchange')) {
+      return route.fulfill({ response, body: source });
+    }
+    loaded.push(route.request().url());
+    // If Rollup splits the Firebase boundary, run the real provider component
+    // and substitute only firebaseAuth-*.js. Otherwise replace the inlined chunk.
+    if (substitute && !source.includes('firebaseAuth-')) {
+      return route.fulfill({ contentType: 'text/javascript', body: PROVIDER_STUB });
+    }
+    return route.fulfill({ response, body: source });
+  });
+  await context.route('**/assets/firebaseAuth-*.js', route => {
+    loaded.push(route.request().url());
+    return substitute
+      ? route.fulfill({ contentType: 'text/javascript', body: FIREBASE_STUB })
+      : route.fallback();
+  });
+}
+
 async function signInWithGoogle({ reply, waitlistOpen = true, width = 390, height = 844, theme = 'light' }) {
   const context = await browser.newContext({ viewport: { width, height } });
+  const providerModules = [];
   await context.addInitScript(value => localStorage.setItem('plato_theme', value), theme);
-  await context.route('**/assets/firebaseAuth-*.js', route => route.fulfill({ contentType: 'text/javascript', body: GOOGLE_STUB }));
-  await context.route('**/v1/auth/firebase', route => route.fulfill(reply));
+  await routeGoogleModules(context, { loaded: providerModules });
+  await context.route('**/v1/auth/providers', route => route.fulfill({
+    json: [{ id: 'google-auth', label: 'Google', config: { projectId: 'test-project', apiKey: 'public-test-key' } }],
+  }));
+  await context.route('**/v1/plugins/google-auth/exchange', route => route.fulfill(reply));
   await context.route('**/v1/waitlist', route => (route.request().method() === 'GET'
     ? route.fulfill({ json: { open: waitlistOpen } })
     : route.fallback()));
@@ -45,6 +105,8 @@ async function signInWithGoogle({ reply, waitlistOpen = true, width = 390, heigh
   page.setDefaultTimeout(5000);
   await page.goto(`${base}/login`);
   await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Continue with Google' }).waitFor();
+  assert.ok(providerModules.length > 0, 'the enabled provider lazy-loads its client module');
   await page.getByRole('button', { name: 'Continue with Google' }).click();
   return { context, page };
 }
@@ -203,6 +265,36 @@ describe('Invitation-only Google sign-in', { timeout: 90000 }, () => {
       }
     }
     await writeFile(join(evidence, 'layout.json'), JSON.stringify(geometry, null, 2));
+  });
+
+  it('does not import Google or Firebase when no public provider is enabled', async () => {
+    const context = await browser.newContext();
+    const providerModules = [];
+    const sdkRequests = [];
+    let exchangeRequests = 0;
+    context.on('request', request => {
+      if (/firebase|identitytoolkit|securetoken/i.test(request.url())) sdkRequests.push(request.url());
+    });
+    try {
+      await routeGoogleModules(context, { loaded: providerModules, substitute: false });
+      await context.route('**/v1/auth/providers', route => route.fulfill({ json: [] }));
+      await context.route('**/v1/plugins/google-auth/exchange', route => {
+        exchangeRequests += 1;
+        return route.fulfill({ status: 500, json: {} });
+      });
+      const page = await context.newPage();
+      page.setDefaultTimeout(5000);
+      const discovered = page.waitForResponse(response => response.url() === `${base}/v1/auth/providers`);
+      await page.goto(`${base}/login`);
+      await discovered;
+      await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+      await page.getByLabel('Password', { exact: true }).waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.getByRole('button', { name: 'Continue with Google' }).count(), 0);
+      assert.deepEqual(providerModules, [], 'disabled providers never fetch their lazy client chunks');
+      assert.deepEqual(sdkRequests, [], 'disabled providers never initialize Firebase');
+      assert.equal(exchangeRequests, 0);
+    } finally { await context.close(); }
   });
 
   it('keeps other Google sign-in failures on the form', async () => {

@@ -15,6 +15,10 @@ console.error = () => {};
 console.warn = () => {};
 console.log = () => {};
 
+const realReconcile = pluginRegistry.reconcile;
+beforeEach(() => { pluginRegistry.reconcile = async () => {}; });
+afterEach(() => { pluginRegistry.reconcile = realReconcile; });
+
 async function adminReq(app, method, path, body) {
   const token = await signAccessToken('usr_admin', 'admin');
   return app.request(path, {
@@ -273,6 +277,7 @@ describe('GET /v1/plugins/extension-points', () => {
       'adminProfileFields',
       'adminSettingsPanel',
       'adminUserRowAction',
+      'publicAuthProvider',
     ], 'slot inventory drifted from host render-points; sync me.js with the SDK SlotName union');
   });
 

@@ -204,7 +204,7 @@ test('upgrade preparation cannot reload during generation before the reply is st
   assert.equal(aiCalls, 1);
 });
 
-for (const provider of ['firebase', 'password']) test(`${provider} failed saves retain the reply and retry storage without another model call`, async () => {
+for (const provider of ['google-auth', 'password']) test(`${provider} failed saves retain the reply and retry storage without another model call`, async () => {
   storage.saveAuthProvider(provider);
   const result = await engine.sendMessage('lesson-1', lesson, 'My answer', null, null, () => {});
   assert.equal(result.persistence?.status, 'pending');

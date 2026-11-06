@@ -12,7 +12,7 @@ import { logger } from '../lib/logger.js';
 import { fetchCloudWatchLogs } from '../lib/cloudwatch-logs.js';
 import { fetchCloudLoggingLogs, logEntryIdentity } from '../lib/cloud-logging.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
-import { emit as emitHook } from '../lib/plugins/hooks.js';
+// Plugin lifecycle events go through the activation-aware registry.
 import { classifyCache, kickoffAsyncRefresh, refreshStaleLessonStats } from '../lib/lesson-stats-cache.js';
 import { mapWithConcurrency } from '../lib/concurrency.js';
 import { normalizeStatus, publicLessonIds } from '../lib/lesson-visibility.js';
@@ -930,7 +930,7 @@ admin.delete('/v1/admin/users/:userId', async (c) => {
 
   // Emit userDeleted BEFORE the cascade — plugins can react with the user's data
   // still in place. Hook errors are caught by emit() and don't block deletion.
-  await emitHook('userDeleted', { userId, email: user.email, role: user.role });
+  await pluginRegistry.emit('userDeleted', { userId, email: user.email, role: user.role });
 
   // Delete all sync data for this user (cascades plugin userMeta:* records
   // too) with one bulk delete — never a full read plus one delete per row.
@@ -1384,7 +1384,8 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
 // GET /v1/admin/plugins — list all known plugins, including disabled and load-failed.
 // writeOnly settings (e.g. Slack's bot token) are stripped from responses; the host
 // is the source of truth for those values, the client never needs them back.
-admin.get('/v1/admin/plugins', (c) => {
+admin.get('/v1/admin/plugins', async (c) => {
+  await pluginRegistry.reconcile({ force: true });
   return c.json(pluginRegistry.list().map((e) => {
     const view = pluginRegistry.publicView(e);
     return { ...view, settings: pluginRegistry.sanitizeSettings(e) };

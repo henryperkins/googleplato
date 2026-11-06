@@ -339,9 +339,6 @@ export async function deleteUserLesson(lessonId) {
 // -- Auth tokens (localStorage) -----------------------------------------------
 
 const AUTH_STORAGE_KEY = 'plato_auth';
-// Memo for usesFirebase(); null until known for this page session.
-let _firebaseSession = null;
-let _firebaseSessionGeneration = 0;
 
 export async function getAuthTokens() {
   try {
@@ -368,47 +365,15 @@ export async function saveAuthTokens({ accessToken, refreshToken }, expected = n
 
 export async function clearAuth() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
-  _firebaseSession = null;
-  _firebaseSessionGeneration += 1;
   clearCache();
 }
 
-/**
- * How this session signed in: 'firebase' (Google) or 'password'. Recorded at
- * sign-in so the Firebase SDK only loads for sessions that need it.
- */
+/** Record which core or plugin authentication method issued this session. */
 export function saveAuthProvider(provider) {
   try {
     const existing = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}');
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...existing, provider }));
   } catch { /* storage full or disabled */ }
-  _firebaseSession = provider === 'firebase';
-  _firebaseSessionGeneration += 1;
-}
-
-/**
- * Whether this session signed in with Google (Firebase Auth). Sessions from
- * before the provider was recorded are recognized by Firebase's persisted
- * sign-in database, which can be listed without loading the SDK.
- */
-export async function usesFirebase() {
-  if (_firebaseSession !== null) return _firebaseSession;
-  const generation = _firebaseSessionGeneration;
-  let firebaseSession;
-  let provider = null;
-  try { provider = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}').provider || null; } catch { /* ignore */ }
-  if (provider) {
-    firebaseSession = provider === 'firebase';
-  } else {
-    try {
-      const databases = await indexedDB.databases();
-      firebaseSession = databases.some((d) => d.name === 'firebaseLocalStorageDb');
-    } catch {
-      firebaseSession = false;
-    }
-  }
-  if (generation === _firebaseSessionGeneration) _firebaseSession = firebaseSession;
-  return firebaseSession;
 }
 
 export async function getAuthUser() {

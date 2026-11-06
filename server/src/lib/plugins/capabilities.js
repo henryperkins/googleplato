@@ -24,6 +24,7 @@ export const STATIC_CAPABILITIES = Object.freeze([
   'agent',
   'syncData.namespace',
   'lessonEnrichment',
+  'auth.provider',
 ]);
 
 /** Pattern capabilities — `ui.slot.<slotName>` and `hook.<hookName>`. */
@@ -56,6 +57,7 @@ export function requiredCapabilities(manifest) {
     for (const hook of ep.hooks) required.add(`hook.${hook}`);
   }
   if (ep.syncDataNamespace) required.add('syncData.namespace');
+  if (ep.authProvider) required.add('auth.provider');
 
   // settingsSchema implies settings read/write
   if (manifest.settingsSchema) {

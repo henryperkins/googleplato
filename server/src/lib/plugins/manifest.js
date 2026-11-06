@@ -20,6 +20,7 @@ const SLOT_NAMES = new Set([
   'adminProfileFields',
   'learnerProfileFields',
   'learnerHomeBanner',
+  'publicAuthProvider',
 ]);
 const HOOK_NAMES = new Set([
   'userCreated',
@@ -28,6 +29,7 @@ const HOOK_NAMES = new Set([
   'lessonStarted',
   'lessonCompleted',
   'coachExchangeRecorded',
+  'userDeleted',
 ]);
 
 export function validateManifest(raw, { expectedId } = {}) {
@@ -94,6 +96,26 @@ export function validateManifest(raw, { expectedId } = {}) {
       } else {
         for (const h of ep.hooks) {
           if (!HOOK_NAMES.has(h)) errors.push(`unknown hook: ${h}`);
+        }
+      }
+    }
+    if (ep.authProvider !== undefined) {
+      if (!ep.authProvider || typeof ep.authProvider !== 'object' || Array.isArray(ep.authProvider)) {
+        errors.push('extensionPoints.authProvider must be an object');
+      } else {
+        if (typeof ep.authProvider.label !== 'string' || !ep.authProvider.label.trim() || ep.authProvider.label.length > 80) {
+          errors.push('extensionPoints.authProvider.label must be a non-empty string ≤ 80 chars');
+        }
+        if (!Array.isArray(ep.authProvider.publicSettings)
+          || ep.authProvider.publicSettings.some(key => typeof key !== 'string' || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(key))) {
+          errors.push('extensionPoints.authProvider.publicSettings must be an array of flat settings keys');
+        } else {
+          const properties = raw.settingsSchema?.properties || {};
+          for (const key of ep.authProvider.publicSettings) {
+            if (!properties[key]) errors.push(`extensionPoints.authProvider.publicSettings key "${key}" is not declared in settingsSchema`);
+            else if (properties[key].writeOnly) errors.push(`extensionPoints.authProvider.publicSettings key "${key}" must not be writeOnly`);
+            else if (properties[key].type === 'object') errors.push(`extensionPoints.authProvider.publicSettings key "${key}" must be a scalar, non-secret setting`);
+          }
         }
       }
     }

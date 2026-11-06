@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import PasswordField from '../components/PasswordField.jsx';
-import GoogleIcon from '../components/GoogleIcon.jsx';
+import PublicAuthProviders from '../lib/plugins/PublicAuthProviders.jsx';
+import { useAuth } from '../contexts/AuthContext.jsx';
 import PublicFooter from '../components/PublicFooter.jsx';
 import { saveAuthTokens, saveAuthUser, saveAuthProvider } from '../../js/storage.js';
-import { loginWithGoogle, preloadFirebase } from '../../js/auth.js';
-import { googleSignInError, missingFieldsMessage, requestError } from '../lib/authErrors.js';
+import { missingFieldsMessage, requestError } from '../lib/authErrors.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +17,7 @@ import { MAX_CLASSROOM_NAME } from '../lib/logoUpload.js';
 const SETUP_DRAFT_KEY = 'plato_setup_draft';
 
 export default function Setup() {
+  const { adoptExternalSession } = useAuth();
   const [savedDraft] = useState(() => {
     try {
       const raw = sessionStorage.getItem(SETUP_DRAFT_KEY);
@@ -33,7 +34,7 @@ export default function Setup() {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [googleSubmitting, setGoogleSubmitting] = useState(false);
+  const [providerSubmitting, setProviderSubmitting] = useState(false);
   const nameRef = useRef(null);
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
@@ -41,7 +42,6 @@ export default function Setup() {
 
   useEffect(() => {
     document.title = 'Setup — plato';
-    preloadFirebase();
   }, []);
 
   useEffect(() => {
@@ -50,23 +50,10 @@ export default function Setup() {
     } catch { /* ignore */ }
   }, [classroomName, email, name]);
 
-  async function handleGoogleSetup() {
-    if (googleSubmitting || submitting) return;
-    setGoogleSubmitting(true);
-    setError('');
-    try {
-      await loginWithGoogle({
-        classroomName: classroomName.trim() || undefined,
-        name: name.trim() || undefined,
-      });
-      try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
-      window.location.href = '/plato';
-    } catch (e) {
-      const msg = googleSignInError(e, { audience: 'admin' });
-      if (msg) setError(msg);
-    } finally {
-      setGoogleSubmitting(false);
-    }
+  async function handleProviderSession(session, provider) {
+    await adoptExternalSession(session, provider);
+    try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
+    window.location.href = '/plato';
   }
 
   function validateEmail(val) {
@@ -78,7 +65,7 @@ export default function Setup() {
 
   async function handleSetup(e) {
     if (e) e.preventDefault();
-    if (submitting || googleSubmitting) return;
+    if (submitting || providerSubmitting) return;
     const nextErrs = {};
     if (!name.trim()) nextErrs.name = 'Name is required.';
     const emailErr = validateEmail(email);
@@ -164,26 +151,20 @@ export default function Setup() {
               <p id="setup-classroom-hint" className="text-xs text-muted-foreground">This appears in the header and on login pages. Up to 100 characters; you can change it later.</p>
             </div>
             <hr className="border-border" />
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full gap-2 whitespace-nowrap shrink-0"
-              onClick={handleGoogleSetup}
-              disabled={submitting || googleSubmitting} focusableWhenDisabled
-              aria-busy={googleSubmitting ? 'true' : undefined}
-            >
-              {googleSubmitting ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-              ) : (
-                <GoogleIcon className="h-4 w-4 shrink-0" />
-              )}
-              <span>{googleSubmitting ? 'Setting up with Google...' : 'Create admin account with Google'}</span>
-            </Button>
-            <div className="relative flex items-center py-1">
-              <div className="grow border-t border-border" />
-              <span className="mx-3 shrink-0 text-xs text-muted-foreground">or set up with password</span>
-              <div className="grow border-t border-border" />
-            </div>
+            <PublicAuthProviders
+              surface="setup"
+              dividerText="or set up with password"
+              context={{
+                options: {
+                  classroomName: classroomName.trim() || undefined,
+                  name: name.trim() || undefined,
+                },
+                busy: submitting || providerSubmitting,
+                setBusy: setProviderSubmitting,
+                onSession: handleProviderSession,
+                onError: setError,
+              }}
+            />
             <div className="space-y-2">
               <Label htmlFor="setup-name">Your Name</Label>
               <Input
@@ -297,7 +278,7 @@ export default function Setup() {
             <Button
               type="submit"
               className="w-full gap-2 whitespace-nowrap shrink-0"
-              disabled={submitting || googleSubmitting} focusableWhenDisabled
+              disabled={submitting || providerSubmitting} focusableWhenDisabled
               aria-busy={submitting ? 'true' : undefined}
             >
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}

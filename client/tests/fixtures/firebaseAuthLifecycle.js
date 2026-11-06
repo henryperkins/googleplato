@@ -39,9 +39,8 @@ async function loadAuth({ restoration } = {}) {
   const dependencies = {
     'firebase/app': { initializeApp: () => ({}) },
     'firebase/auth': sdk,
-    '../../firebase-applet-config.json': { default: {} },
   };
-  const source = await readFile(new URL('../../js/firebaseAuth.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../../../plugins/google-auth/client/firebaseAuth.js', import.meta.url), 'utf8');
   const module = new SourceTextModule(source);
   await module.link(specifier => {
     const exports = dependencies[specifier];
@@ -51,7 +50,12 @@ async function loadAuth({ restoration } = {}) {
     });
   });
   await module.evaluate();
-  return { api: module.namespace, cleanup, auth, counts: () => ({ popupCalls, signOutCalls }) };
+  const config = { projectId: 'test-project', apiKey: 'public-test-key' };
+  const api = {
+    signInWithGooglePopup: () => module.namespace.signInWithGooglePopup(config),
+    signOutFirebase: () => module.namespace.signOutFirebase(config),
+  };
+  return { api, cleanup, auth, counts: () => ({ popupCalls, signOutCalls }) };
 }
 
 test('an in-flight Firebase sign-out cannot overlap the next Google popup', async () => {
@@ -125,5 +129,5 @@ test('failed Firebase cleanup releases the gate for a recoverable new sign-in', 
   await signOut;
   const signIn = api.signInWithGooglePopup();
   assert.equal(counts().popupCalls, 1);
-  assert.equal((await signIn).firebaseUser.uid, 'b');
+  assert.equal((await signIn).idToken, 'id-token-b');
 });

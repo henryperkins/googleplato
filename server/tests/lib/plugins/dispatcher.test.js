@@ -23,6 +23,7 @@ function buildRegistry({ enabled = true, hasModule = true, missing = false } = {
     serverModule: hasModule ? { routes } : null,
   };
   return {
+    async reconcile() {},
     get(id) { return id === 'slack' ? entry : undefined; },
   };
 }
@@ -90,6 +91,15 @@ describe('makePluginDispatcher (catch-all)', () => {
     const res = await app.request('/v1/plugins/slack/admin/missing-route');
     // Inner router has no /admin/missing-route → Hono's default 404
     assert.equal(res.status, 404);
+  });
+});
+
+describe('activation refresh failures', () => {
+  it('fails closed instead of dispatching stale plugin state', async () => {
+    const reg = { ...buildRegistry(), async reconcile() { throw new Error('read failed'); } };
+    const app = appWith(makePluginDispatcher(reg));
+    const res = await app.request('/v1/plugins/slack/admin/users');
+    assert.equal(res.status, 503);
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import auth, { setFirebaseTokenVerifier } from '../../src/routes/auth.js';
+import auth from '../../src/routes/auth.js';
 import db from '../../src/lib/db.js';
 
 function req(app, method, path, body) {
@@ -393,94 +393,6 @@ describe('POST /v1/auth/logout', () => {
   });
 });
 
-describe('POST /v1/auth/firebase', () => {
-  let createdUsers = [];
-
-  beforeEach(() => {
-    createdUsers = [];
-    db.countUsers = async () => 1; // existing classroom setup
-    db.getUserByEmail = async () => null;
-    db.getUserByUsername = async () => null;
-    db.getInvite = async () => null;
-    db.getInviteByEmail = async () => null;
-    db.getWaitlistEntryByEmail = async () => null;
-    db.createUser = async (u) => { createdUsers.push(u); };
-    db.storeRefreshToken = async () => {};
-    db.createAuditLog = async () => {};
-    db.setUserActivityField = async () => {};
-    db.getSyncData = async () => null;
-    setFirebaseTokenVerifier(null);
-  });
-
-  it('rejects request with missing idToken', async () => {
-    const app = new Hono();
-    app.route('/', auth);
-    const res = await req(app, 'POST', '/v1/auth/firebase', {});
-    assert.equal(res.status, 400);
-    const data = await res.json();
-    assert.equal(data.error, 'Firebase ID token is required');
-  });
-
-  it('rejects invalid or expired idToken', async () => {
-    setFirebaseTokenVerifier(async () => { throw new Error('JWT verification failed'); });
-    const app = new Hono();
-    app.route('/', auth);
-    const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'invalid_token' });
-    assert.equal(res.status, 401);
-    const data = await res.json();
-    assert.equal(data.error, 'Invalid or expired Google sign-in token');
-  });
-
-  it('rejects unverified Google email', async () => {
-    setFirebaseTokenVerifier(async () => ({ email: 'unverified@example.com', email_verified: false }));
-    const app = new Hono();
-    app.route('/', auth);
-    const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'test_token' });
-    assert.equal(res.status, 400);
-    const data = await res.json();
-    assert.equal(data.error, 'A verified Google email address is required');
-  });
-
-  it('logs in existing user matching verified Google email', async () => {
-    setFirebaseTokenVerifier(async () => ({ email: 'existing@example.com', email_verified: true, name: 'Existing User' }));
-    db.getUserByEmail = async (email) => {
-      if (email === 'existing@example.com') {
-        return { userId: 'usr_existing', email, username: 'existinguser', name: 'Existing User', role: 'user' };
-      }
-      return null;
-    };
-    const app = new Hono();
-    app.route('/', auth);
-    const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'valid_token' });
-    assert.equal(res.status, 200);
-    const data = await res.json();
-    assert.ok(data.accessToken);
-    assert.ok(data.refreshToken);
-    assert.equal(data.user.email, 'existing@example.com');
-    assert.equal(data.user.userId, 'usr_existing');
-  });
-
-  it('refuses a new verified Google user without an invitation', async () => {
-    setFirebaseTokenVerifier(async () => ({
-      email: 'newlearner@example.com',
-      email_verified: true,
-      name: 'New Learner',
-    }));
-    let storedTokens = 0;
-    db.storeRefreshToken = async () => { storedTokens += 1; };
-    const app = new Hono();
-    app.route('/', auth);
-    const res = await req(app, 'POST', '/v1/auth/firebase', { idToken: 'valid_token' });
-    assert.equal(res.status, 403);
-    const data = await res.json();
-    assert.equal(data.code, 'invite_required');
-    assert.equal(data.email, 'newlearner@example.com');
-    assert.equal(data.accessToken, undefined);
-    assert.equal(createdUsers.length, 0);
-    assert.equal(storedTokens, 0);
-  });
-});
-
 describe('first-admin setup classroom name', () => {
   let createdUsers;
   let records;
@@ -498,12 +410,11 @@ describe('first-admin setup classroom name', () => {
       records.set(`${userId}:${key}`, { data, version: (version || 0) + 1 });
       return { version: (version || 0) + 1 };
     };
-    setFirebaseTokenVerifier(async () => ({ email: 'owner@example.com', email_verified: true, name: 'Owner' }));
+// Password setup remains in core; external setup is covered by google-auth.
   });
 
   const setups = [
     ['/v1/auth/setup', name => ({ email: 'owner@example.com', name: 'Owner', password: 'password123', classroomName: name })],
-    ['/v1/auth/firebase', name => ({ idToken: 'valid_token', classroomName: name })],
   ];
 
   for (const [path, body] of setups) {

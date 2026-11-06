@@ -98,6 +98,8 @@ export default {
 
 Slot components receive props per [EXTENSION_REFERENCE.md](./EXTENSION_REFERENCE.md). The `adminSettingsPanel` slot receives `{ pluginId, settings, onSave }`.
 
+External-auth plugins use `publicAuthProvider` plus `extensionPoints.authProvider` and the `auth.provider` capability. Public `GET /v1/auth/providers` discovers only enabled providers and their allowlisted non-secret configuration; the host lazy-loads their client modules. The plugin verifies its provider token, then calls `completeExternalAuth` rather than duplicating core admission or token logic. See `plugins/google-auth/` for the complete implementation.
+
 The `@/components/ui/...` and `@/lib/...` aliases work in plugin code (configured in `client/vite.config.js`).
 
 Style plugin UI with the host's Tailwind classes and its semantic color tokens (`text-muted-foreground`, `text-destructive`, `bg-success`, `text-success-foreground`; see [DESIGN.md](../../DESIGN.md#colors)). `client/src/index.css` scans `plugins/*/client`, so a class only your plugin uses is still generated.

@@ -55,6 +55,35 @@ Every slot component renders inside its own error boundary. If one throws while 
 - **Props:** `{}`
 - **Phase:** 2
 
+### `publicAuthProvider`
+
+- **Capability:** `ui.slot.publicAuthProvider` plus `auth.provider`
+- **Renders inside:** `client/src/lib/plugins/PublicAuthProviders.jsx` on Login, Setup, and Signup
+- **Props:** `{ pluginId, provider, surface, options, busy, setBusy, beforeStart, onSession, onAdmission, onError }`
+- **Provider descriptor:** `{ id, label, config }`, where `config` contains only `extensionPoints.authProvider.publicSettings` values
+- **Phase:** 1.4
+- **Example:** `plugins/google-auth/client/GoogleAuthProvider.jsx`
+- **Gotchas:** this slot uses public `GET /v1/auth/providers`, not the authenticated plugin registry. Disabled providers are omitted and their client modules are not imported. `onSession` adopts the core-issued plato session; provider tokens must not replace it. `beforeStart` may return false to validate the host form before opening a popup. `onAdmission` is optional and currently supports Login's invitation interstitial.
+
+## Public auth-provider declaration
+
+A public provider declares both the slot above and this manifest field:
+
+```json
+"authProvider": {
+  "label": "Google",
+  "publicSettings": ["apiKey", "authDomain", "projectId", "appId"]
+}
+```
+
+`publicSettings` entries must be flat keys with scalar values declared in `settingsSchema.properties`; `writeOnly`, object-valued, and undeclared keys are rejected. The unauthenticated discovery endpoint returns enabled providers only:
+
+```json
+[{ "id": "google-auth", "label": "Google", "config": { "projectId": "example" } }]
+```
+
+The provider verifies its external token in its own plugin route, then calls the SDK's `completeExternalAuth(identity, options)`. Core retains admission, account creation, roles, classroom setup, `userCreated`, and plato access/refresh-token issuance. The host does not mount a provider-specific core route or initialize a provider SDK.
+
 ## Lifecycle methods
 
 Optional functions a plugin's `server/index.js` default export can declare.
@@ -84,8 +113,10 @@ Optional. Runs only when an admin uses the "Delete plugin data" flow on
 
 - Plugin must be **disabled** first (host refuses otherwise).
 - Admin must type the plugin id in a confirm dialog.
-- The host clears the plugin's settings/activation entry after `onUninstall`
-  completes successfully — every plugin gets that for free.
+- After `onUninstall` completes successfully, the host clears the plugin's
+  settings and writes a disabled `dataUninstalled` tombstone. A default-enabled
+  plugin therefore stays disabled after restart; enabling it again explicitly
+  clears the tombstone.
 
 **Implement `onUninstall` only if your plugin owns data beyond the
 activation record** — for example, per-user `userMeta:<id>` records or
@@ -253,6 +284,7 @@ Hook handler returns enrichment data or `null`. See `plugins/wordpress-info/` fo
 | `agent` | Contribute AI agent prompt | 3 |
 | `syncData.namespace` | Write `plugin:<id>:*` sync-data keys | 3 |
 | `lessonEnrichment` | Enrich lessons at start with additional context | 1 |
+| `auth.provider` | Verify an external identity and delegate admission/session issuance to core | 1.4 |
 
 A plugin using an extension point without declaring its capability fails registration with `plugin_capability_missing`.
 
@@ -271,6 +303,9 @@ A plugin using an extension point without declaring its capability fails registr
 | `getUserMeta(userId, pluginId)` | Read the plugin's per-user record. Returns the stored object or `null`. Capability: `user.metadata.read`. Available since 1.1.0. |
 | `putUserMeta(userId, pluginId, data)` | Upsert the plugin's per-user record. `data` must be an object. Capability: `user.metadata.write`. Available since 1.1.0. |
 | `deleteUserMeta(userId, pluginId)` | Delete the plugin's per-user record. Capability: `user.metadata.write`. Available since 1.1.0. |
+| `updateUserMeta(userId, pluginId, updater)` | Atomically update a per-user record with one consistent read and a strict conditional write. The updater receives the current object (or `{}`) and returns its replacement. Conditional conflicts propagate for route-level retry. Available since 1.4.0. |
+| `completeExternalAuth(identity, options)` | Admit a verified external identity and issue a plato session. Returns `{ status, body }`; core owns invitations, accounts, roles, hooks, and tokens. Available since 1.4.0. |
+| `createRemoteJWKSet`, `jwtVerify` | `jose` primitives for provider-token verification without a plugin-local dependency. Available since 1.4.0. |
 
 **Per-user storage convention:** `userMeta:<pluginId>` is the canonical key
 shape. Each plugin gets one record per user.
@@ -319,7 +354,11 @@ Admin only. Body: arbitrary settings object. Persists to `_system:plugins:activa
 
 ### `GET /v1/plugins`
 
-Authenticated. Returns enabled plugins with sanitized settings (writeOnly fields stripped). Used by the client loader.
+Authenticated. Returns all loadable plugins with activation state and sanitized settings (writeOnly fields stripped). The client loader imports only enabled modules.
+
+### `GET /v1/auth/providers`
+
+Public. Returns enabled `auth.provider` plugins and only their manifest-allowlisted, non-writeOnly settings. Login, Setup, and Signup use this to lazy-load `publicAuthProvider` slots. An empty array means no external provider UI or provider-module import.
 
 ### `GET /v1/plugins/extension-points`
 

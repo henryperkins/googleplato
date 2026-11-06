@@ -3,12 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import PublicFooter from '../components/PublicFooter.jsx';
-import { preloadFirebase } from '../../js/auth.js';
+import PublicAuthProviders from '../lib/plugins/PublicAuthProviders.jsx';
 import PasswordField from '../components/PasswordField.jsx';
-import GoogleIcon from '../components/GoogleIcon.jsx';
+// Public providers contribute optional external sign-in buttons.
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
 import { missingRequired, validateCustomField, validateCustomFields } from '../lib/userFields.js';
-import { googleSignInError, missingFieldsMessage, requestError } from '../lib/authErrors.js';
+import { missingFieldsMessage, requestError } from '../lib/authErrors.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,11 +41,11 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [googleSubmitting, setGoogleSubmitting] = useState(false);
+  const [providerSubmitting, setProviderSubmitting] = useState(false);
   const [groups, setGroups] = useState([]);
   const [userFields, setUserFields] = useState([]);
   const [fieldValues, setFieldValues] = useState(savedDraft.fieldValues || {});
-  const { login, loginWithGoogle } = useAuth();
+  const { login, adoptExternalSession } = useAuth();
   const navigate = useNavigate();
   const emailRef = useRef(null);
   const nameRef = useRef(null);
@@ -54,7 +54,7 @@ export default function Signup() {
   const confirmRef = useRef(null);
   const branding = usePublicBranding('Create account');
 
-  useEffect(() => { preloadFirebase(); }, []);
+  // Provider discovery is public and activation-aware.
 
   // Persist non-password signup draft across mobile background tab discards
   useEffect(() => {
@@ -100,7 +100,7 @@ export default function Signup() {
     return '';
   }
 
-  async function handleGoogleSignup() {
+  async function validateProviderStart() {
     const cfErrs = validateCustomFields(userFields, fieldValues);
     const cfIds = Object.keys(cfErrs);
     if (cfIds.length) {
@@ -115,32 +115,20 @@ export default function Signup() {
         setError(cfErrs[cfIds[0]]);
       }
       document.getElementById(`signup-field-${cfIds[0]}`)?.focus();
-      return;
+      return false;
     }
-    if (googleSubmitting || submitting) return;
-    setGoogleSubmitting(true);
-    setError('');
-    try {
-      await loginWithGoogle({
-        inviteToken: token || undefined,
-        name: name.trim() || undefined,
-        username: username.trim() || undefined,
-        userGroup: group || undefined,
-        customFields: userFields.length ? fieldValues : undefined,
-      });
-      try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
-      navigate('/lessons', { replace: true });
-    } catch (e) {
-      const msg = googleSignInError(e);
-      if (msg) setError(msg);
-    } finally {
-      setGoogleSubmitting(false);
-    }
+    return true;
+  }
+
+  async function handleProviderSession(session, provider) {
+    await adoptExternalSession(session, provider);
+    try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
+    navigate('/lessons', { replace: true });
   }
 
   async function handleSignup(e) {
     if (e) e.preventDefault();
-    if (submitting || googleSubmitting) return;
+    if (submitting || providerSubmitting) return;
     // Email is optional in frontend validation for backwards compatibility:
     // - Email-specific invites: backend uses invite.email if not provided
     // - Link invites: backend will reject with "Email is required" error
@@ -232,26 +220,24 @@ export default function Signup() {
               {error}
             </div>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full gap-2 whitespace-nowrap shrink-0"
-            onClick={handleGoogleSignup}
-            disabled={submitting || googleSubmitting} focusableWhenDisabled
-            aria-busy={googleSubmitting ? 'true' : undefined}
-          >
-            {googleSubmitting ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-            ) : (
-              <GoogleIcon className="h-4 w-4 shrink-0" />
-            )}
-            <span>{googleSubmitting ? 'Continuing with Google...' : 'Continue with Google'}</span>
-          </Button>
-          <div className="relative flex items-center py-1">
-            <div className="grow border-t border-border" />
-            <span className="mx-3 shrink-0 text-xs text-muted-foreground">or create account with password</span>
-            <div className="grow border-t border-border" />
-          </div>
+          <PublicAuthProviders
+            surface="signup"
+            dividerText="or create account with password"
+            context={{
+              options: {
+                inviteToken: token || undefined,
+                name: name.trim() || undefined,
+                username: username.trim() || undefined,
+                userGroup: group || undefined,
+                customFields: userFields.length ? fieldValues : undefined,
+              },
+              busy: submitting || providerSubmitting,
+              setBusy: setProviderSubmitting,
+              beforeStart: validateProviderStart,
+              onSession: handleProviderSession,
+              onError: setError,
+            }}
+          />
           <form className="space-y-4" onSubmit={handleSignup} noValidate>
             <div className="space-y-2">
               <Label htmlFor="signup-email">Email</Label>
@@ -442,7 +428,7 @@ export default function Signup() {
             <Button
               type="submit"
               className="w-full gap-2 whitespace-nowrap shrink-0"
-              disabled={submitting || googleSubmitting} focusableWhenDisabled
+              disabled={submitting || providerSubmitting} focusableWhenDisabled
               aria-busy={submitting ? 'true' : undefined}
             >
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}

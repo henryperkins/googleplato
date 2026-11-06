@@ -23,6 +23,11 @@
 export function makePluginDispatcher(registry) {
   return async (c) => {
     const pluginId = c.req.param('pluginId');
+    try {
+      await registry.reconcile({ force: true });
+    } catch {
+      return c.json({ error: 'Plugin activation state is unavailable' }, 503);
+    }
     const entry = registry.get(pluginId);
     if (!entry) return c.json({ error: 'Plugin not installed' }, 404);
     if (!entry.enabled) return c.json({ error: 'Plugin disabled' }, 404);
@@ -41,6 +46,11 @@ export function makePluginDispatcher(registry) {
  */
 export function makeSlackLegacyShim(registry) {
   return async (c) => {
+    try {
+      await registry.reconcile({ force: true });
+    } catch {
+      return c.json({ error: 'Plugin activation state is unavailable' }, 503);
+    }
     const entry = registry.get('slack');
     if (!entry?.enabled || !entry.serverModule?.routes) {
       return c.json({ error: 'Slack integration not available' }, 404);

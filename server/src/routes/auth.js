@@ -1,6 +1,4 @@
 import { Hono } from 'hono';
-import { randomBytes } from 'node:crypto';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
 import db from '../lib/db.js';
 import { generateUserId, generateRefreshToken, generateResetToken, hashToken } from '../lib/crypto.js';
 import { hashPassword, comparePassword } from '../lib/password.js';
@@ -9,56 +7,9 @@ import { sendResetEmail, emailDeliveryEnabled } from '../lib/email.js';
 import { DEFAULT_THEME, seedDefaultContent } from '../lib/seed.js';
 import { classroomNameError } from '../lib/branding.js';
 import { logger } from '../lib/logger.js';
-import { emit as emitHook } from '../lib/plugins/hooks.js';
+import pluginRegistry from '../lib/plugins/registry.js';
 import { getFieldDefinitions, mergeFieldValues } from '../lib/user-fields.js';
-import { FIREBASE_PROJECT_ID, ADMIN_EMAIL } from '../config.js';
-
-const FIREBASE_JWKS = createRemoteJWKSet(
-  new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')
-);
-
-let _verifyFirebaseIdToken = async function (idToken) {
-  const { payload } = await jwtVerify(idToken, FIREBASE_JWKS, {
-    issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
-    audience: FIREBASE_PROJECT_ID,
-  });
-  return payload;
-};
-
-export function setFirebaseTokenVerifier(verifier) {
-  _verifyFirebaseIdToken = verifier || (async function (idToken) {
-    const { payload } = await jwtVerify(idToken, FIREBASE_JWKS, {
-      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
-      audience: FIREBASE_PROJECT_ID,
-    });
-    return payload;
-  });
-}
-
-async function verifyFirebaseIdToken(idToken) {
-  return _verifyFirebaseIdToken(idToken);
-}
-
-const USERNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,28}[a-zA-Z0-9]$/;
-
-function validateUsername(username) {
-  if (!username || typeof username !== 'string') return 'Username is required';
-  if (username.length < 3 || username.length > 30) return 'Username must be 3-30 characters';
-  if (!USERNAME_RE.test(username)) return 'Username must be alphanumeric with hyphens or underscores, and cannot start/end with them';
-  if (username.includes('@')) return 'Username cannot contain @';
-  return null;
-}
-
-function generateUsername() {
-  return 'user-' + randomBytes(3).toString('hex');
-}
-
-// The operator's address (ADMIN_EMAIL) is the only Google identity that can
-// create its own account without an invitation, and the only one that is made
-// an admin when its account is created. Nothing else in the code names an admin.
-function isOperatorEmail(email) {
-  return Boolean(ADMIN_EMAIL) && email === ADMIN_EMAIL.trim().toLowerCase();
-}
+import { validateUsername, generateUsername } from '../lib/usernames.js';
 
 const auth = new Hono();
 
@@ -66,6 +17,12 @@ const auth = new Hono();
 auth.get('/v1/auth/setup-status', async (c) => {
   const count = await db.countUsers();
   return c.json({ needsSetup: count === 0 });
+});
+
+// GET /v1/auth/providers — enabled public auth providers and their explicitly
+// allowlisted, non-secret browser configuration. No authentication is required.
+auth.get('/v1/auth/providers', async (c) => {
+  return c.json(await pluginRegistry.publicAuthProviders());
 });
 
 // POST /v1/auth/setup — create the first admin account (only works when no users exist)
@@ -107,7 +64,7 @@ auth.post('/v1/auth/setup', async (c) => {
 
   // Emit userCreated so plugins can react. Errors in handlers are caught and
   // logged inside emit() — never bubble up to the user-facing request.
-  await emitHook('userCreated', { userId, email: email.toLowerCase(), role: 'admin' });
+  await pluginRegistry.emit('userCreated', { userId, email: email.toLowerCase(), role: 'admin' });
 
   // Seed default prompts and lessons
   try { await seedDefaultContent(); } catch (e) {
@@ -259,7 +216,7 @@ auth.post('/v1/auth/signup', async (c) => {
     customFields,
   });
 
-  await emitHook('userCreated', { userId, email: userEmail, role: 'user' });
+  await pluginRegistry.emit('userCreated', { userId, email: userEmail, role: 'user' });
 
   // Mark invite as used after successful user creation
   if (invite.isLink) {
@@ -454,273 +411,6 @@ auth.post('/v1/auth/reset-password', async (c) => {
   return c.json({ ok: true });
 });
 
-// POST /v1/auth/firebase — sign in or onboard with a verified Firebase Google ID token
-auth.post('/v1/auth/firebase', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const {
-    idToken,
-    inviteToken,
-    classroomName,
-    username: rawUsername,
-    userGroup,
-    customFields: rawCustomFields,
-  } = body;
-
-  if (!idToken || typeof idToken !== 'string') {
-    return c.json({ error: 'Firebase ID token is required' }, 400);
-  }
-
-  let claims;
-  try {
-    claims = await verifyFirebaseIdToken(idToken);
-  } catch {
-    return c.json({ error: 'Invalid or expired Google sign-in token' }, 401);
-  }
-
-  const email = typeof claims.email === 'string' ? claims.email.toLowerCase().trim() : '';
-  const emailVerified = claims.email_verified === true;
-  if (!email || !emailVerified) {
-    return c.json({ error: 'A verified Google email address is required' }, 400);
-  }
-
-  const displayName = (typeof body.name === 'string' && body.name.trim())
-    || (typeof claims.name === 'string' && claims.name.trim())
-    || email.split('@')[0];
-
-  // Case 1: Initial classroom setup (0 users exist)
-  const count = await db.countUsers();
-  if (count === 0) {
-    const nameError = classroomName === undefined ? null : classroomNameError(classroomName);
-    if (nameError) return c.json({ error: nameError }, 400);
-    const username = rawUsername ? rawUsername.toLowerCase() : generateUsername();
-    if (rawUsername) {
-      const usernameErr = validateUsername(rawUsername);
-      if (usernameErr) return c.json({ error: usernameErr }, 400);
-    }
-
-    const userId = generateUserId();
-    const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
-
-    await db.createUser({
-      userId,
-      email,
-      username,
-      passwordHash,
-      name: displayName,
-      role: 'admin',
-    });
-
-    await emitHook('userCreated', { userId, email, role: 'admin' });
-
-    try { await seedDefaultContent(); } catch (e) {
-      console.error('Content seed failed (non-fatal):', e.message);
-    }
-
-    if (classroomName?.trim()) {
-      try {
-        const current = await db.getSyncData('_system', 'settings');
-        const settings = {
-          ...(current?.data || {}),
-          classroomName: classroomName.trim(),
-          logoAlt: classroomName.trim(),
-        };
-        if (!settings.theme) settings.theme = { ...DEFAULT_THEME };
-        await db.putSyncData('_system', 'settings', settings, current?.version || 0);
-      } catch (e) {
-        console.error('Classroom name save failed (non-fatal):', e.message);
-      }
-    }
-
-    const accessToken = await signAccessToken(userId, 'admin');
-    const refreshToken = generateRefreshToken();
-    await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(passwordHash));
-
-    return c.json({
-      accessToken,
-      refreshToken,
-      user: { userId, email, username, name: displayName, role: 'admin' },
-      isNewSetup: true,
-    }, 201);
-  }
-
-  // Case 2: Existing plato user matches this verified Google email
-  const existingUser = await db.getUserByEmail(email);
-  if (existingUser) {
-    const accessToken = await signAccessToken(existingUser.userId, existingUser.role);
-    const refreshToken = generateRefreshToken();
-    await db.storeRefreshToken(hashToken(refreshToken), existingUser.userId, hashToken(existingUser.passwordHash || ''));
-
-    try {
-      await db.createAuditLog({
-        action: 'user_login_google',
-        userId: existingUser.userId,
-        email: existingUser.email,
-        performedBy: existingUser.userId,
-      });
-    } catch { /* swallow */ }
-    try {
-      await db.setUserActivityField(existingUser.userId, 'lastActiveAt', new Date().toISOString());
-    } catch { /* swallow */ }
-
-    return c.json({
-      accessToken,
-      refreshToken,
-      user: {
-        userId: existingUser.userId,
-        email: existingUser.email,
-        username: existingUser.username,
-        name: existingUser.name,
-        role: existingUser.role,
-      },
-    });
-  }
-
-  // Case 3: A new account. Membership is by invitation, as for password signup:
-  // an invite token, or a pending email invite for this verified address.
-  let invite = null;
-  let inviteExpired = false;
-  if (inviteToken) {
-    invite = await db.getInvite(inviteToken);
-    if (!invite || invite.status !== 'pending' || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
-      return c.json({ error: 'Invalid or expired invite' }, 400);
-    }
-    if (invite.email && invite.email.toLowerCase() !== email) {
-      return c.json({ error: 'This invite is for a different email address' }, 400);
-    }
-  } else {
-    const byEmail = await db.getInviteByEmail(email);
-    if (byEmail && byEmail.status === 'pending') {
-      if (!byEmail.ttl || byEmail.ttl >= Math.floor(Date.now() / 1000)) invite = byEmail;
-      else inviteExpired = true;
-    }
-  }
-
-  const operator = isOperatorEmail(email);
-  let waitlistEntry = null;
-  if (!invite) {
-    waitlistEntry = await db.getWaitlistEntryByEmail(email);
-  }
-
-  // No invitation: create nothing and leave any wait-list entry for an admin to
-  // invite. Google has verified this address, so telling its owner where they
-  // stand reveals nothing about anyone else.
-  if (!invite && !operator) {
-    return c.json({
-      error: 'Membership is by invitation only. Ask your program admin for an invitation.',
-      code: 'invite_required',
-      email,
-      // Google's name only (not the email-prefix fallback), to prefill the wait list.
-      name: typeof claims.name === 'string' ? claims.name.trim() : '',
-      waitlisted: Boolean(waitlistEntry),
-      inviteExpired,
-    }, 403);
-  }
-
-  let username = rawUsername ? rawUsername.toLowerCase() : null;
-  if (username) {
-    const usernameErr = validateUsername(username);
-    if (usernameErr) return c.json({ error: usernameErr }, 400);
-    const existingUsername = await db.getUserByUsername(username);
-    if (existingUsername) return c.json({ error: 'Username already taken' }, 409);
-  } else {
-    // Generate clean username from email or random suffix
-    const emailPrefix = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 20);
-    let candidate = emailPrefix.length >= 3 && !emailPrefix.startsWith('-') && !emailPrefix.endsWith('-') && !emailPrefix.startsWith('_') && !emailPrefix.endsWith('_')
-      ? emailPrefix
-      : generateUsername();
-
-    let existingUsername = await db.getUserByUsername(candidate);
-    while (existingUsername) {
-      candidate = generateUsername();
-      existingUsername = await db.getUserByUsername(candidate);
-    }
-    username = candidate;
-  }
-
-  // Past the invitation check, an account without an invite is the operator's,
-  // so a wait-list entry here is theirs: its answers fill in the profile, and
-  // the entry is removed once the account exists.
-  const profile = invite?.profile || waitlistEntry?.profile || null;
-  let customFields = {};
-  if (rawCustomFields !== undefined || profile?.customFields) {
-    const settings = await db.getSyncData('_system', 'settings');
-    const merged = mergeFieldValues(getFieldDefinitions(settings?.data), profile?.customFields || {}, rawCustomFields);
-    if (merged.error) return c.json({ error: merged.error }, 400);
-    customFields = merged.values;
-  }
-
-  let profileGroup = null;
-  if (profile?.userGroup) {
-    const settings = await db.getSyncData('_system', 'settings');
-    if ((settings?.data?.userGroups || []).includes(profile.userGroup)) profileGroup = profile.userGroup;
-  }
-
-  if (invite?.isLink) {
-    try {
-      await db.incrementLinkUsage(invite.inviteToken);
-    } catch (err) {
-      if (err.name === 'ConditionalCheckFailedException') {
-        return c.json({ error: 'This invite link has reached its usage limit' }, 400);
-      }
-      throw err;
-    }
-  }
-
-  const userId = generateUserId();
-  const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
-  const finalName = displayName || profile?.name || email.split('@')[0];
-
-  const assignedRole = operator ? 'admin' : 'user';
-
-  await db.createUser({
-    userId,
-    email,
-    username,
-    passwordHash,
-    name: finalName,
-    userGroup: userGroup || profileGroup || null,
-    role: assignedRole,
-    slackUserId: invite?.slackUserId || null,
-    customFields,
-  });
-
-  await emitHook('userCreated', { userId, email, role: assignedRole });
-
-  if (invite?.isLink) {
-    const updated = await db.getInvite(invite.inviteToken);
-    if (updated?.maxUsages && updated.usageCount >= updated.maxUsages) {
-      await db.markInviteUsed(invite.inviteToken);
-    }
-  } else if (invite) {
-    await db.markInviteUsed(invite.inviteToken);
-  } else if (waitlistEntry) {
-    try {
-      await db.deleteInvite(waitlistEntry.inviteToken);
-    } catch { /* best-effort waitlist cleanup */ }
-  }
-
-  try {
-    await db.createAuditLog({
-      action: 'user_created_google',
-      userId,
-      email,
-      performedBy: userId,
-    });
-  } catch { /* swallow */ }
-  try {
-    await db.setUserActivityField(userId, 'lastActiveAt', new Date().toISOString());
-  } catch { /* swallow */ }
-
-  const accessToken = await signAccessToken(userId, assignedRole);
-  const refreshToken = generateRefreshToken();
-  await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(passwordHash));
-
-  return c.json({
-    accessToken,
-    refreshToken,
-    user: { userId, email, username, name: finalName, role: assignedRole },
-  }, 201);
-});
 
 export default auth;
 export { validateUsername, generateUsername };

@@ -59,6 +59,15 @@ export interface ExtensionPoints {
   hooks?: HookName[];
   /** sync-data namespace (Phase 3+; declare for forward-compat). */
   syncDataNamespace?: string;
+  /** Public external-auth discovery metadata. Requires `auth.provider`. */
+  authProvider?: AuthProviderDeclaration;
+}
+
+export interface AuthProviderDeclaration {
+  /** Human-readable provider name used by public sign-in surfaces. */
+  label: string;
+  /** Flat settings keys with scalar values that are non-secret and safe for unauthenticated discovery. */
+  publicSettings: string[];
 }
 
 // ---------- Capabilities ----------
@@ -75,7 +84,8 @@ export type Capability =
   | 'kpi'
   | 'agent'
   | 'syncData.namespace'
-  | 'lessonEnrichment';
+  | 'lessonEnrichment'
+  | 'auth.provider';
 
 // ---------- Slots ----------
 
@@ -92,7 +102,8 @@ export type SlotName =
   | 'adminHomeKpi'
   | 'adminProfileFields'
   | 'learnerProfileFields'
-  | 'learnerHomeBanner';
+  | 'learnerHomeBanner'
+  | 'publicAuthProvider';
 
 // ---------- Hooks ----------
 
@@ -110,7 +121,8 @@ export type HookName =
   | 'profileUpdated'
   | 'lessonStarted'
   | 'lessonCompleted'
-  | 'coachExchangeRecorded';
+  | 'coachExchangeRecorded'
+  | 'userDeleted';
 
 export interface HookContext {
   pluginId: string;
@@ -174,6 +186,58 @@ export interface SlotProps {
   adminProfileFields: { user: AdminUser };
   learnerProfileFields: { profile: LearnerProfile };
   learnerHomeBanner: Record<string, never>;
+  publicAuthProvider: PublicAuthProviderProps;
+}
+
+export interface PublicAuthProviderDescriptor {
+  id: string;
+  label: string;
+  /** Only manifest-allowlisted, non-secret settings. */
+  config: Record<string, unknown>;
+}
+
+export interface ExternalAuthSession {
+  accessToken: string;
+  refreshToken: string;
+  user: { userId: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface ExternalAuthAdmission {
+  email: string;
+  name: string;
+  waitlisted: boolean;
+  inviteExpired: boolean;
+}
+
+export interface PublicAuthProviderProps {
+  pluginId: string;
+  provider: PublicAuthProviderDescriptor;
+  surface: 'login' | 'setup' | 'signup';
+  /** Surface-specific onboarding fields to include in the provider exchange. */
+  options?: Record<string, unknown>;
+  busy?: boolean;
+  setBusy?(busy: boolean): void;
+  /** Return false to validate/correct the form before opening a provider popup. */
+  beforeStart?(): boolean | Promise<boolean>;
+  /** Adopt the core-issued session and navigate. */
+  onSession(session: ExternalAuthSession, pluginId: string): void | Promise<void>;
+  /** Optional invitation-only admission interstitial (currently used by Login). */
+  onAdmission?(admission: ExternalAuthAdmission): void;
+  onError?(message: string, error?: unknown): void;
+}
+
+export interface VerifiedExternalIdentity {
+  provider: string;
+  subject: string;
+  email: string;
+  emailVerified: boolean;
+  name?: string;
+}
+
+export interface ExternalAuthResult {
+  status: number;
+  body: Record<string, unknown>;
 }
 
 export interface SettingsPanelProps {

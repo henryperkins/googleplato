@@ -50,6 +50,19 @@ function fakeUserSyncStore(seed = []) {
   };
 }
 
+function holdFirstTwoReads(store) {
+  let reads = 0;
+  let releaseReads;
+  const bothRead = new Promise((resolve) => { releaseReads = resolve; });
+  return async (...args) => {
+    const snapshot = await store.getSyncData(...args);
+    reads++;
+    if (reads === 2) releaseReads();
+    await bothRead;
+    return snapshot;
+  };
+}
+
 describe('teacher-comments — thread API', () => {
   beforeEach(() => {
     db.getUserById = async (id) => {
@@ -108,6 +121,59 @@ describe('teacher-comments — thread API', () => {
     assert.equal(data.comments[1].text, 'first');
   });
 
+  it('two concurrent POSTs retry the same comment and persist both', async () => {
+    const store = fakeUserSyncStore();
+    db.getSyncData = holdFirstTwoReads(store);
+    const writes = [];
+    const write = store.putSyncData;
+    db.putSyncData = async (...args) => {
+      writes.push(args[2]);
+      return write(...args);
+    };
+    db.deleteSyncData = store.deleteSyncData;
+    const app = buildApp();
+
+    const responses = await Promise.all([
+      adminReq(app, 'POST', '/admin/comments/usr_x', { text: 'first concurrent' }),
+      adminReq(app, 'POST', '/admin/comments/usr_x', { text: 'second concurrent' }),
+    ]);
+
+    assert.deepEqual(responses.map((res) => res.status), [201, 201]);
+    const comments = await Promise.all(responses.map((res) => res.json()));
+    assert.notEqual(comments[0].id, comments[1].id);
+    const raw = await store.getSyncData('usr_x', 'userMeta:teacher-comments');
+    assert.equal(raw.data.comments.length, 2);
+    assert.deepEqual(new Set(raw.data.comments.map((cm) => cm.text)), new Set(['first concurrent', 'second concurrent']));
+
+    assert.equal(writes.length, 3);
+    const retried = writes.find((data) => data.comments.length === 2);
+    assert.ok(retried);
+    const original = writes.find((data) => data.comments.length === 1 && data.comments[0].id === retried.comments[0].id);
+    assert.ok(original);
+    assert.equal(original.comments[0].createdAt, retried.comments[0].createdAt);
+  });
+
+  it('POST returns 409 after persistent conflicts without acknowledging the comment', async () => {
+    const store = fakeUserSyncStore();
+    db.getSyncData = store.getSyncData;
+    let attempts = 0;
+    db.putSyncData = async () => {
+      attempts++;
+      const err = new Error('conflict'); err.name = 'ConditionalCheckFailedException'; throw err;
+    };
+    db.deleteSyncData = store.deleteSyncData;
+    const app = buildApp();
+
+    const res = await adminReq(app, 'POST', '/admin/comments/usr_x', { text: 'not saved' });
+
+    assert.equal(res.status, 409);
+    assert.equal(attempts, 5);
+    const body = await res.json();
+    assert.ok(body.error);
+    assert.equal(body.id, undefined);
+    assert.equal(store._peek().size, 0);
+  });
+
   it('POST validates body (empty, missing, oversize, wrong type)', async () => {
     const store = fakeUserSyncStore();
     db.getSyncData = store.getSyncData;
@@ -136,15 +202,38 @@ describe('teacher-comments — thread API', () => {
     assert.equal(list.comments[0].id, c2.id);
   });
 
-  it('DELETE on the last comment removes the userMeta record entirely', async () => {
+  it('DELETE on the last comment stores an empty thread', async () => {
     const store = fakeUserSyncStore();
     db.getSyncData = store.getSyncData;
     db.putSyncData = store.putSyncData;
     db.deleteSyncData = store.deleteSyncData;
     const app = buildApp();
     const c1 = await (await adminReq(app, 'POST', '/admin/comments/usr_x', { text: 'only' })).json();
-    await adminReq(app, 'DELETE', `/admin/comments/usr_x/${c1.id}`);
-    assert.equal(store._peek().has('usr_x\0userMeta:teacher-comments'), false);
+    const res = await adminReq(app, 'DELETE', `/admin/comments/usr_x/${c1.id}`);
+    assert.equal(res.status, 200);
+    const raw = await store.getSyncData('usr_x', 'userMeta:teacher-comments');
+    assert.deepEqual(raw.data, { comments: [] });
+  });
+
+  it('DELETE retries a conflicting append without erasing the new comment', async () => {
+    const store = fakeUserSyncStore();
+    db.getSyncData = store.getSyncData;
+    db.putSyncData = store.putSyncData;
+    db.deleteSyncData = store.deleteSyncData;
+    const app = buildApp();
+    const original = await (await adminReq(app, 'POST', '/admin/comments/usr_x', { text: 'original' })).json();
+    db.getSyncData = holdFirstTwoReads(store);
+
+    const [del, post] = await Promise.all([
+      adminReq(app, 'DELETE', `/admin/comments/usr_x/${original.id}`),
+      adminReq(app, 'POST', '/admin/comments/usr_x', { text: 'concurrent append' }),
+    ]);
+
+    assert.equal(del.status, 200);
+    assert.equal(post.status, 201);
+    const raw = await store.getSyncData('usr_x', 'userMeta:teacher-comments');
+    assert.equal(raw.data.comments.length, 1);
+    assert.equal(raw.data.comments[0].text, 'concurrent append');
   });
 
   it('DELETE returns 404 for unknown comment id', async () => {

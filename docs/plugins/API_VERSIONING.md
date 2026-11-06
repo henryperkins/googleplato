@@ -5,12 +5,22 @@ Plato's plugin API is versioned with semver. The host declares a single `PLUGIN_
 ## Current host version
 
 ```
-PLUGIN_API_VERSION = '1.2.0'
+PLUGIN_API_VERSION = '1.4.0'
 ```
 
 Defined in `server/src/lib/plugins/version.js`.
 
 ## Changelog
+
+### 1.4.0 (additive)
+- **Added** the `publicAuthProvider` slot, `auth.provider` capability, and `extensionPoints.authProvider` manifest declaration. Public `GET /v1/auth/providers` exposes only enabled providers and explicitly allowlisted, non-writeOnly browser settings; disabled providers are not imported by the client.
+- **Added** SDK `completeExternalAuth(identity, options)` so an auth plugin verifies its own token while core retains admission, accounts, roles, lifecycle hooks, and plato sessions. Added `createRemoteJWKSet` and `jwtVerify` re-exports for token verification.
+- **Added** SDK `updateUserMeta(userId, pluginId, updater)` using one consistent read and a strict conditional write for atomic read/modify/write updates.
+- **Fixed** manifest vocabulary to recognize the already-emitted `userDeleted` hook and to strip nested `writeOnly` settings recursively.
+- **Hardened** activation/settings writes with strict compare-and-swap, consistent-read reconciliation before plugin surfaces, fail-closed dispatch on activation-read failures, and disabled uninstall tombstones. Existing manifests and SDK calls remain compatible.
+
+### 1.3.0 (additive)
+- **Added** the lesson-enrichment contract used by WordPress Info: `lessonEnrichment`, `lessonStarted`, and optional `lessonStartupSteps` metadata.
 
 ### 1.2.0 (additive)
 - **Added** `onUninstall(ctx)` lifecycle hook — optional. Runs when an admin uses the "Delete plugin data" flow on `/plato/plugins` and the plugin needs cleanup beyond its activation record (e.g., per-user `userMeta:<id>` records). The host clears the activation record (settings) automatically; plugins only implement `onUninstall` when they own data elsewhere. Plugin must be **disabled** first, and the admin must type the plugin id in a confirm dialog before the destructive button enables. Errors propagate so partial-cleanup failures are surfaced loudly.

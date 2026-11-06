@@ -1,66 +1,68 @@
 /**
- * Client-side plugin registry. Holds the bundle of every plugin discovered by Vite's
- * import.meta.glob, intersected with the activation list fetched from the server.
- *
- * Server-side `/v1/plugins` returns enabled plugins + sanitized settings; we use it
- * to gate slot rendering and nav items.
+ * Authenticated client plugin registry. Only enabled plugin client modules are
+ * imported; disabling removes their exports from the render registry.
  */
 
 import { authenticatedFetch } from '../../../js/auth.js';
-import { discoverPlugins } from './loader.js';
+import { discoverPlugins, loadPluginClient } from './loader.js';
 import { resolveSlotComponent, resolveSettingsPanel } from './resolvers.js';
 
 const state = {
-  manifests: new Map(),     // id -> manifest (from bundle)
-  modules: new Map(),       // id -> client module exports (slots, settingsPanel, navItems)
-  enabled: new Map(),       // id -> { settings, capabilities, ...publicView }
+  manifests: new Map(),
+  modules: new Map(),
+  enabled: new Map(),
   loaded: false,
   loadingPromise: null,
 };
+
+async function applyActivation(list) {
+  const nextEnabled = new Map();
+  for (const plugin of list) {
+    if (plugin.enabled) nextEnabled.set(plugin.id, plugin);
+  }
+
+  await Promise.all([...nextEnabled.keys()].map(async (id) => {
+    if (state.modules.has(id)) return;
+    try {
+      const mod = await loadPluginClient(id);
+      if (mod) state.modules.set(id, mod);
+    } catch (error) {
+      console.error(`[plato] plugin "${id}" client bundle failed to load`, error);
+    }
+  }));
+
+  state.enabled = nextEnabled;
+  for (const id of state.modules.keys()) {
+    if (!nextEnabled.has(id)) state.modules.delete(id);
+  }
+}
 
 async function loadOnce() {
   if (state.loaded) return;
   if (state.loadingPromise) return state.loadingPromise;
   state.loadingPromise = (async () => {
-    // Static bundle: every manifest + module Vite found.
-    const { manifests, modules } = await discoverPlugins();
+    const { manifests } = await discoverPlugins();
     for (const [id, manifest] of Object.entries(manifests)) state.manifests.set(id, manifest);
-    for (const [id, mod] of Object.entries(modules)) state.modules.set(id, mod);
-
-    // Live server view: which plugins are enabled, with sanitized settings.
     try {
       const res = await authenticatedFetch('/v1/plugins');
-      if (res.ok) {
-        const list = await res.json();
-        for (const p of list) {
-          if (p.enabled) state.enabled.set(p.id, p);
-        }
-      }
+      if (res.ok) await applyActivation(await res.json());
     } catch {
-      // Auth not yet ready (e.g. login page) — slots simply won't render.
+      // Public auth slots use PublicAuthProviders instead of authenticatedFetch.
     }
     state.loaded = true;
   })();
   return state.loadingPromise;
 }
 
-/** Re-fetch the enabled list (after a toggle in admin). */
+/** Re-fetch activation and lazily load newly enabled client modules. */
 export async function refreshActivation() {
   try {
     const res = await authenticatedFetch('/v1/plugins');
     if (!res.ok) return;
-    const list = await res.json();
-    state.enabled.clear();
-    for (const p of list) {
-      if (p.enabled) state.enabled.set(p.id, p);
-    }
-  } catch { /* noop */ }
+    await applyActivation(await res.json());
+  } catch { /* Keep the last confirmed client activation state. */ }
 }
 
-/**
- * Components registered for `slotName` across all *enabled* plugins.
- * Returns an array of `{ pluginId, Component }`.
- */
 export function slotComponents(slotName) {
   const out = [];
   for (const [id] of state.enabled) {
@@ -70,7 +72,6 @@ export function slotComponents(slotName) {
   return out;
 }
 
-/** Settings panel for a single plugin (used by AdminPlugins). */
 export function settingsPanelFor(id) {
   return resolveSettingsPanel(state.modules.get(id));
 }
