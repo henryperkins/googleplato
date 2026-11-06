@@ -162,7 +162,8 @@ async function slackApi(method, path, body) {
   return data;
 }
 
-const STATUS_TEXT = { invited: 'Added', not_in_workspace: 'Not in the workspace', failed: 'Failed' };
+// 'pending': an attempt that started but never recorded its result.
+const STATUS_TEXT = { invited: 'Added', not_in_workspace: 'Not in the workspace', failed: 'Failed', pending: 'Not finished' };
 
 // Auto-invite (#379): add each new plato account to a channel, if the person
 // is already in the workspace (matched by email). Results and retries below.

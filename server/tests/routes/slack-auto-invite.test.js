@@ -61,6 +61,28 @@ describe('Slack auto-invite', () => {
     assert.equal((await autoInvite({ userId: 'usr_4', email: 'in@x.com' }, SETTINGS, { ...timedOut, lookup: async () => 'U1' })).status, 'invited');
   });
 
+  it('an attempt whose result is never recorded stays pending, and Retry all picks it up', async () => {
+    // Slack refuses, then the result can't be written…
+    let writes = 0;
+    const lost = deps({
+      invite: async () => { throw Object.assign(new Error('x'), { data: { error: 'ratelimited' } }); },
+      putMeta: async (u, _p, data) => { if (++writes === 2) throw new Error('storage unavailable'); lost.meta.set(u, data); },
+    });
+    await assert.rejects(autoInvite({ userId: 'usr_5', email: 'in@x.com' }, SETTINGS, lost), /storage unavailable/);
+    assert.deepEqual([lost.meta.get('usr_5').autoInvite.status, lost.meta.get('usr_5').autoInvite.channelId], ['pending', 'C1']);
+    assert.equal(needsRetry(lost.meta.get('usr_5')), true);
+    // …or the process ends while Slack is still answering.
+    const hung = deps({ lookup: () => new Promise(() => {}) });
+    autoInvite({ userId: 'usr_6', email: 'in@x.com' }, SETTINGS, hung);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(hung.meta.get('usr_6').autoInvite.status, 'pending');
+    assert.equal(needsRetry(hung.meta.get('usr_6')), true);
+    // A retry finishes it.
+    const retried = await autoInvite({ userId: 'usr_5', email: 'in@x.com' }, SETTINGS, { ...lost, invite: async () => {}, putMeta: async (u, _p, data) => { lost.meta.set(u, data); } });
+    assert.equal(retried.status, 'invited');
+    assert.equal(needsRetry(lost.meta.get('usr_5')), false);
+  });
+
   it('does nothing while off, without a channel, or without a token', async () => {
     for (const s of [{ ...SETTINGS, autoInviteEnabled: false }, { ...SETTINGS, autoInviteChannelId: '' }, { ...SETTINGS, botToken: null }]) {
       assert.equal(await autoInvite({ userId: 'usr_1', email: 'in@x.com' }, s, d), null);

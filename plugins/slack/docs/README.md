@@ -33,6 +33,10 @@ not in the workspace is recorded as "Not in the workspace".
   (`invited` / `not_in_workspace` / `failed`, with Slack's error code). The
   settings panel lists recent results with **Retry**, and **Retry everyone
   not added** picks up people who joined the workspace later.
+- **Every attempt leaves a record.** A `pending` record is written before
+  Slack is called and replaced by the result. If the result can't be written
+  (storage fails, or the process ends mid-call), the attempt stays `pending`
+  ("Not finished"), so Retry everyone not added still picks it up.
 - **Never twice:** someone already added to the current channel is skipped,
   and Slack's `already_in_channel` counts as done.
 - **Signup waits for the invite** (each Slack call gets one 4 s try). On

@@ -5,8 +5,11 @@
  *
  * The result is kept per user in the plugin's `userMeta:slack` record as
  * `autoInvite: { status, channelId, channelName, at, error? }` with status
- * 'invited' | 'not_in_workspace' | 'failed'. A user already invited to the
- * current channel is skipped, so a retry never invites twice, and Slack's
+ * 'invited' | 'not_in_workspace' | 'failed', or 'pending' while an attempt is
+ * running. 'pending' is written before Slack is called, so an attempt whose
+ * result can't be recorded (a storage failure, or the process ending) still
+ * leaves a record for Retry all. A user already invited to the current
+ * channel is skipped, so a retry never invites twice, and Slack's
  * `already_in_channel` counts as success.
  *
  * The hook waits for the whole invite, including recording the result. On
@@ -23,7 +26,11 @@ async function freshSettings() {
 import { findSlackUserByEmail, inviteToSlackChannel } from './slack-client.js';
 
 
-/** Whether "Retry all" picks this user up: a recorded result that isn't 'invited'. */
+/**
+ * Whether "Retry all" picks this user up: a recorded attempt that isn't
+ * 'invited' (a 'pending' one included). People with no record at all were
+ * never attempted (e.g. they joined before auto-invite was on) and stay out.
+ */
 export function needsRetry(meta) {
   return !!meta?.autoInvite && meta.autoInvite.status !== 'invited';
 }
@@ -42,6 +49,10 @@ export async function autoInvite({ userId, email }, settings, deps = {}) {
   const channelId = settings.autoInviteChannelId;
   const meta = (await getMeta(userId, 'slack')) || {};
   if (meta.autoInvite?.status === 'invited' && meta.autoInvite.channelId === channelId) return null;
+  const target = { channelId, channelName: settings.autoInviteChannelName || null };
+  // Claimed before Slack is called (see the header): if this write fails,
+  // nothing has been attempted yet.
+  await putMeta(userId, 'slack', { ...meta, autoInvite: { status: 'pending', ...target, at: new Date().toISOString() } });
 
   let result;
   try {
@@ -55,7 +66,7 @@ export async function autoInvite({ userId, email }, settings, deps = {}) {
   } catch (err) {
     result = { status: 'failed', error: err?.data?.error || err?.message || 'unknown error' };
   }
-  const record = { ...result, channelId, channelName: settings.autoInviteChannelName || null, at: new Date().toISOString() };
+  const record = { ...result, ...target, at: new Date().toISOString() };
   await putMeta(userId, 'slack', { ...meta, autoInvite: record });
   return record;
 }
