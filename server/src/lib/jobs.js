@@ -1,13 +1,13 @@
 /**
  * Background jobs (#389, #400): work too long for a request (emailing a whole
- * classroom) or run on a schedule. `dispatchJob(name, payload)` returns at
- * once:
+ * classroom) or run on a schedule. `dispatchJob(name, payload)` dispatches by host:
  * - on Lambda, it invokes the **API function** asynchronously with
  *   `{ __platoInternal: 'platoJob', job, payload }`. The stream function (which
  *   serves all CloudFront traffic) finds it in `JOBS_FUNCTION`; the API
  *   function invokes itself. The stream handler can't take a non-HTTP event,
  *   so jobs never target it.
- * - locally and in tests, it runs the job in this process without waiting.
+ * - on Cloud Run, local HTTP and tests, it awaits the in-process job before
+ *   the response; post-response CPU is not required.
  *
  * `index.js`'s API handler routes job events to `runJob`. Jobs register
  * themselves with `registerJob(name, fn)`.

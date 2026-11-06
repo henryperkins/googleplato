@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { logger } from '../lib/logger.js';
 import { isDeepStrictEqual } from 'node:util';
 import db from '../lib/db.js';
 import { resolveReadUserId } from '../lib/view-as.js';
@@ -366,7 +365,7 @@ sync.put('/v1/sync/:dataKey', async (c) => {
   const recordSize = estimateSyncDataSize(userId, dataKey, data);
   if (recordSize > MAX_SCREENSHOT_RECORD_BYTES) {
     const screenshot = dataKey.startsWith('screenshot:');
-    if (!screenshot) logger.error('sync_item_too_large', { dataKey: dataKey.split(':')[0], size: recordSize, limit: MAX_SCREENSHOT_RECORD_BYTES });
+    // observeSyncSave records the 413 once, without data keys or record sizes.
     return c.json({ error: screenshot ? 'Screenshot is too large' : 'This record is too large to save',
       code: screenshot ? 'screenshot_too_large' : 'sync_item_too_large', size: recordSize, limit: MAX_SCREENSHOT_RECORD_BYTES }, 413);
   }

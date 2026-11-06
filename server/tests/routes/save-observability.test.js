@@ -33,6 +33,17 @@ test('logs validation and stale-client rejection separately from data conflicts'
   assert.ok(logger.recent().some(e => e.meta.reason === 'client_upgrade_required'));
   assert.equal(logger.recent().filter(e => e.code === 'sync_conflict').length, 0);
 });
+test('oversized records emit one content-free validation signal without a raw key prefix', async () => {
+  const response = await request('/v1/sync/drafts:secret-id', {
+    data: 'x'.repeat(390 * 1024), version: 0,
+  });
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).code, 'sync_item_too_large');
+  const events = logger.recent();
+  assert.deepEqual(events.map(event => event.code), ['sync_validation_failure']);
+  assert.equal(events[0].meta.status, 413);
+  assert.doesNotMatch(JSON.stringify(events), /private-learner-label|secret-id|dataKey|usr_private/);
+});
 test('logs failed batch items even though the HTTP envelope succeeds', async () => {
   const response = await request('/v1/sync/batch', { items: [
     { dataKey: 'profile', data: {}, version: 1 },

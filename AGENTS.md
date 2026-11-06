@@ -11,12 +11,12 @@ plato is a React/Vite microlearning app with a Hono API.
 
 ## Build, Test, and Development Commands
 
-Use Node.js 20+ and npm. Install dependencies with `npm --prefix client ci` and `npm --prefix server ci`; commands below run from the repository root.
+Use Node.js 24 and npm. Install workspace dependencies with `npm ci` from the root lockfile; commands below run from the repository root. The separate Playwright package uses `npm --prefix e2e ci`.
 
 - `npm run build:client`: build the SPA; run before first server startup.
 - `npm run dev:server`: start the SQLite API at `http://localhost:3000`.
 - `npm run dev:client`: start Vite with hot reload and API proxying.
-- `npm run build`: build client and server; requires AWS SAM CLI.
+- `npm run build`: build the client. The optional AWS server build uses `npm run build:server` and requires AWS SAM CLI.
 - `npm test`: run both packages; `npm run test:client` or `npm run test:server` selects one. Set `POSTGRES_TEST_URL=postgres://...` to include the PostgreSQL integration suite (`server/tests/lib/db-postgres.test.js`).
 - `npm --prefix client run lint` and `npm --prefix server run lint`: run ESLint.
 
