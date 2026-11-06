@@ -32,6 +32,7 @@ test('a learner corrects an inferred name split in Settings; the admin sees it',
   // Put the fixture name back through Edit User, for the specs that follow.
   await page.getByLabel(/^Last name/).fill('Learner');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('alert')).toContainText('User updated.');
+  // Success is announced politely (role="status"); alerts are for errors.
+  await expect(page.getByRole('status').filter({ hasText: 'User updated.' })).toBeVisible();
   await expect(page.getByRole('button', { name: `Edit ${LEARNER.name}`, exact: true })).toBeVisible();
 });

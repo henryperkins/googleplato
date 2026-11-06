@@ -3,10 +3,15 @@
 // and throwaway db, serving the built client (run `npm run build` in client/
 // first; CI does). See e2e/README.md.
 import { defineConfig, devices } from '@playwright/test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const PORT = Number(process.env.E2E_PORT || 3490);
 export const BASE_URL = `http://localhost:${PORT}`;
-export const DB_PATH = process.env.E2E_DB || '/tmp/plato-e2e.db';
+// Publish the unique path to workers/global setup as well. Never delete a caller's
+// database, and keep paths out of the shell command (spaces/metacharacters are valid).
+export const DB_PATH = process.env.E2E_DB ||= join(mkdtempSync(join(tmpdir(), 'plato-e2e-')), 'plato.db');
 
 export default defineConfig({
   testDir: './tests',
@@ -27,7 +32,7 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /a11y\.spec\.js/ },
   ],
   webServer: {
-    command: `rm -f ${DB_PATH} ${DB_PATH}-wal ${DB_PATH}-shm && node dev-sqlite.js`,
+    command: 'node dev-sqlite.js',
     cwd: '../server',
     url: `${BASE_URL}/v1/health`,
     reuseExistingServer: false,

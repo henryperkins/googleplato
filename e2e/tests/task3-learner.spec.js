@@ -7,7 +7,11 @@ async function reset(request, id) {
   const { accessToken } = await (await request.post('/v1/auth/login', { data: LEARNER })).json();
   const status = await (await request.get('/v1/sync/status', { headers: { Authorization: `Bearer ${accessToken}` } })).json();
   const headers = { Authorization: `Bearer ${accessToken}`, 'X-Plato-Client-Protocol': status.protocol, 'X-Plato-Client-Epoch': status.epoch };
-  expect((await request.delete(`/v1/sync/lessonKB:${id}`, { headers })).ok()).toBeTruthy();
+  // Mirror the classroom's Reset lesson (deleteLessonProgress): the lesson KB,
+  // then the transcript. Earlier specs in a full run may have started it.
+  for (const key of [`lessonKB:${id}`, `messages:${id}`]) {
+    expect((await request.delete(`/v1/sync/${key}`, { headers })).ok()).toBeTruthy();
+  }
   return headers;
 }
 const composer = page => page.getByRole('textbox', { name: 'Your message', exact: true });
@@ -39,7 +43,13 @@ test('signed repair, evidence overview and save-only retry retain exact activity
   expect(retained.assessmentRepair.succeeded).toBe(true);
   const signed = JSON.stringify(retained); failSave = false;
   await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Continue to next lesson: Lesson Two' })).toBeVisible();
+  // "Next" follows the unit's admin-defined order, which an earlier spec in a
+  // full run changes (structure.spec moves Lesson Two up), not name order.
+  const unitOrder = (await (await request.get('/v1/lessons', { headers })).json())
+    .filter(lesson => lesson.unit?.id === COURSE.id)
+    .sort((a, b) => a.unit.lessonPosition - b.unit.lessonPosition);
+  const next = unitOrder[unitOrder.findIndex(lesson => lesson.lessonId === id) + 1];
+  await expect(page.getByRole('button', { name: `Continue to next lesson: ${next.name}` })).toBeVisible();
   expect(JSON.stringify(retained)).toBe(signed); expect(generated).toBe(1);
   await page.getByRole('button', { name: /^Behind this response/ }).last().click();
   await expect(page.getByText('Repaired assessment metadata on the server', { exact: true })).toBeVisible();
@@ -58,7 +68,15 @@ test('signed repair, evidence overview and save-only retry retain exact activity
   await page.getByLabel('Course', { exact: true }).selectOption(PROGRAM.id);
   await page.getByLabel('Unit', { exact: true }).selectOption(COURSE.id);
   await page.getByLabel('Status', { exact: true }).selectOption('not-started');
-  await expect(page.getByRole('progressbar', { name: `${PROGRAM.name} progress: 1 of 3 public lessons completed` })).toBeVisible();
+  // The count covers the whole course despite the filters. Earlier specs in a
+  // full run complete other lessons here too (flows.spec), so count them.
+  let completed = 0;
+  for (const lesson of LESSONS) {
+    const kb = await (await request.get(`/v1/sync/lessonKB:${lesson.id}`, { headers })).json().catch(() => null);
+    if (kb?.data?.status === 'completed') completed++;
+  }
+  expect(completed).toBeGreaterThanOrEqual(1);
+  await expect(page.getByRole('progressbar', { name: `${PROGRAM.name} progress: ${completed} of 3 public lessons completed` })).toBeVisible();
   await expectAccessible(page, { label: 'hierarchy and card names' });
   const saved = await (await request.get(`/v1/sync/lesson-turn/${id}`, { headers })).json();
   expect(saved.messages.data.slice(-2)).toEqual(retained.messages); expect(errors).toEqual([]);

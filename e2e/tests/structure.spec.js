@@ -57,7 +57,8 @@ test('learners see lessons grouped by course and unit, in the admin-defined orde
   await expect(page.getByRole('heading', { level: 3, name: COURSE.name })).toBeVisible();
   const cards = page.getByRole('list', { name: `${COURSE.name} lessons` }).getByRole('button', { name: /^Open lesson / });
   await expect(cards).toHaveCount(LESSONS.length);
-  const names = await cards.evaluateAll((els) => els.map((e) => e.querySelector('span').textContent.replace(/^Open lesson /, '')));
+  // Each card's visible title; the card's first span is a screen-reader prefix.
+  const names = await cards.evaluateAll((els) => els.map((e) => e.querySelector('span[dir="auto"]').textContent.trim()));
   expect(names).toEqual([LESSONS[1].name, LESSONS[0].name, LESSONS[2].name]);
   await expect(page.getByLabel('Course', { exact: true })).toHaveValue('all');
   await expectAccessible(page, { label: 'lessons by course and unit' });

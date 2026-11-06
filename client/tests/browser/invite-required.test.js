@@ -20,7 +20,7 @@ const root = fileURLToPath(new URL('../../..', import.meta.url));
 const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
 const browserType = { chromium, firefox, webkit }[browserName];
 assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
-const evidence = join(root, 'output/playwright/invite-required', browserName === 'chromium' ? '' : browserName);
+const evidence = join(process.env.PLATO_TEST_EVIDENCE || join(root, 'output/playwright/invite-required'), browserName === 'chromium' ? '' : browserName);
 const GOOGLE_STUB = `
 export const app = {};
 export const auth = {};

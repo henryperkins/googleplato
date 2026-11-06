@@ -46,7 +46,8 @@ test('long admin dialogs fit the viewport and scroll', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 600 });
   await login(page, ADMIN);
   await page.goto('/plato/users');
-  await page.getByRole('button', { name: 'User Fields' }).click();
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'User Fields', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   const box = await dialog.boundingBox();

@@ -1,6 +1,23 @@
 import AxeBuilder from '@axe-core/playwright';
 
+// The fork's sign-in page preloads Google sign-in (client/js/firebaseAuth.js),
+// whose Firebase SDK talks to Google's servers and can keep the network busy,
+// so `networkidle` would wait on Google. Serve a local stub of that chunk
+// instead (as the fork's browser suites do): no e2e test signs in with Google.
+const GOOGLE_STUB = `
+export const app = {};
+export const auth = {};
+export function onAuthStateChanged() { return () => {}; }
+export async function signInWithGooglePopup() { throw new Error('Google sign-in is stubbed in e2e'); }
+export async function signOutFirebase() {}
+`;
+export async function stubGoogleSignIn(page) {
+  await page.context().route('**/assets/firebaseAuth-*.js',
+    route => route.fulfill({ contentType: 'text/javascript', body: GOOGLE_STUB }));
+}
+
 export async function login(page, { email, password }) {
+  await stubGoogleSignIn(page);
   await page.goto('/login');
   await page.getByLabel(/email or username/i).fill(email);
   await page.locator('input[type=password]').fill(password);

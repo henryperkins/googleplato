@@ -28,6 +28,9 @@ test('the learner can write the next message while the coach replies, and sends 
   await composer.press(`${MOD}+Enter`);
   await expect(composer).toHaveValue('');
   await expect(page.locator('[data-chat-message="user"]', { hasText: 'My next thought' })).toHaveCount(1);
+  // Ending the test closes the page; let this turn finish saving first, or the
+  // next spec opens the lesson with a retained, unsaved reply.
+  await expect(composer).toHaveAccessibleDescription(/Enter to send/, { timeout: 20_000 });
 });
 
 test('choosing Enter to send in Settings applies to the chat', async ({ page }) => {
@@ -51,11 +54,48 @@ test('choosing Enter to send in Settings applies to the chat', async ({ page }) 
   await composer.press('Enter');
   await expect(composer).toHaveValue('');
   await expect(page.locator('[data-chat-message="user"]', { hasText: 'line two' })).toHaveCount(1);
+  await expect(composer).toHaveAccessibleDescription('Enter to send, Shift+Enter for a new line', { timeout: 20_000 });
 
   // Back to the default for the specs that follow.
   await page.goto('/settings');
   await page.getByRole('radio', { name: /^(⌘|Ctrl)\+Enter/ }).check();
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
+});
+
+// A generated reply is kept until the server confirms it saved, and Retry
+// saving repeats only the save. Meanwhile the composer names that hold rather
+// than describing a reply in progress.
+test('a reply that could not be saved holds sending until Retry saving succeeds', async ({ page }) => {
+  await login(page, LEARNER);
+  await page.goto(`/lessons/${LESSONS[0].id}`);
+  const composer = page.getByRole('textbox', { name: 'Your message' }).last();
+  await expect(composer).toHaveAccessibleDescription(/Enter to send/, { timeout: 20_000 });
+  let failedSaves = 0;
+  await page.route('**/v1/sync/lesson-turn/**', route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    failedSaves++;
+    return route.abort('connectionreset');
+  });
+  await composer.fill('A reply whose first save fails');
+  await composer.press(`${MOD}+Enter`);
+  const retry = page.getByRole('button', { name: 'Retry saving' });
+  await expect(retry).toBeVisible({ timeout: 20_000 });
+  await expect(composer).toHaveAccessibleDescription('Send after the reply is saved');
+  await expect(page.getByRole('button', { name: 'Send' }).last()).toBeDisabled();
+  expect(failedSaves).toBe(1);
+
+  await page.unroute('**/v1/sync/lesson-turn/**');
+  let coachRequests = 0;
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/v1/ai/coach/')) coachRequests++;
+  });
+  await retry.click();
+  await expect(retry).toBeHidden({ timeout: 20_000 });
+  await expect(composer).toHaveAccessibleDescription(/Enter to send/);
+  expect(coachRequests).toBe(0);
+  await page.reload();
+  await expect(page.locator('[data-chat-message="user"]', { hasText: 'A reply whose first save fails' })).toHaveCount(1, { timeout: 20_000 });
+  await expect(page.getByRole('textbox', { name: 'Your message' }).last()).toHaveAccessibleDescription(/Enter to send/);
 });
 
 // #411: every reply has a "Behind this response" disclosure.
@@ -81,12 +121,14 @@ test('learners can see which agents worked on a reply and what they did', async 
   const panel = page.locator(`[id="${await latest.getAttribute('aria-controls')}"]`);
   await expect(panel).toContainText('Progress 0 → 3 of 10');
   await expect(panel).toContainText('Mock insight after turn 1');
-  await expect(panel).toContainText('Learner profile');
+  // Activity is signed with the turn, so it names only agents that ran before
+  // the save. The optional learner-profile update runs after it; not claimed.
+  await expect(latest).toHaveAccessibleName('Behind this response: Coach');
   await expectAccessible(page, { label: 'agent activity open' });
 });
 
-// #451 tester QA: a reply without its tags used to record nothing. The client
-// asks for the tags in a second call, and says so under the reply.
+// #451 tester QA: a reply without its tags used to record nothing. The server
+// asks for the assessment in a second call before signing, and says so.
 test('a coach reply that comes back without its tags still records progress', async ({ page }) => {
   await login(page, LEARNER);
   await page.goto('/lessons/getting-started-behind');
@@ -98,7 +140,7 @@ test('a coach reply that comes back without its tags still records progress', as
   const latest = page.getByRole('button', { name: /^Behind this response/ }).last();
   await latest.click();
   const panel = page.locator(`[id="${await latest.getAttribute('aria-controls')}"]`);
-  await expect(panel).toContainText('Recorded this reply’s progress in a second step');
+  await expect(panel).toContainText('Repaired assessment metadata on the server');
   await expect(panel).toContainText(/Progress 0 → [1-9] of 10/);
   await expect(page.getByRole('button', { name: /^Progress \([1-9] of 3 Objectives\): lesson overview$/ }).first()).toBeVisible();
 });
@@ -109,7 +151,8 @@ test('the lesson editor shows the lesson creator behind each reply', async ({ pa
   const button = page.getByRole('button', { name: /^Behind this response/ }).first();
   await expect(button).toBeVisible({ timeout: 20_000 });
   await button.click();
-  await expect(page.getByText('Readiness 3 of 10')).toBeVisible();
+  // The editor starts a new draft at readiness 0, so the first reply shows the change.
+  await expect(page.getByText('Readiness 0 → 3 of 10')).toBeVisible();
 });
 
 // #438: the lesson overview (merged with "Your work"), by keyboard, with the
@@ -144,7 +187,9 @@ test('the lesson overview shows the objectives met so far, where you are, and sh
   await expect(page.getByRole('dialog', { name: LESSONS[2].name })).toBeVisible({ timeout: 20_000 });
 });
 
-// #451 review H1/M10: a reply cut off at max_tokens isn't saved; the draft comes back.
+// #451 review H1/M10: a reply cut off at max_tokens isn't saved; the message
+// comes back. The fork keeps the failed response apart from the composer, and
+// Move to draft returns it for editing.
 test('a cut-off coach reply shows an error and gives the message back to retry', async ({ page }) => {
   await login(page, LEARNER);
   await page.goto(`/lessons/${LESSONS[1].id}`);
@@ -152,15 +197,21 @@ test('a cut-off coach reply shows an error and gives the message back to retry',
   await expect(composer).toHaveAccessibleDescription(/Enter to send/, { timeout: 20_000 });
   await composer.fill('MOCK_TRUNCATE my answer');
   await composer.press(`${MOD}+Enter`);
-  await expect(page.getByRole('alert').filter({ hasText: 'The reply was cut off' })).toBeVisible({ timeout: 20_000 });
-  await expect(composer).toHaveValue('MOCK_TRUNCATE my answer');
+  await expect(page.getByRole('alert').filter({ hasText: 'reply was cut off' })).toBeVisible({ timeout: 20_000 });
+  const unsent = page.getByRole('region', { name: 'Unsent response' });
+  await expect(unsent).toContainText('MOCK_TRUNCATE my answer');
   await expect(page.locator('[data-chat-message="user"]', { hasText: 'MOCK_TRUNCATE' })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole('textbox', { name: 'Your message' }).last()).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('[data-chat-message="user"]', { hasText: 'MOCK_TRUNCATE' })).toHaveCount(0);
+  await unsent.getByRole('button', { name: 'Move to draft' }).click();
+  await expect(page.getByRole('textbox', { name: 'Your message' }).last()).toHaveValue('MOCK_TRUNCATE my answer');
+  await expect(unsent).toHaveCount(0);
 });
 
-test('a failed turn comes back ahead of a draft typed meanwhile', async ({ page }) => {
+// Upstream merged the failed turn into the composer ahead of the new draft;
+// the fork keeps both intact and apart, so neither can truncate the other.
+test('a failed turn is kept apart from a draft typed meanwhile', async ({ page }) => {
   await login(page, LEARNER);
   await page.goto(`/lessons/${LESSONS[1].id}`);
   const composer = page.getByRole('textbox', { name: 'Your message' }).last();
@@ -168,8 +219,13 @@ test('a failed turn comes back ahead of a draft typed meanwhile', async ({ page 
   await composer.fill('MOCK_SLOW MOCK_TRUNCATE my long answer');
   await composer.press(`${MOD}+Enter`);
   await composer.fill('ok');
-  await expect(page.getByRole('alert').filter({ hasText: 'The reply was cut off' })).toBeVisible({ timeout: 20_000 });
-  await expect(composer).toHaveValue('MOCK_SLOW MOCK_TRUNCATE my long answer\n\nok');
+  await expect(page.getByRole('alert').filter({ hasText: 'reply was cut off' })).toBeVisible({ timeout: 20_000 });
+  const unsent = page.getByRole('region', { name: 'Unsent response' });
+  await expect(unsent).toContainText('MOCK_SLOW MOCK_TRUNCATE my long answer');
+  await expect(unsent).toContainText('Your newer draft is kept separately below.');
+  await expect(composer).toHaveValue('ok');
+  await expect(unsent.getByRole('button', { name: 'Move to draft' })).toBeDisabled();
+  await expect(composer).toHaveAccessibleDescription('Send after recovering the earlier response');
 });
 
 // Tester feedback on #451: after "Continue to Next Lesson" the previous

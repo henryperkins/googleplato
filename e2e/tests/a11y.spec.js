@@ -1,7 +1,7 @@
 // axe on every page and dialog: no serious/critical WCAG 2.1 A/AA violations.
 // Runs on desktop and mobile viewports (playwright.config.js projects).
 import { test, expect } from '@playwright/test';
-import { login, expectAccessible } from '../helpers.js';
+import { login, expectAccessible, stubGoogleSignIn } from '../helpers.js';
 import { ADMIN, LEARNER, LESSONS } from '../fixtures.js';
 
 async function settle(page) {
@@ -12,6 +12,7 @@ async function settle(page) {
 test.describe('public pages', () => {
   for (const path of ['/login', '/forgot-password', '/waitlist', '/signup', '/how-assessment-works', '/privacy']) {
     test(path, async ({ page }) => {
+      await stubGoogleSignIn(page);
       await page.goto(path);
       await settle(page);
       await expectAccessible(page, { label: path });
@@ -85,7 +86,7 @@ test.describe('learner pages', () => {
   test('dialog: sign out', async ({ page }) => {
     await page.goto('/lessons');
     await settle(page);
-    await page.getByRole('button', { name: /account menu/ }).click();
+    await page.getByRole('button', { name: /— Account/ }).click();
     await page.getByRole('menuitem', { name: 'Sign Out' }).click();
     await expect(page.getByRole('alertdialog')).toBeVisible();
     await expectAccessible(page, { include: '[role=alertdialog]', label: 'sign out dialog' });
@@ -122,12 +123,16 @@ test.describe('admin pages', () => {
 
   for (const [path, button] of [
     ['/plato/users', 'Invite Users'], ['/plato/users', 'User Groups'], ['/plato/users', 'User Fields'],
-    ['/plato/users', 'Wait List'],
+    ['/plato/users', 'Wait List Settings'],
   ]) {
     test(`dialog: ${button}`, async ({ page }) => {
       await page.goto(path);
       await settle(page);
-      await page.getByRole('button', { name: button }).first().click();
+      if (button === 'Invite Users') await page.getByRole('button', { name: button }).click();
+      else {
+        await page.getByRole('button', { name: 'Manage', exact: true }).click();
+        await page.getByRole('menuitem', { name: button, exact: true }).click();
+      }
       await expect(page.getByRole('dialog')).toBeVisible();
       await expectAccessible(page, { include: '[role=dialog]', label: `${button} dialog` });
     });
