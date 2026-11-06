@@ -14,7 +14,9 @@
     "settings.read",
     "settings.write",
     "ui.slot.adminSettingsPanel",
-    "hook.userCreated"
+    "hook.userCreated",
+    "user.metadata.read",
+    "user.metadata.write"
   ],
   "extensionPoints": {
     "serverRoutes": "server/index.js#default",

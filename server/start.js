@@ -28,6 +28,8 @@ const { hashPassword } = await import('./src/lib/password.js');
 const { seedDefaultContent } = await import('./src/lib/seed.js');
 const { pluginRegistry } = await import('./src/lib/plugins/registry.js');
 const { makePluginDispatcher, makeSlackLegacyShim } = await import('./src/lib/plugins/dispatcher.js');
+const { initializeLaunch, scheduleLaunchJobs } = await import('./src/lib/launch.js');
+const { viewAsReadOnly } = await import('./src/middleware/viewAsReadOnly.js');
 const { logger } = await import('./src/lib/logger.js');
 
 // Do not expose an empty deployment's public setup endpoint before the operator
@@ -44,13 +46,14 @@ if (await db.countUsers() === 0) {
   }
 }
 bootstrapPassword = undefined;
+await initializeLaunch();
 await seedDefaultContent();
 await pluginRegistry.boot();
 
-const app = new Hono();
+export const app = new Hono();
 app.use('*', cors({ origin: process.env.APP_URL,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Plato-View-As', ...CLIENT_COMPATIBILITY_HEADERS],
   exposeHeaders: ['X-Plato-Revision', 'X-Plato-Commit'],
 }));
 app.use('*', async (c, next) => {
@@ -58,7 +61,9 @@ app.use('*', async (c, next) => {
   c.header('X-Plato-Commit', process.env.RELEASE_COMMIT || 'unknown');
   await next();
 });
-for (const name of ['health', 'auth', 'me', 'admin', 'sync', 'client-events', 'ai', 'content', 'links', 'waitlist']) {
+app.use('*', viewAsReadOnly);
+app.use('*', scheduleLaunchJobs);
+for (const name of ['health', 'auth', 'me', 'admin', 'sync', 'client-events', 'ai', 'content', 'links', 'waitlist', 'unsubscribe']) {
   app.route('/', (await import(`./src/routes/${name}.js`)).default);
 }
 app.all('/v1/plugins/:pluginId/*', makePluginDispatcher(pluginRegistry));

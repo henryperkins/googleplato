@@ -200,7 +200,7 @@ me.post('/v1/me/invite/:token/decline', async (c) => {
 me.get('/v1/me/export', async (c) => {
   const user = c.get('user');
   const syncItems = (await db.getAllSyncData(user.userId))
-    .filter((item) => !item.dataKey?.startsWith('userMeta:'));
+    .filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('notify:'));
   const defs = await loadFieldDefinitions();
   const syncData = {};
   for (const item of syncItems) {

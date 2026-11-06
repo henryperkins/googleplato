@@ -72,7 +72,7 @@ describe('admin notifications', () => {
 
   it('sends a test of an unsaved draft to the admin, with sample values', async () => {
     const res = await req('POST', '/v1/admin/notifications/templates/inactivity-nudge/test', { subject: 'Back to {{lessonName}}, {{firstName}}', body: 'Hi {{firstName}}\n\n{{link}}' });
-    assert.deepEqual(await res.json(), { sent: true, to: 'admin@x.com' });
+    assert.deepEqual(await res.json(), { delivered: true, sent: true, to: 'admin@x.com' });
     assert.match(mails[0], /^To: admin@x\.com$/m);
     assert.match(mails[0], /^Subject: \[Test\] Back to Getting Started, Ann$/m);
     assert.ok(!/List-Unsubscribe/.test(mails[0]));
@@ -111,7 +111,7 @@ describe('admin messages (#389)', () => {
     const res = await req('POST', '/v1/admin/notifications/messages', { subject: 'Hi {{firstName}}', body: 'News', inApp: true, email: true, important: true, audience: { type: 'all' } });
     assert.equal(res.status, 201);
     const { message } = await res.json();
-    assert.deepEqual([message.status, message.counts.recipients, message.important], ['sending', 2, true]);
+    assert.deepEqual([message.status, message.counts.recipients, message.important], ['sent', 2, true]);
     await whenJobsIdle(); // the job runs in-process here
     assert.equal(mails.length, 2);
     const history = await (await req('GET', '/v1/admin/notifications/messages')).json();
@@ -134,4 +134,22 @@ describe('admin messages (#389)', () => {
     assert.equal((await (await req('GET', '/v1/me/messages', null, 'usr_ada')).json()).messages[0].read, true);
     assert.equal((await (await req('GET', '/v1/me/messages', null, 'usr_bo')).json()).messages.length, 0);
   });
+});
+
+it('reports message delivery failure and retries only failed recipients through the admin API', async () => {
+  let failed = true;
+  setEmailTransport(async raw => {
+    if (failed && raw.includes('To: bo@')) throw new Error('transport unavailable');
+    mails.push(raw);
+  });
+  const res = await req('POST', '/v1/admin/notifications/messages', { subject: 'News', body: 'Hello', inApp: true, email: true, audience: { type: 'all' }, requestId: 'retry-message-123' });
+  assert.equal(res.status, 503);
+  const { message } = await res.json();
+  assert.equal(message.status, 'failed');
+  assert.equal(message.counts.failed, 1);
+  failed = false;
+  const retry = await req('POST', `/v1/admin/notifications/messages/${message.id}/retry`, {});
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).message.status, 'sent');
+  assert.equal(mails.length, 2);
 });

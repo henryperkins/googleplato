@@ -67,15 +67,29 @@ export function registerNotificationRoutes(admin) {
     if (checked.error) return c.json({ error: checked.error }, 400);
     const user = c.get('user');
     const message = await createMessage(checked.message, user, undefined, { requestId: body.requestId });
-    if (message.duplicate) return c.json({ message }, 200);
-    if (message.email) await dispatchJob('send-message', { id: message.id });
+    if (message.email && message.status !== 'sent') {
+      const failure = await deliverMessage(message.id);
+      if (failure) return c.json({ error: failure, message: await storedMessage(message.id) }, 503);
+    }
+    if (message.duplicate) return c.json({ message: await storedMessage(message.id) }, 200);
     try {
       await db.createAuditLog({
         action: 'message_sent', userId: user.userId, performedBy: user.userId,
         details: { messageId: message.id, audience: message.audience.type, inApp: message.inApp, email: message.email, recipients: message.counts.recipients },
       });
     } catch { /* best-effort */ }
-    return c.json({ message }, 201);
+    return c.json({ message: await storedMessage(message.id) }, 201);
+  });
+
+  admin.post('/v1/admin/notifications/messages/:id/retry', async (c) => {
+    const id = c.req.param('id');
+    const message = await storedMessage(id);
+    if (!message) return c.json({ error: 'Message not found' }, 404);
+    if (message.email && message.status !== 'sent') {
+      const failure = await deliverMessage(id);
+      if (failure) return c.json({ error: failure, message: await storedMessage(id) }, 503);
+    }
+    return c.json({ message: await storedMessage(id) });
   });
 
   // Back to plato's default copy.
@@ -102,4 +116,21 @@ export function registerNotificationRoutes(admin) {
     const result = await sendNotificationEmail({ to: user.email, ...rendered, subject: `[Test] ${rendered.subject}`, classroom });
     return c.json({ ...result, to: user.email });
   });
+}
+
+async function storedMessage(id) {
+  const item = await db.getSyncData('_system', `message:${id}`);
+  return item ? { id, ...item.data } : null;
+}
+
+async function deliverMessage(id) {
+  try {
+    const result = await dispatchJob('send-message', { id });
+    if (!result?.error) return null;
+  } catch { /* The recipient job already recorded its failure counts. */ }
+  const item = await db.getSyncData('_system', `message:${id}`);
+  if (item && item.data.status !== 'sent') {
+    await db.putSyncData('_system', `message:${id}`, { ...item.data, status: 'failed', deliveryError: 'Email delivery failed. Retry this message.' }, item.version);
+  }
+  return 'Email delivery failed. Retry this message.';
 }

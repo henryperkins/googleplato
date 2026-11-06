@@ -147,7 +147,7 @@ export function registerHierarchyRoutes(admin) {
     // Per-lesson re-read so a concurrent edit isn't clobbered, and skip any
     // lesson another admin already moved to a different unit.
     for (const key of affected) {
-      await updateRecord(key, (d) => (d.course === id ? { ...d, course: null } : d));
+      await updateRecord(key, (d) => (d.course === id ? { ...d, course: null, authoringOperationId: null } : d));
     }
     if (item.data?.programId) {
       await updateRecord(`program:${item.data.programId}`, (d) => ({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }));

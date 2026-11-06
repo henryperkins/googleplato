@@ -4,7 +4,7 @@
  */
 import bedrock from './bedrock.js';
 import workersAi from './workers-ai.js';
-import { BEDROCK_MODEL, readAiSettings } from './ai-settings.js';
+import { BEDROCK_MODEL, readAiSettings, mockProviderEnabled } from './ai-settings.js';
 import { createInferenceTelemetry, currentInferenceContext, recordSettingsFailure } from './inference-telemetry.js';
 import { classifyAiError } from './ai-errors.js';
 
@@ -74,4 +74,10 @@ function invocation(settings, stream, context) {
       region: workers ? 'global' : process.env.AWS_REGION || 'us-east-2' }) };
 }
 
-export default ai;
+// Synthetic browser qualification keeps the real signed-turn/assessment path.
+// Cloud Run and Lambda production never accept a canned provider by accident.
+const mockAdapter = mockProviderEnabled() ? (await import('./ai-mock.js')).default : null;
+const provider = mockAdapter ? { ...ai, ...mockAdapter,
+  invokeWithSettings: (_settings, body, options) => mockAdapter.invoke(LLM, body, options),
+} : ai;
+export default provider;

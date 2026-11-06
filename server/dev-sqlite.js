@@ -43,6 +43,9 @@ const { default: db } = await import('./src/lib/db.js');
 const { generateUserId } = await import('./src/lib/crypto.js');
 const { hashPassword } = await import('./src/lib/password.js');
 const { ADMIN_EMAIL, ADMIN_PASSWORD } = await import('./src/config.js');
+const { initializeLaunch, scheduleLaunchJobs } = await import('./src/lib/launch.js');
+const { viewAsReadOnly } = await import('./src/middleware/viewAsReadOnly.js');
+const { default: unsubscribe } = await import('./src/routes/unsubscribe.js');
 const { seedDefaultContent } = await import('./src/lib/seed.js');
 const { pluginRegistry } = await import('./src/lib/plugins/registry.js');
 const { makePluginDispatcher, makeSlackLegacyShim } = await import('./src/lib/plugins/dispatcher.js');
@@ -52,7 +55,7 @@ const server = new Hono();
 server.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Plato-View-As', ...CLIENT_COMPATIBILITY_HEADERS],
 }));
 
 // Admin bootstrap
@@ -76,6 +79,10 @@ if (ADMIN_EMAIL && ADMIN_PASSWORD) {
   }
 }
 
+await initializeLaunch();
+server.use('*', viewAsReadOnly);
+server.use('*', scheduleLaunchJobs);
+
 // Seed/update prompts, lessons on every startup
 try {
   const seeded = await seedDefaultContent();
@@ -94,6 +101,7 @@ server.route('/', ai);
 server.route('/', content);
 server.route('/', links);
 server.route('/', waitlist);
+server.route('/', unsubscribe);
 // `app` (SPA fallback `app.get('*')`) is mounted LAST — see plugin catch-all below.
 
 // Plugin registry: discover and activate plugins. Same catch-all pattern as

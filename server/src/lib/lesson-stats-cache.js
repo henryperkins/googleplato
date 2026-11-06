@@ -56,7 +56,7 @@ export function classifyCache(cached) {
 }
 
 export async function kickoffAsyncRefresh() {
-  const fnName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  const fnName = process.env.JOBS_FUNCTION || process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (!fnName) return; // local dev / tests / Cloud Run (single-flight below)
   try {
     const { InvokeCommand } = await import('@aws-sdk/client-lambda');

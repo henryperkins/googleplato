@@ -17,12 +17,12 @@ import { logger } from './logger.js';
 
 const JOB_MARKER = 'platoJob';
 const jobs = new Map();
-const pendingLocal = new Set();
+
 let lambda = null;
 
 /** Resolves when every in-process job has finished (local dev and tests). */
 export async function whenJobsIdle() {
-  while (pendingLocal.size) await Promise.allSettled([...pendingLocal]);
+  // Local dispatch promises resolve only once their job has finished.
 }
 
 export function registerJob(name, fn) {
@@ -50,16 +50,13 @@ export async function runJob(name, payload = {}) {
   }
 }
 
-/** Fire and forget. Never throws; a failure to dispatch is logged. */
+/** Lambda enqueue errors are returned; in-process execution failures throw. */
 export async function dispatchJob(name, payload = {}) {
   const target = process.env.JOBS_FUNCTION || process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (!target) {
-    const p = new Promise((resolve) => setImmediate(resolve))
-      .then(() => runJob(name, payload))
-      .catch(() => {})
-      .finally(() => pendingLocal.delete(p));
-    pendingLocal.add(p);
-    return { local: true };
+    // Cloud Run may suspend CPU as soon as the HTTP response completes.
+    // The dispatch promise therefore owns execution through completion.
+    return { local: true, result: await runJob(name, payload) };
   }
   try {
     await (lambda ||= new LambdaClient({})).send(new InvokeCommand({

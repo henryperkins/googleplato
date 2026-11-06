@@ -147,9 +147,7 @@ describe('send-message job', () => {
     await m.sendMessageEmails({ id: msg.id }, { db }).catch(() => {});
     setEmailTransport(async (raw) => { mails.push(raw); });
     const before = mails.length;
-    // Simulate the crash: the record never flipped to 'sent'.
-    const rec = await db.getSyncData('_system', `message:${msg.id}`);
-    await db.putSyncData('_system', `message:${msg.id}`, { ...rec.data, status: 'sending' }, rec.version);
+    assert.equal((await db.getSyncData('_system', `message:${msg.id}`)).data.status, 'failed');
     const counts = await m.sendMessageEmails({ id: msg.id }, { db });
     assert.equal(mails.length - before, 1, 'only the person whose send failed gets a retry');
     assert.equal(counts.emailed, 2);
@@ -166,7 +164,7 @@ describe('jobs', () => {
   it('runs a registered job locally when not on Lambda; unknown jobs report an error', async () => {
     let ran = null;
     jobs.registerJob('test-job', async (p) => { ran = p; return { ok: true }; });
-    assert.deepEqual(await jobs.dispatchJob('test-job', { a: 1 }), { local: true });
+    assert.deepEqual(await jobs.dispatchJob('test-job', { a: 1 }), { local: true, result: { ok: true } });
     await jobs.whenJobsIdle();
     assert.deepEqual(ran, { a: 1 });
     assert.deepEqual(await jobs.runJob('nope'), { error: 'unknown job' });

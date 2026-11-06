@@ -104,7 +104,7 @@ describe('Google sign-in with an invitation', () => {
     assert.equal(res.status, 201);
     const data = await res.json();
     assert.equal(data.user.email, 'invited@example.com');
-    assert.equal(data.user.role, 'user');
+    assert.equal(data.user.role, 'learner');
     assert.equal(calls.created.length, 1);
     assert.deepEqual(calls.used, ['inv_email']);
   });
@@ -116,7 +116,7 @@ describe('Google sign-in with an invitation', () => {
       : null);
     const res = await post({ idToken: 'valid_token', inviteToken: 'inv_link' });
     assert.equal(res.status, 201);
-    assert.equal((await res.json()).user.role, 'user');
+    assert.equal((await res.json()).user.role, 'learner');
     assert.deepEqual(calls.linkUses, ['inv_link']);
   });
 
@@ -125,7 +125,7 @@ describe('Google sign-in with an invitation', () => {
     db.getInviteByEmail = async () => ({ inviteToken: 'inv_someone', email: 'someone@example.com', status: 'pending', ttl: future() });
     const res = await post();
     assert.equal(res.status, 201);
-    assert.equal(calls.created[0].role, 'user');
+    assert.equal(calls.created[0].role, 'learner');
   });
 });
 
@@ -154,7 +154,7 @@ describe('Existing accounts and first-time setup', () => {
       assert.equal(res.status, 200);
       const data = await res.json();
       assert.equal(data.user.userId, `usr_${role}`);
-      assert.equal(data.user.role, role);
+      assert.equal(data.user.role, role === 'user' ? 'learner' : role);
     }
     assert.equal(inviteLookups, 0, 'an existing account never needs an invitation');
     assert.deepEqual(calls.created, []);
@@ -174,4 +174,18 @@ describe('Existing accounts and first-time setup', () => {
     assert.equal(calls.created[0].role, 'admin');
     assert.deepEqual(calls.used, []);
   });
+});
+
+it('preserves an explicitly entered Google name split on setup and invited signup', async () => {
+  signInAs({ email: 'mary@example.test', name: 'Mary Ann Evans' });
+  db.countUsers = async () => 0;
+  db.putSyncData = async () => ({ version: 1 });
+  assert.equal((await post({ idToken: 'valid_token', firstName: 'Mary Ann', lastName: 'Evans' })).status, 201);
+  assert.equal(calls.created[0].firstName, 'Mary Ann');
+  assert.equal(calls.created[0].lastName, 'Evans');
+  db.countUsers = async () => 1;
+  db.getInviteByEmail = async () => ({ inviteToken: 'inv_mary', email: 'mary@example.test', status: 'pending', ttl: future() });
+  assert.equal((await post({ idToken: 'valid_token', firstName: 'Mary Ann', lastName: 'Evans' })).status, 201);
+  assert.equal(calls.created[1].firstName, 'Mary Ann');
+  assert.equal(calls.created[1].lastName, 'Evans');
 });

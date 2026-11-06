@@ -117,7 +117,7 @@ describe('buildMime', () => {
     const headerBlock = raw.split('\r\n\r\n')[0];
     assert.ok(!/^Bcc:/m.test(headerBlock), 'no injected header');
     assert.match(headerBlock, /^Subject: =\?UTF-8\?B\?/m);
-    assert.match(headerBlock, /^From: "Aula Uno" <no-reply@x\.org>$/m);
+    assert.match(headerBlock, /^From: Aula Uno <no-reply@x\.org>$/m);
     assert.match(headerBlock, /^List-Unsubscribe: <https:\/\/x\/u>$/m);
     assert.deepEqual(decodeParts(raw), ['plain ✓', '<p>html</p>']);
   });
@@ -126,7 +126,7 @@ describe('buildMime', () => {
 describe('sendTemplated', () => {
   it('adds an unsubscribe link + one-click headers for a kind, and honors the opt-out', async () => {
     const r = await n.sendTemplated('inactivity-nudge', { to: 'ada@x.com', userId: 'usr_ada', kind: 'nudge', vars: { firstName: 'Ada', lessonName: 'Values', progress: '60%', link: 'https://x/l' } }, { db });
-    assert.deepEqual(r, { sent: true });
+    assert.deepEqual(r, { delivered: true, sent: true });
     assert.equal(sent.length, 1);
     assert.match(sent[0], /^List-Unsubscribe: <http[^>]+\/v1\/unsubscribe\?token=[^>]+>$/m);
     assert.match(sent[0], /^List-Unsubscribe-Post: List-Unsubscribe=One-Click$/m);
@@ -146,7 +146,7 @@ describe('sendTemplated', () => {
     assert.deepEqual(await n.sendTemplated('waitlist-confirmation', { to: 'w@x.com', vars: {} }, { db }), { blocked: true });
     delete process.env.EMAIL_ALLOWLIST;
     process.env.SKIP_EMAIL = 'true';
-    assert.deepEqual(await n.sendTemplated('waitlist-confirmation', { to: 'w@x.com', vars: {} }, { db }), { skipped: true });
+    assert.deepEqual(await n.sendTemplated('waitlist-confirmation', { to: 'w@x.com', vars: {} }, { db }), { delivered: false, reason: 'email_disabled', skipped: true });
     assert.equal(sent.length, 1);
   });
   it('setOptOut refuses unknown kinds', async () => {
@@ -188,7 +188,7 @@ describe('invitations (always on, editable)', () => {
 
   it('the existing-account invite links to the classroom', async () => {
     const r = await n.sendAccountInviteEmail('ada@x.com', 'Ann', { firstName: 'Ada' });
-    assert.deepEqual(r, { sent: true });
+    assert.deepEqual(r, { delivered: true, sent: true });
     const [text, html] = decodeParts(sent[0]);
     assert.match(text, /Ann has invited you/);
     assert.ok(html.includes('/lessons"') && html.includes('>Sign in to accept</a>'));
@@ -201,4 +201,21 @@ describe('invitations (always on, editable)', () => {
     assert.match(r.signupUrl, /signup\?token=inv_s$/);
     assert.equal(sent.length, 0);
   });
+});
+
+it('templated suppressed invitations return explicit delivery-off and never log recipients or bearer links', async () => {
+  process.env.SKIP_EMAIL = 'true';
+  const logs = [];
+  const original = console.log;
+  const { logger } = await import('../../src/lib/logger.js');
+  logger._reset();
+  console.log = (...args) => logs.push(args.join(' '));
+  try {
+    const result = await n.sendInviteEmail('secret-recipient@example.test', 'secret-invite-token', 'Admin');
+    assert.equal(result.delivered, false);
+    assert.equal(result.reason, 'email_disabled');
+    assert.ok(result.signupUrl.includes('secret-invite-token'));
+    const logged = logs.join('\n') + JSON.stringify(logger.recent());
+    assert.doesNotMatch(logged, /secret-recipient|secret-invite-token|signup\?token/);
+  } finally { console.log = original; }
 });

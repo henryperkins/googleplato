@@ -22,7 +22,8 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { SESClient, SendRawEmailCommand } from '@aws-sdk/client-ses';
 import { JWT_SECRET, SES_FROM_EMAIL, APP_URL } from '../config.js';
 import defaultDb from './db.js';
-import { escapeHtml, safeColor, emailWrapper, getClassroom } from './email.js';
+import { escapeHtml, safeColor, emailWrapper, getClassroom, formatSender } from './email.js';
+import { brandForeground, contrastOnWhite } from './branding.js';
 import { logger } from './logger.js';
 
 let ses = null;
@@ -192,7 +193,7 @@ export function renderEmail({ subject, body }, vars, { classroom, linkLabel = 'O
   const htmlParas = paragraphs.map((p) => {
     if (/^\{\{\s*link\s*\}\}$/.test(p)) {
       if (!link) return '';
-      return `<p style="margin: 0 0 16px;"><a href="${escapeHtml(link)}" style="display: inline-block; background: ${primary}; color: #fff; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">${escapeHtml(fill(linkLabel, vars))}</a></p>`;
+      return `<p style="margin: 0 0 16px;"><a href="${escapeHtml(link)}" style="display: inline-block; background: ${primary}; color: ${brandForeground(primary)}; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;${contrastOnWhite(primary) < 3 ? ' border: 1px solid #757575;' : ''}">${escapeHtml(fill(linkLabel, vars))}</a></p>`;
     }
     const html = escapeHtml(p).replace(VAR_RE, (_, k) => escapeHtml(vars[k] == null ? '' : String(vars[k])));
     if (!html.trim()) return '';
@@ -254,7 +255,8 @@ export async function updateNotifyState(userId, change, db = defaultDb) {
     const next = change(cur);
     if (next === cur) return cur;
     try {
-      await db.putSyncData(userId, STATE_KEY, next, item?.version || 0);
+      if (item) await db.putSyncData(userId, STATE_KEY, next, item.version);
+      else await db.createSyncData(userId, STATE_KEY, next);
       return next;
     } catch (err) {
       if (err.name !== 'ConditionalCheckFailedException' || attempt === 1) throw err;
@@ -296,7 +298,7 @@ export function buildMime({ fromName, fromAddress, to, subject, text, html, head
   const boundary = `plato_${randomBytes(12).toString('hex')}`;
   const name = oneLine(fromName || 'plato').replace(/["<>\\]/g, '') || 'plato';
   return [
-    `From: ${asciiOnly(name) ? `"${name}"` : encodeWord(name)} <${oneLine(fromAddress)}>`,
+    `From: ${formatSender(name, oneLine(fromAddress))}`,
     `To: ${oneLine(to)}`,
     `Subject: ${encodeWord(oneLine(subject))}`,
     'MIME-Version: 1.0',
@@ -325,18 +327,18 @@ export function buildMime({ fromName, fromAddress, to, subject, text, html, head
  */
 export async function sendNotificationEmail({ to, subject, text, html, classroom, unsubscribe = null, send = transport, allowlist = true }) {
   if (allowlist && !emailAllowed(to)) {
-    logger.warn('email_not_allowlisted', { to: String(to).replace(/^[^@]*/, '***') });
+    logger.warn('email_not_allowlisted');
     return { blocked: true };
   }
   if (process.env.SKIP_EMAIL === 'true') {
-    console.log(`[SKIP_EMAIL] ${subject} → ${to}`);
-    return { skipped: true };
+    logger.info('email_suppressed', { kind: 'notification' });
+    return { delivered: false, reason: 'email_disabled', skipped: true };
   }
   const headers = unsubscribe
     ? { 'List-Unsubscribe': `<${unsubscribe}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
     : {};
   await send(buildMime({ fromName: classroom?.name, fromAddress: SES_FROM_EMAIL, to, subject, text, html, headers }));
-  return { sent: true };
+  return { delivered: true, sent: true };
 }
 
 /**
@@ -369,10 +371,9 @@ export async function sendTemplated(id, { to, userId = null, kind = null, vars =
 // Always sent (ALWAYS_ON), from the editable `invite` / `account-invite`
 // templates. Like the hand-built emails they replaced, they ignore
 // EMAIL_ALLOWLIST: an admin typed the address, so an invite on playground
-// still reaches the person invited. SKIP_EMAIL logs the link instead.
+// still reaches the person invited. SKIP_EMAIL returns delivery-off metadata without logging credentials.
 
 async function sendInvitation(id, to, link, inviterName, firstName, opts) {
-  if (process.env.SKIP_EMAIL === 'true') console.log(`[SKIP_EMAIL] ${id} for ${to}: ${link}`);
   const classroom = await getClassroom();
   return sendTemplated(id, {
     to,
@@ -382,7 +383,7 @@ async function sendInvitation(id, to, link, inviterName, firstName, opts) {
 
 /** The signup invite. Returns `{ sent | skipped, signupUrl }`. */
 export async function sendInviteEmail(to, inviteToken, inviterName, { firstName = null, ...opts } = {}) {
-  const signupUrl = `${APP_URL}/signup?token=${inviteToken}`;
+  const signupUrl = `${APP_URL}/signup?token=${encodeURIComponent(inviteToken)}`;
   const r = await sendInvitation('invite', to, signupUrl, inviterName, firstName, opts);
   return { ...r, signupUrl };
 }

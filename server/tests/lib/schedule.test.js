@@ -11,6 +11,10 @@ function fakeDb(automations) {
   return {
     rows,
     async getSyncData(u, k) { return rows.get(`${u}:${k}`) || null; },
+    async createSyncData(u, k, data) {
+      if (rows.has(`${u}:${k}`)) throw conflict();
+      rows.set(`${u}:${k}`, { data, version: 1 });
+    },
     async putSyncData(u, k, data, v) {
       const cur = rows.get(`${u}:${k}`);
       if ((cur?.version || 0) !== (v || 0)) throw conflict();
@@ -42,9 +46,9 @@ describe('schedule', () => {
 
   it('only one container wins the claim', async () => {
     const db = fakeDb({ inactivityNudge: true });
-    const real = db.putSyncData;
+    const real = db.createSyncData;
     let first = true;
-    db.putSyncData = async (...a) => { if (first) { first = false; db.rows.set('_system:jobs:schedule', { data: { lastRun: {} }, version: 1 }); } return real(...a); };
+    db.createSyncData = async (...a) => { if (first) { first = false; db.rows.set('_system:jobs:schedule', { data: { lastRun: {} }, version: 1 }); } return real(...a); };
     assert.deepEqual(await runDueJobs({ db, dispatch, now: at('2026-11-04T16:00:00Z'), force: true }), []);
     assert.deepEqual(dispatched, []);
   });

@@ -2,6 +2,7 @@
  * Lesson markdown checks, shared by the admin lesson PUT and the lesson
  * rewrite scripts (scripts/apply-lessons.js, #261).
  */
+import { parseLessonPrompt } from '../shared/lessonMarkdown.js';
 import { MIN_OBJECTIVES, MAX_OBJECTIVES } from './lesson-limits.js';
 
 /** The `- Can …` lines under `## Learning Objectives`. */
@@ -9,16 +10,8 @@ import { MIN_OBJECTIVES, MAX_OBJECTIVES } from './lesson-limits.js';
 // every `- ` bullet under a case-insensitive "## Learning Objectives", so the
 // 2–4 check counts exactly what the lesson planner will be handed.
 export function lessonObjectives(markdown) {
-  const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
-  const start = lines.findIndex((l) => /^## learning objectives\s*$/i.test(l));
-  if (start < 0) return null;
-  const out = [];
-  for (const line of lines.slice(start + 1)) {
-    if (/^## /.test(line)) break;
-    const m = line.match(/^-\s+(.+)/);
-    if (m) out.push(m[1].trim());
-  }
-  return out;
+  const objectives = parseLessonPrompt('', String(markdown || '').replace(/\r\n?/g, '\n')).learningObjectives;
+  return objectives.length ? objectives : null;
 }
 
 /** Microlearning constraints. Returns an error string or null. */

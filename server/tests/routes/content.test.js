@@ -373,7 +373,7 @@ describe('?asUserId= (admin View as User)', () => {
     const app = new Hono();
     app.route('/', content);
     for (const t of ['_system', 'usr_nobody']) {
-      assert.equal((await adminReq(app, 'GET', `/v1/lessons?asUserId=${t}`)).status, 404, t);
+      assert.equal((await adminReq(app, 'GET', `/v1/lessons?asUserId=${t}`)).status, t.startsWith('_') ? 403 : 404, t);
     }
     assert.equal(reads, 0);
   });

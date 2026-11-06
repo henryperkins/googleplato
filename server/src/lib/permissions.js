@@ -57,6 +57,16 @@ export const ADMIN_ONLY = 'admin.only';
 
 // [METHOD, path pattern as registered in routes/admin.js, permission]
 const R = [
+  ['GET', '/v1/admin/ai-settings', 'ai.read'],
+  ['PUT', '/v1/admin/ai-settings', 'ai.write'],
+  ['POST', '/v1/admin/ai-settings/test', 'ai.write'],
+  ['POST', '/v1/admin/ai-settings/cloudflare/connect', 'ai.write'],
+  ['POST', '/v1/admin/ai-settings/cloudflare/account', 'ai.write'],
+  ['DELETE', '/v1/admin/ai-settings/cloudflare', 'ai.write'],
+  ['POST', '/v1/admin/ai-settings/cloudflare/revoke', 'ai.write'],
+  ['POST', '/v1/admin/users/:userId/lessons/:lessonId/continuity-repair', 'users.repair'],
+  ['POST', '/v1/admin/waitlist/:token/apply', 'waitlist.write'],
+  ['POST', '/v1/admin/notifications/messages/:id/retry', 'notifications.write'],
   // Content: lessons and courses
   ['GET', '/v1/admin/lessons', 'content.read'],
   ['GET', '/v1/admin/lessons/:lessonId', 'content.read'],

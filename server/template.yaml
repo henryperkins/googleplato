@@ -10,6 +10,10 @@ Parameters:
       - prod
       - playground
     Description: Deployment stage (prod or playground)
+  EmailAllowlist:
+    Type: String
+    Default: ''
+    Description: Comma-separated notification recipients or @domains (empty allows prod only)
   CloudflareAccountId:
     Type: String
     Default: ''
@@ -42,7 +46,7 @@ Conditions:
 Globals:
   Function:
     Timeout: 60
-    Runtime: nodejs20.x
+    Runtime: nodejs24.x
     MemorySize: 1024
     Tags:
       Application: plato
@@ -53,7 +57,7 @@ Resources:
   PlatoApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Timeout: 120
+      Timeout: 300
       Handler: src/index.handler
       CodeUri: .
       Environment:
@@ -68,6 +72,7 @@ Resources:
           ADMIN_EMAIL: !Sub '{{resolve:ssm:/plato/${Stage}/admin-email}}'
           ADMIN_PASSWORD: !Sub '{{resolve:ssm:/plato/${Stage}/admin-password}}'
           SES_FROM_EMAIL: !Sub '{{resolve:ssm:/plato/${Stage}/ses-from-email}}'
+          EMAIL_ALLOWLIST: !Ref EmailAllowlist
           APP_URL: !Sub '{{resolve:ssm:/plato/${Stage}/app-url}}'
           CLOUDFLARE_ACCOUNT_ID: !Ref CloudflareAccountId
           CLOUDFLARE_API_TOKEN: !Ref CloudflareApiToken
@@ -87,7 +92,9 @@ Resources:
             TableName: !Ref AuditLogTable
         - Statement:
             - Effect: Allow
-              Action: ses:SendEmail
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
               Resource: '*'
         - Statement:
             - Effect: Allow
@@ -132,6 +139,7 @@ Resources:
       CodeUri: .
       Environment:
         Variables:
+          JOBS_FUNCTION: !Ref PlatoApiFunction
           USERS_TABLE: !Ref UsersTable
           INVITES_TABLE: !Ref InvitesTable
           REFRESH_TOKENS_TABLE: !Ref RefreshTokensTable
@@ -142,6 +150,7 @@ Resources:
           ADMIN_EMAIL: !Sub '{{resolve:ssm:/plato/${Stage}/admin-email}}'
           ADMIN_PASSWORD: !Sub '{{resolve:ssm:/plato/${Stage}/admin-password}}'
           SES_FROM_EMAIL: !Sub '{{resolve:ssm:/plato/${Stage}/ses-from-email}}'
+          EMAIL_ALLOWLIST: !Ref EmailAllowlist
           APP_URL: !Sub '{{resolve:ssm:/plato/${Stage}/app-url}}'
           CLOUDFLARE_ACCOUNT_ID: !Ref CloudflareAccountId
           CLOUDFLARE_API_TOKEN: !Ref CloudflareApiToken
@@ -161,7 +170,9 @@ Resources:
             TableName: !Ref AuditLogTable
         - Statement:
             - Effect: Allow
-              Action: ses:SendEmail
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
               Resource: '*'
         - Statement:
             - Effect: Allow

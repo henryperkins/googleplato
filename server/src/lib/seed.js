@@ -57,12 +57,8 @@ async function seedOnce() {
       const existing = await db.getSyncData('_system', `prompt:${name}`);
       if (!existing || existing.data.content !== content) {
         // Another container starting at the same time may have just written it.
-        try {
-          await db.putSyncData('_system', `prompt:${name}`, { content, updatedBy: 'setup' }, existing?.version || 0);
-          seeded++;
-        } catch (err) {
-          if (err.name !== 'ConditionalCheckFailedException') throw err;
-        }
+        await db.putSyncData('_system', `prompt:${name}`, { content, updatedBy: 'setup' }, existing?.version || 0);
+        seeded++;
       }
     }
   }
@@ -90,24 +86,15 @@ async function seedOnce() {
         const existing = await db.getSyncData('_system', key);
         if (!existing || existing.data.content !== content) {
           // Another container starting at the same time may have just written it.
-          try {
-            await db.putSyncData('_system', key, { content, updatedBy: `plugin:${pluginDirName}` }, existing?.version || 0);
-            seeded++;
-          } catch (err) {
-            if (err.name !== 'ConditionalCheckFailedException') throw err;
-          }
+          await db.putSyncData('_system', key, { content, updatedBy: `plugin:${pluginDirName}` }, existing?.version || 0);
+          seeded++;
         }
       }
     }
   }
 
-  // Bundled lessons (#443): install once, keep unedited copies current.
-  try {
-    const bundled = await ensureBundledLessons({ db });
-    seeded += bundled.installed.length + bundled.updated.length;
-  } catch (err) {
-    console.error('Bundled lessons failed (non-fatal):', err.message);
-  }
+  const bundled = await ensureBundledLessons({ db });
+  seeded += bundled.installed.length + bundled.updated.length;
 
   // Lessons are NOT seeded, with one exception: lessons bundled with plato
   // (Getting Started, #443) are installed and kept current by

@@ -14,6 +14,7 @@ export async function resolveReadUserId(c) {
   if (!can(c.get('role'), 'impersonation.use')) {
     return { error: c.json({ error: 'Admin access required to read as another user' }, 403) };
   }
+  if (asUserId.startsWith('_')) return { error: c.json({ error: 'Server records are not available through user sync' }, 403) };
   if (!asUserId.startsWith('usr_') || !(await db.getUserById(asUserId))) {
     return { error: c.json({ error: 'User not found' }, 404) };
   }

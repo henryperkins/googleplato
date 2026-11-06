@@ -172,7 +172,7 @@ export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
         // already emailed instead of emailing them twice.
         let claimed = false;
         await updateNotifyState(u.userId, (st) => {
-          claimed = !st.emailed?.[id]; // recomputed if the write is retried
+          claimed = !st.optOut?.messages && !st.emailed?.[id]; // recomputed if the write is retried
           if (!claimed) return st;
           // Only recent messages need remembering; keep the record small.
           const recent = Object.entries(st.emailed || {}).sort((a, b) => b[1].localeCompare(a[1])).slice(0, 49);
@@ -209,7 +209,8 @@ export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
   }
   await Promise.all(Array.from({ length: SEND_CONCURRENCY }, worker));
   const latest = await db.getSyncData('_system', `message:${id}`);
-  await db.putSyncData('_system', `message:${id}`, { ...latest.data, status: 'sent', counts, sentAt: new Date().toISOString() }, latest.version);
+  await db.putSyncData('_system', `message:${id}`, { ...latest.data, status: counts.failed ? 'failed' : 'sent', counts, ...(counts.failed ? {} : { sentAt: new Date().toISOString() }) }, latest.version);
+  if (counts.failed) throw new Error(`Message delivery failed for ${counts.failed} recipient(s)`);
   return counts;
 }
 

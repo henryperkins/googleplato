@@ -17,6 +17,10 @@ import db from './lib/db.js';
 import { generateUserId } from './lib/crypto.js';
 import { hashPassword } from './lib/password.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD } from './config.js';
+import { initializeLaunch, scheduleLaunchJobs } from './lib/launch.js';
+import { isJobEvent, runJob } from './lib/jobs.js';
+import { viewAsReadOnly } from './middleware/viewAsReadOnly.js';
+import unsubscribe from './routes/unsubscribe.js';
 import { seedDefaultContent } from './lib/seed.js';
 import { logger } from './lib/logger.js';
 import { pluginRegistry } from './lib/plugins/registry.js';
@@ -30,7 +34,7 @@ const server = new Hono();
 server.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Plato-View-As', ...CLIENT_COMPATIBILITY_HEADERS],
 }));
 
 // First-request initialization: admin bootstrap, content seeding
@@ -58,6 +62,7 @@ server.use('*', async (c, next) => {
         console.error('Admin bootstrap failed:', err.message);
       }
     }
+    await initializeLaunch();
     // Seed/update prompts and lessons
     try {
       const seeded = await seedDefaultContent();
@@ -78,6 +83,8 @@ server.use('*', async (c, next) => {
   await next();
 });
 
+server.use('*', viewAsReadOnly);
+server.use('*', scheduleLaunchJobs);
 server.route('/', health);
 server.route('/', auth);
 server.route('/', me);
@@ -88,6 +95,7 @@ server.route('/', ai);
 server.route('/', content);
 server.route('/', links);
 server.route('/', waitlist);
+server.route('/', unsubscribe);
 
 // Plugin catch-all + legacy shim. See server/src/lib/plugins/dispatcher.js for
 // the handler logic. Registered BEFORE `app` because app.js has a global SPA
@@ -114,6 +122,7 @@ server.onError((err, c) => {
 // Wrapped to also handle self-invoke events for async dashboard-stats refresh.
 const _httpHandler = handle(server);
 export const handler = async (event, context) => {
+  if (isJobEvent(event)) return runJob(event.job, event.payload);
   if (isSelfInvokeEvent(event)) {
     try {
       await recomputeAndCacheLessonStats();

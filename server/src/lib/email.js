@@ -21,7 +21,7 @@ export function emailDeliveryEnabled() {
   return process.env.SKIP_EMAIL !== 'true';
 }
 
-async function getClassroom() {
+export async function getClassroom() {
   const item = await db.getSyncData('_system', 'settings');
   const s = item?.data || {};
   const primary = publicTheme(s.theme)?.primary || '#470d99';
@@ -34,9 +34,9 @@ async function getClassroom() {
   };
 }
 
-function escapeHtml(value) {
+export function escapeHtml(value) {
   // A lone surrogate would make the SES SDK's form encoding throw.
-  return String(value).toWellFormed().replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  return String(value ?? '').toWellFormed().replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 
 /**
@@ -57,7 +57,17 @@ export function formatSender(name, from = SES_FROM_EMAIL) {
   return `${chunks.map(chunk => `=?UTF-8?B?${Buffer.from(chunk).toString('base64')}?=`).join(' ')} <${address}>`;
 }
 
-function emailWrapper(classroom, body) {
+export function safeColor(value) {
+  return publicTheme({ primary: value })?.primary || '#470d99';
+}
+
+export function fromHeader(name, address) {
+  return formatSender(String(name || 'plato').replace(/[\r\n]/g, ' ').toWellFormed(), address);
+}
+
+export function emailWrapper(classroom, body, footer = '') {
+  const primary = safeColor(classroom.primary);
+  classroom = { ...classroom, primary, foreground: brandForeground(primary), edge: contrastOnWhite(primary) < 3 };
   return `
     <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
       <div style="background: ${classroom.primary}; color: ${classroom.foreground}; padding: 16px 20px; border-radius: 8px 8px 0 0; font-weight: 700;${classroom.edge ? ' border: 1px solid #e0e0e0; border-bottom: none;' : ''}">
@@ -65,6 +75,7 @@ function emailWrapper(classroom, body) {
       </div>
       <div style="border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px; padding: 24px 20px;">
         ${body}
+        ${footer}
         <p style="color: #666; font-size: 11px; line-height: 1.5; margin: 24px 0 0; text-align: center;">
           Powered by <a href="https://github.com/1111philo/plato" style="color: #666; text-decoration: underline;">plato</a>.
         </p>
@@ -133,17 +144,7 @@ export async function sendResetEmail(toEmail, resetToken) {
 
   const classroom = await getClassroom();
   const subject = `Reset your ${classroom.name} password`;
-  const html = emailWrapper(classroom, `
-    <p style="color: #1a1a1a; line-height: 1.5; margin: 0 0 16px;">
-      A password reset was requested for your account. Click the button below to set a new password.
-    </p>
-    <a href="${escapeHtml(resetUrl)}" style="display: inline-block; background: ${classroom.primary}; color: ${classroom.foreground}; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;${classroom.edge ? ' border: 1px solid #757575;' : ''}">
-      Reset password
-    </a>
-    <p style="color: #555; font-size: 13px; line-height: 1.5; margin: 20px 0 0;">
-      This link expires in 1 hour. If you didn't request this, you can ignore it.
-    </p>
-  `);
+  const html = resetEmailHtml(classroom, resetUrl);
 
   const ses = await getSes();
   await ses.client.send(new ses.SendEmailCommand({
@@ -156,4 +157,18 @@ export async function sendResetEmail(toEmail, resetToken) {
   }));
 
   return { delivered: true, sent: true, resetUrl };
+}
+
+export function resetEmailHtml(classroom, resetUrl) {
+  return emailWrapper(classroom, `
+    <p style="color: #1a1a1a; line-height: 1.5; margin: 0 0 16px;">
+      A password reset was requested for your account. Click the button below to set a new password.
+    </p>
+    <a href="${escapeHtml(resetUrl)}" style="display: inline-block; background: ${classroom.primary}; color: ${classroom.foreground}; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;${classroom.edge ? ' border: 1px solid #757575;' : ''}">
+      Reset password
+    </a>
+    <p style="color: #555; font-size: 13px; line-height: 1.5; margin: 20px 0 0;">
+      This link expires in 1 hour. If you didn't request this, you can ignore it.
+    </p>
+  `);
 }

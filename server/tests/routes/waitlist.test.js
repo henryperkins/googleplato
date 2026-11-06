@@ -128,6 +128,7 @@ describe('unsubscribe (#400)', () => {
   const app = () => { const a = new Hono(); a.route('/', unsubscribe); return a; };
   it('GET asks to confirm (no change); POST unsubscribes; a bad token changes nothing', async () => {
     const writes = [];
+    db.createSyncData = async (u, key, data) => { writes.push({ u, key, data }); };
     db.putSyncData = async (u, key, data) => { writes.push({ u, key, data }); };
     const token = unsubscribeToken('usr_ada', 'digest');
     const get = await app().request(`/v1/unsubscribe?token=${token}`);

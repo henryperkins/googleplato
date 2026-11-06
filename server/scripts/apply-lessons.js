@@ -15,6 +15,8 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { constants } from 'node:fs';
+import { lessonFile, validLessonId } from '../src/lib/lesson-files.js';
 
 const dir = process.argv[2];
 const apply = process.argv.includes('--apply');
@@ -28,8 +30,9 @@ const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
 console.log(`Mode: ${apply ? 'APPLY' : 'dry run (no writes)'}  |  export from ${manifest.exportedAt}`);
 let failed = 0;
 for (const entry of manifest.lessons.filter((l) => !only.length || only.includes(l.lessonId))) {
-  const file = join(dir, `${entry.lessonId}.md`);
-  const edited = existsSync(file) ? readFileSync(file, 'utf8') : null;
+  if (!entry.file && !validLessonId(entry.lessonId)) throw new Error('Unsafe legacy lesson ID; export again');
+  const file = lessonFile(dir, entry.file || `${entry.lessonId}.md`);
+  const edited = existsSync(file) ? readFileSync(lessonFile(dir, entry.file || `${entry.lessonId}.md`, { existing: true }), { encoding: 'utf8', flag: constants.O_RDONLY | constants.O_NOFOLLOW }) : null;
   const item = await db.getSyncData('_system', `lesson:${entry.lessonId}`);
   const plan = planLesson(entry, item?.data || null, edited);
   if (plan.action === 'unchanged') continue;

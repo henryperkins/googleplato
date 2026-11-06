@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { randomBytes } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import db from '../lib/db.js';
+import { normalizeRole } from '../lib/permissions.js';
+import { nameFields, readNameInput } from '../lib/names.js';
 import { generateUserId, generateRefreshToken, generateResetToken, hashToken } from '../lib/crypto.js';
 import { hashPassword, comparePassword } from '../lib/password.js';
 import { signAccessToken } from '../lib/jwt.js';
@@ -75,10 +77,13 @@ auth.post('/v1/auth/setup', async (c) => {
     return c.json({ error: 'Setup already completed' }, 400);
   }
 
-  const { email, name, password, username: rawUsername, classroomName } = await c.req.json();
-  if (!email || !name || !password) {
-    return c.json({ error: 'email, name, and password are required' }, 400);
+  const body = await c.req.json();
+  const { email, password, username: rawUsername, classroomName } = body;
+  if (!email || !password) {
+    return c.json({ error: 'email, first name, and password are required' }, 400);
   }
+  const nameInput = readNameInput(body, { required: true });
+  if (nameInput.error) return c.json({ error: nameInput.error }, 400);
   if (password.length < 8) {
     return c.json({ error: 'Password must be at least 8 characters' }, 400);
   }
@@ -101,7 +106,7 @@ auth.post('/v1/auth/setup', async (c) => {
     email: email.toLowerCase(),
     username,
     passwordHash,
-    name,
+    ...nameInput.fields,
     role: 'admin',
   });
 
@@ -133,22 +138,33 @@ auth.post('/v1/auth/setup', async (c) => {
   return c.json({
     accessToken,
     refreshToken,
-    user: { userId, email: email.toLowerCase(), username, name, role: 'admin' },
+    user: { userId, email: email.toLowerCase(), username, ...nameFields(nameInput.fields), role: 'admin' },
   }, 201);
 });
 
-// GET /v1/auth/invite/:token — what the signup form can fill in for an email
-// invite: the email, and for a wait-list invite (#363) the person's answers.
+// GET /v1/auth/invite/:token — whether an invite can still be used, and what
+// the signup form can fill in: the email for an email invite, and for a
+// wait-list invite (#363) the person's answers. A link invite has no email
+// (`isLink: true`); a used, expired, or full one is 404, so the form can say
+// so before anyone fills it in.
 auth.get('/v1/auth/invite/:token', async (c) => {
   const invite = await db.getInvite(c.req.param('token'));
-  if (!invite || invite.status !== 'pending' || !invite.email
+  // An invite for an existing account (forUserId) is accepted in the
+  // classroom, never through signup.
+  if (!invite || invite.status !== 'pending' || invite.forUserId
     || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
     return c.json({ error: 'Invalid or expired invite' }, 404);
   }
+  if (!invite.email) {
+    const full = invite.maxUsages != null && (invite.usageCount || 0) >= invite.maxUsages;
+    if (!invite.isLink || full) return c.json({ error: 'Invalid or expired invite' }, 404);
+    return c.json({ email: null, isLink: true, name: null, firstName: null, lastName: null, userGroup: null, customFields: {} });
+  }
   const profile = invite.profile || {};
+  const named = profile.firstName || profile.name;
   return c.json({
     email: invite.email,
-    name: profile.name || null,
+    ...(named ? nameFields(profile) : { name: null, firstName: null, lastName: null }),
     userGroup: profile.userGroup || null,
     customFields: profile.customFields || {},
   });
@@ -156,17 +172,20 @@ auth.get('/v1/auth/invite/:token', async (c) => {
 
 // POST /v1/auth/signup — sign up with invite token
 auth.post('/v1/auth/signup', async (c) => {
-  const { inviteToken, name, password, username: rawUsername, userGroup, email: providedEmail, customFields: rawCustomFields } = await c.req.json();
+  const body = await c.req.json();
+  const { inviteToken, password, username: rawUsername, userGroup, email: providedEmail, customFields: rawCustomFields } = body;
 
-  if (!inviteToken || !name || !password) {
-    return c.json({ error: 'inviteToken, name, and password are required' }, 400);
+  if (!inviteToken || !password) {
+    return c.json({ error: 'inviteToken, first name, and password are required' }, 400);
   }
+  const nameInput = readNameInput(body, { required: true });
+  if (nameInput.error) return c.json({ error: nameInput.error }, 400);
   if (password.length < 8) {
     return c.json({ error: 'Password must be at least 8 characters' }, 400);
   }
 
   const invite = await db.getInvite(inviteToken);
-  if (!invite || invite.status !== 'pending') {
+  if (!invite || invite.status !== 'pending' || invite.forUserId) {
     return c.json({ error: 'Invalid or expired invite' }, 400);
   }
 
@@ -252,14 +271,15 @@ auth.post('/v1/auth/signup', async (c) => {
     email: userEmail,
     username,
     passwordHash,
-    name,
-    userGroup: userGroup || profileGroup || null,
-    role: 'user',
+    ...nameInput.fields,
+    // Only one of the classroom's groups: broadcasts target groups by name.
+    userGroup: (userGroup && (await db.getSyncData('_system', 'settings'))?.data?.userGroups?.includes(userGroup) ? userGroup : null) || profileGroup || null,
+    role: 'learner',
     slackUserId: invite.slackUserId || null,
     customFields,
   });
 
-  await emitHook('userCreated', { userId, email: userEmail, role: 'user' });
+  await emitHook('userCreated', { userId, email: userEmail, role: 'learner' });
 
   // Mark invite as used after successful user creation
   if (invite.isLink) {
@@ -273,14 +293,14 @@ auth.post('/v1/auth/signup', async (c) => {
     await db.markInviteUsed(inviteToken);
   }
 
-  const accessToken = await signAccessToken(userId, 'user');
+  const accessToken = await signAccessToken(userId, 'learner');
   const refreshToken = generateRefreshToken();
   await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(passwordHash));
 
   return c.json({
     accessToken,
     refreshToken,
-    user: { userId, email: userEmail, username, name, role: 'user' },
+    user: { userId, email: userEmail, username, ...nameFields(nameInput.fields), role: 'learner' },
   }, 201);
 });
 
@@ -328,7 +348,7 @@ auth.post('/v1/auth/login', async (c) => {
   return c.json({
     accessToken,
     refreshToken,
-    user: { userId: user.userId, email: user.email, username: user.username, name: user.name, role: user.role },
+    user: { userId: user.userId, email: user.email, username: user.username, ...nameFields(user), role: normalizeRole(user.role) },
   });
 });
 
@@ -498,6 +518,8 @@ auth.post('/v1/auth/firebase', async (c) => {
       if (usernameErr) return c.json({ error: usernameErr }, 400);
     }
 
+    const setupNameInput = readNameInput(body.firstName !== undefined ? body : { name: displayName }, { required: true });
+    if (setupNameInput.error) return c.json({ error: setupNameInput.error }, 400);
     const userId = generateUserId();
     const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
 
@@ -506,7 +528,7 @@ auth.post('/v1/auth/firebase', async (c) => {
       email,
       username,
       passwordHash,
-      name: displayName,
+      ...setupNameInput.fields,
       role: 'admin',
     });
 
@@ -538,7 +560,7 @@ auth.post('/v1/auth/firebase', async (c) => {
     return c.json({
       accessToken,
       refreshToken,
-      user: { userId, email, username, name: displayName, role: 'admin' },
+      user: { userId, email, username, ...setupNameInput.fields, role: 'admin' },
       isNewSetup: true,
     }, 201);
   }
@@ -569,8 +591,8 @@ auth.post('/v1/auth/firebase', async (c) => {
         userId: existingUser.userId,
         email: existingUser.email,
         username: existingUser.username,
-        name: existingUser.name,
-        role: existingUser.role,
+        ...nameFields(existingUser),
+        role: normalizeRole(existingUser.role),
       },
     });
   }
@@ -581,7 +603,7 @@ auth.post('/v1/auth/firebase', async (c) => {
   let inviteExpired = false;
   if (inviteToken) {
     invite = await db.getInvite(inviteToken);
-    if (!invite || invite.status !== 'pending' || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
+    if (!invite || invite.status !== 'pending' || invite.forUserId || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
       return c.json({ error: 'Invalid or expired invite' }, 400);
     }
     if (invite.email && invite.email.toLowerCase() !== email) {
@@ -589,7 +611,7 @@ auth.post('/v1/auth/firebase', async (c) => {
     }
   } else {
     const byEmail = await db.getInviteByEmail(email);
-    if (byEmail && byEmail.status === 'pending') {
+    if (byEmail && byEmail.status === 'pending' && !byEmail.forUserId) {
       if (!byEmail.ttl || byEmail.ttl >= Math.floor(Date.now() / 1000)) invite = byEmail;
       else inviteExpired = true;
     }
@@ -655,6 +677,10 @@ auth.post('/v1/auth/firebase', async (c) => {
     if ((settings?.data?.userGroups || []).includes(profile.userGroup)) profileGroup = profile.userGroup;
   }
 
+  const finalName = displayName || profile?.name || email.split('@')[0];
+  const googleNameInput = readNameInput(body.firstName !== undefined ? body : { name: finalName }, { required: true });
+  if (googleNameInput.error) return c.json({ error: googleNameInput.error }, 400);
+
   if (invite?.isLink) {
     try {
       await db.incrementLinkUsage(invite.inviteToken);
@@ -668,16 +694,15 @@ auth.post('/v1/auth/firebase', async (c) => {
 
   const userId = generateUserId();
   const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
-  const finalName = displayName || profile?.name || email.split('@')[0];
 
-  const assignedRole = operator ? 'admin' : 'user';
+  const assignedRole = operator ? 'admin' : 'learner';
 
   await db.createUser({
     userId,
     email,
     username,
     passwordHash,
-    name: finalName,
+    ...googleNameInput.fields,
     userGroup: userGroup || profileGroup || null,
     role: assignedRole,
     slackUserId: invite?.slackUserId || null,
@@ -718,7 +743,7 @@ auth.post('/v1/auth/firebase', async (c) => {
   return c.json({
     accessToken,
     refreshToken,
-    user: { userId, email, username, name: finalName, role: assignedRole },
+    user: { userId, email, username, ...googleNameInput.fields, role: assignedRole },
   }, 201);
 });
 

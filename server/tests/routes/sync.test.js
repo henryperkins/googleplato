@@ -80,7 +80,7 @@ describe('GET /v1/sync', () => {
     app.route('/', sync);
     const res = await authedReq(app, 'GET', '/v1/sync');
     assert.equal(res.status, 200);
-    assert.deepEqual(seenOptions, { excludePrefixes: ['screenshot:', 'userMeta:', 'lessonGeneration:', 'coachResult:', 'coachAttempt:'] });
+    assert.deepEqual(seenOptions, { excludePrefixes: ['notify:', 'screenshot:', 'userMeta:', 'lessonGeneration:', 'coachResult:', 'coachAttempt:'] });
     const data = await res.json();
     assert.deepEqual(data, [{ dataKey: 'profile', data: { name: 'T' }, version: 1, updatedAt: '2024-01-01T00:00:00Z' }]);
   });
@@ -448,9 +448,9 @@ describe('?asUserId= (admin View as User)', () => {
       const token = await signAccessToken('usr_admin', role);
       for (const target of ['_system', 'usr_nobody', 'whatever']) {
         const res = await app.request(`/v1/sync?asUserId=${target}`, { headers: { Authorization: `Bearer ${token}` } });
-        assert.equal(res.status, 404, `${role} → ${target}`);
+        assert.equal(res.status, target.startsWith('_') ? 403 : 404, `${role} → ${target}`);
         const one = await app.request(`/v1/sync/settings?asUserId=${target}`, { headers: { Authorization: `Bearer ${token}` } });
-        assert.equal(one.status, 404);
+        assert.equal(one.status, target.startsWith('_') ? 403 : 404);
       }
     }
     assert.equal(reads, 0, 'nothing read');

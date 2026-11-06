@@ -61,9 +61,9 @@ export async function runDueJobs({ db = defaultDb, now = new Date(), dispatch = 
   const toRun = pending.filter((s) => automations[s.automation]);
   if (!toRun.length) return [];
   try {
-    await db.putSyncData('_system', 'jobs:schedule', {
-      lastRun: { ...lastRun, ...Object.fromEntries(toRun.map((s) => [s.job, s.key])) },
-    }, item?.version || 0);
+    const data = { lastRun: { ...lastRun, ...Object.fromEntries(toRun.map((s) => [s.job, s.key])) } };
+    if (item) await db.putSyncData('_system', 'jobs:schedule', data, item.version);
+    else await db.createSyncData('_system', 'jobs:schedule', data);
   } catch (err) {
     if (err.name === 'ConditionalCheckFailedException') return []; // another container claimed it
     throw err;

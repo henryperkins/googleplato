@@ -12,6 +12,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { lessonFilename, lessonFile } from '../src/lib/lesson-files.js';
 
 const out = process.argv[2];
 if (!out) { console.error('Usage: node scripts/export-lessons.js <output-dir>'); process.exit(2); }
@@ -23,9 +24,10 @@ mkdirSync(out, { recursive: true });
 const lessons = [];
 for (const i of items.sort((a, b) => a.dataKey.localeCompare(b.dataKey))) {
   const lessonId = i.dataKey.slice('lesson:'.length);
-  writeFileSync(join(out, `${lessonId}.md`), i.data.markdown);
-  lessons.push(manifestEntry(lessonId, i.data));
+  const file = lessonFilename(lessonId);
+  writeFileSync(lessonFile(out, file), i.data.markdown, { flag: 'wx' });
+  lessons.push({ ...manifestEntry(lessonId, i.data), file });
 }
-writeFileSync(join(out, 'manifest.json'), JSON.stringify({ exportedAt: new Date().toISOString(), lessons }, null, 2) + '\n');
+writeFileSync(join(out, 'manifest.json'), JSON.stringify({ exportedAt: new Date().toISOString(), lessons }, null, 2) + '\n', { flag: 'wx' });
 console.log(`Exported ${lessons.length} lesson(s) to ${resolve(out)} (read-only; nothing in plato changed).`);
 for (const l of lessons) console.log(`  ${l.lessonId}  ${l.status || ''}  ${l.name}`);

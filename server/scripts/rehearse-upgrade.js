@@ -36,7 +36,7 @@ process.env.DB_BACKEND = 'dynamodb';
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), '..');
 const db = (await import('../src/lib/db.js')).default;
 const { runMigrations } = await import('../src/lib/migrations.js');
-const { ensureBundledLessons } = await import('../src/lib/bundled-lessons.js');
+const { ensureBundledLessons, BUNDLED_LESSONS, BUNDLED_COURSE } = await import('../src/lib/bundled-lessons.js');
 
 const sha = (v) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
 async function snapshot() {
@@ -49,7 +49,8 @@ async function snapshot() {
   return { out, users };
 }
 
-const ALLOWED_ADDED = [/^sync:_system:migrations$/, /^sync:_system:program:prog-default$/, /^sync:_system:lesson:getting-started$/, /^sync:_system:bundled:getting-started$/];
+const allowedBundled = new Set([`sync:_system:program:${BUNDLED_COURSE.programId}`, `sync:_system:course:${BUNDLED_COURSE.unitId}`, `sync:_system:bundled:course:${BUNDLED_COURSE.id}`, ...BUNDLED_LESSONS.flatMap(b => [`sync:_system:lesson:${b.id}`, `sync:_system:bundled:${b.id}`])]);
+const ALLOWED_ADDED = [/^sync:_system:migrations$/, /^sync:_system:program:prog-default$/];
 const ALLOWED_CHANGED = [/^user:/, /^sync:_system:course:/];
 const LEARNER_WORK = /^sync:usr_[^:]+:(messages|screenshot|lessonKB|courseProgress|lessons):/;
 
@@ -81,7 +82,7 @@ const removed = [...before.out.keys()].filter((k) => !after.out.has(k));
 const changed = [...before.out.keys()].filter((k) => after.out.has(k) && after.out.get(k) !== before.out.get(k));
 lines.push('## Diff', '', `added ${added.length}, removed ${removed.length}, changed ${changed.length}`, '');
 check(removed.length === 0, 'no record removed');
-const badAdded = added.filter((k) => !ALLOWED_ADDED.some((r) => r.test(k)));
+const badAdded = added.filter((k) => !allowedBundled.has(k) && !ALLOWED_ADDED.some((r) => r.test(k)));
 check(badAdded.length === 0, `only expected records added${badAdded.length ? `: ${badAdded.slice(0, 5).join(', ')}` : ''}`);
 const badChanged = changed.filter((k) => !ALLOWED_CHANGED.some((r) => r.test(k)));
 check(badChanged.length === 0, `only users and units changed${badChanged.length ? `: ${badChanged.slice(0, 5).join(', ')}` : ''}`);

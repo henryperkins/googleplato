@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import db from './db.js';
 import { cloudflareCredentialStatus, environmentCredentialStatus } from './cloudflare-oauth.js';
 
+export const mockProviderEnabled = () => process.env.AI_PROVIDER === 'mock' && !process.env.K_SERVICE && !process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.NODE_ENV !== 'production';
+
 export const BEDROCK_MODEL = 'qwen3-vl-235b';
 export const WORKERS_AI_MODELS = [
   { id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash 1017', description: 'Text and images. Maximum reasoning. Requires Workers Paid or prepaid AI Gateway credits.' },
@@ -22,7 +24,7 @@ export function validateAiSettings(value) {
 export async function readAiSettings() {
   const item = await db.getSyncData('_system', 'ai-settings', { consistentRead: true });
   const settings = {
-    provider: item?.data?.provider ?? process.env.AI_PROVIDER ?? 'bedrock',
+    provider: item?.data?.provider ?? (mockProviderEnabled() ? 'bedrock' : process.env.AI_PROVIDER) ?? 'bedrock',
     workersAiModel: item?.data?.workersAiModel ?? process.env.WORKERS_AI_MODEL ?? DEFAULT_WORKERS_AI_MODEL,
   };
   if (validateAiSettings(settings)) {
