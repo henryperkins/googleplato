@@ -186,8 +186,10 @@ for concurrent first writes on real SQLite and PostgreSQL 17. DynamoDB is
 covered by its adapter contract tests, not a live table.
 
 **First writes are create-only.** An absent `notify:state` (an unsubscribe, a
-read receipt, a delivery claim) or `_system:jobs:schedule` is created with
-`createSyncData` and re-read on a collision. A concurrent first write therefore
+read receipt, a delivery claim), `_system:automations` (the switches), or
+`_system:jobs:schedule` is created with `createSyncData` and re-read on a
+collision. Two admins turning on different automations at once both keep
+their switch. A concurrent first write therefore
 can't erase an acknowledged opt-out, and two instances can't both dispatch the
 same scheduled job. Upstream used a version-0 upsert, which allowed both.
 

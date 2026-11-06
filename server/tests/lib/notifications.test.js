@@ -80,6 +80,28 @@ describe('automations', () => {
     assert.ok((await n.writeAutomations({ spam: true }, db)).error);
     assert.ok((await n.writeAutomations({ weeklyDigest: 'yes' }, db)).error);
   });
+
+  it('two first changes made at once both stick', async () => {
+    // Both writers read "no record yet" before either writes.
+    let waiting = 0;
+    let release;
+    const bothRead = new Promise((resolve) => { release = resolve; });
+    const racing = { ...db, getSyncData: async (owner, key, options) => {
+      const item = await db.getSyncData(owner, key, options);
+      if (key === 'automations' && !item && waiting < 2) {
+        waiting += 1;
+        if (waiting === 2) release();
+        await bothRead;
+      }
+      return item;
+    } };
+    await Promise.all([
+      n.writeAutomations({ waitlistConfirmation: true }, racing),
+      n.writeAutomations({ weeklyDigest: true }, racing),
+    ]);
+    const stored = await n.readAutomations(db);
+    assert.deepEqual([stored.waitlistConfirmation, stored.weeklyDigest], [true, true]);
+  });
 });
 
 describe('unsubscribe tokens', () => {

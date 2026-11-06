@@ -67,20 +67,27 @@ export async function readAutomations(db = defaultDb) {
   return Object.fromEntries(Object.keys(AUTOMATIONS).map((k) => [k, stored[k] === true]));
 }
 
-/** Set some automations on or off; returns the full set. Unknown keys and non-booleans are refused. */
+/**
+ * Set some automations on or off; returns the full set. Unknown keys and
+ * non-booleans are refused. The record merges switches, so the first write is
+ * create-only and later ones are version-checked: two admins turning on
+ * different automations at once both stick, instead of the last whole-record
+ * write erasing the other's switch.
+ */
 export async function writeAutomations(patch, db = defaultDb) {
   for (const [k, v] of Object.entries(patch || {})) {
     if (!AUTOMATIONS[k]) return { error: `Unknown automation: ${k}` };
     if (typeof v !== 'boolean') return { error: `${k} must be true or false` };
   }
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const item = await db.getSyncData('_system', 'automations');
     const next = { ...(item?.data || {}), ...patch };
     try {
-      await db.putSyncData('_system', 'automations', next, item?.version || 0);
+      if (item) await db.putSyncData('_system', 'automations', next, item.version, { strictVersion: true });
+      else await db.createSyncData('_system', 'automations', next);
       return { automations: await readAutomations(db) };
     } catch (err) {
-      if (err.name !== 'ConditionalCheckFailedException' || attempt === 1) throw err;
+      if (err.name !== 'ConditionalCheckFailedException' || attempt === 2) throw err;
     }
   }
   return { error: 'Try again' };
