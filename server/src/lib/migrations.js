@@ -10,9 +10,10 @@
  * - **Rollback-compatible.** Beta-RC-232 code must keep working on migrated
  *   data — that's the bar `tests/migrations/upgrade-from-rc232.test.js`
  *   enforces against the real RC-232 route handlers.
- * - **Never blocks serving.** Failures are logged; an item that fails is
- *   retried on the next cold start because the migration isn't recorded as
- *   applied until it finishes with zero errors.
+ * - **Readiness waits for success.** Launch initialization awaits migrations
+ *   and fails startup on errors or a bounded lock wait. An item that fails
+ *   is retried on the next cold start because the migration is not recorded
+ *   as applied until it finishes with zero errors.
  *
  * State lives in `_system:migrations` = `{ applied: { [id]: { at, result } },
  * lock: { owner, until } | null }`. The lock (optimistic-versioned write)
@@ -229,7 +230,12 @@ export async function runMigrations({
 
 const STARTUP_BUDGET_MS = 20_000;
 
-/** Startup entry point: never throws, never waits longer than the budget. */
+/**
+ * Upstream's non-blocking startup entry point: never throws, never waits longer
+ * than the budget. Fork startup doesn't use it; `initializeLaunch`
+ * (lib/launch.js) awaits migrations and fails startup on errors instead. Kept,
+ * with its tests, for upstream parity and ad-hoc callers.
+ */
 export async function runMigrationsBounded({ budgetMs = STARTUP_BUDGET_MS, ...opts } = {}) {
   let timer;
   const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), budgetMs); });

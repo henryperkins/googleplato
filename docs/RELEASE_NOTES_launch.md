@@ -4,6 +4,16 @@ Running index of the launch sprint. Every sub-PR merged into `playground`, every
 data migration, and every decision lands here. The final `playground → main`
 PR links this file. Upgrading installs come from **Beta-RC-232** (`629c778`).
 
+> **Fork note (2026-11-06).** This is upstream's record of its launch sprint,
+> kept for provenance. The fork integrated that release with deliberate
+> differences: server-owned signed assessment and activity, canonical objective
+> evidence, separate submission and draft journals, migrations awaited at
+> startup, create-only first writes, leased message delivery with retry, and
+> safe lesson-export filenames. See
+> [`ARCHITECTURE.md` → Launch data contracts](ARCHITECTURE.md#launch-data-contracts-2026-11-06).
+> The rollout steps and incident notes below are about upstream's AWS
+> deployment and plato.courses, not this fork, which has no actual users.
+
 ## Decisions
 | Decision | Source |
 |---|---|

@@ -121,11 +121,26 @@ Allow up to 240 seconds for the app startup probe
 (`tcpSocket.port=3000,periodSeconds=1,timeoutSeconds=1,failureThreshold=240` with
 `--cpu-boost`) because Direct VPC routes can lag a cold start. Database connection errors
 receive bounded retries; schema or permission errors fail startup. The process becomes
-ready only after database initialization, operator bootstrap and content seeding succeed.
+ready only after database initialization, operator bootstrap, data migrations and content
+seeding succeed. `initializeLaunch()` (`server/src/lib/launch.js`) awaits the migrations
+before seeding: a migration that reports errors, or a migration lock another instance still
+holds after 20 seconds, fails startup, so a revision never serves partly migrated data (see
+[`ARCHITECTURE.md` → Data migrations](ARCHITECTURE.md#data-migrations)).
 Concurrent content seeders retry version conflicts up to three total attempts,
 rereading each record before writing. Other errors still fail startup. The
 bootstrap password is removed from the environment before application config
 or plugins load, including starts where an operator account already exists.
+
+Background work runs inside requests. Cloud Run doesn't guarantee CPU after a
+response, so `dispatchJob` runs a job in process and the request that started
+it awaits completion. That includes message email, which sends five at a time:
+a large email audience occupies its request, so keep the service's request
+timeout above the longest expected send. Scheduled jobs (inactivity nudge,
+weekly digest) have no Cloud Scheduler trigger. The `scheduleLaunchJobs`
+middleware checks `_system:jobs:schedule` at most every ten minutes per
+instance and claims a due job with a version-checked write, so a period with no
+traffic sends nothing. With `SKIP_EMAIL=true` nothing is emailed; in-app
+messages still work and delivery results record `email_disabled`.
 
 On `SIGTERM`, the server drains active requests before closing its database
 connections. Cleanup errors produce a structured error code without connection
@@ -154,6 +169,18 @@ User email and username uniqueness are enforced case-insensitively. Invite usage
 limits and activity counters are atomic database updates. Expired refresh/reset
 tokens cannot authenticate and expired token/invite rows are removed at startup.
 
+The launch integration added three conditional operations, implemented
+identically on SQLite, DynamoDB and PostgreSQL. `createSyncData` inserts only
+when the record is absent; on PostgreSQL it runs under the same per-learner
+advisory lock, so two first writes to `notify:state` or `_system:jobs:schedule`
+produce exactly one winner. `setUserRoleIf` and `setUserNameSplitIf` change a
+user only while it still holds the expected role or name, and leave `updatedAt`
+alone; the role and name migrations use them. Message delivery serializes
+attempts with a version-checked execution lease on the `_system:message:*`
+record, and records each recipient as pending before the send and as emailed
+only after the transport confirms. See
+[`ARCHITECTURE.md` → Launch data contracts](ARCHITECTURE.md#launch-data-contracts-2026-11-06).
+
 Branding saves use `putBrandingSettings` under the same `_system` transaction
 lock as other settings writers. The transaction checks the exact settings
 version, stores the new logo bytes, publishes its pointer, and deletes the old
@@ -172,7 +199,13 @@ POSTGRES_TEST_URL=postgres://postgres@127.0.0.1:55432/postgres npm run test:serv
 It creates and removes a uniquely named test schema. It checks CRUD contracts,
 concurrent optimistic writes, a losing competing turn, rollback after the second
 write fails, reset invalidation, same-version content edits, and replacing all
-application connections. Without `POSTGRES_TEST_URL`, that suite is explicitly
+application connections. The launch suites run against the same server:
+`server/tests/lib/launch-adapters.test.js` proves single-winner create-only
+writes, an opt-out that survives a racing first write, one cold-start schedule
+dispatch, conditional role and name migrations and delivery retry;
+`server/tests/lib/launch-http.test.js` boots the production HTTP assembly
+against a fresh schema and exercises migrations, unsubscribe, View as User
+enforcement and awaited jobs. Without `POSTGRES_TEST_URL`, that suite is explicitly
 skipped; mock-based tests alone do not qualify a new PostgreSQL deployment.
 Use Node 24 and install from the repository's root dependency lockfile. Run the
 PostgreSQL suite against an isolated local PostgreSQL 17 instance.

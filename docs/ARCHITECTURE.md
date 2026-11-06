@@ -80,6 +80,184 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
   it), shrinking in halving steps, and further to meet the cap. The classroom
   name is read by code point, so a stored name is never cut inside a character.
 
+## Data migrations
+
+Schema and data changes ship as append-only migrations in
+`server/src/lib/migrations.js` (`MIGRATIONS`): today `m003_role_learner`,
+`m004_default_program` and `m005_name_split`. Every install, self-hosted ones
+included, runs them once, on startup. `initializeLaunch()`
+(`server/src/lib/launch.js`) awaits them in every entry point, **before**
+content seeding and before any request is served: Cloud Run's `start.js`, the
+Lambda handler's shared initialization promise (`server/src/index.js`) and
+`dev-sqlite.js`.
+
+This differs from upstream, which bounds startup migrations to 20 s and serves
+regardless. The fork fails startup rather than serving partly migrated data:
+- A migration that finishes with errors throws `Launch migrations failed`, so
+  a Cloud Run revision never becomes ready. Lambda clears its initialization
+  promise, so the next invocation retries.
+- If another instance holds the migration lock, startup waits up to 20 s for it
+  to finish, then throws `Timed out waiting for launch migrations`.
+
+A migration is recorded in `_system:migrations.applied` only after it finishes
+with zero errors, so a failed one reruns on the next start. The lock lives in
+the same record and is taken with a version-checked write (`createSyncData`
+while the record is absent, then `putSyncData` with the read version). Results
+log as `migration_applied` / `migration_failed`.
+
+**Rules every migration follows** (from upstream #444):
+- **Additive and idempotent.** Add fields or records, or change a value only
+  through a conditional write that still sees the exact old value. Never delete
+  or rename. Learner work (`messages:*`, `screenshot:*`, `lessonKB:*`,
+  `courseProgress:*`, `lessons:*`) is never rewritten.
+- **Rollback-compatible with the release being upgraded from** (Beta-RC-232):
+  that release's code must keep serving the migrated data, so redeploying it is
+  a safe rollback.
+
+**Before merging a migration:**
+- `server/tests/migrations/upgrade-from-rc232.test.js` seeds an RC-232-shaped
+  fixture (`tests/migrations/fixtures/rc232.js`), runs every migration, and
+  fails on any record removed or any change outside its `ALLOWED` list. It
+  checks that a second run is a no-op. Then it runs **Beta-RC-232's own route
+  handlers**, extracted from the git tag, against the migrated database. Run the
+  server suite sequentially before lint: the extracted RC-232 tree is a
+  temporary directory that a concurrent lint can race. Extend `ALLOWED` and the
+  fixture in the same PR as the migration.
+- `node server/scripts/migrate.js` reports, read-only, what each pending
+  migration would change on any backend. `--apply` exists for rehearsals on
+  restored copies.
+
+`putSyncData` with no expected version is an unconditional overwrite. Use
+`db.createSyncData` when you mean "create only if absent".
+
+## Launch data contracts (2026-11-06)
+
+The upstream launch release (playground `1105f34`, #451) was integrated on
+`feat/upstream-launch-integration`. This section lists the data and runtime
+contracts it added, and where the fork deliberately differs from upstream.
+Feature detail is in the linked sections. This fork has no actual users, so
+nothing here describes a live-user migration.
+
+**Records.**
+
+| Record | Holds | Written by |
+|---|---|---|
+| user `role` | `admin`, `educator`, `learner` or `tester`. A legacy stored `user` reads as `learner` (`normalizeRole`) | role route, signup, `m003_role_learner` |
+| user `firstName`, `lastName`, `nameSource` | entered or inferred name parts. `name` stays, derived from them | `server/src/lib/names.js`, `m005_name_split` |
+| `_system:program:<id>` | a **Course**: `{ name, description, unitIds }` | `/v1/admin/programs*`, `m004_default_program` |
+| `_system:course:<id>` | a **Unit**: `{ name, programId, lessonIds }` | `/v1/admin/units*`, with `/v1/admin/courses*` as an alias |
+| `_system:message:<id>` | a message, its audience and its delivery state | `server/src/lib/messages.js` |
+| `<userId>:notify:state` | opt-outs, read state, delivery claims, reminder bookkeeping | server only. `/v1/sync` can't write it, and a progress reset keeps it |
+| `_system:jobs:schedule` | when each scheduled job last ran | `server/src/lib/schedule.js` |
+| `_system:automations`, `_system:emailTemplate:<id>` | automation switches, admin-edited templates | `server/src/routes/admin-notifications.js` |
+| `_system:migrations` | applied migrations and the run lock | `server/src/lib/migrations.js` |
+| `_system:bundled:*` | install markers for the bundled course and lessons | `server/src/lib/bundled-lessons.js` |
+
+**Adapter parity.** SQLite, PostgreSQL and DynamoDB implement the same
+conditional operations:
+- `createSyncData(userId, key, data)` creates only if the record is absent. A
+  collision throws `ConditionalCheckFailedException`.
+- `setUserRoleIf(userId, expected, next)` and
+  `setUserNameSplitIf(userId, expectedName, parts)` change the user only while
+  it still holds the expected value. They leave `updatedAt` alone and report
+  whether they wrote.
+
+PostgreSQL's create-only insert runs inside the existing per-user advisory
+transaction. `server/tests/lib/launch-adapters.test.js` proves a single winner
+for concurrent first writes on real SQLite and PostgreSQL 17. DynamoDB is
+covered by its adapter contract tests, not a live table.
+
+**First writes are create-only.** An absent `notify:state` (an unsubscribe, a
+read receipt, a delivery claim) or `_system:jobs:schedule` is created with
+`createSyncData` and re-read on a collision. A concurrent first write therefore
+can't erase an acknowledged opt-out, and two instances can't both dispatch the
+same scheduled job. Upstream used a version-0 upsert, which allowed both.
+
+**Message delivery** (`server/src/lib/messages.js`, upstream behavior in
+[Notifications](#notifications-388-389-400)):
+- A message's `status` is `sending`, `sent` or `failed`. Before it handles any
+  recipient, a delivery attempt takes a version-checked execution lease on the
+  message record (`deliveryLease: { owner, until }`, 10 minutes, renewed while
+  the attempt runs). A competing attempt reports the active one instead of
+  finishing the message a second time. An attempt whose lease expired can't
+  overwrite a newer attempt's outcome or clear its lease.
+- Each recipient is claimed in `notify:state.emailPending[messageId]` before
+  the send. The claim moves to `emailed[messageId]` only after the transport
+  confirms it. A known transport failure releases only that attempt's own
+  claim, so a retry tries the person again. Recipients already emailed are
+  skipped.
+- An **uncertain** outcome, such as an attempt that died mid-send, keeps its
+  pending claim. It isn't resent automatically and isn't counted as delivered.
+  Counts can under-report but never double-send: this is at most once, not
+  exactly once.
+- `POST /v1/admin/notifications/messages` and
+  `POST /v1/admin/notifications/messages/:id/retry` return **503**, with the
+  stored message, when delivery failed. History shows the outcome counts
+  (including "not sent (email delivery disabled)" and "pending confirmation")
+  and offers Retry to anyone with `notifications.write`. Composing again with
+  the same `requestId` reuses the same message id (`msg_r…`), so it can
+  re-dispatch a message that isn't `sent` but never creates a duplicate.
+
+**Jobs.** On Cloud Run and in local development, `dispatchJob` runs a job in
+process and the HTTP request awaits it, because Cloud Run doesn't guarantee CPU
+after a response. A large email audience therefore occupies its request: size
+the service's request timeout for it. Lambda keeps upstream's asynchronous
+self-invocation of the API function (`JOBS_FUNCTION`). Scheduled jobs are
+checked by request middleware (`scheduleLaunchJobs`), at most every 10 minutes
+per instance, and claimed with a version-checked write.
+
+**Email delivery off.** With `SKIP_EMAIL=true`, nothing is emailed. In-app
+messages still reach the bell, email results record
+`{ delivered: false, reason: 'email_disabled' }` and count as "not sent", and
+an invitation returns its signup link to the admin who sent it. Neither the
+link nor the address is logged.
+
+**Lesson export and apply** (`server/src/lib/lesson-rewrite.js`, see
+[Rewriting lessons in bulk](#rewriting-lessons-in-bulk-261)). Upstream named
+each exported file `<lessonId>.md`, so a stored id such as `../AGENTS` could
+write outside the export directory. The fork:
+- writes each lesson to a bounded name derived from SHA-256, with exclusive
+  creation, and records that filename in the manifest;
+- on apply, validates manifest filenames, accepts only safe ids from older
+  manifests, checks that every real path stays inside the chosen directory,
+  and refuses to read symlinks;
+- validates lesson ids on the admin lesson PUT.
+
+**Roles and plugins.** The core role map doesn't widen the plugin SDK. Plugin
+admin routes still use `requireAdmin`, so only admins can reach them. Plugin
+hooks receive the normalized role (plugin API 1.4.0).
+
+**Learner turns.** The launch's learner features run inside the fork's signed,
+server-owned coaching (see
+[Coach assessment and signed turns](#coach-assessment-and-signed-turns-2026-10-25)):
+- Agent activity is built on the server before the receipt is signed, and the
+  receipt covers it.
+- The overview checklist reads canonical objective evidence
+  (`lessonKB.evidence`) with the same confirmed-source predicate as
+  completion. Upstream's client-merged `objectivesMet` indices can't check an
+  objective.
+- A provider `max_tokens` stop rejects the turn before repair or signing.
+  Nothing is saved, and the learner's submission stays in its own journal.
+- The composer keeps the submitted input, a retained signed reply and the newer
+  draft apart, and its hint names whichever one is holding sending.
+
+**Session-bound identity.** `refreshCurrentUser` publishes a `/v1/me` result
+(role, names) only to the auth session that requested it. A response that
+arrives after a sign-out or an account switch is dropped. It is never written
+into the newer session's cache or React context.
+
+**Validation boundaries.** The integration is proven by the client and server
+suites (with real PostgreSQL 17), the plugin suite, the fork's browser suites
+and the upstream `e2e/` Playwright suite. The e2e suite runs on SQLite with the
+local mock provider, whose replies go through the real server assessment,
+signing and atomic save. None of these exercise live AI providers, SES or Slack
+delivery, real DynamoDB or Lambda, physical devices, or assistive technology.
+Upstream measured its #503 coach-prompt hardening against injected authority
+("pre-approved", "set progress to 10") on Bedrock. That measurement wasn't
+repeated against the fork's coach prompt, which relies on its own data
+contract (learner text, pages and profiles are data, never instructions) and
+on completion requiring source-backed evidence for every objective.
+
 ## Save observability
 
 Cloud Run's structured JSON process logs are the durable operational record.
@@ -882,6 +1060,90 @@ server-side is where the SSRF defense must live.
   work-in-progress portfolio site for reference and the coach infers completion
   from content that doesn't exist or isn't finished yet.
 
+## Composing and showing replies (#247)
+
+**Composing during a reply.** `ComposeBar` has two locks. `disabled` makes the
+whole composer read-only (View as User). `busy` only holds sending: the
+textarea, attachments and links stay usable, so a learner can write the next
+message while the coach replies, and the mobile keyboard stays open. While
+busy, the send button is disabled and the shortcut does nothing. The hint next
+to Send says what is holding it, and because that hint is also the textarea's
+accessible description, it must be true for every busy state:
+
+| What holds sending (lesson chat) | Hint |
+|---|---|
+| a reply streaming (ComposeBar's default) | Send when the reply finishes |
+| progress saving | Send when progress is saved |
+| a generated reply not yet confirmed saved | Send after the reply is saved |
+| a failed or interrupted submission | Send after recovering the earlier response |
+| the lesson loading | Send when the lesson loads |
+| an update the page must reload for | Reload this page to send |
+
+`LessonChat` derives the hint (`busyHint`) and `busyMessage`, which is
+announced when a send is attempted while held, from one cascade, so they
+always agree. The lesson and knowledge-base editors pass their own: saving, a
+failed reply ("Send after retrying the reply"), an unconfirmed lesson save, a
+save conflict, or a preview being generated.
+
+**Send key.** The `sendKey` preference (`'mod-enter'`, the default, or
+`'enter'`) decides whether plain Enter sends. Cmd/Ctrl+Enter always sends,
+Shift+Enter is always a new line, and Enter that confirms an IME composition
+never sends (`isSendKeystroke` in `client/src/lib/chatPrefs.js`). Every chat
+shows the shortcut next to Send, as the textarea's accessible description,
+whenever nothing holds sending. The preference lives in the learner's
+`preferences` record and is set in Settings → Chat, which saves on change. The
+name and chat-preference saves hold each other's controls, so a stale
+whole-preferences snapshot can't overwrite a newer choice.
+
+**Replies show as they stream in.** The learner chat renders streamed text as
+it arrives, with no artificial typing pace. (Upstream removed its typewriter
+and the `instantText` preference after the #451 review; a stored `instantText`
+is ignored.) The lesson and knowledge-base editors keep their shared
+`useStreamedText` reveal hook.
+
+**One composer, separate journals.** The single sticky composer keeps three
+things apart: the submitted input, in its own journal (*Retry response*, or
+*Move to draft* when the draft is empty); a generated reply retained until the
+server confirms it saved (*Retry saving* repeats only the save, never the
+generation); and the newer draft. Upstream merged a failed turn back into the
+composer ahead of the new draft. The fork never merges them, so neither can
+truncate the other.
+
+## Behind this response (#411)
+
+Every chat reply can show which of plato's agents worked on it, what each read,
+and what it did: a collapsed **"Behind this response: Coach"** button between a
+message and its reply (`client/src/components/chat/AgentActivity.jsx`). It's a
+real button with `aria-expanded`, reachable by Tab in the chat log, and
+Alt+Arrow message navigation is unchanged.
+
+In lessons the content is **built on the server, before the turn is signed.**
+`server/src/lib/lesson-coaching.js` assembles it with the shared formatter
+`server/src/shared/agentActivity.js` (the client's `agentActivity.js`
+re-exports it) once the assessment is accepted. The signed receipt covers it,
+so a tampered activity list fails on commit and on replay. It reports only what
+happened before signing:
+- the opening's lesson planner and the coach;
+- progress before and after, evidence recorded for an objective, the coach's
+  notes and the learner's position;
+- a server assessment repair ("Repaired assessment metadata on the server") or
+  a continuity clarification;
+- an accepted, sourced profile observation, and the images and readable link
+  text actually supplied.
+
+It never claims an optional post-save model ran. The learner-profile rewrite
+and the unit-progress note run after the save, and recovery never backfills
+them. It never infers a profile update from generic insights, and it never
+shows the model's raw reasoning (`converse.js` drops reasoning blocks). Notes
+are clipped to 280 characters, at most 5 per agent.
+
+The assistant message carries `metadata.agents` =
+`[{ agent, label, read?, did?, notes? }]`, persisted in `messages:<lessonId>`
+inside the signed turn. Messages from before #411 have no disclosure. The admin
+chats (lesson editor, KB editor, KB setup) build their activity on the client
+from the authoring agent's readiness change (`authoringActivity`). A new lesson
+draft starts at readiness 0, so its first reply shows "Readiness 0 → 3 of 10".
+
 ## Chat auto-scroll (#319, #321)
 
 `useStickToBottom` (consumed by `ChatArea`) follows streamed output while the
@@ -1249,20 +1511,96 @@ trip in the Share modal. Public lessons ignore the list for access checks.
 The admin API requires `sharedWith` to be an array of user ID strings; omitting
 it preserves the current list, and an explicit empty array clears it.
 
-### Courses
+### Courses, units, and lessons (#408)
 
-Optional taxonomy for grouping lessons. Each course is a first-class
-`_system:course:<id>` sync-data record with `{ name }`. Each lesson carries an
-optional `course` field (course ID, like `userGroup` on users). Pure
-organization — courses don't carry visibility/ACL; lesson visibility is
-unchanged. The learner-facing `GET /v1/lessons` and `/v1/lessons/:id` inline
-`course: { id, name } | null` so the coach context (`buildContext` in
-`client/src/lib/lessonEngine.js`) can include `course: { name }` when assigned.
-Admin manages courses via a "Courses" button on Admin → Lessons (mirrors the
-User Groups pattern); the lesson editor has a course dropdown that persists
-immediately on edit; the lessons table has a Course column. Course delete
-cascades: any lesson whose `course` referenced the deleted course is rewritten
-with `course: null`.
+Lessons are organized as **Course → Unit → Lesson**. Every part is optional:
+a lesson can sit outside any unit, and a unit outside any course. Everything
+here is organization only. Lesson visibility (public/private/draft +
+`sharedWith`) is unchanged, and nothing here affects completion.
+
+**Storage keeps its pre-hierarchy names** (glossary: storage `course` = UI
+**Unit**; storage `program` = UI **Course**). Nothing that references a unit
+had to move: `lesson.course`, learners' `courseProgress:<unitId>` memory, and
+stats.
+
+| UI | Record | Membership | Order |
+|---|---|---|---|
+| Course | `_system:program:<id>` `{ name, description, unitIds }` | top level | by name |
+| Unit | `_system:course:<id>` `{ name, programId, lessonIds }` | `unit.programId` | `program.unitIds` |
+| Lesson | `_system:lesson:<id>` | `lesson.course` (the unit id) | `unit.lessonIds` |
+
+`server/src/lib/hierarchy.js` is the single place that reads it:
+- **The lesson PUT doesn't touch `unit.lessonIds`.** A lesson moved into an
+  ordered unit appears after the ordered ones, by name, until an admin
+  reorders the unit.
+- **An install with no units at upgrade gets no default Course** (m004 only
+  creates one to hold existing units). Units made later start outside any
+  course until an admin puts them in one.
+- **Order arrays only order.** `orderIds()` lists the ids an array names that
+  are still members, then any members it's missing by name (the
+  pre-hierarchy behavior). A stale or missing array can't hide or duplicate
+  anything; it falls back to alphabetical.
+- Reorders must be an exact permutation of the members
+  (`PUT /v1/admin/units/:id/order` and `/programs/:id/order`).
+- `buildHierarchy()` gives positions. The learner reads (`GET /v1/lessons`
+  and `/v1/lessons/:id`) inline `unit: { id, name, position, lessonPosition }`
+  and `program: { id, name, position } | null`. They keep `course: { id, name }`
+  (the unit) for one release, for cached clients.
+
+Admin routes live in `server/src/routes/admin-hierarchy.js`:
+- `/v1/admin/units*`, with `/v1/admin/courses*` kept as the deprecated alias.
+- `/v1/admin/programs*`.
+- Unit `PUT` **preserves fields it doesn't set**. The pre-hierarchy handler
+  rebuilt the record and would have dropped `programId` and `lessonIds`.
+
+**Cascades:**
+- Deleting a unit sets `course: null` on its lessons (re-reading each and
+  skipping any another admin already moved) and removes it from its course's
+  order.
+- Deleting a course leaves its units, unassigned.
+
+**Admin UI:** Admin → Lessons → **Courses & Units**
+(`/plato/lessons/structure`, `client/src/pages/admin/CourseStructure.jsx`)
+replaced the old Courses modal.
+- It adds, renames, and deletes courses and units, and puts a unit in a course.
+- It orders units within a course and lessons within a unit with **Move up /
+  Move down** buttons (no drag and drop). Each button names its item, and every
+  move is announced in a polite live region. Focus is restored after the
+  reloaded list renders. When an item reaches the top or bottom, focus moves
+  to the opposite button, so the same item can keep moving.
+- The lesson editor's picker is **Unit**, grouped by course (`<optgroup>`). The
+  lessons table shows "Course › Unit".
+
+**Migration:** `m004_default_program` puts every existing unit into one
+default Course, named after the classroom, with the name-sorted lesson order
+it already had, so nothing reorders on upgrade.
+
+**Learner side:** `loadLessons()` carries `unit` and `program` onto each lesson
+and returns them in hierarchy order. `client/src/lib/lessonOrder.js` holds the
+pure helpers (tested in `client/tests/lessonOrder.test.js`):
+- `compareLessons`/`sortLessons`: course position, unit position, lesson
+  position, then name. Units outside a course come after courses; lessons
+  outside a unit (including the learner's `custom-*` lessons) come last.
+- `nextLessonAfter`: "Continue to Next Lesson" goes to the next lesson in the
+  unit, then on into the next unit **of the same course**. It never jumps to
+  another course. A unit outside any course stays within itself.
+- `groupForDisplay` and `completionBy('program' | 'unit')` drive the lessons
+  page (see [Learner classroom](#learner-classroom)).
+
+**Coach Directive is a trusted-author channel.** Anyone with
+`content.write` (admins and educators) can put instructions in front of every
+learner's coach. The coach is told the directive never overrides completion,
+but that's prose. The code guarantees are these: completion happens only in
+`applyCoachResponseToKB` (`server/src/shared/lessonAssessment.js`), run by the
+server's coaching route, and needs source-backed evidence for every objective
+and the exemplar; scores are clamped 0–10. Grant `content.write` only to people
+you'd trust to write the coach's instructions.
+
+**Coach context:** `server/src/shared/coachContext.js` sends `unit: { name, progress? }` (the
+cross-lesson note is per unit) and `course: { name }` (the course above it).
+Before #408 the unit was sent as `course`. The `course-progress-update`
+agent's input keys (`courseName`, `lessonsInCourse`) keep their old names; the
+prompt says they describe the unit.
 
 ### Learner classroom
 
@@ -1545,6 +1883,151 @@ coupling between the lessons themselves.
 
 *Known limitation (v1):* summaries build **forward** from completions after this
 shipped; pre-existing completions are not backfilled.
+
+### Getting Started, the bundled orientation course (#443)
+
+plato ships one course, **Getting Started with plato**, so every classroom
+can teach the platform itself. It's a Course holding one Unit ("How plato
+works") with three lessons, in order. Each lesson's exemplar proves the
+learner can use part of plato, not a subject:
+
+| Lesson (fixed id, file in `client/prompts/lessons/`) | The learner shows they can |
+|---|---|
+| **Welcome to plato** (`getting-started`, `getting-started.md`) | say what plato and the coach are; find the exemplar and objectives and which are met (the lesson overview); say how a lesson is completed and what happens after |
+| **Sharing your work** (`getting-started-sharing`, `getting-started-sharing.md`) | send, and pick the send key (Settings → Chat); share a screenshot or image; attach a link and say what the coach does with it |
+| **What plato does behind the scenes** (`getting-started-behind`, `getting-started-behind.md`) | read and correct the learner profile (Settings → Learner Profile → Add Feedback); use "Behind this response"; say what carries between lessons (unit progress) |
+
+Each lesson's `## Coach Directive` lists the real control names so the
+coach doesn't invent UI. The files travel with the prompts (the deploy's
+`cp -r client/prompts` copies the `lessons/` folder), and
+`seedDefaultContent` calls `ensureBundledLessons()`
+(`server/src/lib/bundled-lessons.js`) on every cold start. In the fork it runs
+**after** the data migrations, because startup awaits them first (see
+[Data migrations](#data-migrations)).
+
+**The course** (`BUNDLED_COURSE`): `_system:program:prog-getting-started`
+and `_system:course:unit-getting-started` (unit `lessonIds` in lesson order),
+both marked `bundled: { id }`, installed once (`_system:bundled:course:getting-started`).
+After that it's the admin's: rename it, reorder it, or delete it, and it's
+never recreated. A record an admin already has under the same id is left
+alone. Lessons installed before the course existed (playground's one-lesson
+release) join the unit if they aren't in one. m004 ignores bundled courses
+when deciding whether an admin already made courses, so the order of
+migrations and bundled installation doesn't change the result: counting it
+would leave every existing unit outside the default course.
+
+**Each lesson:**
+
+| Situation | What happens |
+|---|---|
+| First time on an install, classroom has no lessons | created **public**, in the Getting Started unit |
+| First time on an existing classroom | created **private**; Admin → Lessons shows one notice for the course with **Publish all / Review lessons / Dismiss** |
+| Added later to an install whose first Getting Started lesson is public | created public, so the course isn't left half-published |
+| Admin deleted it | never recreated (`_system:bundled:<id>` marker remembers the install) |
+| New version, copy unedited | updated in place; status, unit, and sharing kept; learner progress (`lessonKB:<id>`) untouched |
+| New version, copy edited | never overwritten; Admin → Lessons shows "has an update" with **View update / Apply update / Dismiss** |
+| An admin's own lesson already uses the id | left alone (no `bundled` marker) |
+
+The record carries `bundled: { id, version, dismissed?, publishNoticeDismissed? }`.
+`version` is the hash of the canonical markdown the copy last synced to, and
+the copy counts as edited when its markdown no longer hashes to it. The admin
+lesson PUT keeps the marker, so editing makes a copy "edited" instead of
+detaching it. Routes: `GET /v1/admin/bundled-lessons` (content.read) and
+`POST /v1/admin/bundled-lessons/:id { action: 'apply' | 'dismiss' |
+'dismiss-publish' }` (content.write; apply is audit-logged
+`bundled_lesson_updated`). Publish all uses the normal lesson PUT.
+
+Learners see it first: its lesson reads include `startHere: true`, so the
+course sorts above every other course; "Continue to Next Lesson" walks its
+three lessons and stops at the end of the course. A start-here lesson an
+admin moved out of every course still shows first, under **Start here**.
+
+**Keep it current:** a PR that changes learner-facing behavior updates the
+lesson that teaches it (see CLAUDE.md). Unedited copies everywhere pick up
+the change on the next deploy.
+
+### The lesson overview (#438)
+
+One read-only dialog per lesson (`client/src/components/chat/LessonOverview.jsx`),
+merging what were two dialogs upstream ("Lesson Overview" and "Your work"). It
+opens from the lesson header's **"Progress (N of M Objectives)"** button
+(accessible name "Progress (N of M Objectives): lesson overview") and from
+**Your progress** in the lessons page's outline dialog for started lessons
+(`/lessons/:id?view=overview`; `?view=work` still works). In order:
+- **Objectives:** the checklist (met / not yet, with screen-reader state).
+- **What finished work looks like:** the exemplar, once.
+- **Where you are** and the coach's notes, when the lesson KB has them.
+  Nothing is generated for the dialog.
+- **Shared work** (`<details>`, started lessons): images and links from the
+  messages' `metadata.imageKeys` / `metadata.links`. Images load only when the
+  section opens, bound to the lesson's owner; a failed image keeps its key and
+  says it failed.
+- **Additional context** (`<details>`): sanitized plugin enrichments, with
+  safe http(s) links only.
+
+The footer links **How assessment works**. The body is one focusable scroll
+region (axe scrollable-region-focusable). It works the same on completed
+lessons and in View as User, since it only reads.
+
+**The checklist is canonical evidence, not a coach-reported index list.**
+Upstream let the coach add `"objectivesMet": [1, 3]` and merged it one way
+into `lessonKB.objectivesMet`. In the fork, each authored objective has a
+canonical id, and the server's assessment records `lessonKB.evidence` entries
+(`{ objectiveId, status, observation, sourceIds }`) against confirmed learner
+sources. The overview and completion share one predicate, `evidenceIsMet` in
+`server/src/shared/lessonAssessment.js` (the client's `lessonWork.js` imports
+it). An objective shows as met only when its evidence is valid and cites
+confirmed, retained sources: readable link text, images still available.
+Active corrections, invalid sources or a change to the lesson's criteria can
+uncheck it, and legacy indices can't check anything. A completed lesson stays
+frozen as completed. The exemplar is a separate completion requirement.
+
+### Rewriting lessons in bulk (#261)
+
+Editing in plato is conversation-based, which is too slow for an editorial
+pass over many lessons. Instead:
+1. **Export** (read-only): `server/scripts/export-lessons.js <dir>` writes each
+   lesson to its own file and a `manifest.json` with each lesson's id,
+   filename, hash and objective count (`server/src/lib/lesson-rewrite.js`).
+   Filenames are bounded names derived from SHA-256, written with exclusive
+   creation, so a stored lesson id never becomes a path.
+2. **Edit and review** the files in a pull request.
+3. **Apply**: `server/scripts/apply-lessons.js <dir>` is a dry run unless
+   `--apply`. It validates manifest filenames (older manifests are accepted
+   only for safe ids), requires every real path to stay inside `<dir>`, and
+   refuses symlinks. It refuses any lesson changed in plato since the export
+   (`conflict`), any edit that fails the lesson checks
+   (`server/src/lib/lesson-markdown.js`, shared with the admin lesson PUT and
+   using the fork's fence- and container-aware parser), and any edit that
+   changes the number of objectives. Each write is version-checked and logs a
+   `lesson_rewrite_applied` audit entry with the before and after hashes.
+   Status, unit, sharing and learner progress stay.
+
+Only the first line after the title is the lesson's description (what
+`parseLessonPrompt` reads), so a rewrite puts "why this matters / how it
+follows the last lesson" there. Coaching notes, such as terms to define at
+first use, go in the optional `## Coach Directive`. No new lesson fields are
+needed.
+
+### How assessment works (#257, #414)
+
+`/how-assessment-works` (`client/src/pages/HowAssessmentWorks.jsx`) is a
+public page, linked from the lesson overview's footer and the Getting Started
+lessons. It describes what plato actually does: each lesson's exemplar and 2–4
+objectives; the AI coach assessing progress after every reply with the
+provider an administrator selected (Amazon Bedrock or Cloudflare Workers AI);
+completion only on trusted evidence for every objective and the exemplar, with
+no message limit; feedback-only after completion; no AI-writing detectors; and
+the read-only, logged staff view. Policy only people can set is shown as "To be
+decided by the program team" notes: when learners may use AI tools for the work
+they submit, whether people review completed lessons and how a learner appeals,
+and what completing a course certifies.
+
+The coach prompt backs this up (#414): when a response could have come from
+anyone, the coach asks for a personal example or the learner's own reasoning
+before recording evidence, without accusing anyone of using AI. Upstream
+measured this on Bedrock with Qwen3-VL; the fork's prompt keeps the behavior
+but wasn't re-measured.
 
 ## Pacing & completion philosophy
 
@@ -1861,6 +2344,326 @@ tab/CR get a leading `'` so spreadsheets treat them as text: names and
 answers arrive from the public wait-list form, so a formula there would be
 attacker-controlled (CSV injection). Dates are ISO; the file has a UTF-8 BOM
 and CRLF line endings so Excel opens it cleanly.
+
+## Admin tables: filters, columns, User ID (#362, #385, #386)
+
+**Filters (Admin → Users).** A Filters menu (`client/src/pages/admin/FiltersMenu.jsx`,
+logic in `client/src/lib/userFilters.js`) replaced the single-choice
+All / Active / Staff / Invited / Wait List buttons and the one custom-field
+filter.
+- It has one group of checkbox items per facet: Status (Signed up, Invited,
+  Wait list), Role, Group (plus No group), and every custom field (its
+  dropdown options plus Empty, or Has a value / Empty). Each option shows its
+  count.
+- Filters combine as **OR within a facet, AND across facets**. Each facet has
+  Select all and Clear.
+- Facets that don't apply drop an item: a role filter leaves out invites and
+  wait-list entries, and invites have no field answers.
+- Active filters show as removable chips with a "Clear all" button, and a
+  polite status line says "N of M people".
+- Search also matches the User ID.
+
+**Columns (Users and Lessons).** A Columns dialog (`ColumnsDialog.jsx`,
+logic in `client/src/lib/tableColumns.js`) shows and hides columns and moves
+them with Move up / Move down buttons. Focus stays on the moved row, and each
+change is announced.
+- The layout is saved per browser in localStorage
+  (`plato:columns:users:v1`, `plato:columns:lessons:v1`) and reconciled with
+  the current columns: new ones appear in their default place, and removed
+  ones drop.
+- The name/open column and the actions column are fixed.
+- Every custom field is a Users column, hidden until chosen. This replaced the
+  old filter-driven extra column.
+- Lessons adds a hidden Lesson ID column.
+- Column resizing isn't built.
+
+**User ID (#386).** The immutable account id (`usr_…`) is a Users column
+(sortable and searchable) and the last CSV column, as a stable key for
+research and reporting. It's shown to staff only (everyone with `users.read`: admins, educators, testers, including the CSV download); learners never see it.
+
+## User groups (#434)
+
+Group names live in `_system:settings.userGroups`. Membership is the name on
+each user (`userGroup`), on wait-list entries and invites (`profile.userGroup`),
+and on messages sent to a group (`audience.group`). `server/src/lib/groups.js`
+owns them:
+- Names are 1–80 characters and **unique ignoring case**. The list is stored
+  sorted A–Z, with "None" and "Other" last; `GET /v1/groups` sorts older lists
+  on read.
+- **Rename** (`PUT /v1/admin/groups { oldName, name }`) writes the group list
+  first, version-checked. Then it moves every membership: users, wait-list
+  entries, pending invites, and group messages, so the bell keeps showing them
+  to the group. It returns `moved: { users, invites, messages, failed }` and
+  writes a `group_renamed` audit entry. If some membership writes fail, the
+  dialog offers **Finish moving people from X to Y**, which sends the same
+  rename again; with the new name listed and the old one gone, the server
+  only moves the remaining members.
+- **Delete** clears the group from users and invites. Messages already sent
+  keep their audience.
+
+The User Groups dialog (`client/src/pages/admin/GroupsDialog.jsx`) has inline
+rename (Enter saves, Escape cancels), member counts, and a delete
+confirmation. Errors show inside the dialog. Its parent refreshes quietly, so
+the page spinner doesn't unmount it.
+
+## Roles & permissions (#435)
+
+Four roles. `server/src/lib/permissions.js` is the single source of who may do what.
+
+| Role | Can |
+|---|---|
+| **admin** | everything |
+| **educator** | lessons, courses, and units (read/write); view users and progress; invite learners; invite from the wait list. **Not:** Customizer (theme, knowledge base), prompts, settings writes, plugins, custom fields, groups, user edits/deletion, roles, logs, View as User |
+| **learner** | the classroom only. Stored as `user` before #435; `normalizeRole()` maps legacy and unknown values to `learner` |
+| **tester** | every `*.read` permission, so they see all classroom and admin pages, plus View as User; **no writes** to admin routes. They can still take lessons, since their own `/v1/sync` and `/v1/me` writes aren't admin routes |
+
+**Enforcement:** `/v1/admin/*` runs `authenticate`, then `authorize`
+(`server/src/middleware/authorize.js`).
+- `authenticate` reloads the user's role from the DB on every request, so a
+  role change applies immediately.
+- `authorize` looks the request up in `ROUTE_PERMISSIONS`. **Any route not in
+  the table is admin-only**, so a new route is safe by default.
+- `tests/lib/permissions.test.js` fails if a registered admin route is unmapped
+  or a table row is stale. `tests/routes/admin-authorization.test.js` drives
+  the real admin app as each role.
+- A refusal returns `403 { code: 'forbidden', permission }`.
+- Plugin admin routes still use the SDK's `requireAdmin` (admin only).
+- View as User reads (`?asUserId=`, in `sync.js` and `content.js`) need
+  `impersonation.use` (admins and testers).
+
+**Data and API.**
+- The role endpoint (`PUT /v1/admin/users/:id/role`, admin only) accepts the
+  four roles, with legacy `user` read as learner. It refuses an admin's own
+  role, and refuses demoting the last admin. Every change writes an audit
+  entry `role_changed { from, to }`.
+- New signups are stored as `learner`. Migration `m003_role_learner` renames
+  stored `user` to `learner` conditionally, leaving `updatedAt` alone.
+- Every API response sends the normalized role. Stats count only
+  `role === 'learner'` as learners.
+- The plugin hook payloads (`userCreated` / `userDeleted`) carry the
+  normalized role (plugin API 1.4.0).
+
+**Client.**
+- `client/src/lib/permissions.js` mirrors the map, and a test compares it with
+  the server's.
+- `can(user, permission)` drives:
+  - the `/plato` route gate (`admin.access`) and per-page gates
+    (`RequirePermission`: Customizer and KB setup need `kb.read`, Plugins
+    needs `plugins.read`)
+  - the admin nav
+  - the classroom admin bar
+  - which controls render
+- Rule: a control shows if the role can use it, **or the user is a tester**.
+  Testers explore every screen, and `adminApi` refuses their writes up front
+  with "Testers can look around but can't save changes". Educators don't see
+  controls they can't use; Edit User is read-only for them.
+- AdminLayout shows testers a read-only notice.
+- `AuthContext` re-reads `/v1/me` on load (`refreshCurrentUser`), so a role
+  change applies on the next page load, not just the next login. The refresh
+  is bound to the auth session that started it (see
+  [Launch data contracts](#launch-data-contracts-2026-11-06)).
+
+## First and last names (#402)
+
+Users have `firstName` and `lastName`. `name` stays on the record, always
+derived as `firstName lastName`, for plugins, the audit log, emails, and
+Beta-RC-232 rollback. `server/src/lib/names.js` is the single reader and
+writer:
+- `readNameInput(body, { current, required })` reads a request. `firstName` /
+  `lastName` win; a lone `name` (older clients, the public wait-list API) is
+  split. A part the body leaves out keeps its current value. A first name is
+  required; a last name is optional (people with one name exist). Each part is
+  at most 100 characters.
+- `nameFields(record)` is what every response sends: `name`, `firstName`,
+  `lastName`, `nameSource`. A record without parts (written before #402, or
+  not yet reached by the migration) is split on read.
+- **`nameSource`** is `'user'` when a person or admin entered the parts, and
+  `'auto'` when they were inferred. The UI hints that an `'auto'` split may
+  need a correction. Nothing is silently discarded: the inference splits at the
+  first whitespace and everything after it becomes the last name.
+
+Routes that take a name: setup, signup, `PATCH /v1/me`,
+`PATCH /v1/admin/users/:id`, and the wait list (join and admin edit; profiles
+store the same fields). `GET /v1/auth/invite/:token` returns the parts so
+signup can fill them in.
+
+**Migration:** `m005_name_split` writes the inferred parts with
+`setUserNameSplitIf` (conditional on `name` unchanged and no parts yet;
+`updatedAt` untouched). Empty names are left alone. The dry run reports how
+many names had 3+ parts. Wait-list entries aren't migrated; they're split on
+read and replaced when the person signs up.
+
+**`preferences.name` is retired.** Settings edits the name on the account
+(`PATCH /v1/me`), and the sync route no longer copies `preferences.name` to
+the user record, so an old value left in preferences can't undo a corrected
+split. The coach's `learnerName` is the account's `firstName` (it used to be
+`preferences.name`, which stayed blank until the learner saved Settings).
+
+**Client:** `client/src/components/NameFields.jsx` renders First name / Last
+name (optional) with `given-name` / `family-name` autocomplete, and the
+"Split automatically…" hint (tied to both inputs by `aria-describedby`) when
+`nameSource` is `'auto'`. It's used on signup, setup, the wait list, Settings,
+Edit User, and Edit Wait List Entry. The Users list sorts by last name, and
+the CSV has First Name and Last Name columns.
+
+## Notifications (#388, #389, #400)
+
+Everything plato emails on its own (automations, invitations) or on an
+admin's behalf (messages) goes through `server/src/lib/notifications.js`.
+Only the password-reset email stays in `email.js`.
+
+- **Automations** live in `_system:automations` = `{ waitlistConfirmation,
+  waitlistRemoved, inactivityNudge, weeklyDigest }`. Every one is **off** until
+  an admin turns it on, including on an upgraded install.
+- **Invitations are always on** (`ALWAYS_ON`): `invite` (the signup link, from
+  Users → Invite, a bulk invite, a resend, or the wait list) and
+  `account-invite` (#486, for someone who already has an account; links to the
+  classroom). Admin → Notifications → Automations lists them as "Always on",
+  with no switch, and their copy is editable like any template (variables
+  `firstName`, `classroomName`, `inviterName`, `link`; `firstName` falls back
+  to "there" and `inviterName` to "The <classroom> team"). They're sent with
+  `sendTemplated(..., { allowlist: false })`: like the hand-built emails they
+  replaced, they **ignore `EMAIL_ALLOWLIST`**, because an admin typed the
+  address. `SKIP_EMAIL` logs the link instead, and `sendInviteEmail` still
+  returns `{ sent | skipped, signupUrl }`.
+- **Removed from the wait list** (`waitlistRemoved`, template
+  `waitlist-removed`): when on, `DELETE /v1/admin/waitlist/:token` emails the
+  person once (the entry is gone afterwards, so a second DELETE is a 404). Not
+  sent when an entry is consumed by an invite. A failure logs
+  `waitlist_removed_email_failed` and never fails the removal. One-time mail,
+  no unsubscribe link; the allowlist applies.
+- **Templates** come with a default copy in code (`TEMPLATES`); an admin's
+  version is stored in `_system:emailTemplate:<id>` (`{ subject, body }`) and
+  can be reset back to the default.
+  - A body is plain text: paragraphs separated by blank lines, `{{variables}}`
+    from that template's list, and a line holding only `{{link}}` becomes a
+    button.
+  - Saving refuses unknown variables, a multi-line subject, or anything over
+    200 characters (subject) or 5000 (body).
+  - Values are HTML-escaped in the HTML part.
+- **Sending** is multipart text + HTML, as raw MIME through SES
+  (`SendRawEmail`), so we can add `List-Unsubscribe` and one-click
+  `List-Unsubscribe-Post` (RFC 8058). Header values are forced onto one line.
+  - `SKIP_EMAIL=true` logs instead of sending.
+  - `EMAIL_ALLOWLIST` (the `EmailAllowlist` stack parameter) limits recipients.
+    When it's empty: anyone on prod, no one on other stages.
+- **Unsubscribe** uses tokens that are HMAC-signed per user and kind (`nudge`,
+  `digest`, `messages`; the key is derived from `JWT_SECRET`).
+  - `GET /v1/unsubscribe?token=` shows a confirm button, so link scanners can't
+    unsubscribe anyone. `POST` (the button, or a mail client's one-click
+    request) records the opt-out.
+  - Opt-outs and per-user bookkeeping live in the server-only `notify:state`
+    sync record, which learners can't write through `/v1/sync` and which a
+    progress reset keeps. Learners manage them through
+    `GET/PUT /v1/me/notifications`.
+- **Wait list confirmation (#388):** sent by `POST /v1/waitlist` only when
+  *that request* created the entry. The create-only insert means a retry or a
+  duplicate join (which finds the entry) never sends again. A failure logs
+  `waitlist_confirmation_failed` and never fails the join. Not sent when the
+  email already has an account or a pending invite. It's one-time mail,
+  so it carries no unsubscribe link.
+- **Messages (#389):** Admin → Notifications → Compose sends a one-off
+  message to everyone, chosen roles, a group, or specific people, in the
+  classroom and/or by email (`server/src/lib/messages.js`).
+  - The record is `_system:message:<id>`.
+  - "Everyone" (`{ type: 'all', allRoles: true }`) is every user of any role;
+    "By role" (`{ type: 'role', roles }`) is learners, educators, admins,
+    and/or testers; a group (`allRoles: true`) is its members of any role.
+    These broadcasts reach only people who had joined when it was sent.
+    Specific people can be anyone.
+  - **Older messages keep their meaning.** Before Blake's review on #451,
+    "everyone" and groups meant learners only, and those records have no
+    `allRoles`. Because the bell is worked out at read time, treating them as
+    every role would suddenly show old learner announcements to staff, so a
+    message without `allRoles` still reaches learners only (History labels it
+    "All learners" / "Group: X (learners)"). No migration: stored records
+    aren't changed.
+  - In-app delivery is worked out when the learner reads (`GET /v1/me/messages`),
+    so nothing is written per recipient. Read state is `notify:state.read`
+    (`POST /v1/me/messages/read`). `important` messages also open as a pop-up.
+  - Email goes out in the `send-message` background job, five at a time,
+    honoring the `messages` opt-out with an unsubscribe link. It records
+    `counts` (emailed, opted out, not allowlisted, failed), and a re-run of a
+    finished job sends nothing.
+  - **Delivery state (fork).** A message is `sending`, `sent` or `failed`. An
+    attempt takes a durable execution lease on the message first, claims each
+    recipient in `notify:state.emailPending[messageId]`, and records
+    `emailed[messageId]` only after the transport confirms. A known failure
+    releases that attempt's own claim so a retry tries the person again; an
+    uncertain outcome keeps its claim (at most once, never twice). Failed
+    delivery returns 503 with the message, and
+    `POST /v1/admin/notifications/messages/:id/retry` retries it. See
+    [Launch data contracts](#launch-data-contracts-2026-11-06).
+  - Compose shows the audience size first (`POST …/preview`) and asks for
+    confirmation.
+  - Each send writes a `message_sent` audit entry.
+- **Job events skip first-request setup.** The API handler routes a job event
+  straight to `runJob`, before the middleware that seeds content, runs
+  migrations, and boots plugins. Jobs must only need the database, which is
+  true of all of today's jobs.
+- **Background jobs** (`server/src/lib/jobs.js`): `dispatchJob(name, payload)`
+  asynchronously invokes the **API function** on Lambda, whose handler routes
+  `{ __platoInternal: 'platoJob' }` events to `runJob`. On Cloud Run and
+  locally the job runs in process and the HTTP request awaits it, because
+  Cloud Run doesn't guarantee CPU after a response.
+  - The stream function, which serves all CloudFront traffic, can't take
+    non-HTTP events. So it finds the API function in `JOBS_FUNCTION`. The API
+    function's timeout is 300 s, for jobs; HTTP stays capped at 29 s by API
+    Gateway.
+  - The dashboard's async stats refresh used to invoke the stream function
+    itself and never ran: prod logged 51 invokes and 0 completions in 14 days,
+    and the API function had no log group at all. It now uses the same target.
+- **Scheduled learner emails (#400)** live in `server/src/lib/learner-emails.js`
+  and run as background jobs. Each does nothing while its automation is off.
+  - **When they run:** no EventBridge rule. Creating one needs `events:*` on
+    the deploy role, which the role in `docs/DEPLOY.md` doesn't have, and
+    playground's deploy failed on exactly that. Instead, at most every 10
+    minutes per container, a request checks `_system:jobs:schedule`
+    (`server/src/lib/schedule.js`). A job that's due and on is claimed with a
+    version-checked write (one container wins) and dispatched. An absent
+    schedule record is created create-only, so two cold containers can't
+    both claim the first run. The reminder
+    is daily from 15:00 UTC, and the digest Mondays from 15:00 UTC. A day
+    with no traffic sends nothing.
+  - `inactivity-nudge` (daily, 15:00 UTC): a learner whose started lesson has
+    gone 7 days untouched (its `lessonKB` record's `updatedAt`) gets one
+    reminder, for the most recently active such lesson. The same lesson isn't
+    nudged again for 14 days, and a learner gets at most one a day.
+  - `weekly-digest` (Mondays, 15:00 UTC): lessons completed this week,
+    lessons in progress, and lessons **published** this week (`publishedAt`,
+    set by the admin lesson PUT the first time a lesson goes public). Skipped
+    when there's nothing to say, and at most once every 6 days.
+  - Both cover learners only and only lessons the learner can see, honor
+    `optOut.nudge` / `optOut.digest`, and write their bookkeeping
+    (`nudges`, `lastNudgeAt`, `lastDigestAt` in `notify:state`) before
+    sending, so a retried run never emails twice.
+  - Run one by hand with `aws lambda invoke --function-name <PlatoApiFunction>
+    --invocation-type Event --payload
+    '{"__platoInternal":"platoJob","job":"inactivity-nudge"}'`.
+- **Admin routes** (`server/src/routes/admin-notifications.js`) need
+  `notifications.read` (admins, testers) or `notifications.write` (admins):
+  - `GET /v1/admin/notifications`
+  - `PUT …/automations`
+  - `PUT` and `DELETE …/templates/:id`
+  - `POST …/templates/:id/test`, which sends the saved or unsaved draft to the
+    signed-in admin with sample values
+  - `POST …/preview`, `GET …/messages`, and `POST …/messages`
+- **Learner UI:** a **bell** in the classroom header (`client/src/components/NotificationsBell.jsx`;
+  hidden in View as User) lists messages, newest first, with an unread
+  count in its accessible name. Opening it marks what it shows as read.
+  An unread `important` message opens once as a dialog ("Got it" marks it
+  read). It re-checks when the tab comes back into view, with no polling. The bell
+  and the account menu are **non-modal** menus (the fork's popover-based
+  `dropdown-menu.jsx`), because a modal one `aria-hidden`s the whole page
+  while open (axe `aria-hidden-focus`).
+  Settings → **Email** has checkboxes for reminders, the weekly digest, and
+  classroom messages, saved on change.
+- **Admin UI:** Admin → **Notifications** (`client/src/pages/admin/AdminNotifications.jsx`)
+  has three tabs. Compose: audience radios, a searchable people picker, the
+  channels, the subject and message, the audience count, and a confirm dialog.
+  Automations: each automation's on/off toggle and its email editor, with
+  save, a test send to yourself, and reset to default. History: sent messages
+  with their delivery status and counts, and Retry for a failed message. Testers can see everything and send nothing.
 
 ## Admin "View as User"
 

@@ -30,6 +30,14 @@ not included in the new events. Batch failures emit one event per rejected
 item, even when the enclosing HTTP response is 200; `itemIndex` identifies the
 position, not its content. Stale-client rejections use validation failure with
 reason `client_upgrade_required`, rather than masquerading as version conflicts.
+An oversized record answers `413` with `code: 'sync_item_too_large'` (or
+`screenshot_too_large`) in the response body, but its only log event is that
+one content-free `sync_validation_failure` with status 413. Upstream's launch
+release also logged `sync_item_too_large` with the data key's prefix and the
+record size; the fork doesn't, and `server/tests/routes/save-observability.test.js`
+asserts exactly one event with no key material. `scripts/save-signals.js` counts
+every `sync_validation_failure`, so log-watch and the Cloud Monitoring alert
+still report oversize refusals.
 Successful first saves and exact server replay acknowledgements are not failures.
 Existing unhandled-error logs retain their existing diagnostic format.
 
