@@ -2,7 +2,7 @@ import { ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-export default function LessonVisibilityButton({ lesson, expanded, onOpen }) {
+export default function LessonVisibilityButton({ lesson, readOnly = false, expanded, onOpen }) {
   const name = lesson.name || lesson.lessonId;
   if (lesson.status === 'draft') {
     return <Badge variant="outline" className="shrink-0 text-xs border-warning-border bg-warning text-warning-foreground">Draft</Badge>;
@@ -11,6 +11,7 @@ export default function LessonVisibilityButton({ lesson, expanded, onOpen }) {
   const recipientCount = lesson.sharedWith?.length || 0;
   const label = isPublic ? 'Public' : `Private${recipientCount
     ? ` (${recipientCount} ${recipientCount === 1 ? 'user' : 'users'})` : ''}`;
+  if (readOnly) return <Badge variant="outline">{label}</Badge>;
   return (
     <Button variant="outline" size="sm"
       className={`shrink-0 rounded-full ${isPublic ? '' : 'border-primary/30 bg-primary/10 text-primary-text'}`}

@@ -1,3 +1,6 @@
+import { Fragment } from 'react';
+import AgentActivity from '../../components/chat/AgentActivity.jsx';
+import { authoringActivity, AUTHORING_READS } from '../../lib/agentActivity.js';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +52,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   const [saveState, setSaveState] = useState(queue.getState);
   const snapshot = saveState.snapshot;
   const [courses, setCourses] = useState([]);
+  const [programs, setPrograms] = useState([]);
   const [busy, setBusy] = useState('');
   const busyRef = useRef('');
   const [error, setError] = useState('');
@@ -179,7 +183,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
       setDraining(true);
       update({
         conversation: [...queue.getState().snapshot.conversation,
-          { role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE }],
+          { role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE, metadata: { agents: authoringActivity('lesson-creator', { before: current.readiness, after: readiness, reads: AUTHORING_READS }) } }],
         readiness: readiness ?? current.readiness, failedReply: null,
       }, { save: true, content: !opening || !initialMarkdown });
       setStreamingText(null);
@@ -225,10 +229,10 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
 
   useEffect(() => {
     let cancelled = false;
-    adminApi('GET', '/v1/admin/courses').then(data => {
-      if (!cancelled) setCourses(Array.isArray(data) ? data : []);
+    Promise.all([adminApi('GET', '/v1/admin/units'), adminApi('GET', '/v1/admin/programs')]).then(([data, hierarchy]) => {
+      if (!cancelled) { setCourses(Array.isArray(data) ? data : []); setPrograms(hierarchy.programs || []); }
     }).catch(() => {
-      if (!cancelled) setError('Courses could not be loaded. Your current course is unchanged.');
+      if (!cancelled) setError('Units could not be loaded. Your current unit is unchanged.');
     });
     return () => { cancelled = true; };
   }, []);
@@ -405,9 +409,9 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   const statusText = saveState.error
     ? (saveState.error.status === 409 || saveState.error.status === 400 ? saveState.error.message
       : `Saving is not confirmed. ${saveState.localError ? 'Keep this page open and retry saving.' : 'Your work is kept in this tab. Retry saving before closing it.'}`)
-    : saveState.saving ? (snapshot.finalizePending ? 'Saving lesson…' : snapshot.visibilityPending ? 'Saving visibility…' : 'Saving conversation and course…')
+    : saveState.saving ? (snapshot.finalizePending ? 'Saving lesson…' : snapshot.visibilityPending ? 'Saving visibility…' : 'Saving conversation and unit…')
       : saveState.localError ? 'A backup is unavailable in this tab. Check that changes are saved before leaving.'
-        : saveState.version ? 'Conversation and course saved automatically.' : 'Conversation not saved yet.';
+        : saveState.version ? 'Conversation and unit saved automatically.' : 'Conversation not saved yet.';
 
   return (
     <div ref={editorRef} className="lesson-editor min-w-0"
@@ -476,15 +480,16 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
           hidden={compact && activePane !== 'refine'}>
           <div className="lesson-editor-columns lesson-editor-setup">
             <div className="flex flex-wrap items-center gap-3 min-w-0">
-              <label htmlFor="lesson-course" className="text-sm font-medium">Course <span className="font-normal text-muted-foreground">(optional)</span></label>
-              <select id="lesson-course" value={snapshot.course}
+              <label htmlFor="lesson-course" className="text-sm font-medium">Unit <span className="font-normal text-muted-foreground">(optional)</span></label>
+              <select aria-label="Unit" id="lesson-course" value={snapshot.course}
                 aria-disabled={blocked}
                 onChange={event => { if (!blocked) update({ course: event.target.value }, { save: true }); }}
                 className="min-h-10 min-w-0 max-w-full flex-1 truncate rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                <option value="">No course</option>
-                {snapshot.course && !courses.some(course => course.courseId === snapshot.course)
-                  && <option value={snapshot.course}>Current course</option>}
-                {courses.map(course => <option key={course.courseId} value={course.courseId}>{course.name}</option>)}
+                <option value="">No unit</option>
+                {snapshot.course && !courses.some(course => course.unitId === snapshot.course)
+                  && <option value={snapshot.course}>Current unit</option>}
+                {programs.map(program => <optgroup key={program.programId} label={program.name}>{courses.filter(unit => program.unitIds.includes(unit.unitId)).map(unit => <option key={unit.unitId} value={unit.unitId}>{unit.name}</option>)}</optgroup>)}
+                {courses.filter(unit => !programs.some(program => program.unitIds.includes(unit.unitId))).map(unit => <option key={unit.unitId} value={unit.unitId}>{unit.name}</option>)}
               </select>
             </div>
             <details className="lesson-editor-readiness min-w-0" open={!compact || readinessOpen}
@@ -528,7 +533,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
               <ChatArea announcement={announcement} scrollTargetRef={composerEnd} scrollOnMount={false}>
                 {chatMessages.map((message, index) => message.role === 'user'
                   ? <UserMessage key={index} content={message.content} />
-                  : <AssistantMessage key={index} content={message.content} speakerLabel="Lesson assistant" />)}
+                  : <Fragment key={index}><AgentActivity agents={message.metadata?.agents} /><AssistantMessage content={message.content} speakerLabel="Lesson assistant" /></Fragment>)}
                 {displayText != null && displayText.length > 0 && <AssistantMessage content={displayText} speakerLabel="Lesson assistant" streaming />}
                 {(busy === 'starting' || busy === 'reply') && !displayText && <ThinkingSpinner text={busy === 'starting' ? 'Starting the lesson conversation…' : undefined} />}
               </ChatArea>

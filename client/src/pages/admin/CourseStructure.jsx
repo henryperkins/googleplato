@@ -1,3 +1,5 @@
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { can } from '../../lib/permissions.js';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi } from './adminApi.js';
@@ -22,6 +24,9 @@ const SELECT_CLASS = 'h-8 rounded-md border border-input bg-transparent px-2 tex
  * server/src/lib/hierarchy.js.
  */
 export default function CourseStructure() {
+  const { user } = useAuth();
+  const canWrite = can(user, 'content.write');
+  const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
   const [programs, setPrograms] = useState([]);
   const [units, setUnits] = useState(new Map());
@@ -56,7 +61,7 @@ export default function CourseStructure() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { document.title = 'Courses & Units — Admin'; load(); }, [load]);
+  useEffect(() => { document.title = 'Courses & Units — plato'; load(); }, [load]);
 
   // Keep keyboard focus on the button that was pressed after the list re-renders.
   useEffect(() => {
@@ -72,6 +77,8 @@ export default function CourseStructure() {
   }, [focusRequest]);
 
   async function run(fn, done, focusId) {
+    if (!canWrite || busy) return;
+    setBusy(true);
     setError('');
     try {
       await fn();
@@ -81,7 +88,7 @@ export default function CourseStructure() {
       if (focusId) setFocusRequest((prev) => ({ id: focusId, n: (prev?.n || 0) + 1 }));
     } catch (e) {
       setError(e.message || 'Something went wrong.');
-    }
+    } finally { setBusy(false); }
   }
 
   const move = (list, index, delta) => {
@@ -145,8 +152,8 @@ export default function CourseStructure() {
           onKeyDown={(e) => { if (e.key === 'Escape') setEditing(null); }}
           className="h-8 w-64 max-w-full"
         />
-        <Button type="submit" size="sm">Save</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+        <Button disabled={!canWrite || busy} type="submit" size="sm">Save</Button>
+        <Button disabled={!canWrite || busy} type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
       </form>
     );
   }
@@ -174,11 +181,11 @@ export default function CourseStructure() {
               </button>
               {program && (
                 <>
-                  <Button id={`unit-${unitId}-up`} variant="ghost" size="icon-xs" disabled={index === 0} onClick={() => moveUnit(program, index, -1)} aria-label={`Move ${unit.name} up`}>&uarr;</Button>
-                  <Button id={`unit-${unitId}-down`} variant="ghost" size="icon-xs" disabled={index === program.unitIds.length - 1} onClick={() => moveUnit(program, index, 1)} aria-label={`Move ${unit.name} down`}>&darr;</Button>
+                  <Button disabled={!canWrite || busy || index === 0} id={`unit-${unitId}-up`} variant="ghost" size="icon-xs"  onClick={() => moveUnit(program, index, -1)} aria-label={`Move ${unit.name} up`}>&uarr;</Button>
+                  <Button disabled={!canWrite || busy || index === program.unitIds.length - 1} id={`unit-${unitId}-down`} variant="ghost" size="icon-xs"  onClick={() => moveUnit(program, index, 1)} aria-label={`Move ${unit.name} down`}>&darr;</Button>
                 </>
               )}
-              <select
+              <select disabled={!canWrite || busy}
                 aria-label={`Course for ${unit.name}`}
                 value={unit.programId || ''}
                 onChange={(e) => moveUnitToCourse(unit, e.target.value)}
@@ -187,8 +194,8 @@ export default function CourseStructure() {
                 <option value="">No course</option>
                 {programs.map((p) => <option key={p.programId} value={p.programId}>{p.name}</option>)}
               </select>
-              <Button variant="ghost" size="sm" onClick={() => setEditing({ kind: 'unit', id: unitId, name: unit.name })} aria-label={`Rename ${unit.name}`}>Rename</Button>
-              <Button variant="ghost" size="sm" onClick={() => setConfirm({ kind: 'unit', id: unitId, name: unit.name, count })} aria-label={`Delete ${unit.name}`}>Delete</Button>
+              <Button disabled={!canWrite || busy} variant="ghost" size="sm" onClick={() => setEditing({ kind: 'unit', id: unitId, name: unit.name })} aria-label={`Rename ${unit.name}`}>Rename</Button>
+              <Button disabled={!canWrite || busy} variant="ghost" size="sm" onClick={() => setConfirm({ kind: 'unit', id: unitId, name: unit.name, count })} aria-label={`Delete ${unit.name}`}>Delete</Button>
             </>
           )}
         </div>
@@ -204,8 +211,8 @@ export default function CourseStructure() {
                     <button type="button" onClick={() => navigate(`/plato/lessons/${encodeURIComponent(lessonId)}/edit`)} className="flex-1 min-w-0 text-left hover:underline cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
                       {lessonNames.get(lessonId) || lessonId}
                     </button>
-                    <Button id={`lesson-${lessonId}-up`} variant="ghost" size="icon-xs" disabled={i === 0} onClick={() => moveLesson(unit, i, -1)} aria-label={`Move ${lessonNames.get(lessonId)} up`}>&uarr;</Button>
-                    <Button id={`lesson-${lessonId}-down`} variant="ghost" size="icon-xs" disabled={i === count - 1} onClick={() => moveLesson(unit, i, 1)} aria-label={`Move ${lessonNames.get(lessonId)} down`}>&darr;</Button>
+                    <Button disabled={!canWrite || busy || i === 0} id={`lesson-${lessonId}-up`} variant="ghost" size="icon-xs"  onClick={() => moveLesson(unit, i, -1)} aria-label={`Move ${lessonNames.get(lessonId)} up`}>&uarr;</Button>
+                    <Button disabled={!canWrite || busy || i === count - 1} id={`lesson-${lessonId}-down`} variant="ghost" size="icon-xs"  onClick={() => moveLesson(unit, i, 1)} aria-label={`Move ${lessonNames.get(lessonId)} down`}>&darr;</Button>
                   </li>
                 ))}
               </ol>
@@ -220,7 +227,7 @@ export default function CourseStructure() {
     const adding = editing?.kind === 'unit' && !editing.id && (editing.programId || null) === (programId || null);
     return adding
       ? nameForm('New unit name')
-      : <Button variant="outline" size="sm" onClick={() => setEditing({ kind: 'unit', id: null, name: '', programId })}>Add unit</Button>;
+      : <Button disabled={!canWrite || busy} variant="outline" size="sm" onClick={() => setEditing({ kind: 'unit', id: null, name: '', programId })}>Add unit</Button>;
   }
 
   if (loading) return <div className="flex items-center justify-center py-12 text-muted-foreground" role="status">Loading...</div>;
@@ -241,7 +248,7 @@ export default function CourseStructure() {
       <div className="mb-4">
         {editing?.kind === 'program' && !editing.id
           ? nameForm('New course name')
-          : <Button onClick={() => setEditing({ kind: 'program', id: null, name: '' })}>Add course</Button>}
+          : <Button disabled={!canWrite || busy} onClick={() => setEditing({ kind: 'program', id: null, name: '' })}>Add course</Button>}
       </div>
 
       <div className="space-y-4">
@@ -255,8 +262,8 @@ export default function CourseStructure() {
                     <>
                       <h2 className="flex-1 min-w-0 text-lg font-semibold">{program.name}</h2>
                       <span className="text-sm text-muted-foreground">{program.unitCount} unit{program.unitCount === 1 ? '' : 's'} · {program.lessonCount} lesson{program.lessonCount === 1 ? '' : 's'}</span>
-                      <Button variant="ghost" size="sm" onClick={() => setEditing({ kind: 'program', id: program.programId, name: program.name })} aria-label={`Rename course ${program.name}`}>Rename</Button>
-                      <Button variant="ghost" size="sm" onClick={() => setConfirm({ kind: 'program', id: program.programId, name: program.name, count: program.unitCount })} aria-label={`Delete course ${program.name}`}>Delete</Button>
+                      <Button disabled={!canWrite || busy} variant="ghost" size="sm" onClick={() => setEditing({ kind: 'program', id: program.programId, name: program.name })} aria-label={`Rename course ${program.name}`}>Rename</Button>
+                      <Button disabled={!canWrite || busy} variant="ghost" size="sm" onClick={() => setConfirm({ kind: 'program', id: program.programId, name: program.name, count: program.unitCount })} aria-label={`Delete course ${program.name}`}>Delete</Button>
                     </>
                   )}
                 </div>

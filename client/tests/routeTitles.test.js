@@ -94,3 +94,12 @@ describe('adminPageName', () => {
     assert.equal(pageTitle(adminPageName('/plato/ai')), 'AI Settings — plato');
   });
 });
+
+it('names launch staff routes and their permission gates consistently', async () => {
+  const { adminPagePermission, publicPageName } = await import('../src/lib/routeTitles.js');
+  assert.equal(adminPageName('/plato/lessons/structure'), 'Courses & Units');
+  assert.equal(adminPageName('/plato/notifications'), 'Notifications');
+  assert.equal(adminPagePermission('/plato/notifications'), 'notifications.read');
+  assert.equal(adminPagePermission('/plato/ai'), 'ai.read');
+  assert.equal(publicPageName('/how-assessment-works'), 'How assessment works');
+});

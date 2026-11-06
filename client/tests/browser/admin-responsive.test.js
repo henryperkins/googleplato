@@ -17,7 +17,7 @@ const root = fileURLToPath(new URL('../../..', import.meta.url));
 const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
 const browserType = { chromium, firefox, webkit }[browserName];
 assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
-const destinations = ['Home', 'Lessons', 'Users', 'Customizer', 'AI Settings', 'Plugins'];
+const destinations = ['Home', 'Lessons', 'Users', 'Customizer', 'AI Settings', 'Notifications', 'Plugins'];
 let browser;
 let server;
 let directory;
@@ -29,6 +29,12 @@ async function openPage(viewport, theme = 'light') {
   await context.addInitScript(value => localStorage.setItem('plato_theme', value), theme);
   const page = await context.newPage();
   return { context, page };
+}
+
+async function filterWaitlist(page) {
+  await page.getByRole('button', { name: /^Filters/ }).click();
+  await page.getByRole('menu').getByRole('group', { name: 'Status', exact: true }).getByRole('menuitemcheckbox', { name: /^Wait list/ }).click();
+  await page.keyboard.press('Escape');
 }
 
 async function navigate(page, section) {
@@ -102,6 +108,7 @@ async function controlAiSettings(context, overrides = {}) {
 async function controlUsers(context, count = 4) {
   const users = Array.from({ length: count }, (_, i) => ({
     userId: `mobile-user-${i}`, name: i === 0 ? 'Avery North' : `Learner ${String(i).padStart(2, '0')}`,
+    firstName: i === 0 ? 'Avery North' : `Learner ${String(i).padStart(2, '0')}`, lastName: '',
     email: i === 1 ? `${'long-address.'.repeat(5)}@example.test` : `learner${i}@example.test`,
     username: `learner${i}`, role: 'user', userGroup: 'Autumn cohort',
     createdAt: '2026-10-01T12:00:00Z', lessonsCompleted: i, lessonsAvailable: 30,
@@ -363,7 +370,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
         await page.getByText('Page 2 of 2', { exact: true }).waitFor();
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= width + 1);
         const downloadEvent = page.waitForEvent('download');
-        const button = page.getByRole('button', { name: 'Download user list as CSV', exact: true });
+        const button = page.getByRole('button', { name: 'Download CSV user list', exact: true });
         await button.focus();
         await button.press('Enter');
         const download = await downloadEvent;
@@ -372,10 +379,10 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
         const chunks = [];
         for await (const chunk of stream) chunks.push(chunk);
         const csv = Buffer.concat(chunks).toString('utf8');
-        assert.ok(csv.startsWith('\uFEFFEmail,Name,Username,Group,Role,Status,Date Added,Team\r\n'));
+        assert.ok(csv.startsWith('\uFEFFEmail,First Name,Last Name,Username,Group,Role,Status,Date Added,Team,User ID\r\n'));
         const rows = csv.slice(1).split('\r\n').slice(1);
         assert.deepEqual(rows.map(row => row.split(',')[1]), Array.from({ length: 24 }, (_, i) => `Learner ${String(24 - i).padStart(2, '0')}`));
-        assert.ok(rows.every(row => row.endsWith(',Design')), 'Custom fields remain in the export');
+        assert.ok(rows.every(row => /,Design,mobile-user-\d+$/.test(row)), 'Custom fields remain in the export');
       } finally { await context.close(); }
     }
   });
@@ -406,7 +413,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
       await row.locator('dl').getByText('All published lessons.', { exact: true }).waitFor();
       await page.getByRole('button', { name: 'Next page', exact: true }).click();
       await page.getByText('Page 2 of 2', { exact: true }).waitFor();
-      await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');
+      await filterWaitlist(page);
       await page.getByRole('button', { name: 'Invite zoe@example.test', exact: true }).waitFor();
       assert.equal(await page.getByRole('navigation', { name: 'Pagination', exact: true }).count(), 0, 'A filter resets pagination to its first page');
       await page.getByRole('button', { name: 'Edit wait list entry for Zoe West', exact: true }).click();
@@ -432,11 +439,10 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
     try {
       await controlUsers(context);
       await navigate(page, 'users');
-      await page.getByRole('button', { name: 'Filter & sort', exact: true }).click();
+      await page.getByRole('button', { name: /^Filters/ }).click();
+      await page.getByRole('menu').getByRole('group', { name: 'Team' }).getByRole('menuitemcheckbox', { name: /^Operations/ }).click();
+      await page.keyboard.press('Escape');
       const dialog = page.getByRole('dialog', { name: 'Filter & sort', exact: true });
-      await dialog.getByRole('combobox', { name: 'Custom field', exact: true }).selectOption('team');
-      await dialog.getByRole('combobox', { name: 'Team value', exact: true }).selectOption('Operations');
-      await dialog.getByRole('button', { name: 'Show 0 people', exact: true }).click();
       await page.getByText('No users match these filters.', { exact: true }).waitFor();
       assert.equal(await page.getByText('No users yet.', { exact: false }).count(), 0);
       await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
@@ -463,20 +469,20 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
           requests++;
           const changes = route.request().postDataJSON();
           await response;
-          Object.assign(fixture.users[0], changes);
+          Object.assign(fixture.users[0], changes, { name: [changes.firstName, changes.lastName].filter(Boolean).join(' ') });
           await route.fulfill({ json: fixture.users[0] });
         });
         await navigate(page, 'users');
         await page.getByRole('button', { name: 'Edit Avery North', exact: true }).press('Enter');
         await page.getByRole('heading', { name: 'Edit User', exact: true }).waitFor();
         assert.equal(await page.evaluate(() => document.activeElement.tagName), 'H1');
-        await page.getByLabel('Name', { exact: true }).fill('Avery Updated');
+        await page.getByLabel('First name', { exact: true }).fill('Avery Updated');
         await page.getByRole('button', { name: 'Save', exact: true }).press('Enter');
         const pending = page.getByRole('button', { name: 'Saving…', exact: true });
         await pending.waitFor();
         assert.equal(await pending.getAttribute('aria-disabled'), 'true');
         assert.equal(await pending.evaluate(el => el === document.activeElement), true);
-        assert.equal(await page.getByLabel('Name', { exact: true }).getAttribute('readonly'), '');
+        assert.equal(await page.getByLabel('First name', { exact: true }).isDisabled(), true);
         await pending.press('Enter');
         assert.equal(requests, 1, 'Only one write is sent while saving');
         release();
@@ -577,8 +583,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
           await route.fulfill({ json: { sent: true } });
         });
         await navigate(page, 'users');
-        if (width < 768) await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');
-        else await page.getByRole('button', { name: 'Wait List 1', exact: true }).click();
+        await filterWaitlist(page);
         const invite = page.getByRole('button', { name: 'Invite zoe@example.test', exact: true });
         await invite.press('Enter');
         await page.waitForFunction(() => document.activeElement?.getAttribute('aria-disabled') === 'true');
@@ -591,7 +596,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
     }
   });
 
-  it('copies wait-list answers once and names only the action that is running', async () => {
+  it('invites an existing account once and names only the action that is running', async () => {
     for (const width of [390, 1280]) {
       const { context, page } = await openPage({ width, height: 844 });
       let releaseRemove;
@@ -608,15 +613,14 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
           fixture.entries.splice(fixture.entries.findIndex(entry => entry.inviteToken === 'second-wait'), 1);
           await route.fulfill({ json: { ok: true } });
         });
-        await context.route('**/v1/admin/waitlist/mobile-wait/apply', async route => {
+        await context.route('**/v1/admin/waitlist/mobile-wait/invite', async route => {
           copies++;
           await copied;
           fixture.entries.splice(fixture.entries.findIndex(entry => entry.inviteToken === 'mobile-wait'), 1);
           await route.fulfill({ json: { userId: 'mobile-user-0', userGroup: 'Autumn cohort', fields: ['team'] } });
         });
         await navigate(page, 'users');
-        if (width < 768) await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');
-        else await page.getByRole('button', { name: 'Wait List 2', exact: true }).click();
+        await filterWaitlist(page);
 
         // A removal holds the row without reading as an invite or a copy.
         const remove = page.getByRole('button', { name: 'Remove yuki@example.test from the wait list', exact: true });
@@ -630,26 +634,25 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
         releaseRemove();
         await invite.waitFor({ state: 'detached' });
 
-        // Copy to account is named by its visible label and runs once.
-        const copy = page.getByRole('button', { name: 'Copy to account for zoe@example.test', exact: true });
-        assert.equal((await copy.textContent()).trim(), 'Copy to account');
+        // Invite is named by its visible label and runs once.
+        const copy = page.getByRole('button', { name: 'Invite zoe@example.test', exact: true });
+        assert.equal((await copy.textContent()).trim(), 'Invite');
         await copy.click();
-        await page.getByRole('alertdialog', { name: 'Copy to Account?', exact: true }).getByRole('button', { name: 'Copy to Account', exact: true }).click();
-        await page.waitForFunction(() => document.querySelector('[aria-label="Copy to account for zoe@example.test"]')?.textContent.trim() === 'Copying…');
+        await page.waitForFunction(() => document.querySelector('[aria-label="Invite zoe@example.test"]')?.textContent.trim() === 'Sending…');
         assert.equal(await copy.getAttribute('aria-disabled'), 'true');
         await copy.press('Enter');
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         assert.equal(await page.getByRole('alertdialog').count(), 0, 'A running copy cannot be confirmed again');
         assert.equal(copies, 1);
         releaseCopy();
-        await page.getByRole('status').filter({ hasText: "Copied group and 1 field to zoe@example.test's account." }).waitFor();
+        await page.getByRole('status').filter({ hasText: 'Invite sent to zoe@example.test.' }).waitFor();
         await copy.waitFor({ state: 'detached' });
         assert.equal(copies, 1);
       } finally { releaseRemove(); releaseCopy(); await context.close(); }
     }
   });
 
-  it('keeps a newer wait-list editor open when an earlier copy finishes', async () => {
+  it('keeps a newer wait-list editor open when an earlier invite finishes', async () => {
     const { context, page } = await openPage({ width: 1280, height: 900 });
     let release;
     const response = new Promise(resolve => { release = resolve; });
@@ -658,29 +661,28 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
       fixture.entries[0].alreadyRegistered = 'account';
       fixture.entries.push({ inviteToken: 'second-wait', name: 'Yuki East', email: 'yuki@example.test', createdAt: '2026-10-04T09:00:00Z' });
       let copies = 0;
-      await context.route('**/v1/admin/waitlist/mobile-wait/apply', async route => {
+      await context.route('**/v1/admin/waitlist/mobile-wait/invite', async route => {
         copies++;
         await response;
         fixture.entries.splice(fixture.entries.findIndex(entry => entry.inviteToken === 'mobile-wait'), 1);
         await route.fulfill({ json: { userId: 'mobile-user-0', userGroup: null, fields: ['team'] } });
       });
       await navigate(page, 'users');
-      await page.getByRole('button', { name: 'Wait List 2', exact: true }).click();
+      await filterWaitlist(page);
       await page.getByRole('button', { name: 'Edit wait list entry for Zoe West', exact: true }).click();
       await page.getByRole('heading', { name: 'Edit Wait List Entry', exact: true }).waitFor();
-      await page.getByRole('button', { name: 'Copy to account', exact: true }).click();
-      await page.getByRole('alertdialog').getByRole('button', { name: 'Copy to Account', exact: true }).click();
-      await page.getByRole('button', { name: 'Copying…', exact: true }).waitFor();
-      for (const name of ['Copying…', 'Save', 'Cancel', 'Back to users', 'Remove from wait list']) {
+      await page.getByRole('button', { name: 'Invite', exact: true }).click();
+      await page.getByRole('button', { name: 'Sending…', exact: true }).waitFor();
+      for (const name of ['Sending…', 'Save', 'Cancel', 'Back to users', 'Remove from wait list']) {
         assert.equal(await page.getByRole('button', { name, exact: true }).getAttribute('aria-disabled'), 'true', `${name} waits for the copy`);
       }
       assert.equal(await page.getByLabel('Email', { exact: true }).getAttribute('readonly'), '', 'Nothing typed during the copy can be lost');
-      await page.getByRole('status').filter({ hasText: 'Copying answers to account…' }).waitFor();
+      await page.getByRole('status').filter({ hasText: 'Sending invite…' }).waitFor();
 
       // Leave through browser history and open another entry before the copy lands.
       await page.goBack();
       await page.getByRole('heading', { name: 'Users', exact: true }).waitFor();
-      assert.equal((await page.getByRole('button', { name: 'Copy to account for zoe@example.test', exact: true }).textContent()).trim(), 'Copying…');
+      assert.equal((await page.getByRole('button', { name: 'Invite zoe@example.test', exact: true }).textContent()).trim(), 'Sending…');
       await page.getByRole('button', { name: 'Edit wait list entry for Yuki East', exact: true }).click();
       await page.getByRole('heading', { name: 'Edit Wait List Entry', exact: true }).waitFor();
       assert.equal(await page.getByLabel('Email', { exact: true }).inputValue(), 'yuki@example.test');
@@ -691,8 +693,8 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
       assert.equal(await page.getByLabel('Email', { exact: true }).inputValue(), 'yuki@example.test');
       assert.equal(copies, 1);
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await page.getByRole('status').filter({ hasText: "Copied 1 field to zoe@example.test's account." }).waitFor();
-      assert.equal(await page.getByRole('button', { name: 'Copy to account for zoe@example.test', exact: true }).count(), 0);
+      await page.getByRole('status').filter({ hasText: 'Invite sent to zoe@example.test.' }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Invite zoe@example.test', exact: true }).count(), 0);
     } finally { release(); await context.close(); }
   });
 
@@ -712,7 +714,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
         }));
         const page = await context.newPage();
         await navigate(page, 'users');
-        await page.getByRole('combobox', { name: 'Filter users', exact: true }).selectOption('waitlist');
+        await filterWaitlist(page);
         for (const width of [320, 1280]) {
           await page.setViewportSize({ width, height: 740 });
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= width + 1, 'The page stays within the viewport');
@@ -729,7 +731,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
           await page.getByRole('region', { name: 'Users and invites', exact: true }).waitFor();
           for (const [index, entry] of entries.entries()) {
             const row = page.getByRole('row').filter({ has: page.getByRole('button', { name: `Edit wait list entry for ${entry.name}`, exact: true }) });
-            const date = row.getByRole('cell').nth(4);
+            const date = row.getByRole('cell').nth(6);
             assert.equal((await date.innerText()).replace(/\s+/g, ' '), expected[index], `${locale}: local date and full time for ${entry.name}`);
             const geometry = await date.evaluate(cell => {
               cell.scrollIntoView({ block: 'nearest', inline: 'end' });
@@ -778,7 +780,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
     }
   });
 
-  it('keeps all six enlarged-text labels visible and inside their own targets', async () => {
+  it('keeps all seven enlarged-text labels visible and inside their own targets', async () => {
     for (const theme of ['light', 'dark']) {
       for (const width of [320, 390, 480, 768]) {
         const { context, page } = await openPage({ width, height: 900 }, theme);
@@ -827,7 +829,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
         await navigate(page, 'customizer');
         const tabs = await tabGeometry(page);
         assert.deepEqual(tabs.map(tab => tab.name), destinations);
-        assert.deepEqual(tabs.map(tab => tab.visible), Array(6).fill(true));
+        assert.deepEqual(tabs.map(tab => tab.visible), Array(destinations.length).fill(true));
         assert.equal(new Set(tabs.map(tab => Math.round(tab.target.top))).size, width < 480 ? 2 : 1,
           `${width}px: names determine whether tabs use one or two rows`);
         const users = page.locator('.admin-bottom-nav').getByRole('link', { name: 'Users', exact: true });

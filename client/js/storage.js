@@ -421,11 +421,14 @@ export async function getAuthUser() {
   }
 }
 
-export async function saveAuthUser(user) {
+export async function saveAuthUser(user, expected = null) {
   try {
     const existing = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}');
+    if (expected && (existing.user?.userId !== expected.user?.userId
+      || existing.accessToken !== expected.accessToken || existing.refreshToken !== expected.refreshToken)) return false;
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...existing, user }));
-  } catch { /* storage full or disabled */ }
+    return true;
+  } catch { return false; /* storage full or disabled */ }
 }
 
 // -- Onboarding ---------------------------------------------------------------

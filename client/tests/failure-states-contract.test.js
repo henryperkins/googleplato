@@ -50,9 +50,10 @@ describe('Admin pages stay mounted through refreshes', () => {
 
 describe('Destructive and credential actions', () => {
   it('confirms group deletion and says how many users it touches', () => {
-    const users = read('pages/admin/AdminUsers.jsx');
-    assert.match(users, /function deleteGroup\(name\) \{[\s\S]*?setConfirmModal\(\{[\s\S]*?title: 'Delete group\?'/);
-    assert.match(users, /cleared from \$\{members\}/);
+    const groups = read('pages/admin/GroupsDialog.jsx');
+    assert.match(groups, /<ConfirmModal/);
+    assert.match(groups, /people\(memberCounts\[deleting\] \|\| 0\)/);
+    assert.match(groups, /will no longer be in a group/);
   });
 
   it('treats a failed credential status load as unknown, not none', () => {
@@ -65,7 +66,7 @@ describe('Destructive and credential actions', () => {
 
   it('holds Invite until wait-list edits are saved', () => {
     const edit = read('pages/admin/WaitlistEntryEdit.jsx');
-    assert.match(edit, /const busy = saving \|\| inviting \|\| applying \|\| removing;/);
+    assert.match(edit, /const busy = saving \|\| inviting \|\| removing;/);
     assert.match(edit, /onClick=\{invite\} disabled=\{busy \|\| dirty\}/);
     assert.match(edit, /aria-describedby=\{dirty \? 'wl-edit-invite-hint' : undefined\}/);
   });
@@ -101,14 +102,14 @@ describe('Admin state as text and semantics', () => {
   it('standardizes admin tables with card containers, accessible row headers, and modal states', () => {
     const lessons = read('pages/admin/AdminLessons.jsx');
     const users = read('pages/admin/AdminUsers.jsx');
-    const courses = read('pages/admin/CoursesModal.jsx');
+    const courses = read('pages/admin/CourseStructure.jsx');
     const ring = read('pages/admin/CompletionRing.jsx');
 
     assert.match(lessons, /<Card className="p-0 overflow-hidden">/);
     assert.match(users, /<Card className="p-0 overflow-hidden">/);
-    assert.match(lessons, /<TableCell as="th" scope="row"/);
-    assert.match(users, /<TableCell as="th" scope="row"/);
-    assert.match(courses, /aria-pressed=\{editingId === c\.courseId\}/);
+    assert.match(lessons, /as=\{column\.id === 'name' \? 'th' : undefined\} scope=\{column\.id === 'name' \? 'row' : undefined\}/);
+    assert.match(users, /as=\{column\.id === 'user' \? 'th' : undefined\} scope=\{column\.id === 'user' \? 'row' : undefined\}/);
+    assert.match(courses, /aria-expanded=\{open\}/);
     assert.match(ring, /className="text-input" stroke="currentColor"/);
   });
 

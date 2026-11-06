@@ -11,7 +11,7 @@ export async function login(page, { email, password }) {
 // The bar: no serious or critical WCAG 2.1 A/AA violations.
 export async function expectAccessible(page, { include, label } = {}) {
   let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']);
-  if (include) builder = builder.include(include);
+  if (include) builder = builder.include(include.replaceAll('[role=dialog]', 'dialog[open], [role=dialog]'));
   const { violations } = await builder.analyze();
   const blocking = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   if (blocking.length === 0) return;

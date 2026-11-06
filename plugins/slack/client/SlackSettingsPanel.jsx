@@ -231,7 +231,7 @@ function AutoInvite({ settings, onSave }) {
             {results.map((r) => (
               <li key={r.userId} className="flex items-center gap-2">
                 <span className="flex-1 truncate">{r.name} <span className="text-muted-foreground">{r.email}</span></span>
-                <span className={r.status === 'invited' ? 'text-green-700' : r.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'} title={r.error || undefined}>
+                <span className={r.status === 'invited' ? 'text-success-foreground' : r.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'} title={r.error || undefined}>
                   {STATUS_TEXT[r.status] || r.status}{r.error ? ` (${r.error})` : ''}
                 </span>
                 {r.status !== 'invited' && (

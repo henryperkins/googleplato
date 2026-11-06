@@ -21,7 +21,7 @@ test('an admin sends a classroom message to everyone and sees it in History', as
   await confirm.getByRole('button', { name: 'Send' }).click();
 
   await expect(page.getByRole('tab', { name: 'History', selected: true })).toBeVisible();
-  const row = page.getByRole('table', { name: 'Sent messages' }).getByRole('row').nth(1);
+  const row = page.getByRole('region', { name: 'Sent messages' }).getByRole('table').getByRole('row').nth(1);
   await expect(row).toContainText('Welcome, {{firstName}}');
   await expect(row).toContainText('Everyone');
   await expectAccessible(page, { label: 'notifications history' });

@@ -132,6 +132,8 @@ export async function loginWithGoogle(options = {}) {
       inviteToken: options.inviteToken || undefined,
       classroomName: options.classroomName || undefined,
       name: options.name || undefined,
+      firstName: options.firstName || undefined,
+      lastName: options.lastName || undefined,
       username: options.username || undefined,
       userGroup: options.userGroup || undefined,
       customFields: options.customFields || undefined,
@@ -238,6 +240,39 @@ export async function isLoggedIn() {
  */
 export { getAuthUser as getCurrentUser } from './storage.js';
 
+/** An epoch distinguishes logout/re-login even when the owner is unchanged. */
+export function getSessionGeneration() { return sessionGeneration; }
+
+export async function captureAuthSession() {
+  const generation = sessionGeneration;
+  const tokens = await getAuthTokens();
+  return generation === sessionGeneration && tokens?.user?.userId
+    ? { generation, userId: tokens.user.userId } : null;
+}
+
+export async function isAuthSessionCurrent(session) {
+  if (!session || session.generation !== sessionGeneration) return false;
+  const tokens = await getAuthTokens();
+  return session.generation === sessionGeneration && tokens?.user?.userId === session.userId;
+}
+
+/** Best effort role/profile refresh. Never publish a body belonging to an old login. */
+export async function refreshCurrentUser() {
+  const session = await captureAuthSession();
+  if (!session) return null;
+  try {
+    const response = await authenticatedFetch('/v1/me', { expectedUserId: session.userId });
+    if (!response.ok) return null;
+    const user = await response.json();
+    const current = await getAuthTokens();
+    if (session.generation !== sessionGeneration || current?.user?.userId !== session.userId
+      || user?.userId !== session.userId) return null;
+    // Storage checks the exact credentials again synchronously before writing.
+    if (!await saveAuthUser(user, current)) return null;
+    return await isAuthSessionCurrent(session) && session.generation === sessionGeneration ? user : null;
+  } catch { return null; }
+}
+
 /**
  * Refresh the access token using the stored refresh token.
  * Returns true on success, false on failure (user must re-login).
@@ -324,6 +359,8 @@ export async function authenticatedFetch(path, options = {}) {
     return response;
   };
   const headers = new Headers(options.headers);
+  const viewAs = readImpersonatedUserId();
+  if (viewAs) headers.set('X-Plato-View-As', viewAs);
   if (protectedPath) {
     const compatibility = await compatibilityHeaders(async () => {
       // Use AbortController rather than newer AbortSignal composition helpers.
@@ -405,7 +442,7 @@ export async function updateProfile(updates, expectedUserId) {
   if (generation !== sessionGeneration || latest?.user?.userId !== owner) {
     throw new Error('The signed-in account changed. Return to the original account.');
   }
-  await saveAuthUser(user);
+  if (!await saveAuthUser(user, latest)) throw new Error('The signed-in account changed. Return to the original account.');
   return user;
 }
 

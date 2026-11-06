@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import * as DropdownMenuRadix from '@radix-ui/react-dropdown-menu';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { useAuth } from '../contexts/AuthContext.jsx';
 import Bell from 'lucide-react/dist/esm/icons/bell';
-import { authenticatedFetch } from '../../js/auth.js';
+import { authenticatedFetch, captureAuthSession, isAuthSessionCurrent, getSessionGeneration } from '../../js/auth.js';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -15,6 +16,13 @@ import {
  * Re-checks when the tab comes back into view; there's no polling.
  */
 export default function NotificationsBell() {
+  const { user } = useAuth();
+  return <SessionNotificationsBell key={`${user?.userId || ''}:${getSessionGeneration()}`} />;
+}
+
+function SessionNotificationsBell() {
+  const { user } = useAuth();
+  const ownerId = user?.userId;
   const [messages, setMessages] = useState([]);
   const [reading, setReading] = useState(null); // the message open in the dialog
   const [popup, setPopup] = useState(null);
@@ -22,18 +30,25 @@ export default function NotificationsBell() {
 
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await authenticatedFetch('/v1/me/messages');
+      const session = await captureAuthSession();
+      if (session?.userId !== ownerId) return null;
+      const res = await authenticatedFetch('/v1/me/messages', { expectedUserId: ownerId });
       if (!res.ok) return null;
-      return (await res.json()).messages || [];
+      const data = await res.json();
+      return await isAuthSessionCurrent(session) && session.generation === getSessionGeneration() ? data.messages || [] : null;
     } catch { return null; }
-  }, []);
+  }, [ownerId]);
 
   const apply = useCallback((list) => {
     if (!list) return;
     setMessages(list);
     // One pop-up at a time: the newest unread important message not yet shown.
-    const next = list.find((m) => m.important && !m.read && !popupShown.current.has(m.id));
-    if (next) { popupShown.current.add(next.id); setPopup(next); }
+    setPopup(current => {
+      if (current) return current;
+      const next = list.find(m => m.important && !m.read && !popupShown.current.has(m.id));
+      if (next) popupShown.current.add(next.id);
+      return next || null;
+    });
   }, []);
 
   useEffect(() => {
@@ -47,13 +62,15 @@ export default function NotificationsBell() {
 
   const markRead = useCallback(async (ids) => {
     if (!ids.length) return;
+    const session = await captureAuthSession();
+    if (session?.userId !== ownerId) return;
     setMessages((list) => list.map((m) => (ids.includes(m.id) ? { ...m, read: true } : m)));
     try {
       await authenticatedFetch('/v1/me/messages/read', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+        expectedUserId: ownerId, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
       });
     } catch { /* best-effort; it shows as unread again next load */ }
-  }, []);
+  }, [ownerId]);
 
   const unread = messages.filter((m) => !m.read).length;
   const label = unread ? `Notifications, ${unread} unread` : 'Notifications';
@@ -63,32 +80,33 @@ export default function NotificationsBell() {
     <>
       {/* Non-modal: a modal Radix menu aria-hides the whole page while open
           (axe aria-hidden-focus). Menus aren't modal in WAI-ARIA anyway. */}
-      <DropdownMenuRadix.Root modal={false} onOpenChange={(open) => { if (open) markRead(messages.filter((m) => !m.read).map((m) => m.id)); }}>
-        <DropdownMenuRadix.Trigger asChild>
+      <DropdownMenu onOpenChange={(open) => { if (open) markRead(messages.filter((m) => !m.read).map((m) => m.id)); }}>
+        <DropdownMenuTrigger asChild>
           <button
             type="button"
             aria-label={label}
             title="Notifications"
-            className="relative text-inherit opacity-80 hover:opacity-100 hover:bg-white/10 cursor-pointer bg-transparent border-none rounded-md p-1.5 outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            className="header-control touch-target relative shrink-0 text-inherit hover:bg-header-foreground/10 cursor-pointer bg-transparent border-none rounded-md p-1.5"
           >
             <Bell className="h-5 w-5" aria-hidden="true" />
             {unread > 0 && (
-              <span aria-hidden="true" className="absolute -top-0.5 -right-0.5 min-w-4 h-4 rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-4 text-white">
+              <span aria-hidden="true" className="absolute -top-0.5 -right-0.5 min-w-4 h-4 rounded-full bg-destructive px-1 text-[10px] font-semibold leading-4 text-destructive-foreground">
                 {unread > 9 ? '9+' : unread}
               </span>
             )}
           </button>
-        </DropdownMenuRadix.Trigger>
-        <DropdownMenuRadix.Portal>
-          <DropdownMenuRadix.Content align="end" sideOffset={4} className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
-            <DropdownMenuRadix.Label className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Notifications</DropdownMenuRadix.Label>
-            <DropdownMenuRadix.Separator className="my-1 h-px bg-border" />
+        </DropdownMenuTrigger>
+
+          <DropdownMenuContent align="end" sideOffset={4} className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
+            <DropdownMenuLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Notifications</DropdownMenuLabel>
+            <DropdownMenuSeparator className="my-1 h-px bg-border" />
             {messages.length === 0 ? (
               <p className="px-2 py-3 text-sm text-muted-foreground">No messages yet.</p>
             ) : (
               <div className="max-h-80 overflow-y-auto">
+                <DropdownMenuGroup>
                 {messages.map((m) => (
-                  <DropdownMenuRadix.Item
+                  <DropdownMenuItem
                     key={m.id}
                     onSelect={() => setReading(m)}
                     className="flex cursor-pointer flex-col items-start gap-0.5 rounded-md px-2 py-2 text-sm outline-none hover:bg-accent focus:bg-accent"
@@ -99,19 +117,25 @@ export default function NotificationsBell() {
                     </span>
                     <span className="line-clamp-2 text-xs text-muted-foreground">{m.body}</span>
                     {!m.read && <span className="sr-only">Unread.</span>}
-                  </DropdownMenuRadix.Item>
+                  </DropdownMenuItem>
                 ))}
+                </DropdownMenuGroup>
               </div>
             )}
-          </DropdownMenuRadix.Content>
-        </DropdownMenuRadix.Portal>
-      </DropdownMenuRadix.Root>
+          </DropdownMenuContent>
+
+      </DropdownMenu>
 
       <MessageDialog message={reading} onClose={() => setReading(null)} />
       <MessageDialog
         message={popup}
         confirmLabel="Got it"
-        onClose={() => { if (popup) markRead([popup.id]); setPopup(null); }}
+        onClose={() => {
+          if (popup) markRead([popup.id]);
+          const next = messages.find(m => m.important && !m.read && !popupShown.current.has(m.id));
+          if (next) popupShown.current.add(next.id);
+          setPopup(next || null);
+        }}
       />
     </>
   );
@@ -129,7 +153,7 @@ function MessageDialog({ message, onClose, confirmLabel = 'Close' }) {
                 {message.fromName ? `From ${message.fromName}, ` : ''}{new Date(message.createdAt).toLocaleString()}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 text-sm leading-relaxed">
+            <div className="flex flex-col gap-3 text-sm leading-relaxed">
               {message.body.split(/\n\s*\n/).map((p, i) => (
                 <p key={i} className="whitespace-pre-line">{p}</p>
               ))}

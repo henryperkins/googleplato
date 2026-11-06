@@ -3,12 +3,12 @@ import { test, expect } from '@playwright/test';
 import { login, expectAccessible } from '../helpers.js';
 import { ADMIN, LEARNER } from '../fixtures.js';
 
-const headers = (page, table) => page.getByRole('table', { name: table }).getByRole('columnheader').allInnerTexts();
+const headers = (page, table) => page.getByRole('region', { name: table }).getByRole('table').getByRole('columnheader').allInnerTexts();
 
 test('Users: combine filters by keyboard, see them as chips, clear them', async ({ page }) => {
   await login(page, ADMIN);
   await page.goto('/plato/users');
-  const table = page.getByRole('table', { name: 'Users and invites' });
+  const table = page.getByRole('region', { name: 'Users and invites' }).getByRole('table');
   await expect(table).toBeVisible();
   const total = await table.getByRole('row').count();
 
@@ -40,7 +40,7 @@ test('Users: combine filters by keyboard, see them as chips, clear them', async 
 test('Users: choose and order columns; the User ID column shows the account id; layout persists', async ({ page }) => {
   await login(page, ADMIN);
   await page.goto('/plato/users');
-  await expect(page.getByRole('table', { name: 'Users and invites' }).getByRole('cell', { name: /^usr_/ }).first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Users and invites' }).getByRole('table').getByRole('cell', { name: /^usr_/ }).first()).toBeVisible();
   expect((await headers(page, 'Users and invites')).at(-2)).toMatch(/User ID/);
 
   await page.getByRole('button', { name: 'Columns' }).click();
@@ -60,6 +60,7 @@ test('Users: choose and order columns; the User ID column shows the account id; 
   expect(cols.findIndex((c) => /User ID/.test(c))).toBeLessThan(cols.findIndex((c) => /Organization/.test(c)));
 
   await page.reload();
+  await expect(page.getByRole('region', { name: 'Users and invites' })).toBeVisible();
   cols = await headers(page, 'Users and invites');
   expect(cols.some((c) => /^Email/.test(c))).toBe(false);
 
@@ -76,6 +77,6 @@ test('Lessons: the Columns dialog shows the hidden Lesson ID column', async ({ p
   await page.getByRole('button', { name: 'Columns' }).click();
   await page.getByRole('dialog', { name: 'Lessons table columns' }).getByRole('checkbox', { name: 'Lesson ID' }).check();
   await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByRole('table', { name: 'Lessons' }).getByRole('cell', { name: 'getting-started', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Lessons' }).getByRole('table').getByRole('cell', { name: 'getting-started', exact: true })).toBeVisible();
   await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('plato:columns:lessons:v1')) localStorage.removeItem(k); });
 });

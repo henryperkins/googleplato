@@ -17,7 +17,7 @@ test.describe('educator', () => {
     await expect(nav(page).getByRole('link', { name: 'Customizer' })).toHaveCount(0);
     await expect(nav(page).getByRole('link', { name: 'Plugins' })).toHaveCount(0);
     // Dashboard loaded its stats (an educator's KB 403 must not blank it).
-    await expect(page.getByText('Active users')).toBeVisible();
+    await expect(page.getByText('Learners', { exact: true })).toBeVisible();
     await expect(page.getByText(/Set up your knowledge base/i)).toHaveCount(0);
     await expectAccessible(page, { label: 'educator dashboard' });
   });
@@ -54,12 +54,15 @@ test.describe('tester', () => {
     await expectAccessible(page, { label: 'tester dashboard' });
   });
 
-  test('a save is refused with a clear message', async ({ page }) => {
+  test('write controls are unavailable while read-only content remains inspectable', async ({ page }) => {
     await page.goto('/plato/users');
-    await page.getByRole('button', { name: 'User Groups' }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByRole('textbox').first().fill('Tester Group');
-    await dialog.getByRole('button', { name: /^Add$/ }).click();
-    await expect(page.getByText(/Testers can look around but can’t save changes/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Invite Users' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Manage' })).toHaveCount(0);
+    await page.getByRole('button', { name: `Edit ${LEARNER.name}` }).click();
+    await expect(page.getByLabel('First name')).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+    await page.goto('/plato/lessons/structure');
+    await expect(page.getByRole('button', { name: 'Add course', exact: true })).toBeDisabled();
+    await expect(page.getByRole('heading', { name: 'Courses & Units' })).toBeVisible();
   });
 });

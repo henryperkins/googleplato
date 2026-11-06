@@ -13,8 +13,18 @@ function menuItems(pop) {
     .filter((item) => !item.disabled && item.getClientRects().length > 0);
 }
 
-function DropdownMenu({ children }) {
-  const [open, setOpen] = React.useState(false);
+function DropdownMenu({ children, onOpenChange }) {
+  const [open, setOpenState] = React.useState(false);
+  const openRef = React.useRef(false);
+  const callbackRef = React.useRef(onOpenChange);
+  React.useLayoutEffect(() => { callbackRef.current = onOpenChange; }, [onOpenChange]);
+  const setOpen = React.useCallback(value => {
+    const next = typeof value === 'function' ? value(openRef.current) : value;
+    if (next === openRef.current) return;
+    openRef.current = next;
+    setOpenState(next);
+    callbackRef.current?.(next);
+  }, []);
   const triggerRef = React.useRef(null);
   const popoverRef = React.useRef(null);
   const focusInsideOnCloseRef = React.useRef(false);
@@ -36,11 +46,11 @@ function DropdownMenu({ children }) {
     if (restoreFocus && triggerRef.current && document.contains(triggerRef.current)) {
       triggerRef.current.focus();
     }
-  }, []);
+  }, [setOpen]);
 
   const ctx = React.useMemo(
     () => ({ open, setOpen, triggerRef, popoverRef, focusInsideOnCloseRef, menuId, closeMenu }),
-    [open, menuId, closeMenu]
+    [open, setOpen, menuId, closeMenu]
   );
 
   return <DropdownMenuContext.Provider value={ctx}>{children}</DropdownMenuContext.Provider>;
@@ -50,12 +60,12 @@ function DropdownMenuPortal({ children }) {
   return <>{children}</>;
 }
 
-function DropdownMenuTrigger({ asChild = false, className, children, onClick, ...props }) {
+function DropdownMenuTrigger({ asChild = false, className, children, onClick, onKeyDown, ...props }) {
   const ctx = React.useContext(DropdownMenuContext);
 
-  const handleToggle = (e) => {
-    onClick?.(e);
-    if (e.defaultPrevented) return;
+  const handleToggle = (e, fromKeyboard = false) => {
+    if (!fromKeyboard) onClick?.(e);
+    if (e.defaultPrevented && !fromKeyboard) return;
     const pop = ctx?.popoverRef.current;
     if (!pop) return;
     if (typeof pop.showPopover === 'function') {
@@ -73,6 +83,15 @@ function DropdownMenuTrigger({ asChild = false, className, children, onClick, ..
     }
   };
 
+  const handleKeyDown = event => {
+    onKeyDown?.(event);
+    if (!event.defaultPrevented && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+      event.preventDefault();
+      if (!ctx?.open) handleToggle(event, true);
+      else menuItems(ctx.popoverRef.current)[0]?.focus();
+    }
+  };
+
   if (asChild && React.isValidElement(children)) {
     return React.cloneElement(children, {
       ref: ctx?.triggerRef,
@@ -81,6 +100,7 @@ function DropdownMenuTrigger({ asChild = false, className, children, onClick, ..
       'aria-expanded': !!ctx?.open,
       'aria-controls': ctx?.menuId,
       onClick: handleToggle,
+      onKeyDown: handleKeyDown,
       ...props,
     });
   }
@@ -94,6 +114,7 @@ function DropdownMenuTrigger({ asChild = false, className, children, onClick, ..
       aria-expanded={!!ctx?.open}
       aria-controls={ctx?.menuId}
       onClick={handleToggle}
+      onKeyDown={handleKeyDown}
       className={className}
       {...props}
     >
@@ -277,8 +298,9 @@ function DropdownMenuItem({
         onClick?.(e);
         // Close popover without restoring focus to trigger if onSelect opens another dialog/route.
         // A checkbox item can stay open (closeOnSelect={false}) to show its new state.
-        if (closeOnSelect) ctx?.closeMenu(false);
+        if (e.defaultPrevented) return;
         onSelect?.(e);
+        if (closeOnSelect && !e.defaultPrevented) ctx?.closeMenu(false);
       }}
       className={cn(
         "group/dropdown-menu-item relative flex w-full min-h-11 md:min-h-8 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm outline-hidden select-none hover:bg-accent focus:bg-accent focus:text-accent-foreground data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",

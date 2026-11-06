@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
+import PublicFooter from '../components/PublicFooter.jsx';
+import ClassroomLogo from '../components/ClassroomLogo.jsx';
 import { Button } from '@/components/ui/button';
 import {
   Card, CardHeader, CardTitle, CardDescription, CardFooter,
@@ -26,12 +28,11 @@ export default function SignedInInvite() {
   if (!branding) return null;
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4" style={{ backgroundColor: branding.primary }}>
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-start py-12 p-4 bg-header text-header-foreground">
+      <ClassroomLogo src={branding.logo} alt={branding.classroomName || 'plato'} className="mb-6 h-12 w-auto" fallback={<span className="mb-6 text-xl font-semibold">{branding.classroomName || 'plato'}</span>} />
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>
-            <h1 className="text-2xl">This invite is for a new account</h1>
-          </CardTitle>
+          <CardTitle as="h1" className="text-2xl">This invite is for a new account</CardTitle>
           <CardDescription>
             You&rsquo;re signed in as <strong>{who}</strong>. To use this invite, sign out first.
           </CardDescription>
@@ -41,6 +42,7 @@ export default function SignedInInvite() {
           <Button variant="outline" onClick={() => navigate('/lessons')}>Go to my lessons</Button>
         </CardFooter>
       </Card>
+      <PublicFooter />
     </main>
   );
 }

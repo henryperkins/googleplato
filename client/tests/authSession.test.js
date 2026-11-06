@@ -375,3 +375,59 @@ test('compatibility checks support cancellation and deadlines without newer Abor
     t.mock.timers.reset();
   }
 });
+
+for (const transition of ['switch', 'logout', 'relogin']) {
+  test(`profile refresh rejects a delayed JSON body after ${transition}`, async () => {
+    const body = deferred();
+    const parsing = deferred();
+    globalThis.fetch = async url => {
+      if (url === '/v1/me') return { ok: true, status: 200, json: () => { parsing.resolve(); return body.promise; } };
+      return json(url === '/v1/auth/login' ? session(transition === 'switch' ? 'b' : 'a') : { ok: true });
+    };
+    const pending = auth.refreshCurrentUser();
+    await parsing.promise;
+    await auth.logout();
+    if (transition !== 'logout') await auth.login('next@example.test', 'password');
+    const expected = await storage.getAuthTokens();
+    body.resolve({ userId: 'a', role: 'admin', name: 'Old A' });
+    assert.equal(await pending, null);
+    assert.deepEqual(await storage.getAuthTokens(), expected);
+  });
+}
+
+test('refresh rejects a mismatched owner and accepts current-session token rotation', async () => {
+  globalThis.fetch = async () => json({ userId: 'b', name: 'Wrong owner' });
+  assert.equal(await auth.refreshCurrentUser(), null);
+  assert.deepEqual(await storage.getAuthTokens(), session('a'));
+  globalThis.fetch = async (url, options) => {
+    if (url === '/v1/auth/refresh') return json({ accessToken: 'rotated-a', refreshToken: 'rotated-refresh-a' });
+    return json({ userId: 'a', role: 'educator' }, new Headers(options.headers).get('Authorization') === 'Bearer access-a' ? 401 : 200);
+  };
+  assert.deepEqual(await auth.refreshCurrentUser(), { userId: 'a', role: 'educator' });
+  assert.equal((await storage.getAuthTokens()).accessToken, 'rotated-a');
+  assert.equal((await storage.getAuthTokens()).user.role, 'educator');
+});
+
+test('user-cache compare and replace refuses stale credentials', async () => {
+  const old = await storage.getAuthTokens();
+  localStorage.setItem('plato_auth', JSON.stringify(session('b')));
+  assert.equal(await storage.saveAuthUser({ userId: 'a', name: 'Old A' }, old), false);
+  assert.deepEqual(await storage.getAuthTokens(), session('b'));
+});
+
+
+test('profile refresh rejects delayed headers after an account switch', async () => {
+  const response = deferred();
+  const started = deferred();
+  globalThis.fetch = async url => {
+    if (url === '/v1/me') { started.resolve(); return response.promise; }
+    return json(url === '/v1/auth/login' ? session('b') : { ok: true });
+  };
+  const pending = auth.refreshCurrentUser();
+  await started.promise;
+  await auth.logout();
+  await auth.login('b@example.test', 'password');
+  response.resolve(json({ userId: 'a', name: 'Old A' }));
+  assert.equal(await pending, null);
+  assert.deepEqual(await storage.getAuthTokens(), session('b'));
+});

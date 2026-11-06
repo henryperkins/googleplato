@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { adminApi } from './adminApi.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { can } from '../../lib/permissions.js';
@@ -67,25 +67,26 @@ export default function AdminNotifications() {
       <h1 className="text-2xl font-bold mb-4">Notifications</h1>
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">{notice?.text || ''}</div>
       {notice && (
-        <div className={`flex items-center justify-between rounded-lg px-4 py-3 mb-4 text-sm ${notice.type === 'error' ? 'bg-destructive/10 text-red-800 dark:text-destructive' : 'bg-green-50 text-green-800'}`}>
+        <div className={`flex items-center justify-between rounded-lg px-4 py-3 mb-4 text-sm ${notice.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-success text-success-foreground'}`}>
           <span>{notice.text}</span>
           <button onClick={() => setNotice(null)} aria-label="Dismiss" className="ml-2 text-lg leading-none hover:opacity-70">&times;</button>
         </div>
       )}
+      <Button variant="outline" size="sm" className="mb-3" onClick={() => load().catch(error => setNotice({ text: error.message, type: 'error' }))}>Refresh notifications</Button>
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList aria-label="Notification sections">
           <TabsTrigger value="compose">Compose</TabsTrigger>
           <TabsTrigger value="automations">Automations</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
-        <TabsContent value="compose">
-          <Compose canWrite={canWrite} onNotice={setNotice} onSent={async () => { await load(); setTab('history'); }} />
+        <TabsContent value="compose" keepMounted>
+          <Compose canWrite={canWrite} onNotice={setNotice} onSent={async (switchTab = true) => { await load(); if (switchTab) setTab('history'); }} />
         </TabsContent>
         <TabsContent value="automations">
           <Automations data={data} canWrite={canWrite} onNotice={setNotice} onChange={setData} />
         </TabsContent>
         <TabsContent value="history">
-          <History messages={messages} />
+          <History messages={messages} canWrite={canWrite} onChanged={load} onNotice={setNotice} />
         </TabsContent>
       </Tabs>
     </div>
@@ -109,6 +110,7 @@ function Compose({ canWrite, onNotice, onSent }) {
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   // One id per message: a retried send is recognized and not sent twice.
+  const attempted = useRef(null);
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
@@ -149,13 +151,21 @@ function Compose({ canWrite, onNotice, onSent }) {
     setConfirming(false);
     setSending(true);
     try {
-      await adminApi('POST', '/v1/admin/notifications/messages', { subject, body, inApp, email, important: inApp && important, audience, requestId });
+      const payload = { subject, body, inApp, email, important: inApp && important, audience };
+      const fingerprint = JSON.stringify(payload);
+      const id = attempted.current && attempted.current.fingerprint !== fingerprint ? crypto.randomUUID() : requestId;
+      attempted.current = { fingerprint, id };
+      setRequestId(id);
+      const result = await adminApi('POST', '/v1/admin/notifications/messages', { ...payload, requestId: id });
+      if (result.message?.status === 'failed') throw new Error('Delivery failed. Your message is in History; retry it there or retry this same request.');
       setRequestId(crypto.randomUUID());
-      onNotice({ text: email ? 'Sent. Emails are going out now; History shows the counts.' : 'Sent.', type: 'success' });
+      attempted.current = null;
+      onNotice({ text: email ? 'Message processed. History shows email delivery outcomes, including delivery disabled or failed.' : 'Message sent to the classroom.', type: 'success' });
       setSubject(''); setBody(''); setSelected([]);
       await onSent();
     } catch (e) {
-      onNotice({ text: e.message, type: 'error' });
+      onNotice({ text: `${e.message} Your draft is retained. History shows any delivery attempt already created.`, type: 'error' });
+      await onSent(false).catch(() => {});
     } finally {
       setSending(false);
     }
@@ -279,7 +289,7 @@ function Automations({ data, canWrite, onNotice, onChange }) {
   }
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">Emails plato sends on its own. Invitations always go out; each of the others is off until you turn it on.</p>
+      <p className="text-sm text-muted-foreground">Emails plato sends on its own. Invitation templates are always enabled; actual email delivery depends on this site’s email configuration; each of the others is off until you turn it on.</p>
       {(data.alwaysOn || ALWAYS_ON).map((id) => templates[id]).filter(Boolean).map((t) => (
         <Card key={t.id}>
           <CardHeader><CardTitle>{t.label}</CardTitle></CardHeader>
@@ -370,7 +380,17 @@ function audienceLabel(a = {}) {
   return '';
 }
 
-function History({ messages }) {
+function History({ messages, canWrite, onChanged, onNotice }) {
+  const [retrying, setRetrying] = useState(null);
+  async function retry(message) {
+    if (retrying) return;
+    setRetrying(message.id);
+    try {
+      const result = await adminApi('POST', `/v1/admin/notifications/messages/${encodeURIComponent(message.id)}/retry`);
+      onNotice({ text: result.message?.status === 'sending' ? 'Delivery is still in progress. Refresh History shortly.' : 'Retry processed. History shows the delivery outcomes.', type: 'success' });
+    } catch (error) { onNotice({ text: error.message, type: 'error' }); }
+    finally { await onChanged().catch(() => {}); setRetrying(null); }
+  }
   if (!messages.length) return <p className="text-sm text-muted-foreground">Nothing sent yet.</p>;
   return (
     <Card className="p-0 overflow-hidden">
@@ -382,13 +402,14 @@ function History({ messages }) {
             <TableHead>To</TableHead>
             <TableHead>How</TableHead>
             <TableHead>Delivered</TableHead>
+            <TableHead>Status</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {messages.map((m) => {
             const c = m.counts || {};
             const emailLine = m.email
-              ? (m.status === 'sending' ? 'Emailing…' : `${c.emailed ?? 0} emailed${c.optedOut ? `, ${c.optedOut} opted out` : ''}${c.blocked ? `, ${c.blocked} not allowlisted` : ''}${c.failed ? `, ${c.failed} failed` : ''}`)
+              ? (m.status === 'sending' ? 'Emailing…' : `${c.emailed ?? 0} emailed${c.optedOut ? `, ${c.optedOut} opted out` : ''}${c.blocked ? `, ${c.blocked} not allowlisted` : ''}${c.failed ? `, ${c.failed} failed` : ''}${c.skipped ? `, ${c.skipped} not sent (email delivery disabled)` : ''}${c.pending ? `, ${c.pending} pending confirmation` : ''}`)
               : null;
             return (
               <TableRow key={m.id}>
@@ -397,6 +418,10 @@ function History({ messages }) {
                 <TableCell>{audienceLabel(m.audience)}</TableCell>
                 <TableCell>{[m.inApp && 'Classroom', m.email && 'Email'].filter(Boolean).join(', ')}</TableCell>
                 <TableCell>{peopleCount(c.recipients ?? 0)}{emailLine && <span className="block text-xs text-muted-foreground">{emailLine}</span>}</TableCell>
+                <TableCell><span className={m.status === 'failed' ? 'text-destructive' : ''}>{m.status === 'failed' ? 'Delivery failed' : m.status === 'sending' ? 'Sending' : 'Processed'}</span>
+                  {m.deliveryError && <p className="text-xs text-muted-foreground">{m.deliveryError}</p>}
+                  {canWrite && ['failed', 'sending'].includes(m.status) && <Button size="sm" variant="outline" disabled={!!retrying} onClick={() => retry(m)}>{retrying === m.id ? 'Retrying…' : 'Retry delivery'}</Button>}
+                </TableCell>
               </TableRow>
             );
           })}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Pencil from 'lucide-react/dist/esm/icons/pencil';
 import { adminApi } from './adminApi.js';
 import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
@@ -24,12 +24,15 @@ export default function GroupsDialog({ open, onOpenChange, groups, memberCounts,
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [deleting, setDeleting] = useState(null);
+  const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   // A rename that couldn't move everyone: { from, to }. Saving the same
   // rename again finishes it (the server sees `to` listed and `from` gone).
   const [unfinished, setUnfinished] = useState(null);
 
   async function call(fn, done) {
+    if (inFlight.current) return false;
+    inFlight.current = true;
     setBusy(true);
     setError('');
     try {
@@ -41,6 +44,7 @@ export default function GroupsDialog({ open, onOpenChange, groups, memberCounts,
       setError(e.message);
       return false;
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }
@@ -82,7 +86,7 @@ export default function GroupsDialog({ open, onOpenChange, groups, memberCounts,
           {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{error}</p>}
           <div className="flex gap-2">
             <Label htmlFor="new-group-name" className="sr-only">New group name</Label>
-            <Input id="new-group-name" type="text" placeholder="New group name" value={newName} maxLength={80}
+            <Input disabled={busy} id="new-group-name" type="text" placeholder="New group name" value={newName} maxLength={80}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') add(); }} className="flex-1" />
             <Button onClick={add} disabled={busy || !newName.trim()}>Add</Button>
@@ -94,20 +98,20 @@ export default function GroupsDialog({ open, onOpenChange, groups, memberCounts,
                   {editing === g ? (
                     <>
                       <Label htmlFor="rename-group" className="sr-only">New name for {g}</Label>
-                      <Input id="rename-group" autoFocus value={draft} maxLength={80} className="h-8 flex-1"
+                      <Input disabled={busy} id="rename-group" autoFocus value={draft} maxLength={80} className="h-8 flex-1"
                         onChange={(e) => setDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') rename(g); if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }} />
                       <Button size="sm" onClick={() => rename(g)} disabled={busy}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>Cancel</Button>
                     </>
                   ) : (
                     <>
                       <span className="flex-1 text-sm">{g}</span>
                       <span className="text-xs text-muted-foreground">{people(memberCounts[g] || 0)}</span>
-                      <Button variant="ghost" size="icon-xs" aria-label={`Rename group ${g}`} title="Rename" onClick={() => { setEditing(g); setDraft(g); setError(''); }}>
+                      <Button disabled={busy} variant="ghost" size="icon-xs" aria-label={`Rename group ${g}`} title="Rename" onClick={() => { setEditing(g); setDraft(g); setError(''); }}>
                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
-                      <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete group ${g}`} onClick={() => setDeleting(g)}>&#10005;</Button>
+                      <Button disabled={busy} variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete group ${g}`} onClick={() => setDeleting(g)}>&#10005;</Button>
                     </>
                   )}
                 </li>

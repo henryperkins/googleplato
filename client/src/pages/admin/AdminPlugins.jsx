@@ -1,3 +1,5 @@
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { can } from '../../lib/permissions.js';
 import { useState, useEffect, useCallback, createElement } from 'react';
 import { adminApi } from './adminApi.js';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +22,8 @@ import SettingsForm from '@/lib/plugins/SettingsForm.jsx';
  */
 
 export default function AdminPlugins() {
+  const { user } = useAuth();
+  const readOnly = !can(user, 'plugins.write');
   const [plugins, setPlugins] = useState([]);
   const [loading, setLoading] = useState(true);
   // Only the first load replaces the page; refreshes after a toggle or save
@@ -102,7 +106,7 @@ export default function AdminPlugins() {
         {plugins.map((plugin) => (
           <PluginCard
             key={plugin.id}
-            plugin={plugin}
+            plugin={plugin} readOnly={readOnly}
             registryReady={registryReady}
             onToggle={(enabled) => toggle(plugin.id, enabled)}
             onSaveSettings={(next) => saveSettings(plugin.id, next)}
@@ -142,7 +146,7 @@ function Switch({ checked, onCheckedChange, disabled, label }) {
   );
 }
 
-function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninstallData }) {
+function PluginCard({ plugin, readOnly, registryReady, onToggle, onSaveSettings, onUninstallData }) {
   const [uninstallOpen, setUninstallOpen] = useState(false);
   const customPanel = registryReady ? settingsPanelFor(plugin.id) : null;
   const hasSettingsSurface = !!customPanel || !!plugin.settingsSchema;
@@ -154,7 +158,7 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
   //    "may have data to clean up." A plugin that's never been activated has
   //    no entry in `_system:plugins:activation`, so the button hides.)
   //  - the plugin loaded cleanly
-  const canUninstall = isDisabled && plugin.hasStoredState && !hasLoadError;
+  const canUninstall = !readOnly && isDisabled && plugin.hasStoredState && !hasLoadError;
 
   return (
     <Card>
@@ -175,7 +179,7 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
             <Switch
               checked={!!plugin.enabled}
               onCheckedChange={onToggle}
-              disabled={hasLoadError}
+              disabled={hasLoadError || readOnly}
               label={`Enable ${plugin.name}`}
             />
           </div>
@@ -184,6 +188,7 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
 
       {plugin.enabled && hasSettingsSurface && (
         <CardContent className="pt-0">
+          <fieldset disabled={readOnly}>
           <Separator className="mb-4" />
           {customPanel
             ? createElement(customPanel, {
@@ -199,6 +204,7 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
                 onSave={onSaveSettings}
               />
             )}
+          </fieldset>
         </CardContent>
       )}
 
@@ -237,7 +243,7 @@ function PluginCard({ plugin, registryReady, onToggle, onSaveSettings, onUninsta
             </Button>
           </div>
           <UninstallDialog
-            plugin={plugin}
+            plugin={plugin} readOnly={readOnly}
             open={uninstallOpen}
             onOpenChange={setUninstallOpen}
             onConfirm={onUninstallData}

@@ -1,5 +1,4 @@
-import * as DropdownMenuRadix from '@radix-ui/react-dropdown-menu';
-import Check from 'lucide-react/dist/esm/icons/check';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
 import { activeFilterCount } from '../../lib/userFilters.js';
 import { Button } from '@/components/ui/button';
 
@@ -17,49 +16,46 @@ export default function FiltersMenu({ facets, filters, onChange }) {
   const keepOpen = (fn) => (e) => { e.preventDefault(); fn(); };
 
   return (
-    <DropdownMenuRadix.Root modal={false}>
-      <DropdownMenuRadix.Trigger asChild>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
         <Button variant="outline" aria-label={count ? `Filters, ${count} on` : 'Filters'}>
           Filters{count ? <span aria-hidden="true" className="ml-1 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{count}</span> : null}
         </Button>
-      </DropdownMenuRadix.Trigger>
-      <DropdownMenuRadix.Portal>
-        <DropdownMenuRadix.Content align="start" sideOffset={4}
+      </DropdownMenuTrigger>
+
+        <DropdownMenuContent align="start" sideOffset={4}
           className="z-50 max-h-[min(70dvh,32rem)] w-72 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
           {facets.map((facet, fi) => {
             const checked = filters[facet.key] || [];
             return (
-              <DropdownMenuRadix.Group key={facet.key} aria-label={facet.label}>
-                {fi > 0 && <DropdownMenuRadix.Separator className="my-1 h-px bg-border" />}
-                <DropdownMenuRadix.Label className="px-2 pt-1.5 pb-1 text-xs font-medium text-muted-foreground">{facet.label}</DropdownMenuRadix.Label>
+              <DropdownMenuGroup key={facet.key} aria-label={facet.label}>
+                {fi > 0 && <DropdownMenuSeparator className="my-1 h-px bg-border" />}
+                <DropdownMenuLabel className="px-2 pt-1.5 pb-1 text-xs font-medium text-muted-foreground">{facet.label}</DropdownMenuLabel>
                 {facet.options.map((o) => (
-                  <DropdownMenuRadix.CheckboxItem
+                  <DropdownMenuCheckboxItem
                     key={o.value}
                     className={item}
                     checked={checked.includes(o.value)}
-                    onSelect={(e) => e.preventDefault()}
-                    onCheckedChange={(on) => set(facet.key, on ? [...checked, o.value] : checked.filter((v) => v !== o.value))}
+                    closeOnSelect={false}
+                    onSelect={() => set(facet.key, checked.includes(o.value) ? checked.filter(v => v !== o.value) : [...checked, o.value])}
                   >
-                    <span className="flex h-4 w-4 items-center justify-center rounded-sm border" aria-hidden="true">
-                      <DropdownMenuRadix.ItemIndicator><Check className="h-3 w-3" strokeWidth={3} /></DropdownMenuRadix.ItemIndicator>
-                    </span>
                     <span className="flex-1">{o.label}</span>
                     <span className="text-xs text-muted-foreground">{o.count}</span>
-                  </DropdownMenuRadix.CheckboxItem>
+                  </DropdownMenuCheckboxItem>
                 ))}
                 <div className="flex gap-1 px-1 pb-1">
-                  <DropdownMenuRadix.Item className={`${item} text-xs text-primary`} onSelect={keepOpen(() => set(facet.key, facet.options.map((o) => o.value)))}>
+                  <DropdownMenuItem className={`${item} text-xs text-primary`} onSelect={keepOpen(() => set(facet.key, facet.options.map((o) => o.value)))}>
                     Select all<span className="sr-only"> {facet.label}</span>
-                  </DropdownMenuRadix.Item>
-                  <DropdownMenuRadix.Item className={`${item} text-xs text-primary`} onSelect={keepOpen(() => set(facet.key, []))}>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className={`${item} text-xs text-primary`} onSelect={keepOpen(() => set(facet.key, []))}>
                     Clear<span className="sr-only"> {facet.label}</span>
-                  </DropdownMenuRadix.Item>
+                  </DropdownMenuItem>
                 </div>
-              </DropdownMenuRadix.Group>
+              </DropdownMenuGroup>
             );
           })}
-        </DropdownMenuRadix.Content>
-      </DropdownMenuRadix.Portal>
-    </DropdownMenuRadix.Root>
+        </DropdownMenuContent>
+
+    </DropdownMenu>
   );
 }

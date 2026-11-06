@@ -24,10 +24,10 @@ async function freshInvite(email) {
 
 test('a used or unknown invite says so up front, with no form', async ({ page }) => {
   await page.goto('/signup?token=inv_not_a_real_token');
-  await expect(page.getByText('This invite can’t be used')).toBeVisible();
+  await expect(page.getByText(/This invite is unavailable/)).toBeVisible();
   await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
   await expectAccessible(page, { label: 'invalid invite' });
-  await page.getByRole('button', { name: 'Already have an account? Sign in' }).click();
+  await page.getByRole('button', { name: 'Go to sign in' }).click();
   await expect(page).toHaveURL(/\/login$/);
 });
 

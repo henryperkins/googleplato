@@ -268,7 +268,7 @@ describe('theme controls', () => {
     const menu = read('src/components/ui/dropdown-menu.jsx');
     assert.match(menu, /\[role="menuitemcheckbox"\]/);
     assert.match(menu, /getClientRects\(\)\.length > 0/);
-    assert.match(menu, /if \(closeOnSelect\) ctx\?\.closeMenu\(false\);/);
+    assert.match(menu, /if \(closeOnSelect && !e\.defaultPrevented\) ctx\?\.closeMenu\(false\);/);
   });
 
   it('offer the choice on every public page too, ringed in the page text color', () => {

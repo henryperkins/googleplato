@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useLayoutEffect } from 'react';
 import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
 import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,13 @@ import {
  * focus stays on the moved row's button, and each change is announced.
  */
 export default function ColumnsDialog({ open, onOpenChange, title, columns, onToggle, onMove, onReset }) {
+  const [focusRequest, setFocusRequest] = useState(null);
+  useLayoutEffect(() => {
+    if (!focusRequest) return;
+    const button = document.getElementById(focusRequest);
+    const other = document.getElementById(focusRequest.replace(/-(up|down)$/, (_, direction) => direction === 'up' ? '-down' : '-up'));
+    (button && !button.disabled ? button : other && !other.disabled ? other : button?.closest('li')?.querySelector('input'))?.focus();
+  }, [focusRequest, columns]);
   const [announcement, setAnnouncement] = useState('');
   const say = (text) => { setAnnouncement(''); requestAnimationFrame(() => setAnnouncement(text)); };
 
@@ -31,12 +38,12 @@ export default function ColumnsDialog({ open, onOpenChange, title, columns, onTo
                   onChange={(e) => { onToggle(c.id, e.target.checked); say(`${c.label} ${e.target.checked ? 'shown' : 'hidden'}.`); }} />
                 {c.label}
               </label>
-              <Button variant="ghost" size="icon-xs" aria-label={`Move ${c.label} up`} disabled={i === 0}
-                onClick={() => { onMove(c.id, -1); say(`Moved ${c.label} up.`); }}>
+              <Button id={`column-${c.id}-up`} variant="ghost" size="icon-xs" aria-label={`Move ${c.label} up`} disabled={i === 0}
+                onClick={() => { onMove(c.id, -1); setFocusRequest(`column-${c.id}-up`); say(`Moved ${c.label} up.`); }}>
                 <ChevronUp className="h-4 w-4" aria-hidden="true" />
               </Button>
-              <Button variant="ghost" size="icon-xs" aria-label={`Move ${c.label} down`} disabled={i === columns.length - 1}
-                onClick={() => { onMove(c.id, 1); say(`Moved ${c.label} down.`); }}>
+              <Button id={`column-${c.id}-down`} variant="ghost" size="icon-xs" aria-label={`Move ${c.label} down`} disabled={i === columns.length - 1}
+                onClick={() => { onMove(c.id, 1); setFocusRequest(`column-${c.id}-down`); say(`Moved ${c.label} down.`); }}>
                 <ChevronDown className="h-4 w-4" aria-hidden="true" />
               </Button>
             </li>

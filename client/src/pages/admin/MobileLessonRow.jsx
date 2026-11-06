@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { MAX_EXCHANGES } from '../../lib/constants.js';
 
-export default function MobileLessonRow({ lesson, courseName, stats, visibility, onEdit, onDelete }) {
+export default function MobileLessonRow({ lesson, readOnly = false, courseName, stats, visibility, onEdit, onDelete }) {
   const actionsRef = useRef(null);
   const name = lesson.name || lesson.lessonId;
   const isDraft = lesson.status === 'draft';
@@ -30,7 +30,7 @@ export default function MobileLessonRow({ lesson, courseName, stats, visibility,
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={onEdit}>{isDraft ? 'Resume draft' : 'Edit lesson'}</DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onSelect={() => {
+            <DropdownMenuItem disabled={readOnly} variant="destructive" onSelect={() => {
               actionsRef.current?.focus();
               onDelete();
             }}>Delete lesson</DropdownMenuItem>
@@ -39,7 +39,7 @@ export default function MobileLessonRow({ lesson, courseName, stats, visibility,
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
         {visibility}
-        <span className="min-w-0 text-sm text-muted-foreground wrap-anywhere">{courseName || 'No course'}</span>
+        <span className="min-w-0 text-sm text-muted-foreground wrap-anywhere">{courseName || 'No unit'}</span>
       </div>
       {lesson.updatedAt && <p className="mt-1 text-sm text-muted-foreground">Updated <time dateTime={lesson.updatedAt}>{new Date(lesson.updatedAt).toLocaleDateString()}</time></p>}
       <details className="group mt-1">

@@ -76,7 +76,7 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
             <ul className="space-y-2" aria-label="Objectives">
               {objectives.map((o, i) => (
                 <li key={i} className="flex items-start gap-2">
-                  <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${o.met ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-muted-foreground/40'}`}>
+                  <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${o.met ? 'border-success-border bg-success text-success-foreground' : 'border-muted-foreground/40'}`}>
                     {o.met && <Check className="h-3 w-3" strokeWidth={3} />}
                   </span>
                   <span>
@@ -157,27 +157,27 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
                 {enrichments.map((enrichment, idx) => (
                   <section
                     key={idx}
-                    className="border border-blue-200 bg-blue-50 rounded p-3 space-y-2"
+                    className="border border-border bg-muted rounded p-3 space-y-2"
                     aria-labelledby={`enrichment-${idx}-label`}
                   >
-                    <h4 id={`enrichment-${idx}-label`} className="text-sm font-medium text-blue-900">
+                    <h4 id={`enrichment-${idx}-label`} className="text-sm font-medium text-foreground">
                       {enrichment.label || enrichment.pluginId}
                     </h4>
                     {enrichment.reasoning && (
                       <div role="note">
                         <p className="sr-only">Why this context matters:</p>
-                        <p className="text-xs text-blue-700">{enrichment.reasoning}</p>
+                        <p className="text-xs text-link">{enrichment.reasoning}</p>
                       </div>
                     )}
                     {enrichment.context && (
                       <div>
                         <p className="sr-only">Context:</p>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{enrichment.context}</p>
+                        <p className="text-sm text-foreground whitespace-pre-wrap">{enrichment.context}</p>
                       </div>
                     )}
                     {enrichment.sources?.length > 0 && (
                       <nav aria-label={`Sources from ${enrichment.label || enrichment.pluginId}`}>
-                        <div className="text-xs font-medium text-blue-800 mb-1">Sources:</div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1">Sources:</div>
                         <ul className="text-xs space-y-1">
                           {enrichment.sources.map((source, sidx) => (
                             <li key={sidx}>
@@ -185,7 +185,7 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
                                 href={source.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-blue-700 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-1 rounded"
+                                className="text-link hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded"
                                 aria-label={`${source.title || source.url} (opens in new tab)`}
                               >
                                 {source.title || source.url}

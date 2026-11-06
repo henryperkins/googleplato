@@ -1,3 +1,4 @@
+import NameFields from '../components/NameFields.jsx';
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -21,6 +22,7 @@ import ClassroomLogo from '../components/ClassroomLogo.jsx';
 export default function Signup() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') || '';
+  const [inviteState, setInviteState] = useState(token ? 'checking' : 'invalid');
   const draftKey = `plato_signup_draft:${token || 'default'}`;
 
   const [savedDraft] = useState(() => {
@@ -33,7 +35,7 @@ export default function Signup() {
   });
 
   const [email, setEmail] = useState(savedDraft.email || '');
-  const [name, setName] = useState(savedDraft.name || '');
+  const [firstName, setFirstName] = useState(savedDraft.firstName || savedDraft.name || '');
   const [username, setUsername] = useState(savedDraft.username || '');
   const [group, setGroup] = useState(savedDraft.group || '');
   const [password, setPassword] = useState('');
@@ -48,7 +50,9 @@ export default function Signup() {
   const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const emailRef = useRef(null);
-  const nameRef = useRef(null);
+  const firstNameRef = useRef(null);
+  const lastNameRef = useRef(null);
+  const [lastName, setLastName] = useState(savedDraft.lastName || '');
   const usernameRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);
@@ -61,10 +65,10 @@ export default function Signup() {
     try {
       sessionStorage.setItem(
         draftKey,
-        JSON.stringify({ email, name, username, group, fieldValues })
+        JSON.stringify({ email, firstName, lastName, username, group, fieldValues })
       );
     } catch { /* ignore storage quota errors */ }
-  }, [draftKey, email, name, username, group, fieldValues]);
+  }, [draftKey, email, firstName, lastName, username, group, fieldValues]);
 
   useEffect(() => {
     fetch('/v1/groups')
@@ -78,19 +82,27 @@ export default function Signup() {
   }, []);
 
   // An email invite fills in what it knows; a wait-list invite (#363) also
-  // carries the person's name, group, and field answers.
+  // carries the person's firstName, group, and field answers.
   useEffect(() => {
-    if (!token) return;
+    let cancelled = false;
+    if (!token) { setInviteState('invalid'); return; }
+    setInviteState('checking');
     fetch(`/v1/auth/invite/${encodeURIComponent(token)}`)
-      .then(r => (r.ok ? r.json() : null))
+      .then(r => {
+        if (cancelled) return null;
+        setInviteState(r.status === 404 ? 'invalid' : 'ok');
+        return r.ok ? r.json() : null;
+      })
       .then(d => {
-        if (!d) return;
+        if (cancelled || !d) return;
         if (d.email) setEmail(prev => prev || d.email);
-        if (d.name) setName(prev => prev || d.name);
+        if (d.firstName || d.name) setFirstName(prev => prev || d.firstName || d.name);
+        if (d.lastName) setLastName(prev => prev || d.lastName);
         if (d.userGroup) setGroup(prev => prev || d.userGroup);
         if (d.customFields) setFieldValues(prev => ({ ...d.customFields, ...prev }));
       })
-      .catch(() => {});
+      .catch(() => { if (!cancelled) setInviteState('ok'); });
+    return () => { cancelled = true; };
   }, [token]);
 
   function validateOptionalEmail(val) {
@@ -101,6 +113,7 @@ export default function Signup() {
   }
 
   async function handleGoogleSignup() {
+    if (inviteState !== 'ok') return;
     const cfErrs = validateCustomFields(userFields, fieldValues);
     const cfIds = Object.keys(cfErrs);
     if (cfIds.length) {
@@ -123,7 +136,7 @@ export default function Signup() {
     try {
       await loginWithGoogle({
         inviteToken: token || undefined,
-        name: name.trim() || undefined,
+        lastName: lastName.trim(), firstName: firstName.trim() || undefined,
         username: username.trim() || undefined,
         userGroup: group || undefined,
         customFields: userFields.length ? fieldValues : undefined,
@@ -140,7 +153,7 @@ export default function Signup() {
 
   async function handleSignup(e) {
     if (e) e.preventDefault();
-    if (submitting || googleSubmitting) return;
+    if (submitting || googleSubmitting || inviteState !== 'ok') return;
     // Email is optional in frontend validation for backwards compatibility:
     // - Email-specific invites: backend uses invite.email if not provided
     // - Link invites: backend will reject with "Email is required" error
@@ -148,7 +161,7 @@ export default function Signup() {
     const nextErrs = {};
     const emailErr = validateOptionalEmail(email);
     if (emailErr) nextErrs.email = emailErr;
-    if (!name.trim()) nextErrs.name = 'Name is required.';
+    if (!firstName.trim()) nextErrs.firstName = 'First name is required.';
     if (!password) nextErrs.password = 'Password is required.';
     else if (password.length < 8) nextErrs.password = 'Password must be at least 8 characters.';
     if (password && password.length >= 8 && password !== confirm) {
@@ -163,7 +176,7 @@ export default function Signup() {
 
     if (Object.keys(nextErrs).length > 0) {
       setFieldErrors(nextErrs);
-      const missingBasics = [!name.trim() && 'your name', !password && 'a password'].filter(Boolean);
+      const missingBasics = [!firstName.trim() && 'your first name', !password && 'a password'].filter(Boolean);
       if (missingBasics.length) {
         setError(missingFieldsMessage(missingBasics));
       } else if (nextErrs.email) {
@@ -179,7 +192,7 @@ export default function Signup() {
         setError(cfErrs[cfIds[0]]);
       }
       if (nextErrs.email) emailRef.current?.focus();
-      else if (nextErrs.name) nameRef.current?.focus();
+      else if (nextErrs.firstName) firstNameRef.current?.focus();
       else if (cfIds.length) document.getElementById(`signup-field-${cfIds[0]}`)?.focus();
       else if (nextErrs.password) passwordRef.current?.focus();
       else if (nextErrs.confirm) confirmRef.current?.focus();
@@ -196,7 +209,7 @@ export default function Signup() {
         body: JSON.stringify({
           inviteToken: token,
           email: email.trim() || undefined, // Send undefined if empty (backend handles it)
-          name: name.trim(),
+          lastName: lastName.trim(), firstName: firstName.trim(),
           username: username.trim() || undefined,
           password,
           userGroup: group || undefined,
@@ -208,7 +221,7 @@ export default function Signup() {
       try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
       // Log in with the returned credentials
       await login(data.user?.email || email.trim(), password);
-      navigate('/lessons', { replace: true });
+      navigate('/lessons', { replace: true, state: !username.trim() ? { newUsername: data.user?.username } : undefined });
     } catch (e) {
       setError(requestError(e, "We couldn't create your account. Try again."));
     } finally {
@@ -227,6 +240,12 @@ export default function Signup() {
           <CardDescription>Join {branding.classroomName}.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {inviteState !== 'ok' ? (
+            <div role="status" className="flex flex-col gap-3">
+              <p>{inviteState === 'checking' ? 'Checking your invite…' : 'This invite is unavailable. It may have been used, expired, or reached its limit. Ask your classroom admin for a new invite.'}</p>
+              {inviteState === 'invalid' && <Button variant="outline" onClick={() => navigate('/login')}>Go to sign in</Button>}
+            </div>
+          ) : <>
           {error && (
             <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 text-sm" role="alert">
               {error}
@@ -278,39 +297,16 @@ export default function Signup() {
                     setFieldErrors(prev => ({ ...prev, email: validateOptionalEmail(email) }));
                   }
                 }}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); nameRef.current?.focus(); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); firstNameRef.current?.focus(); } }}
               />
               {fieldErrors.email && (
                 <p id="signup-email-error" className="text-xs text-destructive" role="alert">{fieldErrors.email}</p>
               )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="signup-name">Name</Label>
-              <Input
-                id="signup-name"
-                ref={nameRef}
-                type="text"
-                enterKeyHint="next"
-                placeholder="Your name"
-                autoComplete="name"
-                value={name}
-                aria-invalid={fieldErrors.name ? true : undefined}
-                aria-describedby={fieldErrors.name ? 'signup-name-error' : undefined}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
-                }}
-                onBlur={() => {
-                  if (name || fieldErrors.name) {
-                    setFieldErrors(prev => ({ ...prev, name: name.trim() ? '' : 'Name is required.' }));
-                  }
-                }}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); usernameRef.current?.focus(); } }}
-              />
-              {fieldErrors.name && (
-                <p id="signup-name-error" className="text-xs text-destructive" role="alert">{fieldErrors.name}</p>
-              )}
-            </div>
+            <NameFields idPrefix="signup" value={{ firstName, lastName }} firstNameRef={firstNameRef} lastNameRef={lastNameRef} nextRef={usernameRef}
+              errors={fieldErrors} disabled={submitting || googleSubmitting}
+              onChange={value => { setFirstName(value.firstName); setLastName(value.lastName); if (fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: '' })); }}
+              onBlur={() => { if (firstName || fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: firstName.trim() ? '' : 'First name is required.' })); }} />
             <div className="space-y-2">
               <Label htmlFor="signup-username">
                 Username <span className="text-muted-foreground text-xs">(optional)</span>
@@ -449,6 +445,7 @@ export default function Signup() {
               <span>{submitting ? 'Creating account...' : 'Create account'}</span>
             </Button>
           </form>
+          </>}
         </CardContent>
         <CardFooter className="justify-center">
           <Button variant="link" onClick={() => navigate('/login')}>

@@ -1,3 +1,5 @@
+import ClassroomLogo from '../components/ClassroomLogo.jsx';
+import PublicFooter from '../components/PublicFooter.jsx';
 import { useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -13,7 +15,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
  */
 function ToBeDecided({ children }) {
   return (
-    <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+    <p className="rounded-md border border-warning-border bg-warning px-3 py-2 text-warning-foreground">
       <strong className="font-semibold">To be decided by the program team:</strong> {children}
     </p>
   );
@@ -24,18 +26,14 @@ export default function HowAssessmentWorks() {
   const { loggedIn } = useAuth();
   const branding = usePublicBranding('How assessment works');
   if (!branding) return null;
-  const { primary: headerBg, logo, classroomName } = branding;
+  const { logo, classroomName } = branding;
 
   return (
-    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4" style={{ backgroundColor: headerBg }}>
-      {logo ? (
-        <img src={logo} alt={classroomName} className="h-16 w-16 mb-6 rounded-lg object-contain" />
-      ) : (
-        <p className="text-2xl font-bold text-white mb-6">{classroomName}</p>
-      )}
+    <main className="min-h-dvh shrink-0 flex flex-col items-center justify-center p-4 bg-header text-header-foreground">
+      <ClassroomLogo src={logo} alt={classroomName} className="h-16 w-auto mb-6" fallback={<p className="text-2xl font-bold mb-6">{classroomName}</p>} />
       <Card className="w-full max-w-3xl">
         <CardHeader>
-          <CardTitle className="text-2xl"><h1>How assessment works</h1></CardTitle>
+          <CardTitle as="h1" className="text-2xl">How assessment works</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6 text-sm leading-relaxed">
           <section className="space-y-2">
@@ -51,10 +49,8 @@ export default function HowAssessmentWorks() {
           <section className="space-y-2">
             <h2 className="text-lg font-semibold">Who assesses your work</h2>
             <p className="text-muted-foreground">
-              An AI coach works with you in each lesson. It asks questions, gives feedback, and judges your progress
-              toward the exemplar after every reply, on a scale from 0 to 10. The progress bar at the top of the lesson
-              shows that score. The coach is an open-source AI model (Qwen3-VL) running on Amazon Bedrock, guided by
-              instructions that are public in plato&rsquo;s source code.
+              An AI coach works with you in each lesson. It asks questions and gives feedback. The server assesses your submitted work against the lesson objectives and exemplar, then records the verified result on a scale from 0 to 10. The progress bar at the top of the lesson
+              shows that score. Your classroom admin selects the AI provider, Amazon Bedrock or Cloudflare Workers AI. The coach follows instructions that are public in plato&rsquo;s source code; its prose alone does not change your saved progress.
             </p>
             <p className="text-muted-foreground">
               Under each reply, &ldquo;Behind this response&rdquo; shows what the coach and plato&rsquo;s other AI helpers
@@ -82,7 +78,7 @@ export default function HowAssessmentWorks() {
           <section className="space-y-2">
             <h2 className="text-lg font-semibold">When a lesson is complete</h2>
             <p className="text-muted-foreground">
-              A lesson is complete when the coach scores your progress at 10: you&rsquo;ve shown every objective and work
+              A lesson is complete when the server verifies that your progress has reached 10: you&rsquo;ve shown every objective and work
               that matches the exemplar. There&rsquo;s no limit on the number of messages, and a lesson never ends just
               because time or messages ran out. Most lessons take about 20 minutes of conversation, plus any time you
               spend making your work.
@@ -133,15 +129,7 @@ export default function HowAssessmentWorks() {
           </section>
         </CardContent>
       </Card>
-      <div className="mt-4 flex gap-4 items-center text-xs text-white/90">
-        <Button variant="link" className="text-white/90 hover:text-white h-auto p-0" onClick={() => navigate(loggedIn ? '/lessons' : '/login')}>
-          {loggedIn ? 'Back to Lessons' : 'Back to Sign In'}
-        </Button>
-        <span aria-hidden="true">·</span>
-        <span>
-          Powered by <a href="https://github.com/1111philo/plato" target="_blank" rel="noopener noreferrer" className="underline hover:text-white">plato</a>.
-        </span>
-      </div>
+      <PublicFooter link={<Button variant="link" onClick={() => navigate(loggedIn ? '/lessons' : '/login')}>{loggedIn ? 'Back to Lessons' : 'Back to Sign In'}</Button>} />
     </main>
   );
 }

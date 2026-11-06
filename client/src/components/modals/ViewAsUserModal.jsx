@@ -1,3 +1,4 @@
+import { normalizeRole, roleLabel } from '../../lib/permissions.js';
 import { useState, useEffect, useMemo } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -101,23 +102,23 @@ export default function ViewAsUserModal({ open, onOpenChange, onStarted }) {
             <ul className="p-2 space-y-1" aria-label="Users">
               {filtered.map(u => {
                 const label = u.name || u.username || u.email;
-                const isAdmin = u.role === 'admin';
+                const isStaff = normalizeRole(u.role) !== 'learner';
                 return (
                   <li key={u.userId}>
                     <button
                       type="button"
                       onClick={() => handlePick(u)}
                       disabled={submitting}
-                      aria-label={`View as ${label}${isAdmin ? ' (admin)' : ''}`}
+                      aria-label={`View as ${label}${isStaff ? ` (${roleLabel(u.role).toLowerCase()})` : ''}`}
                       className="touch-target w-full flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted text-left text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent border-none outline-none focus:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span className="flex-1 min-w-0">
                         <span className="font-medium truncate block">{label}</span>
                         {u.name && <span className="text-xs text-muted-foreground truncate block">{u.email}</span>}
                       </span>
-                      {isAdmin && (
+                      {isStaff && (
                         <span className="text-xs text-muted-foreground shrink-0" aria-hidden="true">
-                          Admin
+                          {roleLabel(u.role)}
                         </span>
                       )}
                     </button>

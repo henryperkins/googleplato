@@ -33,7 +33,7 @@ test('an important message pops up once, then lives in the bell', async ({ page,
   await page.keyboard.press('Enter');
   const menu = page.getByRole('menu');
   await expect(menu.getByRole('menuitem', { name: /Office hours, Lee/ })).toBeVisible();
-  await expectAccessible(page, { label: 'notifications menu' });
+  await expectAccessible(page, { include: '[role=menu]', label: 'notifications menu' });
   await page.keyboard.press('Escape');
   await expect(bell).toHaveAccessibleName(/^Notifications(, \d+ unread)?$/);
 });

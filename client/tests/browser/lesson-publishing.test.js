@@ -62,7 +62,8 @@ async function fixture({ draft = true, width = 1280, height = 900, theme = 'ligh
       }
     }
     if (path === '/v1/admin/lessons') return route.fulfill({ json: [state.lesson] });
-    if (path === '/v1/admin/courses') return route.fulfill({ json: [] });
+    if (path === '/v1/admin/units') return route.fulfill({ json: [] });
+    if (path === '/v1/admin/programs') return route.fulfill({ json: { programs: [], unassignedUnitIds: [] } });
     if (path === '/v1/admin/stats/lessons') return route.fulfill({ json: { byLesson: {} } });
     if (path === '/v1/admin/users') return route.fulfill({ json: [
       { userId: 'learner', name: 'Avery Learner', email: 'avery@example.test', role: 'user' },
@@ -1048,7 +1049,7 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
           && message.text() === 'Viewport argument key "interactive-widget" not recognized and ignored.')) errors.push(message.text());
       });
       try {
-        await context.route('**/v1/admin/courses', route => route.fulfill({ json: [{ courseId: 'communication', name: 'Workplace communication' }] }));
+        await context.route('**/v1/admin/units', route => route.fulfill({ json: [{ unitId: 'communication', name: 'Workplace communication' }] }));
         await page.reload();
         if (width === 390) {
           await page.getByRole('tab', { name: 'Refine', exact: true }).waitFor();

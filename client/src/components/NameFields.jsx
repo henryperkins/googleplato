@@ -11,9 +11,10 @@ import { Label } from '@/components/ui/label';
  * split was guessed from an older single name, tied to both inputs with
  * aria-describedby.
  */
-export default function NameFields({ idPrefix, value, onChange, disabled = false, inferred = false }) {
+export default function NameFields({ idPrefix, value, onChange, disabled = false, inferred = false, firstNameRef, lastNameRef, nextRef, errors = {}, onBlur }) {
   const hintId = `${idPrefix}-name-hint`;
   const describedBy = inferred ? hintId : undefined;
+  const next = (event, target) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); target?.current?.focus(); } };
   const set = (key) => (e) => onChange({ ...value, [key]: e.target.value });
   return (
     <div className="space-y-2">
@@ -22,14 +23,20 @@ export default function NameFields({ idPrefix, value, onChange, disabled = false
           <Label htmlFor={`${idPrefix}-first-name`}>First name</Label>
           <Input
             id={`${idPrefix}-first-name`}
+            ref={firstNameRef}
+            enterKeyHint="next"
+            onKeyDown={event => next(event, lastNameRef)}
+            onBlur={() => onBlur?.('firstName')}
+            aria-invalid={errors.firstName ? true : undefined}
             type="text"
             autoComplete="given-name"
             aria-required="true"
-            aria-describedby={describedBy}
+            aria-describedby={[describedBy, errors.firstName && `${idPrefix}-first-name-error`].filter(Boolean).join(' ') || undefined}
             disabled={disabled}
             value={value.firstName}
             onChange={set('firstName')}
           />
+          {errors.firstName && <p id={`${idPrefix}-first-name-error`} className="text-xs text-destructive" role="alert">{errors.firstName}</p>}
         </div>
         <div className="space-y-2">
           <Label htmlFor={`${idPrefix}-last-name`}>
@@ -37,6 +44,9 @@ export default function NameFields({ idPrefix, value, onChange, disabled = false
           </Label>
           <Input
             id={`${idPrefix}-last-name`}
+            ref={lastNameRef}
+            enterKeyHint="next"
+            onKeyDown={event => next(event, nextRef)}
             type="text"
             autoComplete="family-name"
             aria-describedby={describedBy}

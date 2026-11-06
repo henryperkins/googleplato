@@ -1,3 +1,4 @@
+import NameFields from '../components/NameFields.jsx';
 import { useState, useEffect, useRef } from 'react';
 import PasswordField from '../components/PasswordField.jsx';
 import GoogleIcon from '../components/GoogleIcon.jsx';
@@ -27,14 +28,16 @@ export default function Setup() {
   });
   const [classroomName, setClassroomName] = useState(savedDraft.classroomName || '');
   const [email, setEmail] = useState(savedDraft.email || '');
-  const [name, setName] = useState(savedDraft.name || '');
+  const [firstName, setFirstName] = useState(savedDraft.firstName || savedDraft.name || '');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
-  const nameRef = useRef(null);
+  const firstNameRef = useRef(null);
+  const lastNameRef = useRef(null);
+  const [lastName, setLastName] = useState(savedDraft.lastName || '');
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);
@@ -46,9 +49,9 @@ export default function Setup() {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify({ classroomName, email, name }));
+      sessionStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify({ classroomName, email, firstName, lastName }));
     } catch { /* ignore */ }
-  }, [classroomName, email, name]);
+  }, [classroomName, email, firstName, lastName]);
 
   async function handleGoogleSetup() {
     if (googleSubmitting || submitting) return;
@@ -57,7 +60,7 @@ export default function Setup() {
     try {
       await loginWithGoogle({
         classroomName: classroomName.trim() || undefined,
-        name: name.trim() || undefined,
+        lastName: lastName.trim(), firstName: firstName.trim() || undefined,
       });
       try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
       window.location.href = '/plato';
@@ -80,7 +83,7 @@ export default function Setup() {
     if (e) e.preventDefault();
     if (submitting || googleSubmitting) return;
     const nextErrs = {};
-    if (!name.trim()) nextErrs.name = 'Name is required.';
+    if (!firstName.trim()) nextErrs.firstName = 'First name is required.';
     const emailErr = validateEmail(email);
     if (emailErr) nextErrs.email = emailErr;
     if (!password) nextErrs.password = 'Password is required.';
@@ -92,7 +95,7 @@ export default function Setup() {
     if (Object.keys(nextErrs).length > 0) {
       setFieldErrors(nextErrs);
       // The classroom name is optional, so name only the fields that are missing.
-      const missing = [!name.trim() && 'your name', !email.trim() && 'your email', !password && 'a password'].filter(Boolean);
+      const missing = [!firstName.trim() && 'your first name', !email.trim() && 'your email', !password && 'a password'].filter(Boolean);
       if (missing.length) {
         setError(missingFieldsMessage(missing));
       } else if (nextErrs.email) {
@@ -102,7 +105,7 @@ export default function Setup() {
       } else if (nextErrs.confirm) {
         setError(nextErrs.confirm);
       }
-      if (nextErrs.name) nameRef.current?.focus();
+      if (nextErrs.firstName) firstNameRef.current?.focus();
       else if (nextErrs.email) emailRef.current?.focus();
       else if (nextErrs.password) passwordRef.current?.focus();
       else if (nextErrs.confirm) confirmRef.current?.focus();
@@ -116,7 +119,7 @@ export default function Setup() {
       const res = await fetch('/v1/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), name: name.trim(), password, classroomName: classroomName.trim() }),
+        body: JSON.stringify({ email: email.trim(), lastName: lastName.trim(), firstName: firstName.trim(), password, classroomName: classroomName.trim() }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "We couldn't finish setup. Try again.");
@@ -159,7 +162,7 @@ export default function Setup() {
                 aria-describedby="setup-classroom-hint"
                 value={classroomName}
                 onChange={e => setClassroomName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); nameRef.current?.focus(); } }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); firstNameRef.current?.focus(); } }}
               />
               <p id="setup-classroom-hint" className="text-xs text-muted-foreground">This appears in the header and on login pages. Up to 100 characters; you can change it later.</p>
             </div>
@@ -184,33 +187,10 @@ export default function Setup() {
               <span className="mx-3 shrink-0 text-xs text-muted-foreground">or set up with password</span>
               <div className="grow border-t border-border" />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="setup-name">Your Name</Label>
-              <Input
-                id="setup-name"
-                ref={nameRef}
-                type="text"
-                enterKeyHint="next"
-                placeholder="Your name"
-                autoComplete="name"
-                value={name}
-                aria-invalid={fieldErrors.name ? true : undefined}
-                aria-describedby={fieldErrors.name ? 'setup-name-error' : undefined}
-                onChange={e => {
-                  setName(e.target.value);
-                  if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
-                }}
-                onBlur={() => {
-                  if (name || fieldErrors.name) {
-                    setFieldErrors(prev => ({ ...prev, name: name.trim() ? '' : 'Name is required.' }));
-                  }
-                }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); emailRef.current?.focus(); } }}
-              />
-              {fieldErrors.name && (
-                <p id="setup-name-error" className="text-xs text-destructive" role="alert">{fieldErrors.name}</p>
-              )}
-            </div>
+            <NameFields idPrefix="setup" value={{ firstName, lastName }} firstNameRef={firstNameRef} lastNameRef={lastNameRef} nextRef={emailRef}
+              errors={fieldErrors} disabled={submitting || googleSubmitting}
+              onChange={value => { setFirstName(value.firstName); setLastName(value.lastName); if (fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: '' })); }}
+              onBlur={() => { if (firstName || fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: firstName.trim() ? '' : 'First name is required.' })); }} />
             <div className="space-y-2">
               <Label htmlFor="setup-email">Email</Label>
               <Input

@@ -1,3 +1,5 @@
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { can } from '../../lib/permissions.js';
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi } from './adminApi.js';
@@ -15,6 +17,8 @@ import {
  * Server: lib/bundled-lessons.js, /v1/admin/bundled-lessons.
  */
 export default function BundledLessonNotices({ onChanged, onMessage }) {
+  const { user } = useAuth();
+  const canWrite = can(user, 'content.write');
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [viewing, setViewing] = useState(null);
@@ -51,7 +55,9 @@ export default function BundledLessonNotices({ onChanged, onMessage }) {
   async function publishAll() {
     try {
       for (const item of toPublish) {
-        await adminApi('PUT', `/v1/admin/lessons/${encodeURIComponent(item.lessonId)}`, { status: 'public' });
+        const path = `/v1/admin/lessons/${encodeURIComponent(item.lessonId)}`;
+        const current = await adminApi('GET', path);
+        if (current.status !== 'public') await adminApi('PUT', path, { status: 'public', expectedVersion: current.version, operationId: crypto.randomUUID() });
       }
       await load();
       await onChanged?.();
@@ -73,27 +79,27 @@ export default function BundledLessonNotices({ onChanged, onMessage }) {
     <>
       <ul className="space-y-2 mb-4" aria-label="Lessons that ship with plato">
         {toPublish.length > 0 && (
-          <li className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+          <li className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-foreground">
             <p>
               The <strong>Getting Started with plato</strong> course was added to show learners how plato works:{' '}
               {listed}. {toPublish.length === 1 ? 'It’s' : 'They’re'} private until you publish {toPublish.length === 1 ? 'it' : 'them'}.
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <Button size="sm" onClick={publishAll}>Publish {toPublish.length === 1 ? 'it' : `all ${toPublish.length}`}</Button>
+              <Button disabled={!canWrite} size="sm" onClick={publishAll}>Publish {toPublish.length === 1 ? 'it' : `all ${toPublish.length}`}</Button>
               <Button size="sm" variant="outline" onClick={() => navigate(`/plato/lessons/${encodeURIComponent(toPublish[0].lessonId)}/edit`)}>Review lessons</Button>
-              <Button size="sm" variant="ghost" onClick={dismissAll}>Dismiss</Button>
+              <Button disabled={!canWrite} size="sm" variant="ghost" onClick={dismissAll}>Dismiss</Button>
             </div>
           </li>
         )}
         {updates.map((item) => (
-          <li key={item.lessonId} className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+          <li key={item.lessonId} className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-foreground">
             <p>
               <strong>{item.name}</strong> has an update from plato. Your copy was edited, so it wasn&rsquo;t changed.
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => setViewing(item)}>View update</Button>
-              <Button size="sm" onClick={() => setConfirming(item)}>Apply update</Button>
-              <Button size="sm" variant="ghost" onClick={() => act(item, 'dismiss')}>Dismiss</Button>
+              <Button disabled={!canWrite} size="sm" onClick={() => setConfirming(item)}>Apply update</Button>
+              <Button disabled={!canWrite} size="sm" variant="ghost" onClick={() => act(item, 'dismiss')}>Dismiss</Button>
             </div>
           </li>
         ))}

@@ -6,7 +6,8 @@ import { ADMIN } from '../fixtures.js';
 test('admins add, rename, and delete groups; errors show in the dialog', async ({ page }) => {
   await login(page, ADMIN);
   await page.goto('/plato/users');
-  await page.getByRole('button', { name: 'User Groups' }).click();
+  await page.getByRole('button', { name: 'Manage' }).click();
+  await page.getByRole('menuitem', { name: 'User Groups' }).click();
   const dialog = page.getByRole('dialog', { name: 'User Groups' });
   const list = dialog.getByRole('list', { name: 'Groups' });
 

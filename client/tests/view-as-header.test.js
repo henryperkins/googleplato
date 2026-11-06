@@ -15,7 +15,7 @@ globalThis.sessionStorage = store();
 localStorage.setItem('plato_auth', JSON.stringify({ accessToken: 'tok', refreshToken: 'ref' }));
 
 let calls = [];
-globalThis.fetch = async (url, opts = {}) => { calls.push({ url, headers: opts.headers || {}, method: opts.method || 'GET' }); return { ok: true, status: 200 }; };
+globalThis.fetch = async (url, opts = {}) => { calls.push({ url, headers: Object.fromEntries(new Headers(opts.headers)), method: opts.method || 'GET' }); return new Response(JSON.stringify({ protocol: '1', epoch: 'view-as-test' }), { status: 200 }); };
 
 const { authenticatedFetch } = await import('../js/auth.js');
 
@@ -26,7 +26,7 @@ describe('authenticatedFetch and View as User', () => {
     await authenticatedFetch('/v1/sync');
     await authenticatedFetch('/v1/sync/x', { method: 'PUT' });
     for (const c of calls) {
-      assert.equal(c.headers['X-Plato-View-As'], undefined);
+      assert.equal(c.headers['x-plato-view-as'], undefined);
       assert.ok(!c.url.includes('asUserId'));
     }
   });
@@ -34,13 +34,15 @@ describe('authenticatedFetch and View as User', () => {
   it('adds asUserId to reads and the header to every request during a session', async () => {
     sessionStorage.setItem('plato_impersonation', JSON.stringify({ userId: 'usr_target' }));
     await authenticatedFetch('/v1/sync?x=1');
-    await authenticatedFetch('/v1/sync/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' } });
-    const [read, write] = calls;
+    await assert.rejects(authenticatedFetch('/v1/sync/profile', { method: 'PUT' }), /Writes are not allowed/);
+    await authenticatedFetch('/v1/admin/notifications/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const read = calls.find(c => c.url.includes('/v1/sync?'));
+    const write = calls.find(c => c.method === 'POST');
     assert.match(read.url, /\/v1\/sync\?x=1&asUserId=usr_target$/);
-    assert.equal(read.headers['X-Plato-View-As'], 'usr_target');
+    assert.equal(read.headers['x-plato-view-as'], 'usr_target');
     assert.ok(!write.url.includes('asUserId'), 'writes never carry asUserId');
-    assert.equal(write.headers['X-Plato-View-As'], 'usr_target');
-    assert.equal(write.headers['Content-Type'], 'application/json', 'caller headers kept');
-    assert.equal(write.headers.Authorization, 'Bearer tok');
+    assert.equal(write.headers['x-plato-view-as'], 'usr_target');
+    assert.equal(write.headers['content-type'], 'application/json', 'caller headers kept');
+    assert.equal(write.headers.authorization, 'Bearer tok');
   });
 });

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { can } from '../lib/permissions.js';
 import * as authModule from '../../js/auth.js';
 import { authenticatedFetch } from '../../js/auth.js';
@@ -19,27 +19,44 @@ export function AuthProvider({ children }) {
   // by auth.js so authenticatedFetch can attach `?asUserId=` to GETs.
   const [impersonatedUser, setImpersonatedUserState] = useState(null);
 
-  useEffect(() => {
-    authModule.isLoggedIn().then(async (result) => {
-      setLoggedIn(result);
-      if (result) {
-        const u = await authModule.getCurrentUser();
-        setUser(u);
-        // Pick up a role change since login (#435) without blocking first paint.
-        authModule.refreshCurrentUser().then((fresh) => { if (fresh) setUser(fresh); });
-        // Restore impersonation only if the logged-in user is admin.
-        // A non-admin should never have impersonation state lingering;
-        // clear defensively if found.
-        const stashed = authModule.getImpersonation();
-        if (stashed && can(u, 'impersonation.use')) {
-          setImpersonatedUserState(stashed);
-        } else if (stashed) {
-          authModule.setImpersonation(null);
-        }
-      }
-      setLoading(false);
-    });
+  const publication = useRef(0);
+
+  const publishUser = useCallback((u) => {
+    setUser(u);
+    if (!can(u, 'impersonation.use') && authModule.getImpersonation()) {
+      authModule.setImpersonation(null);
+      clearCache();
+      setImpersonatedUserState(null);
+      // AppContext can still hold the target's in-memory lesson data. Use the
+      // same clean boundary as leaving View as User explicitly.
+      if (typeof location !== 'undefined') location.assign('/lessons');
+    }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ticket = publication.current;
+    const generation = authModule.getSessionGeneration();
+    const valid = () => !cancelled && ticket === publication.current && generation === authModule.getSessionGeneration();
+    (async () => {
+      const result = await authModule.isLoggedIn();
+      if (!valid()) return;
+      if (result) {
+        const session = await authModule.captureAuthSession();
+        const u = await authModule.getCurrentUser();
+        if (!valid() || u?.userId !== session?.userId || !await authModule.isAuthSessionCurrent(session) || !valid()) return;
+        setLoggedIn(true);
+        publishUser(u);
+        const stashed = authModule.getImpersonation();
+        if (stashed && can(u, 'impersonation.use')) setImpersonatedUserState(stashed);
+        authModule.refreshCurrentUser().then(async fresh => {
+          if (fresh && valid() && await authModule.isAuthSessionCurrent(session) && valid()) publishUser(fresh);
+        });
+      }
+      if (valid()) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [publishUser]);
 
   // Listen for session expiry (e.g. refresh token rotated by another device)
   useEffect(() => {
@@ -47,7 +64,10 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = useCallback(async (email, password) => {
+    const ticket = ++publication.current;
     const authUser = await authModule.login(email, password);
+    if (ticket !== publication.current) return authUser;
+    setLoading(false);
     setLoggedIn(true);
     setUser(authUser);
     setSessionExpired(false);
@@ -56,7 +76,10 @@ export function AuthProvider({ children }) {
   }, []);
 
   const loginWithGoogle = useCallback(async (options = {}) => {
+    const ticket = ++publication.current;
     const authUser = await authModule.loginWithGoogle(options);
+    if (ticket !== publication.current) return authUser;
+    setLoading(false);
     setLoggedIn(true);
     setUser(authUser);
     setSessionExpired(false);
@@ -65,11 +88,16 @@ export function AuthProvider({ children }) {
   }, []);
 
   const refreshUser = useCallback(async () => {
+    const ticket = publication.current;
+    const session = await authModule.captureAuthSession();
     const u = await authModule.getCurrentUser();
-    setUser(u);
-  }, []);
+    if (ticket === publication.current && await authModule.isAuthSessionCurrent(session)
+      && session.generation === authModule.getSessionGeneration()) publishUser(u);
+  }, [publishUser]);
 
   const logout = useCallback(async ({ reason = null } = {}) => {
+    publication.current += 1;
+    setLoading(false);
     // Always exit impersonation before logging out so the next session
     // doesn't inherit a stale view.
     if (authModule.getImpersonation()) {
@@ -85,7 +113,10 @@ export function AuthProvider({ children }) {
   }, []);
 
   const startImpersonation = useCallback(async (targetUserId) => {
+    const session = await authModule.captureAuthSession();
+    if (!session) throw new Error('Not logged in');
     const res = await authenticatedFetch('/v1/admin/impersonation/start', {
+      expectedUserId: session.userId,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetUserId }),
@@ -95,6 +126,9 @@ export function AuthProvider({ children }) {
       throw new Error(body.error || 'Failed to start impersonation');
     }
     const target = await res.json();
+    if (!await authModule.isAuthSessionCurrent(session) || session.generation !== authModule.getSessionGeneration()) {
+      throw new Error('The signed-in account changed. Return to the original account.');
+    }
     authModule.setImpersonation(target);
     clearCache(); // admins sync-data must not leak into the targets view
     setImpersonatedUserState(target);

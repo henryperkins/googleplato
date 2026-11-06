@@ -1,3 +1,4 @@
+import { roleLabel } from '../../lib/permissions.js';
 import { ChevronDown, LoaderCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,19 +31,18 @@ function Detail({ label, children }) {
 // only the narrow-screen presentation, so every action uses the same guards.
 export default function UserMobileList({
   items, currentUserId, filterField, slackConnected, pendingRows,
-  onEdit, onEditWaitlist, onInvite, onApply, onResend, onRevoke, onRemove, onDelete,
+  onEdit, onEditWaitlist, onInvite, onResend, onRevoke, onRemove, onDelete, permissions,
 }) {
   return (
     <ul aria-label="Users and invites" className="divide-y divide-border border-y border-border">
       {items.map(item => {
         const name = item.name || item.email;
         const status = item._type === 'waitlist' ? 'Wait List'
-          : item._type === 'invite' ? 'Invited' : item.role === 'admin' ? 'Admin' : 'Learner';
+          : item._type === 'invite' ? 'Invited' : roleLabel(item.role);
         // Any running action holds the whole row; only its own control says so.
         const pendingAction = pendingRows[item._key];
         const pending = !!pendingAction;
-        const hasAccount = item._type === 'waitlist' && item._entry?.alreadyRegistered === 'account';
-        const primaryAction = hasAccount ? 'copy' : item._type === 'waitlist' ? 'invite' : 'resend';
+        const primaryAction = item._type === 'waitlist' ? 'invite' : 'resend';
         const primaryRunning = pendingAction === primaryAction;
         return (
           <li key={item._key} className="py-3" data-user-key={item._key}>
@@ -79,6 +79,7 @@ export default function UserMobileList({
                 </summary>
                 <div className="pb-1 pt-2">
                   <dl className="space-y-3 text-sm">
+                    {item._user?.userId && <Detail label="User ID"><span className="font-mono text-xs select-all">{item._user.userId}</span></Detail>}
                     {item.username && <Detail label="Username">@{item.username}</Detail>}
                     <Detail label="Group">{item.userGroup || 'No group'}</Detail>
                     {item._type === 'user' && <Detail label="Last active">{item._user.lastActiveAt ? new Date(item._user.lastActiveAt).toLocaleDateString() : 'Never'}</Detail>}
@@ -88,33 +89,33 @@ export default function UserMobileList({
                     {slackConnected && <Detail label="Slack">{item._user?.slackUserId ? 'Linked' : 'Not linked'}</Detail>}
                   </dl>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {item._type === 'user' && <PluginSlot name="adminUserRowAction" context={{ user: item._user }} />}
-                    {item._type === 'user' && item._key !== currentUserId && (
+                    {item._type === 'user' && permissions.users && <PluginSlot name="adminUserRowAction" context={{ user: item._user }} />}
+                    {item._type === 'user' && permissions.users && item._key !== currentUserId && (
                       <Button variant="destructive" onClick={() => onDelete(item._key, name)} aria-label={`Delete ${name}`}>Delete user</Button>
                     )}
-                    {item._type === 'waitlist' && (
+                    {item._type === 'waitlist' && permissions.remove && (
                       <Button variant="destructive" disabled={pending} focusableWhenDisabled onClick={() => onRemove(item._key, item.email)} aria-label={`Remove ${item.email} from the wait list`}>
                         {pendingAction === 'remove' && <LoaderCircle aria-hidden="true" className="animate-spin" />}
                         {pendingAction === 'remove' ? 'Removing…' : 'Remove'}
                       </Button>
                     )}
-                    {item._type === 'invite' && (
+                    {item._type === 'invite' && permissions.invites && (
                       <Button variant="destructive" disabled={pending} focusableWhenDisabled onClick={() => onRevoke(item._key, item.email)} aria-label={`Revoke invite for ${item.email}`}>Revoke invite</Button>
                     )}
                   </div>
                 </div>
               </details>
-              {item._type !== 'user' && (
+              {((item._type === 'waitlist' && permissions.invite && item._entry?.alreadyRegistered !== 'invite') || (item._type === 'invite' && permissions.invites)) && (
                 <Button
                   variant="outline"
                   className="min-h-11"
                   disabled={pending}
                   focusableWhenDisabled
-                  aria-label={hasAccount ? `Copy to account for ${item.email}` : item._type === 'waitlist' ? `Invite ${item.email}` : `Resend invite to ${item.email}`}
-                  onClick={() => hasAccount ? onApply(item._key, item.email) : item._type === 'waitlist' ? onInvite(item._key, item.email) : onResend(item.email, item._key)}
+                  aria-label={item._type === 'waitlist' ? `Invite ${item.email}` : `Resend invite to ${item.email}`}
+                  onClick={() => item._type === 'waitlist' ? onInvite(item._key, item.email) : onResend(item.email, item._key)}
                 >
                   {primaryRunning && <LoaderCircle aria-hidden="true" className="animate-spin" />}
-                  {primaryRunning ? (hasAccount ? 'Copying…' : 'Sending…') : hasAccount ? 'Copy to account' : item._type === 'waitlist' ? 'Invite' : 'Resend'}
+                  {primaryRunning ? 'Sending…' : item._type === 'waitlist' ? 'Invite' : 'Resend'}
                 </Button>
               )}
             </div>

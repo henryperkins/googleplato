@@ -21,6 +21,7 @@ const PUBLIC_PAGE_NAMES = {
   '/waitlist': 'Join the wait list',
   '/forgot-password': 'Reset password',
   '/reset-password': 'Set new password',
+  '/how-assessment-works': 'How assessment works',
   '/privacy': 'Privacy & Data Handling',
 };
 
@@ -36,6 +37,7 @@ const ADMIN_PAGE_NAMES = {
   customizer: 'Classroom Customizer',
   ai: 'AI Settings',
   plugins: 'Plugins',
+  notifications: 'Notifications',
   'setup-kb': 'Set Up Knowledge Base',
 };
 
@@ -46,6 +48,7 @@ const ADMIN_PAGE_NAMES = {
  * page change; the view names itself in its heading and title.
  */
 export function adminPageName(path) {
+  if (path === '/plato/lessons/structure') return 'Courses & Units';
   const [root, base, section = ''] = (path || '').split('/');
   if (root !== '' || base !== 'plato') return null;
   return Object.hasOwn(ADMIN_PAGE_NAMES, section) ? ADMIN_PAGE_NAMES[section] : null;
@@ -77,4 +80,11 @@ export function routePageName(path, { lessons = [], lessonsLoaded = false } = {}
 export function pageTitle(name, classroomName) {
   const brand = typeof classroomName === 'string' && classroomName.trim() ? classroomName.trim() : 'plato';
   return `${name} — ${brand}`;
+}
+
+/** Permission shared by route guards, navigation and announcements. */
+export function adminPagePermission(path) {
+  const section = (path || '').split('/')[2] || '';
+  return { users: 'users.read', lessons: 'content.read', customizer: 'kb.read', ai: 'ai.read',
+    plugins: 'plugins.read', notifications: 'notifications.read', 'setup-kb': 'kb.write' }[section] || 'admin.access';
 }
