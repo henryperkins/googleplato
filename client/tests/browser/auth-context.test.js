@@ -90,9 +90,9 @@ describe('AuthContext session publication', { timeout: 120000 }, () => {
         let completions = 0;
         const guarded = window.authHarness.createPublicAuthSessionGuard()(
           { id: 'google-auth' },
-          { onSession: async (session, provider) => {
+          { onSession: async (session, provider, attemptId) => {
             completions += 1;
-            await window.authHarness.adoptExternalSession(session, provider);
+            await window.authHarness.adoptExternalSession(session, provider, attemptId);
           } },
         );
         await guarded.beforeStart();
@@ -142,20 +142,21 @@ describe('AuthContext session publication', { timeout: 120000 }, () => {
           let completions = 0;
           const guarded = window.authHarness.createPublicAuthSessionGuard()(
             { id: 'google-auth' },
-            { onSession: async (session, provider) => {
+            { onSession: async (session, provider, attemptId) => {
               completions += 1;
-              await window.authHarness.adoptExternalSession(session, provider);
+              await window.authHarness.adoptExternalSession(session, provider, attemptId);
             } },
           );
           await guarded.beforeStart();
           await window.authHarness.logout();
           if (transition !== 'logout') await window.authHarness.login(transition === 'switch' ? 'b' : 'a', 'test');
-          await guarded.onSession({
+          const code = await guarded.onSession({
             accessToken: 'access-stale', refreshToken: 'refresh-stale',
             user: { userId: 'stale', name: 'Stale provider', role: 'learner' },
-          }, 'google-auth');
-          return { completions, stored: JSON.parse(localStorage.getItem('plato_auth')) };
+          }, 'google-auth').then(() => null, error => error.code);
+          return { code, completions, stored: JSON.parse(localStorage.getItem('plato_auth')) };
         }, transition);
+        assert.equal(result.code, 'stale_auth_exchange');
         assert.equal(result.completions, 0, 'stale completion must not publish or navigate');
         assert.equal(result.stored?.user?.userId || null, transition === 'logout' ? null : transition === 'switch' ? 'b' : 'a');
         assert.notEqual(result.stored?.accessToken, 'access-stale');

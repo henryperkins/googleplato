@@ -39,7 +39,7 @@ async function loadCore() {
   globalThis.fetch = async () => json({ ok: true });
   const dynamicImports = [];
   const modules = new Map();
-  for (const file of ['auth.js', 'storage.js', 'clientCompatibility.js', 'saveObservability.js']) {
+  for (const file of ['auth.js', 'authCoordination.js', 'storage.js', 'clientCompatibility.js', 'saveObservability.js']) {
     const url = new URL(`../../js/${file}`, import.meta.url);
     modules.set(url.href, new SourceTextModule(await readFile(url, 'utf8'), {
       identifier: url.href,
@@ -68,7 +68,9 @@ test('adoptAuthSession stores only the server-issued plato session and provider 
   const issued = session();
   const user = await auth.adoptAuthSession(issued, 'google-auth');
   assert.deepEqual(user, issued.user);
-  assert.deepEqual(await storage.getAuthTokens(), issued);
+  const { attemptId, ...stored } = await storage.getAuthTokens();
+  assert.match(attemptId, /^[a-f0-9]{32}$/);
+  assert.deepEqual(stored, issued);
   assert.deepEqual(await storage.getAuthUser(), issued.user);
   assert.equal(requests, 0, 'session adoption does not call a provider or core exchange endpoint');
   assert.deepEqual(dynamicImports, []);

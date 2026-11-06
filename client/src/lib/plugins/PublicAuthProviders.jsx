@@ -1,5 +1,6 @@
 import { Component, useEffect, useState } from 'react';
-import { getSessionGeneration } from '../../../js/auth.js';
+import { rejectStaleAuthSession } from '../../../js/auth.js';
+import { beginAuthAttempt, isAuthAttemptCurrent } from '../../../js/authCoordination.js';
 import { loadPluginClient } from './loader.js';
 import { resolveSlotComponent } from './resolvers.js';
 
@@ -24,23 +25,23 @@ class PublicProviderBoundary extends Component {
  * comes from a public allowlist endpoint; disabled providers are never imported.
  */
 export function createPublicAuthSessionGuard() {
-  const attempts = new Map();
-  return (provider, context) => ({
-    ...context,
-    beforeStart: async () => {
-      if (context.beforeStart && await context.beforeStart() === false) return false;
-      // Capture this only after validation, immediately before the provider
-      // opens its popup. A later login/logout must own the stored session.
-      attempts.set(provider.id, getSessionGeneration());
-      return true;
-    },
-    onSession: async (session, providerId) => {
-      const generation = attempts.get(provider.id);
-      attempts.delete(provider.id);
-      if (generation === undefined || generation !== getSessionGeneration()) return;
-      return context.onSession?.(session, providerId);
-    },
-  });
+  return (provider, context) => {
+    let attemptId;
+    return {
+      ...context,
+      beforeStart: async () => {
+        if (context.beforeStart && await context.beforeStart() === false) return false;
+        attemptId = await beginAuthAttempt();
+        return true;
+      },
+      onSession: async (session, providerId) => {
+        const currentAttempt = attemptId;
+        attemptId = undefined;
+        if (!isAuthAttemptCurrent(currentAttempt)) return rejectStaleAuthSession(session);
+        return context.onSession?.(session, providerId, currentAttempt);
+      },
+    };
+  };
 }
 
 export default function PublicAuthProviders({ surface, context = {}, dividerText }) {

@@ -1,3 +1,4 @@
+import { beginAuthAttempt } from '../../js/authCoordination.js';
 import NameFields from '../components/NameFields.jsx';
 import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useEffect, useRef } from 'react';
@@ -55,8 +56,8 @@ export default function Setup() {
     } catch { /* ignore */ }
   }, [classroomName, email, firstName, lastName]);
 
-  async function handleProviderSession(session, provider) {
-    await adoptExternalSession(session, provider);
+  async function handleProviderSession(session, provider, attemptId) {
+    await adoptExternalSession(session, provider, attemptId);
     try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
     window.location.href = '/plato';
   }
@@ -105,6 +106,7 @@ export default function Setup() {
     setSubmitting(true);
     setError('');
     try {
+      const attemptId = await beginAuthAttempt();
       const res = await fetch('/v1/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -114,7 +116,7 @@ export default function Setup() {
       if (!res.ok) throw new Error(data.error || "We couldn't finish setup. Try again.");
       try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
       // One guarded write, like every other new session (js/auth.js).
-      await adoptAuthSession(data, 'password');
+      await adoptAuthSession(data, 'password', attemptId);
       window.location.href = '/plato';
     } catch (e) {
       setError(requestError(e, "We couldn't finish setup. Try again."));

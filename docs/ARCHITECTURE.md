@@ -397,22 +397,49 @@ local rules testing, cutover order, and publication status.
   consistent index is not sufficient for this security boundary; exhausted
   retries fail explicitly.
 
-Sign-out removes plato's local credentials and protected React state before
-waiting for any remote work. Server refresh-token revocation is best effort,
-uses the old token snapshot, and aborts after five seconds. In-flight refreshes
-check the session generation immediately before writing replacement credentials
-or notifying session expiry, so they cannot restore a logged-out account or
-overwrite the next account. A delayed 401 can retry with credentials already
-refreshed by another request in the same account and session generation.
-Sign-in follows the same rule: the newest sign-in or sign-out owns
-`plato_auth`. A password login records its generation when it starts and
-stores its response only if that generation is still current; otherwise it
-revokes the unused refresh token (best effort) and rejects with
-`code: 'stale_auth_exchange'`. Every new session (password login, an external
-provider, first-run setup) is stored by `saveAuthSession` in one synchronous
-write that replaces the whole record, so tokens, user, and provider always
-come from the same sign-in. The publication ticket in `AuthContext` only
-decides what React shows; these checks keep storage on the same account.
+Sign-in attempts share a non-secret `plato_auth_attempt` localStorage record
+containing a cryptographically random `attemptId` and local diagnostic epoch.
+Password submit, signup before account creation, setup before its request, and
+validated external-provider starts all claim an intent. A later start cancels
+older attempts even when the later popup is cancelled. Begin, commit, and
+logout/invalidation take the exclusive Web Lock `plato:auth-session`; commit
+re-reads the intent immediately before its synchronous credential write.
+Web Locks serialize callbacks, but localStorage visibility can lag across
+renderer processes by milliseconds: that residual cross-process window is an
+accepted limitation, not a claim of transactional storage. Without Web Locks
+(for example insecure LAN HTTP), a per-tab guard plus the stored intent is used
+and the client emits `auth_coordination_unavailable` in its console. This
+fallback does not provide full cross-process serialization.
+
+`plato_auth` remains the sole credential record. New sessions store their
+`attemptId` alongside tokens, user, and provider in one replacement write;
+legacy records without an attempt ID remain valid. Refresh rotations, password
+changes, and profile refreshes preserve the ID and retain their exact-token
+compare-and-replace guards outside the lock. Stale password and external
+completions reject with `stale_auth_exchange` and explain that another sign-in
+or sign-out started in this browser. Their own unused refresh token is revoked
+outside the lock, best effort, with a five-second deadline.
+
+Sign-out immediately fences module-local requests and protected React state.
+Credential snapshot/removal waits for the same lock, then remote revocation
+uses the removed token outside the lock without delaying local sign-out.
+The same-tab session generation still fences requests and React publications.
+Storage events read one complete current credential record, ignoring stale
+event payloads; only a committed attempt/user change or removal advances that
+generation. Token rotations and profile rewrites therefore leave sibling-tab
+requests running. Same-user logout/relogin changes the committed attempt and
+invalidates old requests and delayed React publications.
+
+A cross-tab identity change clears the shared sync cache, blocks further
+requests from the old page, unmounts classroom children, and hard-navigates to
+`/lessons` for a new session or `/login` on sign-out. This prevents mounted old
+account drafts, including cleanup saves without an explicit owner, from writing
+as the next account. Public `/login`, `/signup`, and `/setup` screens are kept
+mounted with cleared auth state: a pending exchange must be allowed to finish
+so its unused token can be revoked and its stale-sign-in error shown. They do
+not publish the other tab's account into mounted UI or automatically navigate;
+a fresh local sign-in or reload establishes their next session.
+
 Legacy Firebase-provider probing cannot delay local
 sign-out or overwrite a newer provider decision. Firebase detection/import is
 bounded to five seconds, and stale cleanup is skipped after another login

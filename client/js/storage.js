@@ -388,9 +388,9 @@ export async function saveAuthTokens({ accessToken, refreshToken }, expected = n
  * nothing from a previous account survives, and no other session can write in
  * between the parts. Returns false when storage refuses the write.
  */
-export function saveAuthSession({ accessToken, refreshToken, user, provider }) {
+export function saveAuthSession({ accessToken, refreshToken, user, provider, attemptId }) {
   try {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ accessToken, refreshToken, user, provider }));
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ accessToken, refreshToken, user, provider, attemptId }));
     return true;
   } catch { return false; /* storage full or disabled */ }
 }

@@ -63,7 +63,7 @@ Every slot component renders inside its own error boundary. If one throws while 
 - **Provider descriptor:** `{ id, label, config }`, where `config` contains only `extensionPoints.authProvider.publicSettings` values
 - **Phase:** 1.6
 - **Example:** `plugins/google-auth/client/GoogleAuthProvider.jsx`
-- **Gotchas:** this slot uses public `GET /v1/auth/providers`, not the authenticated plugin registry. Disabled providers are omitted and their client modules are not imported. `onSession` adopts the core-issued plato session; provider tokens must not replace it. `beforeStart` may return false to validate the host form before opening a popup. `onAdmission` is optional and currently supports Login's invitation interstitial.
+- **Gotchas:** this slot uses public `GET /v1/auth/providers`, not the authenticated plugin registry. Disabled providers are omitted and their client modules are not imported. `onSession` adopts the core-issued plato session; provider tokens must not replace it. `beforeStart` may return false to validate the host form before opening a popup. `onAdmission` is optional and currently supports Login's invitation interstitial. The host fences provider completions against later sign-in or sign-out attempts across tabs without changing the plugin-facing `onSession(session, pluginId)` contract.
 
 ## Public auth-provider declaration
 

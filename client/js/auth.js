@@ -5,8 +5,9 @@
 
 import {
   getAuthTokens, saveAuthTokens, clearAuth,
-  saveAuthUser, saveAuthSession,
+  saveAuthUser, saveAuthSession, clearCache,
 } from './storage.js';
+import { beginAuthAttempt, commitAuthAttempt, invalidateAuthAttempts } from './authCoordination.js';
 import { compatibilityHeaders, isCompatibilityPath, requireClientUpgrade } from './clientCompatibility.js';
 
 // When served from the same origin (Lambda), use relative paths.
@@ -79,7 +80,7 @@ function _notifySessionExpired() {
 }
 
 function staleSignIn() {
-  const error = new Error('This sign-in attempt is no longer current. Try again.');
+  const error = new Error('You started another sign-in or signed out in this browser. Try again.');
   error.code = 'stale_auth_exchange';
   return error;
 }
@@ -94,8 +95,9 @@ function staleSignIn() {
  * Such a response is discarded (its refresh token revoked, best effort) and
  * the call rejects with `code: 'stale_auth_exchange'`.
  */
-export async function login(email, password) {
+export async function login(email, password, attemptId) {
   const generation = ++sessionGeneration;
+  attemptId ||= await beginAuthAttempt();
   const res = await fetch(`${SERVICE_URL}/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -107,47 +109,51 @@ export async function login(email, password) {
     err.status = res.status;
     throw err;
   }
-  const { accessToken, refreshToken, user } = await res.json();
-  // No await between this check and the write below.
-  if (generation !== sessionGeneration) {
-    if (refreshToken) void revokeSession(refreshToken);
-    throw staleSignIn();
-  }
-  saveAuthSession({ accessToken, refreshToken, user, provider: 'password' });
-  return user;
+  const session = await res.json();
+  return commitSession(session, 'password', attemptId, generation);
 }
 
-/**
- * Adopt a server-issued session: one returned by an enabled external auth
- * plugin, or by first-run setup. Providers return the same access/refresh
- * shape as password login; plato does not retain their provider token or load
- * their SDK for ordinary sessions. The host guard
- * (createPublicAuthSessionGuard) drops a provider completion whose sign-in
- * started before a later login or logout; adoption itself is one synchronous
- * write, so nothing can interleave with it.
- */
-export async function adoptAuthSession(session, provider) {
-  if (!session?.accessToken || !session?.refreshToken || !session?.user?.userId) {
-    throw new Error('The sign-in provider returned an invalid session.');
-  }
-  sessionGeneration += 1;
-  saveAuthSession({
-    accessToken: session.accessToken, refreshToken: session.refreshToken,
-    user: session.user, provider: provider || 'external',
+/** Reject an unadopted provider/password session without touching the winner. */
+export function rejectStaleAuthSession(session) {
+  if (session?.refreshToken) void revokeSession(session.refreshToken);
+  throw staleSignIn();
+}
+
+async function commitSession(session, provider, attemptId, generation) {
+  const committed = await commitAuthAttempt(attemptId, () => {
+    if (generation !== sessionGeneration) return;
+    saveAuthSession({
+      accessToken: session.accessToken, refreshToken: session.refreshToken,
+      user: session.user, provider, attemptId,
+    });
+    observedIdentity = readCommittedIdentity();
+    sessionNeedsReload = false;
   });
+  if (!committed || generation !== sessionGeneration) return rejectStaleAuthSession(session);
   return session.user;
 }
 
-/**
- * End local access before best-effort revocation. Retained drafts and generated
- * turns stay in their owner-scoped session storage for that owner's next login.
- */
+/** Adopt a server session using the intent captured before its exchange began. */
+export async function adoptAuthSession(session, provider, attemptId) {
+  if (!session?.accessToken || !session?.refreshToken || !session?.user?.userId) {
+    throw new Error('The sign-in provider returned an invalid session.');
+  }
+  const generation = ++sessionGeneration;
+  attemptId ||= await beginAuthAttempt();
+  return commitSession(session, provider || 'external', attemptId, generation);
+}
+
+/** End local access immediately; snapshot and remove credentials under the lock. */
 export async function logout() {
   sessionGeneration += 1;
-  const previousTokens = getAuthTokens();
-  // Both storage calls execute synchronously before their promises settle.
-  // Do not yield between taking the snapshot and removing the old credentials.
-  await clearAuth();
+  sessionNeedsReload = true;
+  let previousTokens;
+  await invalidateAuthAttempts(() => {
+    previousTokens = getAuthTokens();
+    void clearAuth();
+    observedIdentity = null;
+    sessionNeedsReload = false;
+  });
   const tokens = await previousTokens;
   if (tokens?.refreshToken) void revokeSession(tokens.refreshToken);
 }
@@ -191,15 +197,46 @@ export { getAuthUser as getCurrentUser } from './storage.js';
 /** An epoch distinguishes logout/re-login even when the owner is unchanged. */
 export function getSessionGeneration() { return sessionGeneration; }
 
+// Each tab tracks the committed login, not access-token rotations/profile edits.
+const authChangeListeners = new Set();
+let sessionNeedsReload = false;
+function readCommittedIdentity() {
+  try {
+    const record = JSON.parse(localStorage.getItem('plato_auth'));
+    if (typeof record?.accessToken !== 'string' || !record.accessToken
+      || typeof record?.refreshToken !== 'string' || !record.refreshToken
+      || typeof record?.user?.userId !== 'string' || !record.user.userId
+      || (record.attemptId !== undefined && typeof record.attemptId !== 'string')) return null;
+    return { userId: record.user.userId, attemptId: record.attemptId || null };
+  } catch { return null; }
+}
+let observedIdentity = readCommittedIdentity();
+export function onAuthChange(listener) {
+  authChangeListeners.add(listener);
+  return () => authChangeListeners.delete(listener);
+}
+if (typeof window !== 'undefined') window.addEventListener?.('storage', event => {
+  if (event.key !== 'plato_auth' && event.key !== null) return;
+  // The event can be queued behind newer writes. Read the whole current record
+  // once instead of publishing its potentially stale newValue payload.
+  const identity = readCommittedIdentity();
+  if (identity?.userId === observedIdentity?.userId && identity?.attemptId === observedIdentity?.attemptId) return;
+  observedIdentity = identity;
+  sessionGeneration += 1;
+  sessionNeedsReload = true;
+  clearCache();
+  for (const listener of authChangeListeners) listener(identity);
+});
+
 export async function captureAuthSession() {
   const generation = sessionGeneration;
   const tokens = await getAuthTokens();
-  return generation === sessionGeneration && tokens?.user?.userId
+  return !sessionNeedsReload && generation === sessionGeneration && tokens?.user?.userId
     ? { generation, userId: tokens.user.userId } : null;
 }
 
 export async function isAuthSessionCurrent(session) {
-  if (!session || session.generation !== sessionGeneration) return false;
+  if (sessionNeedsReload || !session || session.generation !== sessionGeneration) return false;
   const tokens = await getAuthTokens();
   return session.generation === sessionGeneration && tokens?.user?.userId === session.userId;
 }
@@ -262,6 +299,7 @@ async function refreshAccessToken(tokens, generation, signal) {
  * Automatically refreshes the access token on 401.
  */
 export async function authenticatedFetch(path, options = {}) {
+  if (sessionNeedsReload) throw new Error('The signed-in account changed. Reload the classroom.');
   const { expectedUserId, ...requestOptions } = options;
   options = requestOptions;
   const generation = sessionGeneration;
@@ -288,7 +326,7 @@ export async function authenticatedFetch(path, options = {}) {
     let requestTokens;
     const doFetch = async () => {
       const current = await getAuthTokens();
-      if (!current?.accessToken || ownerOf(current) !== owner || generation !== sessionGeneration) throw new Error('The signed-in account changed. Return to the original account.');
+      if (sessionNeedsReload || !current?.accessToken || ownerOf(current) !== owner || generation !== sessionGeneration) throw new Error('The signed-in account changed. Return to the original account.');
       const headers = new Headers(requestOptions.headers);
       headers.set('Authorization', `Bearer ${current.accessToken}`);
       requestTokens = current;

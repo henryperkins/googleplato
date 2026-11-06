@@ -1,3 +1,4 @@
+import { beginAuthAttempt } from '../../js/authCoordination.js';
 import NameFields from '../components/NameFields.jsx';
 import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useRef, useEffect } from 'react';
@@ -136,8 +137,8 @@ export default function Signup() {
     return true;
   }
 
-  async function handleProviderSession(session, provider) {
-    await adoptExternalSession(session, provider);
+  async function handleProviderSession(session, provider, attemptId) {
+    await adoptExternalSession(session, provider, attemptId);
     try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
     navigate('/lessons', { replace: true });
   }
@@ -194,6 +195,7 @@ export default function Signup() {
     setSubmitting(true);
     setError('');
     try {
+      const attemptId = await beginAuthAttempt();
       const res = await fetch('/v1/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -211,7 +213,7 @@ export default function Signup() {
       if (!res.ok) throw new Error(data.error || "We couldn't create your account. Try again.");
       try { sessionStorage.removeItem(draftKey); } catch { /* ignore */ }
       // Log in with the returned credentials
-      await login(data.user?.email || email.trim(), password);
+      await login(data.user?.email || email.trim(), password, attemptId);
       navigate('/lessons', { replace: true, state: !username.trim() ? { newUsername: data.user?.username } : undefined });
     } catch (e) {
       setError(requestError(e, "We couldn't create your account. Try again."));

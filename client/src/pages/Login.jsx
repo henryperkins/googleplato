@@ -103,8 +103,8 @@ export default function Login() {
     }
   }
 
-  async function handleProviderSession(session, provider) {
-    await adoptExternalSession(session, provider);
+  async function handleProviderSession(session, provider, attemptId) {
+    await adoptExternalSession(session, provider, attemptId);
     try { sessionStorage.removeItem(LOGIN_DRAFT_KEY); } catch { /* ignore */ }
     navigate(returnTo, { replace: true });
   }

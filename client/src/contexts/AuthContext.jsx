@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { can } from '../lib/permissions.js';
 import * as authModule from '../../js/auth.js';
 import { authenticatedFetch } from '../../js/auth.js';
@@ -7,6 +8,7 @@ import { clearCache } from '../../js/storage.js';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
+  const [transitioning, setTransitioning] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -58,14 +60,32 @@ export function AuthProvider({ children }) {
     return () => { cancelled = true; };
   }, [publishUser]);
 
+  useEffect(() => authModule.onAuthChange(identity => {
+    publication.current += 1;
+    clearCache();
+    authModule.setImpersonation(null);
+    // Keep a pending public exchange alive so its stale response can revoke its
+    // unused token and explain the conflict. Classroom state must be destroyed.
+    const publicAuth = /^\/(login|signup|setup)(\/|$)/.test(location.pathname);
+    flushSync(() => {
+      setLoggedIn(false);
+      setUser(null);
+      setLoading(false);
+      setSessionExpired(false);
+      setImpersonatedUserState(null);
+      if (!publicAuth) setTransitioning(true);
+    });
+    if (!publicAuth) location.assign(identity ? '/lessons' : '/login');
+  }), []);
+
   // Listen for session expiry (e.g. refresh token rotated by another device)
   useEffect(() => {
     return authModule.onSessionExpired(() => setSessionExpired(true));
   }, []);
 
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (email, password, attemptId) => {
     const ticket = ++publication.current;
-    const authUser = await authModule.login(email, password);
+    const authUser = await authModule.login(email, password, attemptId);
     if (ticket !== publication.current) return authUser;
     setLoading(false);
     setLoggedIn(true);
@@ -75,9 +95,9 @@ export function AuthProvider({ children }) {
     return authUser;
   }, []);
 
-  const adoptExternalSession = useCallback(async (session, provider) => {
+  const adoptExternalSession = useCallback(async (session, provider, attemptId) => {
     const ticket = ++publication.current;
-    const authUser = await authModule.adoptAuthSession(session, provider);
+    const authUser = await authModule.adoptAuthSession(session, provider, attemptId);
     if (ticket !== publication.current) return authUser;
     setLoading(false);
     setLoggedIn(true);
@@ -165,7 +185,7 @@ export function AuthProvider({ children }) {
       loggedIn, user, loading, login, adoptExternalSession, logout, refreshUser, sessionExpired, signedOutReason,
       impersonatedUser, startImpersonation, stopImpersonation,
     }}>
-      {children}
+      {transitioning ? null : children}
     </AuthContext.Provider>
   );
 }
