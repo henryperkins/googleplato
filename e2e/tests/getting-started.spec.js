@@ -8,19 +8,28 @@ import { ADMIN, LEARNER } from '../fixtures.js';
 const COURSE = 'Getting Started with plato';
 const LESSON_IDS = ['getting-started', 'getting-started-sharing', 'getting-started-behind'];
 
+// Each card's visible title, in page order; the card's first span is a
+// screen-reader prefix.
+const titles = (list) => list.getByRole('button', { name: /^Open lesson / })
+  .evaluateAll((els) => els.map((e) => e.querySelector('span[dir="auto"]').textContent.trim()));
+const IN_ORDER = ['Welcome to plato', 'Sharing your work', 'What plato does behind the scenes'];
+
 test('learners find the Getting Started course first, in order, and the coach opens it', async ({ page }) => {
   await login(page, LEARNER);
   await page.goto('/lessons');
-  const headings = page.getByRole('heading', { level: 2 });
-  await expect(headings.first()).toHaveText(COURSE, { timeout: 15_000 });
-  const lessons = page.getByRole('list', { name: 'How plato works lessons' }).getByRole('button', { name: /^Open lesson / });
-  await expect(lessons).toHaveCount(3);
-  await expect(lessons.nth(0)).toHaveAccessibleName(/^Open lesson Welcome to plato/);
-  await expect(lessons.nth(1)).toHaveAccessibleName(/^Open lesson Sharing your work/);
-  await expect(lessons.nth(2)).toHaveAccessibleName(/^Open lesson What plato does behind the scenes/);
+  // Lessons the learner already started (earlier specs share this learner)
+  // lead the whole list under "In progress"; Getting Started is the first course.
+  const courses = page.getByRole('heading', { level: 2 }).filter({ hasNotText: /^In progress$/ });
+  await expect(courses.first()).toHaveText(COURSE, { timeout: 15_000 });
+  const started = (await titles(page.getByRole('list', { name: 'Lessons in progress' }))).filter((t) => IN_ORDER.includes(t));
+  const inUnit = await titles(page.getByRole('list', { name: 'How plato works lessons' }));
+  // Every Getting Started lesson shows once, each group in the course's order.
+  expect([...started, ...inUnit].sort()).toEqual([...IN_ORDER].sort());
+  expect(started).toEqual(IN_ORDER.filter((t) => started.includes(t)));
+  expect(inUnit).toEqual(IN_ORDER.filter((t) => inUnit.includes(t)));
   await expectAccessible(page, { label: 'lessons with the getting started course' });
 
-  await lessons.nth(0).click();
+  await page.getByRole('button', { name: /^Open lesson Welcome to plato/ }).click();
   await expect(page).toHaveURL(/\/lessons\/getting-started$/);
   await expect(page.getByRole('button', { name: /^Progress \(\d of 3 Objectives\): lesson overview$/ }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/Welcome! In this lesson/)).toBeVisible({ timeout: 20_000 });

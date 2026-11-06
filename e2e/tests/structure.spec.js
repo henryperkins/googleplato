@@ -55,11 +55,17 @@ test('learners see lessons grouped by course and unit, in the admin-defined orde
   await page.goto('/lessons');
   await expect(page.getByRole('heading', { level: 2, name: PROGRAM.name })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('heading', { level: 3, name: COURSE.name })).toBeVisible();
-  const cards = page.getByRole('list', { name: `${COURSE.name} lessons` }).getByRole('button', { name: /^Open lesson / });
-  await expect(cards).toHaveCount(LESSONS.length);
   // Each card's visible title; the card's first span is a screen-reader prefix.
-  const names = await cards.evaluateAll((els) => els.map((e) => e.querySelector('span[dir="auto"]').textContent.trim()));
-  expect(names).toEqual([LESSONS[1].name, LESSONS[0].name, LESSONS[2].name]);
+  const titles = (list) => list.getByRole('button', { name: /^Open lesson / })
+    .evaluateAll((els) => els.map((e) => e.querySelector('span[dir="auto"]').textContent.trim()));
+  // Lessons this learner already started (earlier specs) lead the whole list
+  // under "In progress"; both groups keep the admin's order.
+  const adminOrder = [LESSONS[1].name, LESSONS[0].name, LESSONS[2].name];
+  const started = (await titles(page.getByRole('list', { name: 'Lessons in progress' }))).filter((t) => adminOrder.includes(t));
+  const inUnit = await titles(page.getByRole('list', { name: `${COURSE.name} lessons` }));
+  expect([...started, ...inUnit].sort()).toEqual([...adminOrder].sort());
+  expect(started).toEqual(adminOrder.filter((t) => started.includes(t)));
+  expect(inUnit).toEqual(adminOrder.filter((t) => inUnit.includes(t)));
   await expect(page.getByLabel('Course', { exact: true })).toHaveValue('all');
   await expectAccessible(page, { label: 'lessons by course and unit' });
 });
