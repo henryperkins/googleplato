@@ -5,6 +5,7 @@ import { parseLessonPrompt } from '../../server/src/shared/lessonMarkdown.js';
  */
 
 import { authenticatedFetch } from './auth.js';
+import { compareLessons } from '../src/lib/lessonOrder.js';
 import { getUserLessons } from './storage.js';
 
 let lessonsCache = null;
@@ -29,6 +30,9 @@ export async function loadLessons() {
       const parsed = parseLessonPrompt(lesson.lessonId, lesson.markdown);
       if (lesson.course) parsed.course = lesson.course;
       parsed.status = lesson.status;
+      if (lesson.unit) parsed.unit = lesson.unit;
+      if (lesson.program) parsed.program = lesson.program;
+      if (lesson.startHere) parsed.startHere = true;
       lessons.push(parsed);
     }
   }
@@ -43,7 +47,7 @@ export async function loadLessons() {
     }
   } catch { /* ignore */ }
 
-  lessons.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  lessons.sort(compareLessons);
   // A request started before a refresh must not replace the refreshed cache.
   if (revision === cacheRevision) lessonsCache = lessons;
   return lessons;

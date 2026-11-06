@@ -21,18 +21,21 @@ describe('ai-mock', () => {
     for (const [file, agent] of Object.entries(expected)) assert.equal(agentOf(prompt(file)), agent, file);
   });
 
-  it('coach replies carry parseable tags and advance progress, completing on MOCK_COMPLETE', () => {
-    // The exact shapes lessonEngine sends (startLesson / sendMessage).
-    const ctx = [{ role: 'user', content: '{"lesson":{}}' }, { role: 'assistant', content: 'Ready.' }];
-    const turn = (...texts) => [...ctx, ...texts.flatMap((t) => [{ role: 'assistant', content: 'coach' }, { role: 'user', content: t }])];
-    const open = replyFor('Coach', [...ctx, { role: 'user', content: 'Start the lesson.' }]);
-    assert.match(open, /\[PROGRESS: 0\]/);
-    assert.match(open, /^Welcome/);
-    const mid = replyFor('Coach', turn('one', 'two'));
-    assert.match(mid, /\[PROGRESS: 6\]/);
-    const kb = JSON.parse(mid.match(/\[KB_UPDATE: (\{.*\})\]/)[1]);
-    assert.ok(Array.isArray(kb.insights) && typeof kb.learnerPosition === 'string');
-    assert.match(replyFor('Coach', turn('MOCK_COMPLETE')), /\[PROGRESS: 10\]/);
+  it('coach emits modern canonical evidence and repair JSON', async () => {
+    const { parseCoachResponse, validKBUpdate } = await import('../../src/shared/coachContract.js');
+    const context = { objectives: [{ id: 'a', objective: 'A' }, { id: 'b', objective: 'B' }], progress: 0, activitiesCompleted: 0, sources: [{ id: 't:0', kind: 'text', text: 'MOCK_COMPLETE', confirmed: true }] };
+    const messages = [{ role: 'user', content: JSON.stringify(context) }, { role: 'assistant', content: 'Ready.' },
+      { role: 'user', content: [{ type: 'text', text: JSON.stringify({ learnerSubmission: 'MOCK_COMPLETE', currentSourceIds: ['t:0'] }) }] }];
+    const parsed = parseCoachResponse(replyFor('Coach', messages));
+    assert.equal(parsed.valid, true);
+    assert.equal(parsed.progress, 10);
+    assert.deepEqual(parsed.kbUpdate.evidence.map(e => e.objectiveId), ['a', 'b']);
+    assert.deepEqual(parsed.kbUpdate.exemplarEvidence.sourceIds, ['t:0']);
+    const { ASSESSMENT_REPAIR_PROMPT } = await import('../../src/lib/coach-assessment.js');
+    const repaired = await mockAi.invoke('x', { system: ASSESSMENT_REPAIR_PROMPT, messages: [...messages, { role: 'assistant', content: 'Visible reply' }, { role: 'user', content: 'Repair metadata.' }] });
+    const result = JSON.parse(repaired.content[0].text);
+    assert.equal(validKBUpdate(result.kbUpdate), true);
+    assert.equal(result.progress, 10);
   });
 
   it('lesson owner returns a KB that keeps the lesson objectives', () => {

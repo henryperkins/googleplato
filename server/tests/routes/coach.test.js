@@ -453,3 +453,75 @@ test('a fifth retained image cannot be newly assessed when its pixels are omitte
   const result=await send('confirm-first', {text:'The first screenshot is my finished work.'});
   assert.equal(result.achieved,false);
 });
+
+test('activity is generated before signing and cannot be tampered with on commit or replay', async () => {
+  const turn = await opening();
+  assert.ok(turn.messages[0].metadata.agents.some(item => item.agent === 'lesson-owner'));
+  const tampered = structuredClone(turn);
+  tampered.messages[0].metadata.agents[0].did = ['Forged completion'];
+  assert.equal((await request('/v1/sync/lesson-turn/l', tampered)).status, 403);
+  assert.deepEqual(await (await request('/v1/ai/coach/l?turnId=t')).json(), turn);
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 200);
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 200);
+  assert.equal((await request('/v1/sync/lesson-turn/l', tampered)).status, 403);
+  assert.equal(calls, 2);
+});
+
+test('local mock provider exercises signed generation, server metadata repair, evidence, recovery and idempotent commit', async () => {
+  const { default: mock } = await import('../../src/lib/ai-mock.js');
+  ai.invoke = mock.invoke.bind(mock); ai.invokeStream = mock.invokeStream.bind(mock);
+  const open = await opening();
+  assert.equal((await request('/v1/sync/lesson-turn/l', open)).status, 200);
+  const turn = await send('modern-mock', { text: 'MOCK_NOTAGS MOCK_COMPLETE concrete comparison and justified choice', links: [], imageKeys: [] });
+  assert.equal(turn.assessmentRepair.method, 'model');
+  assert.equal(turn.assessmentRepair.succeeded, true);
+  assert.equal(turn.lessonKB.progress, 10);
+  assert.equal(turn.achieved, true);
+  assert.equal(turn.lessonKB.evidence.length, 2);
+  assert.ok(turn.lessonKB.evidence.every(e => e.sourceIds[0] === 'modern-mock:0'));
+  assert.deepEqual(await (await request('/v1/ai/coach/l?turnId=modern-mock')).json(), turn);
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 200);
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 200);
+  const saved = await db.getLessonState(userId, 'l');
+  assert.deepEqual(saved.messages.data.slice(-2), turn.messages);
+  assert.deepEqual(saved.lessonKB.data, turn.lessonKB);
+});
+
+test('an oversized signed activity record is rejected atomically and retains the exact recoverable result', async () => {
+  const turn = await opening();
+  turn.messages[0].metadata.agents[0].notes = ['学'.repeat(150000)];
+  turn.receipt = signCoachTurn(turn);
+  const { storeCoachResult } = await import('../../src/lib/coach-recovery.js');
+  await storeCoachResult(turn);
+  assert.equal((await request('/v1/sync/lesson-turn/l', turn)).status, 413);
+  const state = await db.getLessonState(userId, 'l');
+  assert.equal(state.messages.data.length, 0);
+  assert.equal(state.lessonKB.data, null);
+  assert.deepEqual(await (await request('/v1/ai/coach/l?turnId=t')).json(), turn);
+});
+
+test('a provider max_tokens stop rejects partial coaching before repair, signing or atomic save', async () => {
+  await saveOpening();
+  const base = await db.getLessonState(userId, 'l');
+  let repairs = 0;
+  ai.invoke = async () => { repairs++; throw new Error('A truncated coaching reply must never reach assessment repair.'); };
+  ai.invokeStream = async function* () {
+    yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'A partial visible reply without its ending' } };
+    yield { type: 'message_delta', delta: { stop_reason: 'max_tokens' } };
+    yield { type: 'message_stop' };
+  };
+  const response = await request('/v1/ai/coach/l', { turnId: 'truncated-turn', kind: 'send', base, submission: { text: 'Keep my full learner work', links: [], imageKeys: [] } });
+  assert.equal(response.status, 502);
+  const error = await response.json();
+  assert.match(error.error, /cut off/);
+  assert.equal(error.code, 'coach_response_truncated');
+  assert.equal(repairs, 0);
+  assert.deepEqual(await db.getLessonState(userId, 'l'), base);
+  assert.equal((await request('/v1/ai/coach/l?turnId=truncated-turn')).status, 404);
+  const streamed = await request('/v1/ai/coach/l', { turnId: 'truncated-stream', kind: 'send', base, stream: true, submission: { text: 'Keep full work', links: [], imageKeys: [] } });
+  const frames = await streamed.text();
+  assert.match(frames, /coach_text/);
+  assert.match(frames, /cut off/);
+  assert.doesNotMatch(frames, /coach_turn/);
+  assert.deepEqual(await db.getLessonState(userId, 'l'), base);
+});

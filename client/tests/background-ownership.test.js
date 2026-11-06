@@ -106,3 +106,83 @@ test('same-owner completion still saves mastery and accepts a no-change model re
   assert.equal(writes.length, 1);
   assert.equal(writes[0].token, 'Bearer access-a');
 });
+
+test('manual add/remove serialize behind a deferred observation and preserve selected note identity across cap shifts', async () => {
+  const notes = Array.from({ length: 10 }, (_, at) => ({ text: `note ${at}`, at }));
+  storage._populateCache('profile', { name: 'Alice', learnerNotes: notes }, 1);
+  const started = deferred(), body = deferred();
+  const baseFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url, options) => url === '/v1/ai/messages'
+    ? (++calls === 1 ? { ok: true, json: () => { started.resolve(); return body.promise; } }
+      : json({ content: [{ type: 'text', text: '{"changed":false}' }] }))
+    : baseFetch(url, options);
+  profile.updateProfileFromObservation(kb, { observation: 'brief examples', source: 'learner_statement', kind: 'preference', sourceIds: ['s'] }, { userId: 'a' });
+  await started.promise;
+  const add = profile.addLearnerNote('new note', { expectedUserId: 'a', at: 20 });
+  const remove = profile.removeLearnerNote(notes[1], { expectedUserId: 'a' });
+  body.resolve({ content: [{ type: 'text', text: JSON.stringify({ profile: { strengths: ['clear'], learnerNotes: [] } }) }] });
+  await add; await remove;
+  const latest = await storage.getLearnerProfile();
+  assert.deepEqual(latest.learnerNotes, [...notes.slice(2), { text: 'new note', at: 20 }]);
+  assert.deepEqual(latest.strengths, ['clear']);
+});
+
+test('a saved note survives optional model failure and is reported as saved without duplicate retry', async () => {
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => url === '/v1/ai/messages'
+    ? json({ content: [{ type: 'text', text: 'invalid JSON' }] }) : baseFetch(url, options);
+  const result = await profile.addLearnerNote('I use a phone', { expectedUserId: 'a', at: 1 });
+  assert.equal(result.noteSaved, true);
+  assert.ok(result.modelError);
+  assert.deepEqual((await storage.getLearnerProfile()).learnerNotes, [{ text: 'I use a phone', at: 1 }]);
+  assert.equal(writes.filter(w => w.url === '/v1/sync/profile').length, 1);
+});
+
+test('manual failures reject the awaited result while the queue continues', async () => {
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => options?.method === 'PUT' ? new Response('{}', { status: 503 }) : baseFetch(url, options);
+  await assert.rejects(profile.addLearnerNote('retained in draft', { expectedUserId: 'a' }), /confirmed saved/);
+  let ran = false;
+  await profile.queueProfileUpdate(async () => { ran = true; });
+  assert.equal(ran, true);
+});
+
+test('a queued manual note cannot read or write after owner change', async () => {
+  const gate = deferred();
+  profile.queueProfileUpdate(() => gate.promise);
+  const result = profile.addLearnerNote('Alice only', { expectedUserId: 'a' });
+  const outcome = assert.rejects(result, /account|signed|owner/i);
+  switchAccount('b'); gate.resolve(); await outcome;
+  assert.deepEqual(writes, []);
+});
+
+test('failed owner-bound profile reads reject before any default profile write', async () => {
+  storage.clearCache();
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => url === '/v1/sync/profile' && options?.method !== 'PUT'
+    ? new Response('{}', { status: 503 }) : baseFetch(url, options);
+  await assert.rejects(profile.addLearnerNote('keep this draft', { expectedUserId: 'a' }), /profile|load|read/i);
+  assert.deepEqual(writes, []);
+});
+
+for (const kind of ['owner', 'impersonation']) test(`manual note rewrite rejects after ${kind} change while model response is pending`, async () => {
+  const started = deferred(), body = deferred();
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => url === '/v1/ai/messages'
+    ? { ok: true, json: () => { started.resolve(); return body.promise; } } : baseFetch(url, options);
+  const pending = profile.addLearnerNote('Alice correction', { expectedUserId: 'a', at: 10 });
+  const outcome = assert.rejects(pending, /original account|save/i);
+  await started.promise;
+  const before = writes.length;
+  if (kind === 'owner') switchAccount('b');
+  else {
+    const auth = await import('../js/auth.js');
+    globalThis.sessionStorage = { getItem: () => JSON.stringify({ userId: 'b' }) };
+    assert.ok(auth.getImpersonation());
+  }
+  body.resolve({ content: [{ type: 'text', text: '{"profile":{"goal":"Alice private"},"summary":"Alice summary"}' }] });
+  await outcome;
+  assert.equal(writes.length, before);
+  globalThis.sessionStorage = { getItem: () => null };
+});

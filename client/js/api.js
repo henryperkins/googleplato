@@ -72,7 +72,7 @@ export async function parseResponse(resp) {
  * Parse an SSE stream from the Messages API proxy.
  * Yields text delta strings as they arrive.
  */
-export async function* parseSSEStream(body, onDone) {
+export async function* parseSSEStream(body, onDone, { failOnTruncation = false } = {}) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -100,11 +100,15 @@ export async function* parseSSEStream(body, onDone) {
         if (event.type === 'error') {
           throw new ApiError('api', event.error?.message || 'The AI service failed to respond.', undefined, event.error?.code);
         }
+        if (failOnTruncation && event.type === 'message_delta' && event.delta?.stop_reason === 'max_tokens') {
+          throw new ApiError('truncated', 'The reply was cut off. Please try again.');
+        }
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
           yield event.delta.text;
         }
       }
     }
+    throw new ApiError('network', 'The response stream ended before it was complete. Please try again.');
   } finally {
     reader.releaseLock();
     onDone?.();

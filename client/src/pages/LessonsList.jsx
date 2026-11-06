@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useMemo, useId, useRef } from 'react';
 import { flushSync } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useLessonListProgress } from '../hooks/useLessonListProgress.js';
 import { authenticatedFetch } from '../../js/auth.js';
@@ -8,8 +8,10 @@ import { renderMd, renderInlineMd, stripInlineMd } from '../lib/helpers.js';
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
 import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import Check from 'lucide-react/dist/esm/icons/check';
-import { courseCompletion } from '../lib/courseCompletion.js';
-import { groupLessonsForPage, needsOtherHeading, orderLessons, startHereLessonId } from '../lib/lessonListOrder.js';
+import AccountInviteNotice from '../components/AccountInviteNotice.jsx';
+import { useAuth } from '../contexts/AuthContext.jsx';
+import { completionBy, groupForDisplay, sortLessons } from '../lib/lessonOrder.js';
+import { startHereLessonId } from '../lib/lessonListOrder.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -70,6 +72,8 @@ function formatTimeRange(p20, p80) {
 export default function LessonsList() {
   const { state, reloadLessons } = useApp();
   const navigate = useNavigate();
+  const newUsername = useLocation().state?.newUsername;
+  const { impersonatedUser } = useAuth();
   const { loaded, lessonCatalogLoaded, lessonsError, loadingLessons, lessonProgressHydrated } = state;
   const { lessons, statuses, ready: progressReady, error: progressError } = useLessonListProgress(state.lessons, {
     loaded: lessonCatalogLoaded, hydrated: lessonProgressHydrated,
@@ -79,6 +83,7 @@ export default function LessonsList() {
   const [timeStats, setTimeStats] = useState({});
   const [detailLesson, setDetailLesson] = useState(null);
   const [courseFilter, setCourseFilter] = useState(FILTER_ALL);
+  const [unitFilter, setUnitFilter] = useState(FILTER_ALL);
   const [statusFilter, setStatusFilter] = useState(STATUS_ALL);
   const [page, setPage] = useState(1);
 
@@ -95,25 +100,25 @@ export default function LessonsList() {
     return () => { cancelled = true; };
   }, []);
 
-  // Build the course list for the filter dropdown from the inlined `course`
-  // field on each lesson. Sorted alphabetically. We add an "Uncategorized"
-  // option only when at least one lesson has no course — so learners aren't
-  // confronted with a meaningless option in classrooms where every lesson
-  // belongs to a course. The whole filter UI is hidden when no courses
-  // exist (named.length === 0) — there's nothing meaningful to filter by.
   const courseOptions = useMemo(() => {
     const map = new Map();
     let hasUncategorized = false;
-    for (const l of lessons) {
-      if (l.course?.id) map.set(l.course.id, l.course.name);
+    for (const lesson of lessons) {
+      if (lesson.program?.id) map.set(lesson.program.id, lesson.program);
       else hasUncategorized = true;
     }
-    const named = [...map.entries()]
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-    return { named, hasUncategorized };
+    return { named: [...map.values()].sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || a.name.localeCompare(b.name)), hasUncategorized };
   }, [lessons]);
   const hasCourseFilter = courseOptions.named.length > 0;
+  const unitOptions = useMemo(() => {
+    const map = new Map();
+    for (const lesson of sortLessons(lessons)) {
+      if (courseFilter === FILTER_NONE ? !!lesson.program : courseFilter !== FILTER_ALL && lesson.program?.id !== courseFilter) continue;
+      if (lesson.unit) map.set(lesson.unit.id, lesson.unit);
+    }
+    return [...map.values()];
+  }, [lessons, courseFilter]);
+  useEffect(() => { if (unitFilter !== FILTER_ALL && unitFilter !== FILTER_NONE && !unitOptions.some(u => u.id === unitFilter)) setUnitFilter(FILTER_ALL); }, [unitOptions, unitFilter]);
 
   // If the classroom has no courses (or the only course referenced by the
   // current filter was just deleted server-side), fall back to "all" so the
@@ -130,31 +135,15 @@ export default function LessonsList() {
     }
   }, [hasCourseFilter, courseFilter, courseOptions.named]);
 
-  // While every status is shown, the lessons in progress lead the whole list
-  // under their own heading, ahead of the course groups. A status filter
-  // already sorts by status, so it keeps the plain course grouping.
-  const inProgressFirst = statusFilter === STATUS_ALL;
-
-  // Apply both filters. Course narrows by taxonomy; status narrows by the
-  // learner's progress on each lesson. Combined as logical AND so the grid
-  // only shows lessons matching every active filter. Then catalog order:
-  // course name (lessons without a course last), then lesson name.
   const filtered = useMemo(() => {
     let result = lessons;
-    if (courseFilter === FILTER_NONE) result = result.filter((l) => !l.course?.id);
-    else if (courseFilter !== FILTER_ALL) result = result.filter((l) => l.course?.id === courseFilter);
-    if (statusFilter !== STATUS_ALL) {
-      result = result.filter((l) => lessonStatusKey(statuses[l.lessonId]) === statusFilter);
-    }
-    return orderLessons(result, statuses, { inProgressFirst });
-  }, [lessons, courseFilter, statusFilter, statuses, inProgressFirst]);
-
-  // Lessons without a course get an "Other lessons" heading whenever the list
-  // also has named groups, even on a page that shows only them.
-  const showOtherHeading = useMemo(
-    () => needsOtherHeading(filtered, statuses, { inProgressFirst }),
-    [filtered, statuses, inProgressFirst],
-  );
+    if (courseFilter === FILTER_NONE) result = result.filter(l => !l.program?.id);
+    else if (courseFilter !== FILTER_ALL) result = result.filter(l => l.program?.id === courseFilter);
+    if (unitFilter === FILTER_NONE) result = result.filter(l => !l.unit?.id);
+    else if (unitFilter !== FILTER_ALL) result = result.filter(l => l.unit?.id === unitFilter);
+    if (statusFilter !== STATUS_ALL) result = result.filter(l => lessonStatusKey(statuses[l.lessonId]) === statusFilter);
+    return sortLessons(result);
+  }, [lessons, courseFilter, unitFilter, statusFilter, statuses]);
 
   // A learner who hasn't started any lesson gets one suggested first lesson,
   // so a grid of identical empty circles has a place to begin.
@@ -163,9 +152,9 @@ export default function LessonsList() {
     [filtered, lessons, statuses],
   );
 
-  // Course progress counts public lessons from the full catalog, so a status
-  // filter can't skew "N of M" (#395). Shared private lessons remain available.
-  const progressByCourse = useMemo(() => courseCompletion(lessons, statuses), [lessons, statuses]);
+  const progressByProgram = useMemo(() => completionBy('program', lessons, statuses), [lessons, statuses]);
+  const progressByUnit = useMemo(() => completionBy('unit', lessons, statuses), [lessons, statuses]);
+  const hasStructure = lessons.some(l => l.unit || l.program);
 
   // Pagination math. We clamp the current page to the available range so a
   // filter that shrinks the list below the current page doesn't strand us.
@@ -176,7 +165,7 @@ export default function LessonsList() {
 
   // Reset to page 1 whenever any filter changes so we never land on an
   // out-of-range page after a tighter filter.
-  useEffect(() => { setPage(1); }, [courseFilter, statusFilter]);
+  useEffect(() => { setPage(1); }, [courseFilter, unitFilter, statusFilter]);
 
   // Previous and Next replace the cards, so the reader starts the new page at
   // the top: focus moves to the page heading, which scrolls into view. Left on
@@ -198,6 +187,7 @@ export default function LessonsList() {
   // The filter choices that would widen an empty result, named as they appear.
   const activeFilterResets = [
     courseFilter !== FILTER_ALL && '“All\u00a0courses”',
+    unitFilter !== FILTER_ALL && '“All units”',
     statusFilter !== STATUS_ALL && '“All\u00a0statuses”',
   ].filter(Boolean);
 
@@ -208,11 +198,13 @@ export default function LessonsList() {
       const name = courseOptions.named.find((c) => c.id === courseFilter)?.name;
       phrases.push(name ? `in the course "${name}"` : 'in the selected course');
     }
+    if (unitFilter === FILTER_NONE) phrases.push('without a unit');
+    else if (unitFilter !== FILTER_ALL) phrases.push(`in unit ${unitOptions.find(u => u.id === unitFilter)?.name || 'selected'}`);
     if (statusFilter === STATUS_NOT_STARTED) phrases.push('not started');
     else if (statusFilter === STATUS_IN_PROGRESS) phrases.push('in progress');
     else if (statusFilter === STATUS_COMPLETED) phrases.push('completed');
     return phrases.join(', ');
-  }, [courseFilter, statusFilter, courseOptions.named]);
+  }, [courseFilter, unitFilter, unitOptions, statusFilter, courseOptions.named]);
 
   const announcement = useMemo(() => {
     // Empty while still loading. Once `loaded` flips, the live region's
@@ -262,6 +254,14 @@ export default function LessonsList() {
               </select>
             </div>
           )}
+          {unitOptions.length > 0 && <div className="flex min-w-0 max-w-full flex-col gap-1.5 sm:max-w-xs">
+            <label htmlFor="unit-filter" className="text-sm text-muted-foreground">Unit</label>
+            <select id="unit-filter" value={unitFilter} onChange={e => setUnitFilter(e.target.value)} className="min-h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-card px-3 py-2 text-base md:text-sm">
+              <option value={FILTER_ALL}>All units</option>
+              {unitOptions.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              <option value={FILTER_NONE}>Without a unit</option>
+            </select>
+          </div>}
           <div className="flex min-w-0 max-w-full flex-col gap-1.5">
             <label htmlFor="status-filter" className="shrink-0 text-sm text-muted-foreground">Status</label>
             <select
@@ -278,6 +278,9 @@ export default function LessonsList() {
           </div>
         </div>
       </div>
+
+      {!impersonatedUser && <AccountInviteNotice />}
+      {newUsername && !impersonatedUser && <p role="status" className="mb-4 rounded-lg border bg-card px-4 py-3 text-sm">Your username is <strong>{newUsername}</strong>. You can change it in Settings.</p>}
 
       {/* Always-mounted live region. Updates whenever filter or page changes.
           Persistent rather than conditional so screen readers reliably pick
@@ -323,49 +326,22 @@ export default function LessonsList() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* In reading order: the lessons in progress, then one group per
-              course with its progress header (counts come from
-              progressByCourse, all lessons, not from what's visible), then
-              lessons without a course. */}
-          {groupLessonsForPage(visibleLessons, statuses, { inProgressFirst }).map((group) => {
-            const progress = group.kind === 'course' ? progressByCourse[group.courseId] : null;
-            const heading = group.kind === 'in-progress' ? 'In progress'
-              : group.kind === 'course' ? group.courseName
-                : showOtherHeading ? 'Other lessons' : null;
-            const listLabel = group.kind === 'in-progress' ? 'Lessons in progress'
-              : group.kind === 'course' ? `${group.courseName} lessons`
-                : heading || 'Lessons';
-            return (
-              <div key={group.key}>
-                {progress?.total > 0 ? (
-                  <CourseProgressHeader
-                    courseName={group.courseName}
-                    completed={progress.completed}
-                    total={progress.total}
-                  />
-                ) : heading && (
-                  <h2 dir="auto" className={`mb-3 ${GROUP_HEADING}`}>{heading}</h2>
-                )}
-                <ul
-                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
-                  role="list"
-                  aria-label={listLabel}
-                >
-                  {group.lessons.map((lesson) => (
-                    <LessonCardItem
-                      key={lesson.lessonId}
-                      lesson={lesson}
-                      lessonData={statuses}
-                      timeStats={timeStats}
-                      startHere={lesson.lessonId === startHereId}
-                      navigate={navigate}
-                      setDetailLesson={setDetailLesson}
-                    />
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
+          {groupForDisplay(visibleLessons).map(group => (
+            <section key={group.key} className="space-y-4">
+              {group.program && <ProgressHeader level={2} name={group.program.name} progress={progressByProgram[group.program.id]} showBar />}
+              {group.key === 'start-here' && <h2 className={GROUP_HEADING}>Start here</h2>}
+              {group.units.map(u => {
+                const unitName = u.unit?.name || (hasStructure ? 'Other lessons' : null);
+                return <div key={u.key}>
+                  {unitName && <ProgressHeader level={group.program ? 3 : 2} name={unitName} progress={u.unit ? progressByUnit[u.unit.id] : null} />}
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" aria-label={unitName ? `${unitName} lessons` : 'Lessons'}>
+                    {u.lessons.map(lesson => <LessonCardItem key={lesson.lessonId} lesson={lesson} lessonData={statuses} timeStats={timeStats}
+                      startHere={lesson.lessonId === startHereId} navigate={navigate} setDetailLesson={setDetailLesson} />)}
+                  </ul>
+                </div>;
+              })}
+            </section>
+          ))}
         </div>
       )}
 
@@ -424,35 +400,19 @@ export default function LessonsList() {
 // Course progress header — completed / total public lessons in the course.
 // The track shows the bar's whole length, even at 0. Forced colors drop both
 // fills, so the track keeps an outline and the fill takes the text color.
-function CourseProgressHeader({ courseName, completed, total }) {
-  if (total === 0) return null;
-  const pct = Math.round((completed / total) * 100);
-
-  return (
-    <div className="mb-3">
-      <div className="flex min-w-0 flex-col gap-1 mb-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
-        <h2 dir="auto" className={GROUP_HEADING}>
-          {courseName}
-        </h2>
-        <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-          {completed} of {total} public lesson{total === 1 ? '' : 's'}
-        </span>
-      </div>
-      <div
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={pct}
-        aria-label={`${courseName} progress: ${completed} of ${total} public lessons completed`}
-        className="h-1.5 rounded-full bg-track overflow-hidden forced-colors:outline-1"
-      >
-        <div
-          className="h-full rounded-full bg-primary-text transition-all forced-colors:bg-[color:CanvasText]"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+function ProgressHeader({ level, name, progress, showBar = false }) {
+  const Heading = `h${level}`;
+  const { completed = 0, total = 0 } = progress || {};
+  const pct = total ? Math.round(completed / total * 100) : 0;
+  return <div className="mb-3 space-y-2">
+    <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
+      <Heading dir="auto" className={GROUP_HEADING}>{name}</Heading>
+      {total > 0 && <span className="text-sm text-muted-foreground">{completed} of {total} public lesson{total === 1 ? '' : 's'}</span>}
     </div>
-  );
+    {showBar && total > 0 && <div role="progressbar" aria-label={`${name} progress: ${completed} of ${total} public lessons completed`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1.5 rounded-full bg-track overflow-hidden forced-colors:outline-1">
+      <div className="h-full bg-primary-text forced-colors:bg-[color:CanvasText]" style={{ width: `${pct}%` }} />
+    </div>}
+  </div>;
 }
 
 // Wrapper for individual lesson cards in the grid. Extracted to avoid
@@ -513,9 +473,8 @@ function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOver
         onClick={onOpen}
         // Status is folded into the button's accessible name — the visual
         // indicator is aria-hidden, so without this the icon's meaning
-        // would be invisible to SR users. We use aria-label instead of
-        // wrapping an h3 inside the button (invalid HTML per WCAG 2.4.6).
-        aria-label={`Open lesson ${lesson.name}. ${statusText}.${startHere ? ' Start here.' : ''}`}
+        // would be invisible to SR users. The visible title and description
+        // provide its name, with action/status text added for screen readers.
         aria-describedby={parts.length > 0 ? metaId : undefined}
         // The card draws this button's focus ring (.lesson-card in
         // index.css): the card clips to its corners, which cut the ring to a
@@ -524,6 +483,7 @@ function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOver
         // beside it; as a column it starts every title on the row's top line.
         className="lesson-open flex min-w-0 flex-1 flex-col justify-start text-start px-4 pt-4 pb-2 cursor-pointer"
       >
+        <span className="sr-only">Open lesson </span>
         <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
           <div className="min-w-0 basis-48 flex-1 space-y-1.5">
             <span dir="auto" className="wrap-anywhere text-base font-semibold leading-snug transition-colors group-hover:text-primary-text block">
@@ -537,6 +497,7 @@ function LessonCard({ lesson, progress, timeStats, startHere, onOpen, onShowOver
           </div>
           {startHere ? <StartHereMark /> : <StatusIndicator progress={progress} statusText={statusText} />}
         </div>
+        <span className="sr-only">{startHere ? 'Start here. ' : ''}{statusText}</span>
       </button>
       <div className="px-4 pb-3 pt-1 flex flex-col items-start gap-2">
         {/* Visible separators are middle-dots; screen readers read commas

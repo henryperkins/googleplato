@@ -1,73 +1,46 @@
-/**
- * "Behind this response" activity (#411, src/lib/agentActivity.js).
- */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { coachTurnActivity, lessonStartActivity, authoringActivity, activitySummary, entry } from '../src/lib/agentActivity.js';
+import { coachTurnActivity, lessonStartActivity, authoringActivity, entry, activitySummary } from '../src/lib/agentActivity.js';
 
-describe('coachTurnActivity', () => {
-  it('reports progress, notes, and the profile hand-off', () => {
-    const agents = coachTurnActivity({
-      before: { progress: 3, status: 'active' }, after: { progress: 6, status: 'active' },
-      parsed: { kbUpdate: { insights: ['Gave a concrete example'], learnerPosition: 'Can state the role' } },
-      images: 1, hasUnitNote: true,
-    });
-    assert.deepEqual(agents.map((a) => a.agent), ['coach', 'learner-profile-update']);
-    assert.deepEqual(agents[0].did, ['Progress 3 → 6 of 10']);
-    assert.deepEqual(agents[0].notes, ['Gave a concrete example', 'Where you are: Can state the role']);
-    assert.ok(agents[0].read.includes('1 image you attached'));
-    assert.ok(agents[0].read.includes('What you did in other lessons of this unit'));
-    assert.deepEqual(agents[1].notes, ['Gave a concrete example']);
+describe('truthful coaching activity', () => {
+  it('reports accepted evidence and repair without claiming optional post-save models ran', () => {
+    const agents = coachTurnActivity({ before: { progress: 2 }, after: { progress: 10, insights: ['Specific work'], learnerPosition: 'Demonstrated' }, achieved: true,
+      newlyMet: ['Can explain'], assessmentRepair: { attempted: true, succeeded: true, method: 'model' } });
+    assert.deepEqual(agents.map(a => a.agent), ['coach']);
+    assert.match(agents[0].did.join(';'), /Generated completion evidence/);
+    assert.match(agents[0].did.join(';'), /Repaired assessment metadata/);
+    assert.doesNotMatch(JSON.stringify(agents), /Marked the lesson complete|Asked to update|Your learner profile"/);
   });
-
-  it('lists objectives checked off this turn (#438)', () => {
-    const [coach] = coachTurnActivity({ before: { progress: 2 }, after: { progress: 5 }, parsed: {}, newlyMet: ['Can name three values'] });
-    assert.deepEqual(coach.did, ['Progress 2 → 5 of 10', 'Checked off an objective: Can name three values']);
+  it('uses only a sourced accepted profile observation, never general insights', () => {
+    const input = { before: {}, after: { progress: 3, insights: ['General lesson note'] } };
+    assert.equal(coachTurnActivity(input).length, 1);
+    const agents = coachTurnActivity({ ...input, profileObservation: { observation: 'Prefers brief examples' } });
+    assert.deepEqual(agents[1].notes, ['Prefers brief examples']);
+    assert.deepEqual(agents[1].did, ['Included a profile observation']);
   });
-
-  it('prefers an explicit profile observation', () => {
-    const [, profile] = coachTurnActivity({ before: { progress: 1 }, after: { progress: 1 }, parsed: { profileUpdate: { observation: 'Prefers examples' }, kbUpdate: { insights: ['x'] } } });
-    assert.deepEqual(profile.notes, ['Prefers examples']);
+  it('describes a continuity clarification without claiming model invocation', () => {
+    const [activity] = coachTurnActivity({ before: { progress: 2 }, after: { progress: 2 }, assessmentRepair: { method: 'continuity-clarification' } });
+    assert.match(activity.did[0], /continuity clarification/);
+    assert.equal(activity.read, undefined);
   });
-
-  it('on completion, hands off to the profile and unit progress agents', () => {
-    const agents = coachTurnActivity({ before: { progress: 8 }, after: { progress: 10 }, parsed: {}, achieved: true, unitName: 'Prompting Basics' });
-    assert.deepEqual(agents[0].did, ['Marked the lesson complete']);
-    assert.deepEqual(agents.map((a) => a.agent), ['coach', 'learner-profile-update', 'course-progress-update']);
-    assert.match(agents[2].did[0], /Prompting Basics/);
+  it('describes actual supplied references and bounded notes', () => {
+    const [activity] = coachTurnActivity({ before: {}, after: { progress: 2, insights: Array(9).fill('x'.repeat(400)) }, images: 1, links: 2, hasUnitNote: true });
+    assert.ok(activity.read.includes('1 supplied image'));
+    assert.ok(activity.read.includes('2 readable linked pages'));
+    assert.ok(activity.notes.length > 0 && activity.notes.length <= 5);
+    assert.ok(activity.notes.every(n => n.length <= 280));
   });
-
-  it('after completion the thread is feedback only', () => {
-    const [coach] = coachTurnActivity({ before: { progress: 10, status: 'completed' }, after: { progress: 10, status: 'completed' }, parsed: {} });
-    assert.deepEqual(coach.did, ['Gave feedback (the lesson was already complete)']);
-  });
-
-  it('clips long notes and caps their number', () => {
-    const insights = Array.from({ length: 9 }, (_, i) => `${i} ${'x'.repeat(400)}`);
-    const [coach] = coachTurnActivity({ before: {}, after: { progress: 2 }, parsed: { kbUpdate: { insights } } });
-    assert.equal(coach.notes.length, 5);
-    assert.ok(coach.notes.every((n) => n.length <= 280 && n.endsWith('…')));
+  it('names sanitized plugin sources at opening', () => {
+    const agents = lessonStartActivity({ lessonKB: { objectives: [{}] }, enrichments: [{ source: 'Reference docs' }] });
+    assert.deepEqual(agents.map(a => a.label), ['Lesson planner', 'Plugins', 'Coach']);
+    assert.match(agents[1].did[0], /Reference docs/);
   });
 });
 
-describe('lessonStartActivity', () => {
-  it('lists the planner, plugins, and coach', () => {
-    const agents = lessonStartActivity({ lessonKB: { objectives: [{}, {}], learnerPosition: 'New' }, enrichments: [{ label: 'WP docs' }] });
-    assert.deepEqual(agents.map((a) => a.label), ['Lesson planner', 'Plugins', 'Coach']);
-    assert.deepEqual(agents[0].did, ["Planned how you'll show 2 objectives"]);
-    assert.deepEqual(agents[1].did, ['Added reference material: WP docs']);
-  });
-});
-
-describe('authoringActivity / summary / entry', () => {
-  it('reports readiness changes', () => {
-    assert.deepEqual(authoringActivity('lesson-creator', { before: 2, after: 4, reads: ['Your conversation'] })[0].did, ['Readiness 2 → 4 of 10']);
-    assert.equal(authoringActivity('lesson-creator', { before: 4, after: null })[0].did, undefined);
-  });
-  it('summarizes distinct labels in order', () => {
-    assert.equal(activitySummary([entry('coach'), entry('learner-profile-update'), entry('learner-profile-update')]), 'Coach, Learner profile');
-  });
-  it('drops empty lists', () => {
+describe('authoring activity', () => {
+  it('preserves derived authoring readiness and distinct summaries', () => {
+    assert.deepEqual(authoringActivity('lesson-creator', { before: 2, after: 4, reads: ['Conversation'] })[0].did, ['Readiness 2 → 4 of 10']);
+    assert.equal(activitySummary([entry('coach'), entry('coach')]), 'Coach');
     assert.deepEqual(entry('coach', { did: [null, ''] }), { agent: 'coach', label: 'Coach' });
   });
 });

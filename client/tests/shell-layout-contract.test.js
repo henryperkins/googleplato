@@ -28,7 +28,7 @@ describe('lesson page', () => {
     assert.equal(/\boverflow-/.test(main), false);
   });
 
-  it('keeps its sticky header in the conversation column, with the outline beside the title', () => {
+  it('keeps its sticky header in the conversation column, with progress beside the title', () => {
     const chat = read('pages/LessonChat.jsx');
     const header = chat.slice(chat.indexOf('id="lesson-header"'), chat.indexOf('<ProgressBar'));
     assert.match(header, /<div className="mx-auto max-w-3xl flex items-center gap-2">/);
@@ -36,7 +36,7 @@ describe('lesson page', () => {
     assert.match(read('components/chat/ComposeBar.jsx'), /mx-auto max-w-3xl/);
     assert.match(header, /<h1 ref=\{headingRef\} tabIndex=\{-1\} className="text-base font-semibold/);
     // A 44px hit area from an overlay, so the text action doesn't grow its row.
-    assert.match(header, /className="touch-target-inline [^"]*"[\s\S]*?View outline/);
+    assert.match(header, /className="touch-target-inline [^"]*"[\s\S]*?progressLabel\(lessonKB/);
     assert.match(read('index.css'), /button:not\(\.compose-chip-remove\):not\(\.touch-target-inline\), select, \[role="menuitem"\]/);
   });
 

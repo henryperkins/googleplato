@@ -16,6 +16,7 @@ const MOCK_USAGE = { input_tokens: 0, output_tokens: 0 };
 
 function agentOf(system) {
   const text = Array.isArray(system) ? system.map((b) => b.text || '').join('\n') : String(system || '');
+  if (text.startsWith('You repair missing or malformed assessment metadata')) return 'Assessment Repair';
   return (text.match(/AGENT:\s*([A-Za-z ]+?)\s*\n/) || [])[1] || 'unknown';
 }
 
@@ -29,26 +30,39 @@ function lastUserJson(messages) {
   try { return JSON.parse(textOf(last?.content)); } catch { return {}; }
 }
 
+function coachAssessment(messages) {
+  let context = {};
+  try { context = JSON.parse(textOf(messages?.[0]?.content)); } catch { /* fixture without context */ }
+  const candidates = (messages || []).filter(m => m.role === 'user').slice(1);
+  const latest = [...candidates].reverse().find(m => {
+    try { return typeof JSON.parse(textOf(m.content)).learnerSubmission === 'string'; } catch { return textOf(m.content) === 'Start the lesson.'; }
+  });
+  const lastText = textOf(latest?.content);
+  let submission = {};
+  try { submission = JSON.parse(lastText); } catch { /* opening */ }
+  const opening = lastText === 'Start the lesson.' || !latest;
+  const count = opening ? 0 : (context.activitiesCompleted || 0) + 1;
+  const completed = context.lessonStatus === 'completed';
+  const done = !opening && /MOCK_COMPLETE/.test(submission.learnerSubmission || '');
+  const progress = completed || done ? 10 : opening ? 0 : Math.min(9, count * 3);
+  const source = (context.sources || []).find(s => submission.currentSourceIds?.includes(s.id) && s.kind === 'text' && s.confirmed);
+  const evidence = source ? (context.objectives || []).slice(0, done ? undefined : count).map(o => ({ objectiveId: o.id, status: 'met', observation: 'Mock demonstrated work.', sourceIds: [source.id] })) : [];
+  return { opening, count, lastText, progress, kbUpdate: {
+    responseType: opening ? 'opening' : completed ? 'feedback' : 'work',
+    insights: [`Mock insight after turn ${count}`], learnerPosition: `Mock position at progress ${progress}`,
+    evidence: completed ? [] : evidence,
+    exemplarEvidence: done && source ? { status: 'met', observation: 'Mock exemplar demonstrated.', sourceIds: [source.id] }
+      : context.exemplarEvidence || { status: 'missing', observation: '', sourceIds: [] },
+  } };
+}
+
 function coachReply(messages) {
-  // lessonEngine sends [context, 'Ready.' (assistant), ...history, new turn];
-  // the lesson opens with a 'Start the lesson.' cue. Neither is a learner turn.
-  const learnerTurns = (messages || []).filter((m) => m.role === 'user').slice(1)
-    .filter((m) => textOf(m.content).trim() !== 'Start the lesson.');
-  const lastText = textOf([...(messages || [])].reverse().find((m) => m.role === 'user')?.content);
-  const done = /MOCK_COMPLETE/.test(lastText);
-  const progress = done ? 10 : Math.min(9, learnerTurns.length * 3);
-  const body = learnerTurns.length === 0
-    ? 'Welcome! In this lesson you will practice the key idea. To start, tell me about a time you used it.'
-    : done
-      ? 'Excellent work. You have met every objective for this lesson.'
+  const { opening, lastText, progress, kbUpdate } = coachAssessment(messages);
+  const body = opening ? 'Welcome! In this lesson you will practice the key idea. To start, tell me about a time you used it.'
+    : progress === 10 ? 'Excellent work. You have met every objective for this lesson.'
       : 'Good thinking. Can you give a specific example from your own experience?';
-  const kb = { insights: [`Mock insight after turn ${learnerTurns.length}`], learnerPosition: `Mock position at progress ${progress}` };
-  // Each learner turn checks off the next objective (1-based), for the work view (#438).
-  if (learnerTurns.length > 0) kb.objectivesMet = [learnerTurns.length];
-  // MOCK_NOTAGS: the reply leaves off its tag block, as the real model sometimes
-  // does; the client then asks for the tags (orchestrator.repairCoachTags).
   if (/MOCK_NOTAGS/.test(lastText)) return body;
-  return `${body}\n\n[PROGRESS: ${progress}]\n[KB_UPDATE: ${JSON.stringify(kb)}]`;
+  return `${body}\n\n[PROGRESS: ${progress}]\n[KB_UPDATE: ${JSON.stringify(kbUpdate)}]`;
 }
 
 function lessonOwnerReply(messages) {
@@ -90,6 +104,10 @@ A short written example.
 function replyFor(agent, messages) {
   switch (agent) {
     case 'Coach': return coachReply(messages);
+    case 'Assessment Repair': {
+      const { progress, kbUpdate } = coachAssessment(messages);
+      return JSON.stringify({ progress, kbUpdate });
+    }
     case 'Lesson Owner': return lessonOwnerReply(messages);
     case 'Learner Profile Owner':
     case 'Learner Profile Update': return profileReply(messages);

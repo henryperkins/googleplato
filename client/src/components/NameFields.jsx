@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
  * split was guessed from an older single name, tied to both inputs with
  * aria-describedby.
  */
-export default function NameFields({ idPrefix, value, onChange, disabled = false, inferred = false, firstNameRef, lastNameRef, nextRef, errors = {}, onBlur }) {
+export default function NameFields({ idPrefix, value, onChange, disabled = false, readOnly = false, inferred = false, firstNameRef, lastNameRef, nextRef, errors = {}, onBlur }) {
   const hintId = `${idPrefix}-name-hint`;
   const describedBy = inferred ? hintId : undefined;
   const next = (event, target) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); target?.current?.focus(); } };
@@ -33,6 +33,7 @@ export default function NameFields({ idPrefix, value, onChange, disabled = false
             aria-required="true"
             aria-describedby={[describedBy, errors.firstName && `${idPrefix}-first-name-error`].filter(Boolean).join(' ') || undefined}
             disabled={disabled}
+            readOnly={readOnly}
             value={value.firstName}
             onChange={set('firstName')}
           />
@@ -51,6 +52,7 @@ export default function NameFields({ idPrefix, value, onChange, disabled = false
             autoComplete="family-name"
             aria-describedby={describedBy}
             disabled={disabled}
+            readOnly={readOnly}
             value={value.lastName}
             onChange={set('lastName')}
           />

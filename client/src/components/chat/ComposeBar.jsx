@@ -1,3 +1,5 @@
+import { useApp } from '../../contexts/AppContext.jsx';
+import { sendKeyOf, isSendKeystroke, sendHint } from '../../lib/chatPrefs.js';
 import { memo, useState, useRef, useId, useEffect } from 'react';
 import { useAutoResize } from '../../hooks/useAutoResize.js';
 import { compressImageDataUrl } from '../../lib/imageCompression.js';
@@ -43,6 +45,9 @@ function ComposeBar({
   links: linksProp,
   onLinksChange,
 }) {
+  const { state } = useApp();
+  const sendKey = sendKeyOf(state.preferences);
+  const shortcutId = useId();
   const [localText, setLocalText] = useState(() => {
     if (!storageKey) return '';
     try { return sessionStorage.getItem(storageKey) || ''; } catch { return ''; }
@@ -347,8 +352,9 @@ function ComposeBar({
           value={text}
           onChange={(e) => { setText(e.target.value); handleResize(e); }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+            if (isSendKeystroke(e, sendKey)) { e.preventDefault(); send(); }
           }}
+          aria-describedby={shortcutId}
           onPaste={handlePaste}
           disabled={disabled}
         />
@@ -439,6 +445,7 @@ function ComposeBar({
               </svg>
             </Button>
           )}
+          <span id={shortcutId} className="min-w-0 text-xs text-muted-foreground">{busy ? 'Send when the reply finishes' : sendHint(sendKey)}</span>
           <span id={statusId} className="min-w-0 text-xs text-muted-foreground" role="status" aria-live="polite">
             {status}
           </span>

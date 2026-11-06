@@ -5,7 +5,7 @@
  * as `screenshot:*` sync data, referenced by key from conversation messages.
  */
 
-import { authenticatedFetch } from './auth.js';
+import { authenticatedFetch, captureAuthSession, isAuthSessionCurrent } from './auth.js';
 import { isClientUpgradeRequired } from './clientCompatibility.js';
 import { saveObserver, saveFailureReason } from './saveObservability.js';
 
@@ -26,17 +26,27 @@ export function _populateCache(syncKey, data, version) {
 }
 
 async function fetchSyncData(syncKey, { expectedUserId } = {}) {
-  if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return null;
+  const session = expectedUserId ? await captureAuthSession() : null;
+  const checkOwner = async () => {
+    if (expectedUserId && (session?.userId !== expectedUserId || !await isAuthSessionCurrent(session))) {
+      throw new Error('Return to the original account to read your profile.');
+    }
+  };
+  await checkOwner();
   if (_cache.has(syncKey)) return _cache.get(syncKey);
   try {
     const res = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, { expectedUserId });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (expectedUserId && res.status !== 404) throw new Error('Your profile or preferences could not be loaded. Try again.');
+      return null;
+    }
     const item = await res.json();
-    if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return null;
+    await checkOwner();
     _cache.set(syncKey, item.data);
     _versions.set(syncKey, item.version);
     return item.data;
-  } catch {
+  } catch (error) {
+    if (expectedUserId) throw error;
     return null;
   }
 }
@@ -130,8 +140,9 @@ export async function getPreferences() {
   return data || { name: '' };
 }
 
-export async function savePreferences(prefs) {
-  await putSyncData('preferences', prefs);
+export async function savePreferences(prefs, options) {
+  const saved = await putSyncData('preferences', prefs, options);
+  if (options?.expectedUserId && !saved) throw new Error('Your preferences could not be confirmed saved.');
 }
 
 // -- Learner profile ----------------------------------------------------------
@@ -145,8 +156,8 @@ export async function saveLearnerProfile(profile, options) {
   if (options?.expectedUserId && !saved) throw new Error('Your profile update could not be confirmed saved. Your feedback is retained.');
 }
 
-export async function getLearnerProfileSummary() {
-  const data = await fetchSyncData('profileSummary');
+export async function getLearnerProfileSummary(options) {
+  const data = await fetchSyncData('profileSummary', options);
   return data || '';
 }
 
@@ -500,8 +511,8 @@ export async function saveScreenshot(key, dataUrl, { expectedUserId } = {}) {
   } catch { return false; }
 }
 
-export async function getScreenshot(key) {
-  return fetchSyncData(`screenshot:${key}`);
+export async function getScreenshot(key, options) {
+  return fetchSyncData(`screenshot:${key}`, options);
 }
 
 export async function deleteScreenshot(key) {

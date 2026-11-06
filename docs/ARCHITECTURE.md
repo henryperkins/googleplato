@@ -1787,12 +1787,31 @@ Cancellation retains feedback for that account. A completed save clears only the
 same unchanged draft, preserving newer writing entered in another visit. The
 old global `plato_settings_fields_draft` and `plato_profile_feedback_draft` keys
 have no trustworthy owner and are discarded rather than assigned to a user.
-Passwords are never part of these drafts. Feedback remains retained if its
-generated profile or summary cannot be confirmed saved.
+Passwords are never part of these drafts. Feedback remains retained if the manual note cannot be confirmed saved.
 
-A valid `changed: false` profile-feedback result is acknowledged as already up
-to date, clears the submitted feedback draft, and performs no profile writes.
-Malformed results still retain feedback and report a failure.
+Manual note additions/removals and all model profile updates share one owner-
+and auth-session-bound queue. The queued operation reads the current profile,
+uses stable `{text, at}` note identity (including retries), saves the learner's
+verbatim note first, and then optionally rewrites soft profile fields. Model
+output cannot alter `learnerNotes`. Notes are capped at ten of 500 characters.
+A failed durable note write rejects to Settings while the queue continues. A
+failed optional rewrite reports that the note was saved, clears only the exact
+submitted draft, and never appends a duplicate on retry. Removal resolves the
+selected identity after earlier queued operations, so cap shifts cannot remove
+a different note. Optimistic conflicts remain explicit; no latest-version
+rewrite bypasses server CAS. Owner-bound profile/summary reads fail explicitly
+on network failure and cannot populate a subsequent auth session's cache.
+
+The learner overview projects canonical objective IDs and valid evidence with
+the same confirmed-source predicate as server completion. Active corrections,
+criteria review and invalid evidence can remove a check; historical completed
+lessons stay frozen. Activity is generated on the server before receipt signing;
+client image hydration uses separate render copies. It reports generated
+assessment/repair and accepted sourced profile observations, never an inferred
+profile update from generic insights or an optional post-save model invocation.
+The single composer keeps submitted input, retained signed replies and newer
+editable drafts in separate journals. Send-key preferences apply to learner and
+authoring chats; authoring editors retain their shared reveal hook.
 
 **API.**
 

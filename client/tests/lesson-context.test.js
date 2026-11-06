@@ -95,7 +95,7 @@ describe('buildContext', () => {
       'Alex'
     ));
 
-    assert.deepEqual(context.course, { name: 'AI Foundations' });
+    assert.deepEqual(context.unit, { name: 'AI Foundations' });
   });
 
   it('omits course entirely when the lesson is not part of a course', () => {
@@ -106,7 +106,7 @@ describe('buildContext', () => {
       'Alex'
     ));
 
-    assert.equal('course' in context, false, 'no course key should be emitted');
+    assert.equal('unit' in context, false, 'no course key should be emitted');
   });
 
   // Cross-lesson course progress: a distilled, per-learner note of what they've
@@ -123,8 +123,8 @@ describe('buildContext', () => {
       'Completed Lesson B; wrote a clear system prompt.'
     ));
 
-    assert.equal(context.course.name, 'AI Foundations');
-    assert.equal(context.course.progress, 'Completed Lesson B; wrote a clear system prompt.');
+    assert.equal(context.unit.name, 'AI Foundations');
+    assert.equal(context.unit.progress, 'Completed Lesson B; wrote a clear system prompt.');
   });
 
   it('omits course.progress when no cross-lesson note is provided', () => {
@@ -137,7 +137,7 @@ describe('buildContext', () => {
       'Alex'
     ));
 
-    assert.deepEqual(context.course, { name: 'AI Foundations' });
+    assert.deepEqual(context.unit, { name: 'AI Foundations' });
   });
 
   it('does not attach course.progress when the lesson has no course', () => {
@@ -149,7 +149,7 @@ describe('buildContext', () => {
       'Some stray progress note.'
     ));
 
-    assert.equal('course' in context, false, 'no course note without a course');
+    assert.equal('unit' in context, false, 'no course note without a course');
   });
 
   // Coach directive: author-supplied runtime guidance baked into the lesson
@@ -203,7 +203,7 @@ describe('buildContext', () => {
       'Alex'
     ));
 
-    assert.equal('course' in context, false);
+    assert.equal('unit' in context, false);
   });
 });
 
@@ -362,4 +362,10 @@ describe('applyCoachResponseToKB', () => {
     assert.equal(result.phase, LESSON_PHASES.LEARNING);
     assert.equal(result.lessonKB.activitiesCompleted, 9);
   });
+});
+
+it('distinguishes a top-level course from its unit and keeps unit progress local', () => {
+  const context = JSON.parse(buildContext({ ...sampleLesson(), course: { id: 'u', name: 'Legacy unit' }, unit: { id: 'u', name: 'Unit' }, program: { id: 'p', name: 'Course' } }, {}, '', '', 'demonstrated work'));
+  assert.deepEqual(context.course, { name: 'Course' });
+  assert.deepEqual(context.unit, { name: 'Unit', progress: 'demonstrated work' });
 });

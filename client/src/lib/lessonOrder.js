@@ -90,7 +90,7 @@ export function completionBy(level, lessons, lessonData) {
   const out = {};
   for (const l of lessons) {
     const id = l[level]?.id;
-    if (!id || l.lessonId.startsWith('custom-')) continue;
+    if (!id || l.status !== 'public' || l.lessonId.startsWith('custom-')) continue;
     const c = (out[id] ||= { completed: 0, total: 0 });
     c.total++;
     if (lessonData[l.lessonId]?.status === 'completed') c.completed++;

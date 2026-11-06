@@ -16,7 +16,7 @@ const SURFACES = {
   'coach-reply': {
     subject: 'Your coach', action: 'reply', audience: 'learner',
     rejectedHint: 'If you attached an image or link, try sending without it.',
-    recovery: 'Your message is back in the box.',
+    recovery: 'Your response is retained separately from your newer draft.',
   },
   'lesson-creator': {
     subject: 'The lesson creator', action: 'respond', audience: 'admin',
@@ -45,6 +45,7 @@ const withPeriod = (s) => (/[.!?]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 export function aiErrorKind(err) {
   if (!err) return 'unknown';
   switch (err.code) {
+    case 'coach_response_truncated': return 'truncated';
     case 'client_upgrade_required': return 'upgrade';
     case 'ai_unavailable': return 'unavailable';
     case 'ai_rate_limited':
@@ -82,6 +83,8 @@ function describe(kind, s) {
   const act = s.action;
   const retry = s.retry || DEFAULT_RETRY;
   switch (kind) {
+    case 'truncated':
+      return `${who}'s reply was cut off before it finished. Retry your response to generate a complete reply.`;
     case 'unavailable':
       return s.audience === 'admin'
         ? `${who} can't ${act} because the server can't reach the AI service. Open AI Settings in the admin dashboard to check the selected provider, server credentials, and model access.`

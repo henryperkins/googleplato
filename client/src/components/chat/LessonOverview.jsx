@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Check from 'lucide-react/dist/esm/icons/check';
 import { getScreenshot } from '../../../js/storage.js';
 import { objectiveStatuses, objectivesMetLabel, collectArtifacts } from '../../lib/lessonWork.js';
+import { renderMd, renderInlineMd } from '../../lib/helpers.js';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -19,7 +20,7 @@ import {
  * opens), and any plugin context. Works before the lesson starts, during,
  * after completion, and in View as User.
  */
-export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, messages }) {
+function OverviewContents({ open, onOpenChange, lesson, lessonKB, messages, ownerId }) {
   const navigate = useNavigate();
   const objectives = objectiveStatuses(lessonKB, lesson.learningObjectives);
   const complete = lessonKB?.status === 'completed';
@@ -28,6 +29,7 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [images, setImages] = useState({}); // key → dataUrl | null (failed)
   const requested = useRef(new Set());
+  const imageGeneration = useRef(0);
   const titleRef = useRef(null);
 
   // Move focus to the title on open so screen readers announce the lesson,
@@ -42,16 +44,21 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
     return () => { cancelled = true; cancelAnimationFrame(id); };
   }, [open]);
 
+  useEffect(() => () => { imageGeneration.current += 1; }, []);
+
   // Fetch images the session doesn't already have, once the section opens.
   // Each key is requested once; results land whenever they arrive.
   useEffect(() => {
     if (!open || !artifactsOpen) return;
+    const generation = imageGeneration.current;
     const missing = artifacts.filter((a) => a.kind === 'image' && !a.dataUrl && a.key && !requested.current.has(a.key));
     for (const a of missing) {
       requested.current.add(a.key);
-      getScreenshot(a.key).catch(() => null).then((url) => setImages((prev) => ({ ...prev, [a.key]: url || null })));
+      getScreenshot(a.key, { expectedUserId: ownerId }).catch(() => null).then((url) => {
+        if (imageGeneration.current === generation) setImages((prev) => ({ ...prev, [a.key]: url || null }));
+      });
     }
-  }, [open, artifactsOpen, artifacts]);
+  }, [open, artifactsOpen, artifacts, ownerId]);
 
   const section = 'rounded-md border border-border';
   const summary = 'cursor-pointer select-none px-3 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring rounded-md';
@@ -61,10 +68,10 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent id="lesson-overview-dialog" className="sm:max-w-xl max-h-[85vh] flex flex-col">
+      <DialogContent variant="sheet" id="lesson-overview-dialog" className="sm:max-w-xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle ref={titleRef} tabIndex={-1}>{lesson.name}</DialogTitle>
-          {lesson.description && <DialogDescription>{lesson.description}</DialogDescription>}
+          <DialogTitle dir="auto" ref={titleRef} tabIndex={-1}>{lesson.name}</DialogTitle>
+          {lesson.description && <DialogDescription dir="auto" className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />}
         </DialogHeader>
         {/* Focusable so keyboard users can scroll it even before anything
             inside takes focus (axe scrollable-region-focusable). */}
@@ -80,7 +87,7 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
                     {o.met && <Check className="h-3 w-3" strokeWidth={3} />}
                   </span>
                   <span>
-                    {o.objective}
+                    <span dir="auto" className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(o.objective) }} />
                     <span className="sr-only">{o.met ? ', met' : ', not yet'}</span>
                   </span>
                 </li>
@@ -90,7 +97,7 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
 
           <div className="space-y-1">
             <h3 className="font-medium">What finished work looks like</h3>
-            <p className="text-muted-foreground leading-relaxed">{lessonKB?.exemplar || lesson.exemplar}</p>
+            <div dir="auto" className="coach-copy text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(lessonKB?.exemplar || lesson.exemplar) }} />
           </div>
 
           {lessonKB?.learnerPosition && (
@@ -161,7 +168,7 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
                     aria-labelledby={`enrichment-${idx}-label`}
                   >
                     <h4 id={`enrichment-${idx}-label`} className="text-sm font-medium text-foreground">
-                      {enrichment.label || enrichment.pluginId}
+                      {enrichment.source || enrichment.label || enrichment.pluginId || 'Reference'}
                     </h4>
                     {enrichment.reasoning && (
                       <div role="note">
@@ -176,10 +183,10 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
                       </div>
                     )}
                     {enrichment.sources?.length > 0 && (
-                      <nav aria-label={`Sources from ${enrichment.label || enrichment.pluginId}`}>
+                      <nav aria-label={`Sources from ${enrichment.source || enrichment.label || enrichment.pluginId || 'Reference'}`}>
                         <div className="text-xs font-medium text-muted-foreground mb-1">Sources:</div>
                         <ul className="text-xs space-y-1">
-                          {enrichment.sources.map((source, sidx) => (
+                          {enrichment.sources.filter(source => /^https?:\/\//i.test(source?.url || '')).map((source, sidx) => (
                             <li key={sidx}>
                               <a
                                 href={source.url}
@@ -215,4 +222,8 @@ export default function LessonOverview({ open, onOpenChange, lesson, lessonKB, m
       </DialogContent>
     </Dialog>
   );
+}
+
+export default function LessonOverview(props) {
+  return <OverviewContents key={`${props.ownerId}:${props.lesson.lessonId}`} {...props} />;
 }

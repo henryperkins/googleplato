@@ -1,37 +1,14 @@
-// The lesson overview (#438): objectives checklist, summary, and the
-// learner's saved attachments, read from what plato already stores. Pure,
-// tested in client/tests/lessonWork.test.js.
+import { evidenceIsMet } from '../../../server/src/shared/lessonAssessment.js';
 
-/**
- * Fold the coach's optional `objectivesMet` (1-based numbers, as the
- * objectives are listed in its context) into the lesson KB, one way only: a
- * met objective stays met. Stored 0-based in `lessonKB.objectivesMet`.
- * Informational; completion is still decided by applyCoachResponseToKB from
- * the progress score. A completed lesson isn't changed (every objective
- * counts as met there).
- */
-export function mergeObjectivesMet(kb, kbUpdate) {
-  const reported = kbUpdate?.objectivesMet;
-  if (!kb || kb.status === 'completed' || !Array.isArray(reported)) return kb;
-  const n = kb.objectives?.length || 0;
-  const met = new Set(Array.isArray(kb.objectivesMet) ? kb.objectivesMet : []);
-  const before = met.size;
-  for (const v of reported) {
-    const i = Number(v) - 1;
-    if (Number.isInteger(i) && i >= 0 && i < n) met.add(i);
-  }
-  if (met.size === before) return kb;
-  return { ...kb, objectivesMet: [...met].sort((a, b) => a - b) };
-}
-
-/** `[{ objective, met }]` for the checklist. Every objective is met once the lesson is complete. */
+/** A projection of canonical evidence; no client-owned progress accumulation. */
 export function objectiveStatuses(kb, fallbackObjectives = []) {
-  const list = kb?.objectives?.length
-    ? kb.objectives.map((o) => (typeof o === 'string' ? o : o.objective))
-    : fallbackObjectives;
-  const done = kb?.status === 'completed';
-  const met = new Set(kb?.objectivesMet || []);
-  return list.map((objective, i) => ({ objective, met: done || met.has(i) }));
+  const objectives = kb?.objectives?.length ? kb.objectives : fallbackObjectives;
+  return objectives.map(item => ({
+    objective: typeof item === 'string' ? item : item.objective,
+    met: kb?.status === 'completed' || (kb?.assessmentVersion === 1 && !kb.assessmentReviewRequired
+      && typeof item === 'object' && !!item.id
+      && evidenceIsMet(kb.evidence?.find(e => e.objectiveId === item.id), kb.sources)),
+  })).map(item => ({ ...item, met: !!item.met }));
 }
 
 /** "N of M objectives met": the overview's checklist summary. */
@@ -44,12 +21,6 @@ export function objectivesMetLabel(kb, fallbackObjectives = []) {
 export function progressLabel(kb, fallbackObjectives = []) {
   const list = objectiveStatuses(kb, fallbackObjectives);
   return `Progress (${list.filter((o) => o.met).length} of ${list.length} Objectives)`;
-}
-
-/** 1-based numbers for the coach's context, or undefined when none are met. */
-export function objectivesMetForContext(kb) {
-  const met = kb?.objectivesMet;
-  return Array.isArray(met) && met.length ? met.map((i) => i + 1) : undefined;
 }
 
 /**
@@ -68,7 +39,7 @@ export function collectArtifacts(messages) {
     const count = Math.max(keys.length, urls.length);
     for (let i = 0; i < count; i++) out.push({ kind: 'image', key: keys[i] || null, dataUrl: urls[i] || null, at });
     for (const l of Array.isArray(m.metadata.links) ? m.metadata.links : []) {
-      if (l?.url) out.push({ kind: 'link', url: l.url, title: l.title || l.url, at });
+      if (/^https?:\/\//i.test(l?.url || '')) out.push({ kind: 'link', url: l.url, title: l.title || l.url, at });
     }
   }
   return out;

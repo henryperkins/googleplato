@@ -7,7 +7,7 @@ import { compareLessons, sortLessons, nextLessonAfter, groupForDisplay, completi
 
 const P1 = { id: 'p1', name: 'Course One', position: 0 };
 const P2 = { id: 'p2', name: 'Course Two', position: 1 };
-const L = (lessonId, name, program, unit) => ({ lessonId, name, program, unit });
+const L = (lessonId, name, program, unit) => ({ lessonId, name, program, unit, status: 'public' });
 const lessons = [
   L('c1', 'Zed', P1, { id: 'u2', name: 'Unit B', position: 1, lessonPosition: 0 }),
   L('a2', 'Alpha 2', P1, { id: 'u1', name: 'Unit A', position: 0, lessonPosition: 1 }),
@@ -62,9 +62,9 @@ describe('start here (#443)', () => {
   const GSP = { id: 'prog-getting-started', name: 'Getting Started with plato', position: 0 };
   const GSU = { id: 'unit-getting-started', name: 'How plato works', position: 0 };
   const course = [
-    { lessonId: 'getting-started-behind', name: 'Behind', startHere: true, program: GSP, unit: { ...GSU, lessonPosition: 2 } },
-    { lessonId: 'getting-started', name: 'Welcome', startHere: true, program: GSP, unit: { ...GSU, lessonPosition: 0 } },
-    { lessonId: 'getting-started-sharing', name: 'Sharing', startHere: true, program: GSP, unit: { ...GSU, lessonPosition: 1 } },
+    { lessonId: 'getting-started-behind', name: 'Behind', status: 'public', startHere: true, program: GSP, unit: { ...GSU, lessonPosition: 2 } },
+    { lessonId: 'getting-started', name: 'Welcome', status: 'public', startHere: true, program: GSP, unit: { ...GSU, lessonPosition: 0 } },
+    { lessonId: 'getting-started-sharing', name: 'Sharing', status: 'public', startHere: true, program: GSP, unit: { ...GSU, lessonPosition: 1 } },
   ];
   it('as a course: shown first, under its own course heading, lessons in order, next lesson walks it', () => {
     const sorted = sortLessons([...lessons, ...course]);
@@ -102,5 +102,12 @@ describe('completionBy', () => {
   it('does not depend on which lessons are visible (#395)', () => {
     const notStarted = lessons.filter((l) => !data[l.lessonId]);
     assert.notDeepEqual(completionBy('program', notStarted, data).p1, completionBy('program', lessons, data).p1);
+  });
+});
+
+describe('public hierarchy KPI counts', () => {
+  it('excludes private, unknown and personal lessons while the list still includes them', () => {
+    const lessons = ['public', 'private', undefined].map((status, i) => ({ lessonId: `l${i}`, status, unit: { id: 'u' }, program: { id: 'p' } }));
+    assert.deepEqual(completionBy('unit', lessons, { l0: { status: 'completed' }, l1: { status: 'completed' } }), { u: { completed: 1, total: 1 } });
   });
 });

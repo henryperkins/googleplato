@@ -41,3 +41,5 @@ Respond with ONLY valid JSON, no markdown fencing:
 Return only the `summary`. The platform records which lessons are complete on its own (it already knows the just-completed lesson's id) — you don't need to track or emit lesson ids.
 
 Use only demonstratedObjectives as new learning evidence. Do not infer traits or personal facts from the lesson title or from prior prose.
+
+The legacy input names courseName and lessonsInCourse refer to this unit. completedLesson contains only name and demonstratedObjectives, not raw sources or incidental disclosures.

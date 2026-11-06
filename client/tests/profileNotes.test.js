@@ -29,7 +29,7 @@ describe('learner notes', () => {
     assert.equal(p.learnerNotes.length, MAX_LEARNER_NOTES);
     assert.equal(p.learnerNotes.at(-1).text, `note ${MAX_LEARNER_NOTES + 2}`);
     assert.equal(withLearnerNote({}, 'x'.repeat(900)).learnerNotes[0].text.length, MAX_LEARNER_NOTE_LENGTH);
-    assert.deepEqual(withoutLearnerNote({ learnerNotes: [{ text: 'a' }, { text: 'b' }] }, 0).learnerNotes, [{ text: 'b' }]);
+    assert.deepEqual(withoutLearnerNote({ learnerNotes: [{ text: 'a' }, { text: 'b' }] }, { text: 'a' }).learnerNotes, [{ text: 'b' }]);
   });
 
   it('survive an agent update that drops or rewrites them, and agents can’t add one', () => {
@@ -49,4 +49,9 @@ describe('learner notes', () => {
     assert.deepEqual([coach.source, coach.coachObservation, coach.learnerFeedback], ['coach', 'Prefers short examples', undefined]);
     assert.equal(coach.context.timestamp, 5);
   });
+});
+
+it('a retried manual note identity does not append a duplicate', () => {
+  const once = withLearnerNote({}, 'same submitted note', 10);
+  assert.deepEqual(withLearnerNote(once, 'same submitted note', 10), once);
 });

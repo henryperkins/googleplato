@@ -3,54 +3,31 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeObjectivesMet, objectiveStatuses, objectivesMetLabel, progressLabel, objectivesMetForContext, collectArtifacts } from '../src/lib/lessonWork.js';
+import { objectiveStatuses, objectivesMetLabel, progressLabel, collectArtifacts } from '../src/lib/lessonWork.js';
 
-const kb = (over = {}) => ({ status: 'active', objectives: [{ objective: 'A' }, { objective: 'B' }, { objective: 'C' }], ...over });
+const evidence = (objectiveId, status = 'met', sourceIds = ['s']) => ({ objectiveId, status, observation: 'Demonstrated', sourceIds });
+const kb = (over = {}) => ({ status: 'active', assessmentVersion: 1, objectives: [{ id: 'a', objective: 'A' }, { id: 'b', objective: 'B' }], sources: [{ id: 's', kind: 'text', confirmed: true }], evidence: [evidence('b')], ...over });
 
-describe('mergeObjectivesMet', () => {
-  it('adds 1-based numbers, stored 0-based and sorted', () => {
-    assert.deepEqual(mergeObjectivesMet(kb(), { objectivesMet: [3, 1] }).objectivesMet, [0, 2]);
+describe('canonical objective checklist', () => {
+  it('uses canonical IDs in authored order and permits correction', () => {
+    assert.deepEqual(objectiveStatuses(kb()).map(o => o.met), [false, true]);
+    assert.deepEqual(objectiveStatuses(kb({ evidence: [evidence('b', 'missing', [])] })).map(o => o.met), [false, false]);
+    assert.equal(objectivesMetLabel(kb()), '1 of 2 objectives met');
+    assert.equal(progressLabel(kb()), 'Progress (1 of 2 Objectives)');
   });
-  it('is one way: a met objective stays met when later turns omit it', () => {
-    const k = mergeObjectivesMet(kb({ objectivesMet: [0, 2] }), { objectivesMet: [2] });
-    assert.deepEqual(k.objectivesMet, [0, 1, 2]);
+  it('requires validated confirmed evidence and suppresses stale criteria and legacy index claims', () => {
+    for (const over of [
+      { assessmentVersion: undefined, objectivesMet: [0, 1] },
+      { assessmentReviewRequired: true }, { sources: [] },
+      { evidence: [{ objectiveId: 'b', status: 'met', sourceIds: ['s'] }] },
+      { sources: [{ id: 's', kind: 'link', confirmed: true, text: '' }] },
+      { sources: [{ id: 's', kind: 'image', confirmed: true, available: false, contentUnchanged: false }] },
+    ]) assert.deepEqual(objectiveStatuses(kb(over)).map(o => o.met), [false, false]);
+    assert.equal(objectiveStatuses(kb({ sources: [{ id: 's', kind: 'image', confirmed: true, available: false, contentUnchanged: true }] }))[1].met, true);
   });
-  it('ignores out-of-range, non-integer, and missing values; returns the same KB when nothing changes', () => {
-    const k = kb({ objectivesMet: [1] });
-    assert.equal(mergeObjectivesMet(k, { objectivesMet: [0, 4, 1.5, 'x', 2] }), k);
-    assert.equal(mergeObjectivesMet(k, {}), k);
-    assert.equal(mergeObjectivesMet(k, null), k);
-  });
-  it('leaves a completed lesson alone', () => {
-    const k = kb({ status: 'completed' });
-    assert.equal(mergeObjectivesMet(k, { objectivesMet: [1] }), k);
-  });
-});
-
-describe('objectiveStatuses', () => {
-  it('marks met objectives, and every objective once complete', () => {
-    assert.deepEqual(objectiveStatuses(kb({ objectivesMet: [1] })).map((o) => o.met), [false, true, false]);
-    assert.deepEqual(objectiveStatuses(kb({ status: 'completed' })).map((o) => o.met), [true, true, true]);
-  });
-  it('falls back to the lesson objectives before a KB exists', () => {
-    assert.deepEqual(objectiveStatuses(null, ['X', 'Y']), [{ objective: 'X', met: false }, { objective: 'Y', met: false }]);
-  });
-});
-
-describe('objectivesMetLabel', () => {
-  it('counts met objectives: before the lesson starts, during, and once complete', () => {
-    assert.equal(objectivesMetLabel(null, ['X', 'Y', 'Z', 'W']), '0 of 4 objectives met');
-    assert.equal(objectivesMetLabel(kb({ objectivesMet: [1] })), '1 of 3 objectives met');
-    assert.equal(objectivesMetLabel(kb({ status: 'completed' })), '3 of 3 objectives met');
-    assert.equal(progressLabel(null, ['X', 'Y', 'Z', 'W']), 'Progress (0 of 4 Objectives)');
-    assert.equal(progressLabel(kb({ objectivesMet: [1] })), 'Progress (1 of 3 Objectives)');
-  });
-});
-
-describe('objectivesMetForContext', () => {
-  it('is 1-based, or undefined when none are met', () => {
-    assert.deepEqual(objectivesMetForContext(kb({ objectivesMet: [0, 2] })), [1, 3]);
-    assert.equal(objectivesMetForContext(kb()), undefined);
+  it('keeps historical completed lessons frozen and falls back before initialization', () => {
+    assert.deepEqual(objectiveStatuses(kb({ status: 'completed', assessmentVersion: undefined })).map(o => o.met), [true, true]);
+    assert.deepEqual(objectiveStatuses(null, ['X']), [{ objective: 'X', met: false }]);
   });
 });
 
