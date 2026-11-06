@@ -87,6 +87,54 @@ test('late logout completion cannot clear a newer signed-in session', async () =
   assert.deepEqual(await storage.getAuthTokens(), session('b'));
 });
 
+// The newest sign-in or sign-out owns plato_auth. A login response that lands
+// after another one started is discarded and revoked, never stored: otherwise
+// React shows one account while every request authenticates as the other.
+function loginServer({ held = {}, revoked = [] } = {}) {
+  return async (url, options) => {
+    if (url === '/v1/auth/logout') { revoked.push(JSON.parse(options.body).refreshToken); return json({ ok: true }); }
+    if (url !== '/v1/auth/login') throw new Error(`Unexpected request: ${url}`);
+    const id = JSON.parse(options.body).email.split('@')[0];
+    return held[id] ? held[id].promise : json({ accessToken: `access-${id}`, refreshToken: `refresh-${id}`, user: { userId: id } });
+  };
+}
+
+test('a password login that finishes after an external sign-in cannot replace it', async () => {
+  const held = { x: deferred() };
+  const revoked = [];
+  globalThis.fetch = loginServer({ held, revoked });
+  const older = auth.login('x@example.test', 'test-password').then(() => null, error => error);
+  await nextTurn();
+  await auth.adoptAuthSession(session('y'), 'google-auth');
+  held.x.resolve(json({ accessToken: 'access-x', refreshToken: 'refresh-x', user: { userId: 'x' } }));
+  assert.equal((await older)?.code, 'stale_auth_exchange');
+  assert.deepEqual(await storage.getAuthTokens(), { ...session('y'), provider: 'google-auth' });
+  await nextTurn();
+  assert.deepEqual(revoked, ['refresh-x'], 'the discarded session is revoked, best effort');
+});
+
+test('of two password logins, the one started last owns the stored session', async () => {
+  const held = { x: deferred() };
+  globalThis.fetch = loginServer({ held });
+  const older = auth.login('x@example.test', 'test-password').then(() => null, error => error);
+  await nextTurn();
+  assert.equal((await auth.login('y@example.test', 'test-password')).userId, 'y');
+  held.x.resolve(json({ accessToken: 'access-x', refreshToken: 'refresh-x', user: { userId: 'x' } }));
+  assert.equal((await older)?.code, 'stale_auth_exchange');
+  assert.deepEqual(await storage.getAuthTokens(), session('y'), 'the whole record is the newer sign-in, nothing merged');
+});
+
+test('a login that finishes after logout cannot restore credentials', async () => {
+  const held = { x: deferred() };
+  globalThis.fetch = loginServer({ held });
+  const pending = auth.login('x@example.test', 'test-password').then(() => null, error => error);
+  await nextTurn();
+  await auth.logout();
+  held.x.resolve(json({ accessToken: 'access-x', refreshToken: 'refresh-x', user: { userId: 'x' } }));
+  assert.equal((await pending)?.code, 'stale_auth_exchange');
+  assert.equal(await storage.getAuthTokens(), null);
+});
+
 test('remote revocation is aborted after five seconds without delaying local logout', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const remote = deferred();

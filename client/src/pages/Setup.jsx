@@ -4,7 +4,7 @@ import PasswordField from '../components/PasswordField.jsx';
 import PublicAuthProviders from '../lib/plugins/PublicAuthProviders.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import PublicFooter from '../components/PublicFooter.jsx';
-import { saveAuthTokens, saveAuthUser, saveAuthProvider } from '../../js/storage.js';
+import { adoptAuthSession } from '../../js/auth.js';
 import { missingFieldsMessage, requestError } from '../lib/authErrors.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -111,9 +111,8 @@ export default function Setup() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "We couldn't finish setup. Try again.");
       try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
-      await saveAuthTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
-      await saveAuthUser(data.user);
-      saveAuthProvider('password');
+      // One guarded write, like every other new session (js/auth.js).
+      await adoptAuthSession(data, 'password');
       window.location.href = '/plato';
     } catch (e) {
       setError(requestError(e, "We couldn't finish setup. Try again."));

@@ -382,6 +382,19 @@ export async function saveAuthTokens({ accessToken, refreshToken }, expected = n
   } catch { return false; /* storage full or disabled */ }
 }
 
+/**
+ * Store a newly issued session in one synchronous write. It replaces the whole
+ * record, so tokens, user, and provider always belong to the same sign-in:
+ * nothing from a previous account survives, and no other session can write in
+ * between the parts. Returns false when storage refuses the write.
+ */
+export function saveAuthSession({ accessToken, refreshToken, user, provider }) {
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ accessToken, refreshToken, user, provider }));
+    return true;
+  } catch { return false; /* storage full or disabled */ }
+}
+
 export async function clearAuth() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
   clearCache();

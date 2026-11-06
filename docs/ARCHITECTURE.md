@@ -382,6 +382,15 @@ check the session generation immediately before writing replacement credentials
 or notifying session expiry, so they cannot restore a logged-out account or
 overwrite the next account. A delayed 401 can retry with credentials already
 refreshed by another request in the same account and session generation.
+Sign-in follows the same rule: the newest sign-in or sign-out owns
+`plato_auth`. A password login records its generation when it starts and
+stores its response only if that generation is still current; otherwise it
+revokes the unused refresh token (best effort) and rejects with
+`code: 'stale_auth_exchange'`. Every new session (password login, an external
+provider, first-run setup) is stored by `saveAuthSession` in one synchronous
+write that replaces the whole record, so tokens, user, and provider always
+come from the same sign-in. The publication ticket in `AuthContext` only
+decides what React shows; these checks keep storage on the same account.
 Legacy Firebase-provider probing cannot delay local
 sign-out or overwrite a newer provider decision. Firebase detection/import is
 bounded to five seconds, and stale cleanup is skipped after another login

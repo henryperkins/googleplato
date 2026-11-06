@@ -5,7 +5,7 @@
 
 import {
   getAuthTokens, saveAuthTokens, clearAuth,
-  saveAuthUser, saveAuthProvider,
+  saveAuthUser, saveAuthSession,
 } from './storage.js';
 import { compatibilityHeaders, isCompatibilityPath, requireClientUpgrade } from './clientCompatibility.js';
 
@@ -78,12 +78,24 @@ function _notifySessionExpired() {
   }
 }
 
+function staleSignIn() {
+  const error = new Error('This sign-in attempt is no longer current. Try again.');
+  error.code = 'stale_auth_exchange';
+  return error;
+}
+
 /**
  * Log in with email and password.
  * Returns the user object on success, throws on failure.
+ *
+ * The newest sign-in or sign-out owns the stored credentials. A response that
+ * arrives after another one started must not replace them: React would keep
+ * showing the newer account while every request authenticated as this one.
+ * Such a response is discarded (its refresh token revoked, best effort) and
+ * the call rejects with `code: 'stale_auth_exchange'`.
  */
 export async function login(email, password) {
-  sessionGeneration += 1;
+  const generation = ++sessionGeneration;
   const res = await fetch(`${SERVICE_URL}/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -96,25 +108,33 @@ export async function login(email, password) {
     throw err;
   }
   const { accessToken, refreshToken, user } = await res.json();
-  await saveAuthTokens({ accessToken, refreshToken });
-  await saveAuthUser(user);
-  saveAuthProvider('password');
+  // No await between this check and the write below.
+  if (generation !== sessionGeneration) {
+    if (refreshToken) void revokeSession(refreshToken);
+    throw staleSignIn();
+  }
+  saveAuthSession({ accessToken, refreshToken, user, provider: 'password' });
   return user;
 }
 
 /**
- * Adopt a server-issued session returned by an enabled external auth plugin.
- * Providers return the same access/refresh shape as password login; plato does
- * not retain their provider token or load their SDK for ordinary sessions.
+ * Adopt a server-issued session: one returned by an enabled external auth
+ * plugin, or by first-run setup. Providers return the same access/refresh
+ * shape as password login; plato does not retain their provider token or load
+ * their SDK for ordinary sessions. The host guard
+ * (createPublicAuthSessionGuard) drops a provider completion whose sign-in
+ * started before a later login or logout; adoption itself is one synchronous
+ * write, so nothing can interleave with it.
  */
 export async function adoptAuthSession(session, provider) {
   if (!session?.accessToken || !session?.refreshToken || !session?.user?.userId) {
     throw new Error('The sign-in provider returned an invalid session.');
   }
   sessionGeneration += 1;
-  await saveAuthTokens({ accessToken: session.accessToken, refreshToken: session.refreshToken });
-  await saveAuthUser(session.user);
-  saveAuthProvider(provider || 'external');
+  saveAuthSession({
+    accessToken: session.accessToken, refreshToken: session.refreshToken,
+    user: session.user, provider: provider || 'external',
+  });
   return session.user;
 }
 

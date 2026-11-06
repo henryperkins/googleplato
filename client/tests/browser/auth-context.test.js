@@ -106,6 +106,32 @@ describe('AuthContext session publication', () => {
     } finally { await context.close(); }
   });
 
+  it('a password login that finishes after an external sign-in leaves storage and React on the external account', async () => {
+    const { context, page } = await open();
+    try {
+      const result = await page.evaluate(async () => {
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        const serve = window.fetch;
+        window.fetch = async (url, options) => {
+          if (url === '/v1/auth/login') await held;
+          return serve(url, options);
+        };
+        const older = window.authHarness.login('slow', 'test').then(() => null, error => error.code);
+        await window.authHarness.adoptExternalSession({
+          accessToken: 'access-external', refreshToken: 'refresh-external',
+          user: { userId: 'external', name: 'External learner', role: 'learner' },
+        }, 'google-auth');
+        release();
+        return { code: await older, stored: JSON.parse(localStorage.getItem('plato_auth')) };
+      });
+      assert.equal(result.code, 'stale_auth_exchange');
+      assert.deepEqual([result.stored.user.userId, result.stored.accessToken, result.stored.provider], ['external', 'access-external', 'google-auth']);
+      await page.waitForFunction(() => window.authHarness?.user?.userId === 'external');
+      assert.equal(await page.evaluate(() => window.publishedUsers.includes('Account slow')), false);
+    } finally { await context.close(); }
+  });
+
   for (const transition of ['switch', 'logout', 'relogin']) {
     it(`does not adopt a delayed external session after ${transition}`, async () => {
       const { context, page } = await open();
