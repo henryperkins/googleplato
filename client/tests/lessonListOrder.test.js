@@ -155,15 +155,17 @@ describe('getCachedLessonKB', () => {
 describe('LessonsList wiring', () => {
   const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/pages/LessonsList.jsx'), 'utf8');
 
-  it('orders from the verified progress snapshot', () => {
+  it('orders from the verified progress snapshot, in progress first under All statuses', () => {
     assert.match(src, /useLessonListProgress\(state\.lessons,/);
-    assert.match(src, /sortLessons\(result\)/);
+    assert.match(src, /orderForCatalog\(result, statuses, \{ inProgressFirst: statusFilter === STATUS_ALL \}\)/);
     assert.match(src, /lessonStatusKey\(statuses\[l.lessonId\]\)/);
   });
 
-  it('names hierarchy groups and retains the status filter', () => {
+  it('names the In progress group, then hierarchy groups, and retains the status filter', () => {
     assert.match(src, /'In progress'/);
-    assert.match(src, /groupForDisplay\(visibleLessons\)/);
+    assert.match(src, /<h2 className=\{GROUP_HEADING\}>In progress<\/h2>/);
+    assert.match(src, /aria-label="Lessons in progress"/);
+    assert.match(src, /groupForDisplay\(pageGrouped\)/);
     assert.match(src, /group.program.name/);
     assert.match(src, /unitName.*lessons/);
     assert.match(src, /'Other lessons'/);

@@ -167,11 +167,31 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
       return { control: control.querySelector('span[dir=auto]')?.textContent.trim().slice(0, 12) ?? control.textContent.trim().slice(0, 12), button: getComputedStyle(control).outlineStyle,
         card: cardStyle.outlineStyle === 'none' ? 'none' : `${cardStyle.outlineStyle} ${cardStyle.outlineWidth}` };
     });
-    assert.deepEqual(await ring(), { control: 'Welcome to p', button: 'none', card: 'solid 3px' });
+    // Learner a's lessons in progress lead the whole list (All statuses).
+    assert.deepEqual(await ring(), { control: 'Give constru', button: 'none', card: 'solid 3px' });
     // View outline, inside the same card, keeps its own ring.
     await page.keyboard.press('Tab');
     assert.deepEqual(await ring(), { control: 'View outline', button: 'solid', card: 'none' });
     await context.close();
+  });
+
+  it('leads the whole list with lessons in progress, ahead of the course that sorts first', async () => {
+    const { context, page } = await signIn('a');
+    try {
+      // Getting Started sorts first, but learner a's 13 lessons in progress
+      // lead: twelve fill page one, the thirteenth opens page two.
+      const inProgress = page.getByRole('list', { name: 'Lessons in progress' });
+      assert.equal(await inProgress.getByRole('button', { name: /^Open lesson / }).count(), 12);
+      assert.equal(await cards(page).count(), 12);
+      assert.equal(await page.getByRole('heading', { name: 'Getting Started with plato', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Next page', exact: true }).click();
+      await inProgress.getByRole('button', { name: /^Open lesson Practice giving thoughtful/ }).waitFor();
+      assert.deepEqual((await page.getByRole('heading', { level: 2 }).allTextContents()).slice(0, 2), ['In progress', 'Getting Started with plato']);
+      // A status filter keeps plain hierarchy order and grouping.
+      await page.locator('#status-filter').selectOption('in-progress');
+      await page.getByRole('list', { name: 'Lessons in progress' }).waitFor({ state: 'detached' });
+      assert.match(await cards(page).first().getAttribute('aria-label') ?? await cards(page).first().textContent(), /Give constructive feedback/);
+    } finally { await context.close(); }
   });
 
   it('marks Start here on the first lesson only for a learner who has started nothing', async () => {
@@ -469,6 +489,13 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
       await page.getByRole('listitem').filter({ has: open }).getByRole('button', { name: 'View outline' }).click();
       return page.getByRole('dialog').getByRole('progressbar', { name: '30% complete' });
     };
+    // Learner a's lessons in progress fill page one. A status filter keeps
+    // plain course grouping, so the unstarted Getting Started course leads.
+    const showNotStarted = async (page) => {
+      await page.keyboard.press('Escape');
+      await page.getByRole('dialog').waitFor({ state: 'detached' });
+      await page.locator('#status-filter').selectOption('not-started');
+    };
 
     for (const theme of ['light', 'dark']) {
       const { context, page } = await signIn('a');
@@ -477,8 +504,9 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
         await page.reload();
         await page.getByRole('button', { name: /^Open lesson / }).first().waitFor();
       }
-      assertVisible(await barColors(courseBar(page)), `${theme} course bar`);
       assertVisible(await barColors(await outlineBar(page)), `${theme} outline bar`);
+      await showNotStarted(page);
+      assertVisible(await barColors(courseBar(page)), `${theme} course bar`);
       await context.close();
     }
 
@@ -486,8 +514,9 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     // the text color. WebKit has no forced colors mode.
     if (engine === 'webkit') return;
     const { context, page } = await signIn('a', { forcedColors: 'active' });
-    for (const bar of [courseBar(page), await outlineBar(page)]) {
-      const colors = await barColors(bar);
+    const outline = await barColors(await outlineBar(page));
+    await showNotStarted(page);
+    for (const colors of [await barColors(courseBar(page)), outline]) {
       assert.equal(colors.outline, 'solid');
       assert.equal(colors.fill, colors.text);
       assert.notEqual(colors.fill, colors.track);

@@ -10,8 +10,8 @@ import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import Check from 'lucide-react/dist/esm/icons/check';
 import AccountInviteNotice from '../components/AccountInviteNotice.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { completionBy, groupForDisplay, sortLessons } from '../lib/lessonOrder.js';
-import { startHereLessonId } from '../lib/lessonListOrder.js';
+import { completionBy, groupForDisplay, orderForCatalog, sortLessons } from '../lib/lessonOrder.js';
+import { isInProgress, startHereLessonId } from '../lib/lessonListOrder.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -142,7 +142,9 @@ export default function LessonsList() {
     if (unitFilter === FILTER_NONE) result = result.filter(l => !l.unit?.id);
     else if (unitFilter !== FILTER_ALL) result = result.filter(l => l.unit?.id === unitFilter);
     if (statusFilter !== STATUS_ALL) result = result.filter(l => lessonStatusKey(statuses[l.lessonId]) === statusFilter);
-    return sortLessons(result);
+    // Under "All statuses", lessons in progress lead the whole list; a status
+    // filter keeps plain hierarchy order.
+    return orderForCatalog(result, statuses, { inProgressFirst: statusFilter === STATUS_ALL });
   }, [lessons, courseFilter, unitFilter, statusFilter, statuses]);
 
   // A learner who hasn't started any lesson gets one suggested first lesson,
@@ -162,6 +164,10 @@ export default function LessonsList() {
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const visibleLessons = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  // The page's lessons in progress get their own group first (they lead the
+  // whole ordered list); the rest group by course and unit.
+  const pageInProgress = statusFilter === STATUS_ALL ? visibleLessons.filter(l => isInProgress(statuses[l.lessonId])) : [];
+  const pageGrouped = pageInProgress.length ? visibleLessons.filter(l => !pageInProgress.includes(l)) : visibleLessons;
 
   // Reset to page 1 whenever any filter changes so we never land on an
   // out-of-range page after a tighter filter.
@@ -326,7 +332,16 @@ export default function LessonsList() {
         </div>
       ) : (
         <div className="space-y-6">
-          {groupForDisplay(visibleLessons).map(group => (
+          {pageInProgress.length > 0 && (
+            <section className="space-y-4">
+              <h2 className={GROUP_HEADING}>In progress</h2>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" aria-label="Lessons in progress">
+                {pageInProgress.map(lesson => <LessonCardItem key={lesson.lessonId} lesson={lesson} lessonData={statuses} timeStats={timeStats}
+                  startHere={lesson.lessonId === startHereId} navigate={navigate} setDetailLesson={setDetailLesson} />)}
+              </ul>
+            </section>
+          )}
+          {groupForDisplay(pageGrouped).map(group => (
             <section key={group.key} className="space-y-4">
               {group.program && <ProgressHeader level={2} name={group.program.name} progress={progressByProgram[group.program.id]} showBar />}
               {group.key === 'start-here' && <h2 className={GROUP_HEADING}>Start here</h2>}

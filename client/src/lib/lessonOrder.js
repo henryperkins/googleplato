@@ -6,6 +6,8 @@
 // client/tests/lessonOrder.test.js. Replaces
 // courseCompletion.js (#395), which grouped and counted by unit only.
 
+import { isInProgress } from './lessonListOrder.js';
+
 const byName = (a, b) => (a || '').localeCompare(b || '', undefined, { numeric: true, sensitivity: 'base' });
 const rank = (v) => (typeof v === 'number' ? v : Number.POSITIVE_INFINITY);
 
@@ -32,6 +34,22 @@ export function compareLessons(a, b) {
 }
 
 export const sortLessons = (lessons) => lessons.slice().sort(compareLessons);
+
+/**
+ * The lessons page order. With `inProgressFirst` (the status filter shows
+ * every status), the lessons the learner started and hasn't completed lead
+ * the whole list, in hierarchy order among themselves, so a long first course
+ * or pagination can't push a returning learner's lesson off page one. Every
+ * other lesson follows in hierarchy order. `progress` maps lessonId to its
+ * lessonKB summary.
+ */
+export function orderForCatalog(lessons, progress = {}, { inProgressFirst = false } = {}) {
+  const sorted = sortLessons(lessons);
+  if (!inProgressFirst) return sorted;
+  const started = sorted.filter((l) => isInProgress(progress[l.lessonId]));
+  if (!started.length) return sorted;
+  return [...started, ...sorted.filter((l) => !isInProgress(progress[l.lessonId]))];
+}
 
 /**
  * The lesson after `lessonId` in the hierarchy order. It continues into the

@@ -3,7 +3,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareLessons, sortLessons, nextLessonAfter, groupForDisplay, completionBy } from '../src/lib/lessonOrder.js';
+import { compareLessons, sortLessons, nextLessonAfter, groupForDisplay, completionBy, orderForCatalog } from '../src/lib/lessonOrder.js';
 
 const P1 = { id: 'p1', name: 'Course One', position: 0 };
 const P2 = { id: 'p2', name: 'Course Two', position: 1 };
@@ -25,6 +25,25 @@ describe('sortLessons', () => {
   });
   it('uses position, not name, inside a unit ("Alpha 10" before "Alpha 2")', () => {
     assert.ok(compareLessons(lessons[2], lessons[1]) < 0);
+  });
+});
+
+describe('orderForCatalog', () => {
+  const progress = { e1: { status: 'learning' }, a2: { status: 'learning' }, d1: { status: 'completed' }, n1: { status: 'learning' } };
+  it('puts lessons in progress first across every course, each section in hierarchy order', () => {
+    assert.deepEqual(orderForCatalog(lessons, progress, { inProgressFirst: true }).map((l) => l.lessonId),
+      ['a2', 'e1', 'n1', 'a1', 'c1', 'd1', 'e0', 'custom-x']);
+  });
+  it('keeps an in-progress lesson on page one however long the courses before it are', () => {
+    const course = Array.from({ length: 14 }, (_, i) => L(`p-${i}`, `Lesson ${i}`, P1, { id: 'u1', name: 'Unit A', position: 0, lessonPosition: i }));
+    const late = L('late', 'Late lesson', P2, { id: 'u3', name: 'Unit C', position: 0, lessonPosition: 0 });
+    const ordered = orderForCatalog([...course, late], { late: { status: 'learning' } }, { inProgressFirst: true });
+    assert.equal(ordered[0].lessonId, 'late');
+  });
+  it('is plain hierarchy order with nothing in progress, or without inProgressFirst (a status filter)', () => {
+    const plain = sortLessons(lessons).map((l) => l.lessonId);
+    assert.deepEqual(orderForCatalog(lessons, {}, { inProgressFirst: true }).map((l) => l.lessonId), plain);
+    assert.deepEqual(orderForCatalog(lessons, progress).map((l) => l.lessonId), plain);
   });
 });
 

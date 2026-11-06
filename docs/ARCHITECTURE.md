@@ -1699,12 +1699,14 @@ have no progress bar. Purely informational; it reads `lessonKB.status` and never
 affects completion.
 
 While the status filter shows every status, the lessons the learner has started
-and not completed lead the whole list under an **In progress** heading, in
-catalog order among themselves, so a long first course can't push a returning
-learner's lesson onto page 2 (`orderLessons()` / `groupLessonsForPage()` in
-`client/src/lib/lessonListOrder.js`). A status filter keeps plain course
-grouping. Course groups follow in course-name order; lessons without a course
-come last, under **Other lessons** whenever the list has other groups.
+and not completed lead the whole list under an **In progress** heading
+(`aria-label="Lessons in progress"`), in hierarchy order among themselves, so a
+long first course (Getting Started included) can't push a returning learner's
+lesson onto page 2 (`orderForCatalog()` in `client/src/lib/lessonOrder.js`;
+`isInProgress()` in `lessonListOrder.js`). A status filter keeps plain
+hierarchy order and grouping. After the in-progress group, each page groups by
+course and unit in hierarchy order (`groupForDisplay()`); lessons without a
+unit come last, under **Other lessons** whenever the list has structure.
 
 A learner who hasn't started any lesson gets one suggestion instead: the first
 lesson in the list shows **Start here** (`startHereLessonId()`), and its open
