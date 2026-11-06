@@ -164,10 +164,11 @@ export default function LessonsList() {
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const visibleLessons = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  const visibleCount = visibleLessons.length;
   // The page's lessons in progress get their own group first (they lead the
   // whole ordered list); the rest group by course and unit.
   const pageInProgress = statusFilter === STATUS_ALL ? visibleLessons.filter(l => isInProgress(statuses[l.lessonId])) : [];
-  const pageGrouped = pageInProgress.length ? visibleLessons.filter(l => !pageInProgress.includes(l)) : visibleLessons;
+  const pageGrouped = visibleLessons.filter(l => !pageInProgress.includes(l));
 
   // Reset to page 1 whenever any filter changes so we never land on an
   // out-of-range page after a tighter filter.
@@ -230,9 +231,9 @@ export default function LessonsList() {
       return `Showing ${total} ${lessonWord}${scope}.`;
     }
     const showingFrom = pageStart + 1;
-    const showingTo = pageStart + visibleLessons.length;
+    const showingTo = pageStart + visibleCount;
     return `Showing ${showingFrom} to ${showingTo} of ${total} ${lessonWord}${scope}, page ${currentPage} of ${totalPages}.`;
-  }, [loaded, progressReady, lessons.length, loadError, filtered.length, filterPhrase, totalPages, pageStart, visibleLessons.length, currentPage]);
+  }, [loaded, progressReady, lessons.length, loadError, filtered.length, filterPhrase, totalPages, pageStart, visibleCount, currentPage]);
 
   return (
     <div className="mx-auto max-w-5xl p-4">
