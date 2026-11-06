@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -169,7 +170,7 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
       assert.ok(Date.now() - started < 15000, `Test server did not start: ${output}`);
       await delay(100);
     }
-    browser = await browserType.launch();
+    browser = await browserType.launch({ executablePath: process.env.PLATO_TEST_BROWSER_EXECUTABLE || undefined });
     const context = await browser.newContext();
     try {
       const page = await context.newPage();
@@ -195,6 +196,97 @@ describe('Rendered admin responsive regressions', { timeout: 180000 }, () => {
       try { await exited; } finally { clearTimeout(force); }
     }
     if (directory) await rm(directory, { recursive: true, force: true });
+  });
+
+  it('registers the injected hosting worker at root on fresh and warm nested entries', async () => {
+    const proxy = createHttpServer(async (request, response) => {
+      if (request.url === '/_service-worker.js') {
+        response.writeHead(200, { 'Content-Type': 'application/javascript' });
+        response.end("self.addEventListener('install', event => event.waitUntil(self.skipWaiting())); self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));");
+        return;
+      }
+      try {
+        const upstream = await fetch(`${base}${request.url}`);
+        let body = Buffer.from(await upstream.arrayBuffer());
+        const type = upstream.headers.get('content-type') || 'application/octet-stream';
+        if (type.includes('text/html')) {
+          body = Buffer.from(body.toString().replace('</head>', `<script>
+            window.addEventListener('load', () => navigator.serviceWorker.register('./_service-worker.js')
+              .then(() => { window.hostingWorkerStatus = 'registered'; })
+              .catch(error => { window.hostingWorkerStatus = error.message; }));
+          </script></head>`));
+        }
+        response.writeHead(upstream.status, { 'Content-Type': type });
+        response.end(body);
+      } catch {
+        response.writeHead(502);
+        response.end('Fixture proxy failed');
+      }
+    });
+    await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
+    const origin = `http://127.0.0.1:${proxy.address().port}`;
+    try {
+      for (const path of ['/plato/customizer', '/plato/customizer/']) {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        try {
+          for (const entry of [path, '/login', path]) {
+            await page.goto(`${origin}${entry}`);
+            await page.waitForFunction(() => window.hostingWorkerStatus);
+            assert.equal(await page.evaluate(() => window.hostingWorkerStatus), 'registered');
+            assert.deepEqual(await page.evaluate(async () => {
+              const registration = await navigator.serviceWorker.ready;
+              return { scope: registration.scope, script: registration.active.scriptURL };
+            }), { scope: `${origin}/`, script: `${origin}/_service-worker.js` });
+          }
+        } finally { await context.close(); }
+      }
+    } finally { await new Promise(resolve => proxy.close(resolve)); }
+  });
+
+  it('announces sign-in after a protected redirect without announcing the inaccessible page', async () => {
+    const context = await browser.newContext();
+    await context.addInitScript(() => {
+      window.navigationAnnouncements = [];
+      new MutationObserver(() => {
+        for (const element of document.querySelectorAll('[role="status"]')) {
+          if (element.textContent.startsWith('Navigated to ')) window.navigationAnnouncements.push(element.textContent);
+        }
+      }).observe(document, { subtree: true, childList: true, characterData: true });
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(8000);
+    try {
+      await page.goto(`${base}/plato/customizer`);
+      await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+      await page.getByRole('status').filter({ hasText: /^Navigated to Sign in$/ }).waitFor();
+      assert.ok(!(await page.evaluate(() => window.navigationAnnouncements)).includes('Navigated to Classroom Customizer'));
+      await page.getByRole('link', { name: 'Forgot password?', exact: true }).click();
+      await page.getByRole('heading', { name: 'Reset password', exact: true }).waitFor();
+      await page.getByRole('status').filter({ hasText: /^Navigated to Reset password$/ }).waitFor();
+      assert.match(await page.title(), /^Reset password — /);
+    } finally { await context.close(); }
+  });
+
+  it('clears the previous announcement while a lesson destination is unresolved', async () => {
+    const { context, page } = await openPage({ width: 1280, height: 900 });
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    await context.route('**/v1/sync', async route => { await pending; await route.continue().catch(() => {}); });
+    page.setDefaultTimeout(8000);
+    try {
+      await page.goto(`${base}/plato/customizer`);
+      await page.getByRole('status').filter({ hasText: /^Navigated to Classroom Customizer$/ }).waitFor();
+      // A popstate transition exercises the same mounted announcer while the
+      // catalog is held, without creating or modifying a learner's lessons.
+      await page.evaluate(() => {
+        history.pushState(history.state, '', '/lessons/unresolved-title');
+        dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await page.waitForFunction(() => location.pathname === '/lessons/unresolved-title'
+        && document.title.startsWith('Lesson — ')
+        && !Array.from(document.querySelectorAll('[role="status"]')).some(element => element.textContent.startsWith('Navigated to ')));
+    } finally { release(); await context.close(); }
   });
 
   it('preserves lesson shares through a public/private round trip', async () => {

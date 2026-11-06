@@ -16,6 +16,18 @@
       document.documentElement.classList.add('dark');
     }
   </script>
+  <script>
+    // AI Studio injects a load handler that registers this worker relative to
+    // the current route. Correct that one URL before its handler can run.
+    if ('serviceWorker' in navigator) {
+      const workers = navigator.serviceWorker;
+      const register = workers.register;
+      workers.register = function (...args) {
+        if (args[0] === './_service-worker.js') args[0] = '/_service-worker.js';
+        return register.apply(this, args);
+      };
+    }
+  </script>
 </head>
 <body>
   <div id="root"></div>

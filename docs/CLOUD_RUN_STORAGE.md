@@ -13,6 +13,14 @@ Node 24 and installs the dependency versions recorded in `package-lock.json`.
 Keep the AI Studio ingress sidecar when updating the existing Cloud Run service.
 Change only the application container image and the documented runtime settings.
 
+The AI Studio ingress also injects a browser service-worker registration relative
+to the page URL. `client/index.html` corrects only its exact
+`./_service-worker.js` argument to `/_service-worker.js` before that load handler
+runs, so direct entry to nested routes registers the origin-root worker. Other
+registration URLs, options, return values and failures retain browser behavior.
+The admin browser suite simulates the hosting injection and checks fresh and
+warm entries. See [the startup fixes review](reviews/startup-navigation-fixes-2026-11-06.md).
+
 Pushing to `main` automatically deploys to `plato-shaped` (`idk-4e9b9`, `us-east1`)
 through the GitHub push webhook and the `plato-main` Cloud Build webhook trigger
 (`deploy/cloudrun/cloudbuild.yaml`). Lint and tests (including the PostgreSQL

@@ -13,6 +13,21 @@ const ROUTE_NAMES = {
   '/onboarding': 'Welcome',
 };
 
+// Public pages own their document titles (including sign-in's invitation
+// view). These labels name navigation without overriding those dynamic titles.
+const PUBLIC_PAGE_NAMES = {
+  '/login': 'Sign in',
+  '/signup': 'Create your account',
+  '/waitlist': 'Join the wait list',
+  '/forgot-password': 'Reset password',
+  '/reset-password': 'Set new password',
+  '/privacy': 'Privacy & Data Handling',
+};
+
+export function publicPageName(path) {
+  return Object.hasOwn(PUBLIC_PAGE_NAMES, path) ? PUBLIC_PAGE_NAMES[path] : null;
+}
+
 // Admin pages by the segment after /plato, named as their headings are.
 const ADMIN_PAGE_NAMES = {
   '': 'Dashboard',

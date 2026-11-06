@@ -147,7 +147,7 @@ describe('first paint', () => {
     const inline = [...head.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join('\n');
     assert.ok(inline, 'index.html should apply the saved theme from an inline script in <head>');
     const documentElement = fakeRoot();
-    vm.runInNewContext(inline, { localStorage: storage, document: { documentElement }, window: { matchMedia: () => ({ matches: darkDevice }) } });
+    vm.runInNewContext(inline, { navigator: {}, localStorage: storage, document: { documentElement }, window: { matchMedia: () => ({ matches: darkDevice }) } });
     return documentElement.classList.contains('dark') ? 'dark' : 'light';
   }
 
