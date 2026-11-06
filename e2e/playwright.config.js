@@ -17,7 +17,10 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
   workers: 1,
-  retries: process.env.CI ? 1 : 0,
+  // No retries: every spec shares one server and one SQLite database, so a
+  // retry would run against whatever the failed attempt left behind. A pass
+  // then proves nothing about a clean run. Fix or isolate a flaky spec instead.
+  retries: 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   globalSetup: './global-setup.js',
   use: {

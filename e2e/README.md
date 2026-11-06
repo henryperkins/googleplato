@@ -33,6 +33,11 @@ The login helper and the public-page checks serve a local stub for the
 Google sign-in chunk (`firebaseAuth-*.js`, as the fork's browser suites do), so
 the suite makes no requests to Google and `networkidle` waits only on this app.
 
+Every spec shares that one server and database, so the suite never retries a
+failed test (`retries: 0`): a retry would run against the state the failed
+attempt changed. A spec that passes alone but fails in the full run depends on
+another spec's data; isolate it rather than retry it.
+
 Override `E2E_PORT` for an unused port and optionally `E2E_DB` for a caller-owned
 database path. The runner never deletes a supplied database; choose a new path
 for a clean run. Default `plato-e2e-*` temporary directories are retained for
