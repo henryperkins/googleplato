@@ -92,6 +92,8 @@ publication proof are kept outside the repository in
 `/home/ubuntu/.local/state/googleplato/integrations/20261106T182556Z-fresh-launch`.
 Existing preview data was not reset.
 
+![Current audience confirmation in the synthetic HTTPS preview](assets/upstream-launch-2026-11-06/notifications-current-audience.png)
+
 ## Evidence boundaries
 
 The database and HTTP evidence is local execution; the HTTPS browser evidence
