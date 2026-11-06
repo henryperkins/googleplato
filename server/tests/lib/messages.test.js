@@ -153,6 +153,30 @@ describe('send-message job', () => {
     assert.equal(counts.emailed, 2);
   });
 
+  it('a failed message keeps its receipts however many messages follow, so a retry emails only who it missed', async () => {
+    const audience = (userIds) => ({ type: 'users', userIds });
+    const msg = await m.createMessage(m.validateMessage(draft({ email: true, audience: audience(['usr_ada', 'usr_bo']) })).message, admin, db);
+    setEmailTransport(async (raw) => {
+      if (/^To: bo@x\.com$/m.test(raw)) throw Object.assign(new Error('SES refused'), { name: 'AccessDeniedException' });
+      mails.push(raw);
+    });
+    await m.sendMessageEmails({ id: msg.id }, { db }).catch(() => {});
+    setEmailTransport(async (raw) => { mails.push(raw); });
+    assert.equal((await db.getSyncData('_system', `message:${msg.id}`)).data.status, 'failed');
+    // More messages than the receipt cap reach the person who already got it.
+    for (let i = 0; i < 50; i++) {
+      const later = await m.createMessage(m.validateMessage(draft({ subject: `Update ${i}`, email: true, audience: audience(['usr_ada']) })).message, admin, db);
+      await m.sendMessageEmails({ id: later.id }, { db });
+    }
+    mails.length = 0;
+    const counts = await m.sendMessageEmails({ id: msg.id }, { db });
+    assert.deepEqual(mails.map((raw) => raw.match(/^To: (.+)$/m)[1]), ['bo@x.com'], 'Ada is not emailed again');
+    assert.deepEqual([counts.emailed, counts.failed], [2, 0]);
+    const receipts = (await readNotifyState('usr_ada', db)).emailed;
+    assert.ok(receipts[msg.id], 'the retryable message kept its receipt');
+    assert.equal(Object.keys(receipts).length, 51, 'finished messages stay capped at 49, plus the newest and the retryable one');
+  });
+
   it('an uncertain acknowledgement keeps its recipient claim and never emails twice', async () => {
     const msg = await m.createMessage(m.validateMessage(draft({ email: true, audience: { type: 'users', userIds: ['usr_ada'] } })).message, admin, db);
     let calls = 0;

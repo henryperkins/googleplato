@@ -157,6 +157,30 @@ export async function markRead(userId, ids, db = defaultDb) {
 const fill = (s, vars) => s.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, k) => (vars[k] == null ? '' : String(vars[k])));
 
 const DELIVERY_LEASE_MS = 10 * 60 * 1000;
+const FINISHED_RECEIPTS_KEPT = 49;
+
+/**
+ * Messages whose email delivery is over: in-app only, or 'sent'. 'sent' is
+ * final (claimDelivery and the retry route both skip it), so a stale read can
+ * only miss a message that finished since, which then counts as unfinished.
+ */
+async function finishedMessageIds(db) {
+  return new Set((await listMessages(db)).filter((m) => !m.email || m.status === 'sent').map((m) => m.id));
+}
+
+/**
+ * A recipient's `emailed` receipts, minus the oldest receipts of finished
+ * messages. A retry treats a missing receipt as "not sent yet", so a message
+ * that can still be retried (or one newer than the `finished` snapshot) keeps
+ * every receipt, however many messages follow it. Only finished messages'
+ * receipts are capped.
+ */
+function keptReceipts(emailed, finished) {
+  const entries = Object.entries(emailed || {});
+  const done = entries.filter(([messageId]) => finished.has(messageId))
+    .sort((a, b) => b[1].localeCompare(a[1])).slice(0, FINISHED_RECEIPTS_KEPT);
+  return Object.fromEntries([...done, ...entries.filter(([messageId]) => !finished.has(messageId))]);
+}
 
 async function claimDelivery(id, db) {
   const owner = randomBytes(16).toString('hex');
@@ -209,7 +233,7 @@ export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
   const counts = { recipients: 0, emailed: 0, optedOut: 0, blocked: 0, skipped: 0, failed: 0 };
   let finalized = false;
   try {
-    const [people, classroom] = await Promise.all([recipientsOf(message, db), getClassroom()]);
+    const [people, classroom, finished] = await Promise.all([recipientsOf(message, db), getClassroom(), finishedMessageIds(db)]);
     counts.recipients = people.length;
     const queue = [...people];
     async function worker() {
@@ -257,9 +281,8 @@ export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
           await updateNotifyState(u.userId, st => {
             if (st.emailPending?.[id]?.owner !== owner) return st;
             const { [id]: _drop, ...rest } = st.emailPending;
-            const recent = Object.entries(st.emailed || {}).sort((a, b) => b[1].localeCompare(a[1])).slice(0, 49);
             return { ...st, emailPending: rest, ...(result.sent ? {
-              emailed: { ...Object.fromEntries(recent), [id]: new Date().toISOString() },
+              emailed: { ...keptReceipts(st.emailed, finished), [id]: new Date().toISOString() },
             } : {}) };
           }, db);
           if (result.sent) counts.emailed++;

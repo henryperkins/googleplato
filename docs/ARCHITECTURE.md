@@ -204,6 +204,12 @@ same scheduled job. Upstream used a version-0 upsert, which allowed both.
   confirms it. A known transport failure releases only that attempt's own
   claim, so a retry tries the person again. Recipients already emailed are
   skipped.
+- Those `emailed` receipts are what stop a retry from emailing someone twice,
+  so a message that can still be retried (email on, not `sent`) keeps every
+  receipt however many messages follow it. Only receipts of finished messages
+  (`sent` is final) are capped, at the newest 49 per person. Each attempt
+  reads which messages are finished when it starts; a message it doesn't
+  know about yet counts as unfinished.
 - An **uncertain** outcome, such as an attempt that died mid-send, keeps its
   pending claim. It isn't resent automatically and isn't counted as delivered.
   Counts can under-report but never double-send: this is at most once, not
