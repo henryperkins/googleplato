@@ -193,6 +193,12 @@ transaction. `server/tests/lib/launch-adapters.test.js` proves a single winner
 for concurrent first writes on real SQLite and PostgreSQL 17. DynamoDB is
 covered by its adapter contract tests, not a live table.
 
+**Decisions read the latest write.** `readAutomations`, `readNotifyState`,
+and `updateNotifyState` read strongly consistently, so on DynamoDB an
+automation turned off doesn't run once more and an unsubscribe stops the next
+email (`server/tests/lib/consistent-decisions.test.js` models replication
+lag). SQLite and PostgreSQL are always consistent.
+
 **First writes are create-only.** An absent `notify:state` (an unsubscribe, a
 read receipt, a delivery claim), `_system:automations` (the switches), or
 `_system:jobs:schedule` is created with `createSyncData` and re-read on a
@@ -2510,8 +2516,10 @@ Four roles. `server/src/lib/permissions.js` is the single source of who may do w
 
 **Enforcement:** `/v1/admin/*` runs `authenticate`, then `authorize`
 (`server/src/middleware/authorize.js`).
-- `authenticate` reloads the user's role from the DB on every request, so a
-  role change applies immediately.
+- `authenticate` reloads the user's role from the DB on every request, with
+  a strongly consistent read, so a role change (or a deletion) applies from
+  the next request. An eventually consistent DynamoDB read could still return
+  the old role.
 - `authorize` looks the request up in `ROUTE_PERMISSIONS`. **Any route not in
   the table is admin-only**, so a new route is safe by default.
 - `tests/lib/permissions.test.js` fails if a registered admin route is unmapped

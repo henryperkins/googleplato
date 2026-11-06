@@ -61,8 +61,12 @@ export const AUTOMATIONS = Object.freeze({
 // Sent every time, no switch. Listed in Automations so admins can edit them.
 export const ALWAYS_ON = Object.freeze(['invite', 'account-invite']);
 
+// Reads below are strongly consistent (they matter on DynamoDB): each one
+// decides whether a job runs or an email goes out, so a switch turned off or
+// an unsubscribe must count from the next read, not after replication.
+
 export async function readAutomations(db = defaultDb) {
-  const item = await db.getSyncData('_system', 'automations');
+  const item = await db.getSyncData('_system', 'automations', { consistentRead: true });
   const stored = item?.data || {};
   return Object.fromEntries(Object.keys(AUTOMATIONS).map((k) => [k, stored[k] === true]));
 }
@@ -80,7 +84,7 @@ export async function writeAutomations(patch, db = defaultDb) {
     if (typeof v !== 'boolean') return { error: `${k} must be true or false` };
   }
   for (let attempt = 0; attempt < 3; attempt++) {
-    const item = await db.getSyncData('_system', 'automations');
+    const item = await db.getSyncData('_system', 'automations', { consistentRead: true });
     const next = { ...(item?.data || {}), ...patch };
     try {
       if (item) await db.putSyncData('_system', 'automations', next, item.version, { strictVersion: true });
@@ -260,7 +264,7 @@ export const unsubscribeUrl = (userId, kind) => `${APP_URL}/v1/unsubscribe?token
 const STATE_KEY = 'notify:state';
 
 export async function readNotifyState(userId, db = defaultDb) {
-  const item = await db.getSyncData(userId, STATE_KEY);
+  const item = await db.getSyncData(userId, STATE_KEY, { consistentRead: true });
   return { optOut: {}, ...(item?.data || {}) };
 }
 
@@ -270,7 +274,7 @@ export async function readNotifyState(userId, db = defaultDb) {
  */
 export async function updateNotifyState(userId, change, db = defaultDb) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const item = await db.getSyncData(userId, STATE_KEY);
+    const item = await db.getSyncData(userId, STATE_KEY, { consistentRead: true });
     const cur = { optOut: {}, ...(item?.data || {}) };
     const next = change(cur);
     if (next === cur) return cur;

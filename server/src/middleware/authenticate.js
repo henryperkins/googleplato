@@ -15,7 +15,10 @@ export async function authenticate(c, next) {
     return c.json({ error: 'Invalid or expired token' }, 401);
   }
 
-  const user = await db.getUserById(payload.sub);
+  // Strongly consistent: the role (and the account itself) decides what this
+  // request may do, and a demotion or deletion applies from the next request.
+  // On DynamoDB an eventually consistent read could still return the old role.
+  const user = await db.getUserById(payload.sub, { consistentRead: true });
   if (!user) {
     return c.json({ error: 'User not found' }, 401);
   }
