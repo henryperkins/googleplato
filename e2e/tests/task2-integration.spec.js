@@ -96,7 +96,7 @@ test('failed message sends retain the draft and request ID; History retries with
     }
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(page.getByText(/Dispatch failed.*Your draft is retained/).first()).toBeVisible();
+    await expect(page.getByText(/Dispatch failed\. Your draft is kept\. Retry it from History/).first()).toBeVisible();
     await expect(page.getByLabel('Subject', { exact: true })).toHaveValue('Retained message');
   }
   expect(requestIds).toHaveLength(2);
@@ -172,7 +172,7 @@ test('accepted message stays acknowledged when the following History refresh fai
   await expect(page.getByLabel('Subject', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Message', { exact: true })).toHaveValue('');
   await expect(page.getByText(/Message sent to the classroom\..*History could not be refreshed.*Do not resend/).first()).toBeVisible();
-  await expect(page.getByText(/Your draft is retained/)).toHaveCount(0);
+  await expect(page.getByText(/Your draft is kept/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
   expect(posts).toBe(1);
   historyAvailable = true;

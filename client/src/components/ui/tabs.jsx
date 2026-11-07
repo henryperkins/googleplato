@@ -65,6 +65,10 @@ function TabsTrigger({
         // At night the selected tab keeps its --input border and lifts off the
         // track with a wash of the text color, like an outline button.
         "data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-foreground/10 dark:data-active:text-foreground",
+        // Forced colors drop the fill and shadow that mark the selected tab, so it
+        // takes a Highlight border and an underline. (A Highlight fill would put
+        // HighlightText on the Canvas backplate Chromium paints behind text.)
+        "forced-colors:data-active:border-[color:Highlight] forced-colors:data-active:underline forced-colors:data-active:decoration-2 forced-colors:data-active:underline-offset-4",
         "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-[variant=default]/tabs-list:after:hidden group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
         className
       )}

@@ -29,7 +29,7 @@ let server, browser, base;
 
 // Render the real page and UI components; only authentication and HTTP are
 // synthetic. No persistent server/database or external delivery is involved.
-async function open(t, { history = [], templates = [], automations = {}, settingsFailures = 0, draft = true, viewport = { width: 1280, height: 1100 } } = {}) {
+async function open(t, { history = [], templates = [], automations = {}, groups = ['Two-person group'], automationFailures = 0, settingsFailures = 0, draft = true, viewport = { width: 1280, height: 1100 } } = {}) {
   const ready = settingsFailures === 0;
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
@@ -81,11 +81,13 @@ async function open(t, { history = [], templates = [], automations = {}, setting
     }
     if (path.startsWith('/v1/admin/notifications/templates/')) {
       const template = templates.find(template => path.endsWith(`/${template.id}`));
+      if (!template) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"Template not found"}' });
       if (request.method() === 'PUT') Object.assign(template, request.postDataJSON(), { isDefault: false, updatedAt: new Date().toISOString() });
       if (request.method() === 'DELETE') Object.assign(template, template.defaults, { isDefault: true, updatedAt: null });
       return reply({ template: { ...template } });
     }
     if (path === '/v1/admin/notifications/automations' && request.method() === 'PUT') {
+      if (automationFailures-- > 0) return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Controlled automation failure"}' });
       Object.assign(automations, request.postDataJSON());
       return reply({ automations: { ...automations } });
     }
@@ -99,7 +101,7 @@ async function open(t, { history = [], templates = [], automations = {}, setting
       return reply({ automations: { ...automations }, alwaysOn: [], templates: templates.map(template => ({ ...template })) });
     }
     if (path === '/v1/admin/users') return reply([]);
-    if (path === '/v1/groups') return reply({ userGroups: ['Two-person group'] });
+    if (path === '/v1/groups') return reply({ userGroups: groups });
     throw new Error(`Unexpected fixture request: ${request.method()} ${path}`);
   });
   await page.goto(`${base}/__audience-review`);
@@ -170,7 +172,7 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
     const confirmation = f.page.getByRole('alertdialog');
     await confirmation.getByRole('heading', { name: 'Stop retrying this message?', exact: true }).waitFor();
     await confirmation.getByRole('button', { name: 'Stop retrying', exact: true }).click();
-    await row.getByText('Closed', { exact: true }).waitFor();
+    await row.getByText('Retries stopped', { exact: true }).waitFor();
     assert.equal(await row.getByRole('button', { name: 'Retry delivery', exact: true }).count(), 0);
     assert.equal(await row.getByRole('button', { name: 'Stop retrying', exact: true }).count(), 0);
     assert.match(await row.innerText(), /1 emailed.*2 failed.*1 pending confirmation/);
@@ -264,7 +266,7 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
     const group = await f.nextPreview();
     assert.equal(await f.send.isDisabled(), true, 'previous Everyone count cannot authorize a group send');
     await group.fail();
-    await f.page.getByRole('status').filter({ hasText: 'Could not preview this audience.' }).waitFor();
+    await f.page.getByRole('status').filter({ hasText: 'Couldn’t count this audience. Choose it again to retry.' }).waitFor();
     assert.equal(await f.send.isDisabled(), true);
     assert.equal(await f.page.getByRole('status').filter({ hasText: 'Goes to 10 people.' }).count(), 0);
     assert.equal(await f.page.getByRole('alertdialog').count(), 0);
@@ -377,5 +379,39 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
     await f.page.keyboard.press('Enter');
     await f.page.getByRole('tab', { name: 'Compose', exact: true }).waitFor();
     assert.equal(await f.focused(), 'Notifications');
+  });
+
+  it('says why Send is off, and why a group can’t be chosen', async t => {
+    const f = await open(t, { draft: false, groups: [] });
+    const reason = async () => f.page.locator(`#${await f.send.getAttribute('aria-describedby')}`).textContent();
+    assert.equal(await reason(), 'Add a subject and a message.');
+    await f.page.getByLabel('Subject', { exact: true }).fill('Reviewed message');
+    assert.equal(await reason(), 'Add a message.');
+    await f.page.getByRole('radio', { name: 'By role', exact: true }).check();
+    assert.equal(await reason(), 'Choose at least one role.');
+    const group = f.page.getByRole('radio', { name: 'A group', exact: true });
+    assert.equal(await group.isDisabled(), true);
+    assert.equal(await group.evaluate(radio => document.getElementById(radio.getAttribute('aria-describedby'))?.textContent),
+      'No groups yet. Add one under Users → Manage → User Groups.');
+    await f.page.getByRole('radio', { name: 'Everyone', exact: true }).check();
+    await f.page.getByLabel('Message', { exact: true }).fill('Synthetic classroom message.');
+    await f.page.getByRole('status').filter({ hasText: 'Goes to 10 people.' }).waitFor();
+    assert.equal(await f.send.getAttribute('aria-describedby'), null, 'a ready message needs no reason');
+  });
+
+  it('turns an automatic email on with a switch, and says when the change didn’t save', async t => {
+    const f = await open(t, { templates: [waitlistEmail()], automations: { waitlistConfirmation: false }, automationFailures: 1, draft: false });
+    await f.page.getByRole('tab', { name: 'Automations', exact: true }).click();
+    const panel = f.page.getByRole('tabpanel');
+    const toggle = panel.getByRole('switch', { name: 'Wait list confirmation email', exact: true });
+    assert.equal(await toggle.getAttribute('aria-checked'), 'false');
+    await toggle.click();
+    await panel.getByText(/^Wait list confirmation is still off\. Controlled automation failure\.$/).waitFor();
+    assert.equal(await toggle.getAttribute('aria-checked'), 'false', 'the switch goes back');
+    assert.equal(await toggle.evaluate(element => document.activeElement === element), true, 'the switch keeps focus');
+    await toggle.click();
+    await panel.getByText('On', { exact: true }).waitFor();
+    assert.equal(await toggle.getAttribute('aria-checked'), 'true');
+    assert.equal(await panel.getByText(/is still off/).count(), 0, 'the earlier failure clears');
   });
 });

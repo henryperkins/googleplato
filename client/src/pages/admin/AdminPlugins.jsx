@@ -5,6 +5,7 @@ import { adminApi } from './adminApi.js';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -115,34 +116,6 @@ export default function AdminPlugins() {
         ))}
       </div>
     </div>
-  );
-}
-
-/**
- * Accessible toggle styled as a switch. Implements the WAI-ARIA `switch` pattern:
- * focusable button with `role="switch"` and `aria-checked`. Click and Space
- * toggle. Wrapped here (rather than added to components/ui) since it's the
- * only consumer today; promote later if reused.
- */
-function Switch({ checked, onCheckedChange, disabled, label }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onCheckedChange(!checked)}
-      className={cn(
-        'touch-target inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-      )}
-    >
-      <span aria-hidden="true" className={cn('pointer-events-none flex h-5 w-9 items-center rounded-full transition-colors', checked ? 'bg-primary' : 'bg-input')}>
-        <span className={cn('inline-block h-4 w-4 rounded-full bg-background shadow ring-0 transition-transform motion-reduce:transition-none', checked ? 'translate-x-[18px]' : 'translate-x-0.5')} />
-      </span>
-    </button>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useBlocker } from 'react-router-dom';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import { adminApi } from './adminApi.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { can } from '../../lib/permissions.js';
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -48,6 +49,8 @@ const toneOf = (status) => (status?.type === 'error' ? 'text-destructive'
 // The server's reason, or a plain one when the network or the response failed.
 const problem = (error, fallback) => (error instanceof SyntaxError ? fallback : requestError(error, fallback));
 const isEdited = (template, draft) => !!draft && (draft.subject !== template.subject || draft.body !== template.body);
+// Server reasons don't always end in a full stop; the sentence after them needs one.
+const sentence = (text) => { const t = String(text).trim(); return /[.!?…]$/.test(t) ? t : `${t}.`; };
 
 function leaveMessage({ sending, saving, composing, edited }) {
   if (sending) return 'Your message is still sending. Stay here until it finishes.';
@@ -201,10 +204,11 @@ export default function AdminNotifications() {
         <p className="py-12 text-center text-muted-foreground" role="status">Loading notifications…</p>
       )) : (
         <>
+          {/* The status region above announces it; this is the visible copy. */}
           {notice && (
-            <div className={`flex items-center justify-between rounded-lg px-4 py-3 mb-4 text-sm ${notice.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-success text-success-foreground'}`}>
-              <span>{notice.text}</span>
-              <button onClick={() => setNotice(null)} aria-label="Dismiss" className="ml-2 text-lg leading-none hover:opacity-70">&times;</button>
+            <div className={`mb-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${notice.type === 'error' ? 'border-danger-border bg-danger text-danger-foreground' : 'border-success-border bg-success text-success-foreground'}`}>
+              <p className="min-w-0 flex-1 self-center wrap-anywhere">{notice.text}</p>
+              <Button variant="ghost" size="icon-sm" onClick={() => setNotice(null)} aria-label="Dismiss notification"><X aria-hidden="true" /></Button>
             </div>
           )}
           <Tabs value={tab} onValueChange={setTab} className="space-y-4">
@@ -245,6 +249,9 @@ export default function AdminNotifications() {
 function Compose({ canWrite, onNotice, onSent, onDraftState }) {
   const [groups, setGroups] = useState([]);
   const [people, setPeople] = useState([]);
+  // 'loading', 'ready' or 'error', so an empty list can say why it's empty.
+  const [groupsState, setGroupsState] = useState('loading');
+  const [peopleState, setPeopleState] = useState('loading');
   const [type, setType] = useState('all');
   const [group, setGroup] = useState('');
   const [roles, setRoles] = useState([]);
@@ -266,8 +273,12 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/v1/groups').then((r) => r.json()).then((d) => { if (!cancelled) setGroups(d.userGroups || []); }).catch(() => {});
-    adminApi('GET', '/v1/admin/users').then((list) => { if (!cancelled) setPeople(list); }).catch(() => {});
+    fetch('/v1/groups').then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then((d) => { if (!cancelled) { setGroups(d.userGroups || []); setGroupsState('ready'); } })
+      .catch(() => { if (!cancelled) setGroupsState('error'); });
+    adminApi('GET', '/v1/admin/users')
+      .then((list) => { if (!cancelled) { setPeople(list); setPeopleState('ready'); } })
+      .catch(() => { if (!cancelled) setPeopleState('error'); });
     return () => { cancelled = true; };
   }, []);
 
@@ -307,12 +318,24 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
   const confirmationCurrent = !!confirmation && !!canSend && confirmation.fingerprint === fingerprint
     && confirmation.audienceKey === audienceKey && confirmation.preview === currentPreview;
 
-  const matches = useMemo(() => {
+  const found = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return people
-      .filter((p) => !q || `${p.name || ''} ${p.email}`.toLowerCase().includes(q))
-      .slice(0, 50);
+    return people.filter((p) => !q || `${p.name || ''} ${p.email}`.toLowerCase().includes(q));
   }, [people, query]);
+  const matches = found.slice(0, 50);
+  const groupsHint = groupsState === 'error' ? 'Groups couldn’t be loaded. Reload the page to try again.'
+    : groupsState === 'ready' && !groups.length ? 'No groups yet. Add one under Users → Manage → User Groups.' : '';
+  // Why Send is off, in the order the form asks. It's Send's description; the
+  // audience count above covers a count that's pending, failed or zero.
+  const sendReason = !canWrite ? 'Only admins can send messages.'
+    : sending ? ''
+      : type === 'role' && !roles.length ? 'Choose at least one role.'
+        : type === 'group' && !group ? 'Choose a group.'
+          : type === 'users' && !selected.length ? 'Choose at least one person.'
+            : !inApp && !email ? 'Choose how to send it: in the classroom, by email, or both.'
+              : !subject.trim() && !body.trim() ? 'Add a subject and a message.'
+                : !subject.trim() ? 'Add a subject.'
+                  : !body.trim() ? 'Add a message.' : '';
   const nameOf = (id) => { const p = people.find((x) => x.userId === id); return p ? (p.name || p.email) : id; };
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
@@ -328,10 +351,12 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
       attempted.current = { fingerprint, id };
       setRequestId(id);
       const result = await adminApi('POST', '/v1/admin/notifications/messages', { ...payload, requestId: id });
-      if (result.message?.status === 'failed') throw new Error('Delivery failed. Your message is in History; retry it there or retry this same request.');
+      if (result.message?.status === 'failed') throw Object.assign(new Error('Delivery failed.'), { created: true });
       setRequestId(crypto.randomUUID());
       attempted.current = null;
-      const outcome = payload.email ? 'Message processed. History shows email delivery outcomes, including delivery disabled or failed.' : 'Message sent to the classroom.';
+      const outcome = !payload.email ? 'Message sent to the classroom.'
+        : payload.inApp ? 'Message sent to the classroom. History shows how each email went.'
+          : 'Message processed. History shows how each email went.';
       const unchanged = draftFingerprint.current === fingerprint;
       const acknowledged = unchanged ? outcome : `“${payload.subject.trim()}” was sent. Your newer draft is kept.`;
       if (unchanged) { setSubject(''); setBody(''); setSelected([]); }
@@ -347,7 +372,14 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
         setStatus({ text: `${acknowledged} History could not be refreshed: ${problem(error, 'Try again in a moment.')} Use Refresh notifications to check it. Do not resend this message.`, type: 'error' });
       }
     } catch (e) {
-      setStatus({ text: `${problem(e, 'The message could not be sent.')} Your draft is retained. History shows any delivery attempt already created.`, type: 'error' });
+      // A failed delivery still created the message: History can retry it, and
+      // the unchanged draft resends under the same request ID. A request whose
+      // outcome is unknown may have gone out, so History is where to check.
+      const created = e.created || !!e.data?.message;
+      const unknown = !created && !(e.status >= 400 && e.status < 500);
+      const next = created ? ' Retry it from History, or send it again unchanged to retry the same message.'
+        : unknown ? ' History shows anything already sent.' : '';
+      setStatus({ text: `${sentence(problem(e, 'The message couldn’t be sent'))} Your draft is kept.${next}`, type: 'error' });
       await onSent(false).catch(() => {});
     } finally {
       setSending(false);
@@ -355,7 +387,10 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
   }
 
   const channels = [confirmation?.payload.inApp && 'in the classroom', confirmation?.payload.email && 'by email'].filter(Boolean).join(' and ');
-  const radio = 'flex items-center gap-2 text-sm';
+  // Native choices, like Customizer's Match primary: the primary's color, one
+  // size, aligned to the first line of a wrapped label, and 44 px rows on touch.
+  const choice = 'touch-target flex cursor-pointer items-start gap-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:text-muted-foreground';
+  const box = 'mt-0.5 size-4 shrink-0 accent-primary';
 
   return (
     <Card>
@@ -364,19 +399,20 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
       <CardContent className="space-y-5" onChange={() => { setConfirmation(null); setStatus((s) => (s?.type === 'error' ? s : null)); }}>
         <fieldset className="min-w-0 space-y-2">
           <legend className="text-sm font-medium mb-1">To</legend>
-          <label className={radio}><input type="radio" name="audience" className="accent-primary" checked={type === 'all'} onChange={() => setType('all')} /> Everyone</label>
-          <label className={radio}><input type="radio" name="audience" className="accent-primary" checked={type === 'role'} onChange={() => setType('role')} /> By role</label>
+          <label className={choice}><input type="radio" name="audience" className={box} checked={type === 'all'} onChange={() => setType('all')} /> Everyone</label>
+          <label className={choice}><input type="radio" name="audience" className={box} checked={type === 'role'} onChange={() => setType('role')} /> By role</label>
           {type === 'role' && (
             <fieldset className="min-w-0 pl-6 space-y-1">
               <legend className="sr-only">Roles</legend>
               {ROLE_OPTIONS.map(([r, label]) => (
-                <label key={r} className={radio}>
-                  <input type="checkbox" className="h-4 w-4" checked={roles.includes(r)} onChange={() => toggleRole(r)} /> {label}
+                <label key={r} className={choice}>
+                  <input type="checkbox" className={box} checked={roles.includes(r)} onChange={() => toggleRole(r)} /> {label}
                 </label>
               ))}
             </fieldset>
           )}
-          <label className={radio}><input type="radio" name="audience" className="accent-primary" checked={type === 'group'} onChange={() => setType('group')} disabled={!groups.length} /> A group</label>
+          <label className={choice}><input type="radio" name="audience" className={box} checked={type === 'group'} onChange={() => setType('group')} disabled={!groups.length} aria-describedby={groupsHint ? 'compose-groups-hint' : undefined} /> A group</label>
+          {groupsHint && <p id="compose-groups-hint" className="pl-6 text-xs text-muted-foreground">{groupsHint}</p>}
           {type === 'group' && (
             <div className="pl-6">
               <Label htmlFor="compose-group" className="sr-only">Group</Label>
@@ -387,43 +423,52 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
               </select>
             </div>
           )}
-          <label className={radio}><input type="radio" name="audience" className="accent-primary" checked={type === 'users'} onChange={() => setType('users')} /> Specific people</label>
+          <label className={choice}><input type="radio" name="audience" className={box} checked={type === 'users'} onChange={() => setType('users')} /> Specific people</label>
           {type === 'users' && (
             <div className="pl-6 space-y-2">
               {selected.length > 0 && (
                 <ul className="flex flex-wrap gap-1.5" aria-label="Chosen people">
                   {selected.map((id) => (
-                    <li key={id} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs">
-                      {nameOf(id)}
-                      <button type="button" onClick={() => toggle(id)} aria-label={`Remove ${nameOf(id)}`} className="leading-none hover:opacity-70">&times;</button>
+                    <li key={id} className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted py-0.5 pl-2.5 pr-1 text-xs">
+                      <span className="truncate">{nameOf(id)}</span>
+                      {/* As in the Users invite list: a small mark with a 44 px touch area. */}
+                      <button type="button" onClick={() => toggle(id)} aria-label={`Remove ${nameOf(id)}`}
+                        className="compose-chip-remove inline-flex size-4 shrink-0 items-center justify-center rounded-full hover:text-destructive">
+                        <X aria-hidden="true" className="size-3" />
+                      </button>
                     </li>
                   ))}
                 </ul>
               )}
               <Label htmlFor="compose-people-search">Find people</Label>
               <Input id="compose-people-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name or email" />
-              <ul className="max-h-48 overflow-y-auto rounded-md border p-2 space-y-1" aria-label="People">
+              <ul className="max-h-48 overflow-y-auto overscroll-contain rounded-md border p-2 space-y-1" aria-label="People">
                 {matches.map((p) => (
                   <li key={p.userId}>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" className="h-4 w-4" checked={selected.includes(p.userId)} onChange={() => toggle(p.userId)} />
-                      <span>{p.name || p.email} <span className="text-muted-foreground">{p.email}</span></span>
+                    <label className={choice}>
+                      <input type="checkbox" className={box} checked={selected.includes(p.userId)} onChange={() => toggle(p.userId)} />
+                      <span className="min-w-0 wrap-anywhere">{p.name ? <>{p.name} <span className="text-muted-foreground">{p.email}</span></> : p.email}</span>
                     </label>
                   </li>
                 ))}
-                {matches.length === 0 && <li className="text-sm text-muted-foreground">No one matches.</li>}
+                {matches.length === 0 && (
+                  <li className="text-sm text-muted-foreground">
+                    {peopleState === 'loading' ? 'Loading people…' : peopleState === 'error' ? 'People couldn’t be loaded. Reload the page to try again.' : 'No one matches.'}
+                  </li>
+                )}
               </ul>
+              {found.length > matches.length && <p className="text-xs text-muted-foreground">Showing {matches.length} of {found.length}. Search by name or email to find anyone else.</p>}
             </div>
           )}
         </fieldset>
 
         <fieldset className="min-w-0 space-y-2">
           <legend className="text-sm font-medium mb-1">How</legend>
-          <label className={radio}><input type="checkbox" className="h-4 w-4" checked={inApp} onChange={(e) => setInApp(e.target.checked)} /> In the classroom (the bell menu)</label>
+          <label className={choice}><input type="checkbox" className={box} checked={inApp} onChange={(e) => setInApp(e.target.checked)} /> In the classroom (the bell menu)</label>
           {inApp && (
-            <label className={`${radio} pl-6`}><input type="checkbox" className="h-4 w-4" checked={important} onChange={(e) => setImportant(e.target.checked)} /> Also show it as a pop-up the next time they open the classroom</label>
+            <label className={`${choice} pl-6`}><input type="checkbox" className={box} checked={important} onChange={(e) => setImportant(e.target.checked)} /> Also show it as a pop-up the next time they open the classroom</label>
           )}
-          <label className={radio}><input type="checkbox" className="h-4 w-4" checked={email} onChange={(e) => setEmail(e.target.checked)} /> By email</label>
+          <label className={choice}><input type="checkbox" className={box} checked={email} onChange={(e) => setEmail(e.target.checked)} /> By email</label>
         </fieldset>
 
         <div className="space-y-2">
@@ -437,17 +482,17 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
         </div>
 
         <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
-          {count == null ? (currentPreview?.status === 'error' ? 'Could not preview this audience.' : '') : `Goes to ${peopleCount(count)}${email && currentPreview.data.emailOptedOut ? `; ${currentPreview.data.emailOptedOut} turned off email` : ''}.`}
+          {count == null ? (currentPreview?.status === 'error' ? 'Couldn’t count this audience. Choose it again to retry.' : '') : `Goes to ${peopleCount(count)}${email && currentPreview.data.emailOptedOut ? `; ${currentPreview.data.emailOptedOut} turned off email` : ''}.`}
         </p>
         <div className="space-y-2">
           <Button onClick={() => {
             if (canSend) setConfirmation({ payload: structuredClone(payload), fingerprint, audienceKey, count, preview: currentPreview });
-          }} disabled={!canSend} focusableWhenDisabled>
+          }} disabled={!canSend} focusableWhenDisabled aria-describedby={sendReason ? 'compose-send-reason' : undefined}>
             {sending ? 'Sending…' : 'Send'}
           </Button>
+          {sendReason && <p id="compose-send-reason" className="text-sm text-muted-foreground">{sendReason}</p>}
           <p role="status" aria-live="polite" className={`text-sm wrap-anywhere ${toneOf(status)}`}>{status?.text || ''}</p>
         </div>
-        {!canWrite && <p className="text-xs text-muted-foreground">Only admins can send messages.</p>}
       </CardContent>
       <ConfirmModal
         open={confirmationCurrent}
@@ -464,26 +509,30 @@ function Compose({ canWrite, onNotice, onSent, onDraftState }) {
 
 function Automations({ data, canWrite, onChange, drafts, onDraft, onSaved, onSaving }) {
   const templates = Object.fromEntries((data.templates || []).map((t) => [t.id, t]));
-  const [switchStatus, setSwitchStatus] = useState({});
+  const [pending, setPending] = useState({});
+  const [failures, setFailures] = useState({});
   // The newest request per automation wins, however the responses arrive.
   const latest = useRef({});
   async function toggle(key, on) {
     const request = (latest.current[key] || 0) + 1;
     latest.current[key] = request;
     const label = templates[AUTOMATION_TEMPLATE[key]]?.label || 'This email';
-    // Optimistic, so the checkbox answers at once; put back on failure.
+    // Optimistic, so the switch answers at once; put back on failure. The
+    // switch announces its own state, so only a failure needs words.
     onChange((current) => ({ ...current, automations: { ...current.automations, [key]: on } }));
-    setSwitchStatus((current) => ({ ...current, [key]: null }));
+    setPending((current) => ({ ...current, [key]: true }));
+    setFailures((current) => ({ ...current, [key]: '' }));
     try {
       const { automations } = await adminApi('PUT', '/v1/admin/notifications/automations', { [key]: on });
       if (latest.current[key] !== request) return;
-      const saved = !!automations?.[key];
-      onChange((current) => ({ ...current, automations: { ...current.automations, [key]: saved } }));
-      setSwitchStatus((current) => ({ ...current, [key]: { text: `${label} is ${saved ? 'on' : 'off'}.`, type: 'success' } }));
+      onChange((current) => ({ ...current, automations: { ...current.automations, [key]: !!automations?.[key] } }));
     } catch (error) {
       if (latest.current[key] !== request) return;
       onChange((current) => ({ ...current, automations: { ...current.automations, [key]: !on } }));
-      setSwitchStatus((current) => ({ ...current, [key]: { text: problem(error, `${label} couldn’t be turned ${on ? 'on' : 'off'}.`), type: 'error' } }));
+      const failure = `${label} is still ${on ? 'off' : 'on'}. ${sentence(problem(error, 'The change couldn’t be saved'))}`;
+      setFailures((current) => ({ ...current, [key]: failure }));
+    } finally {
+      if (latest.current[key] === request) setPending((current) => ({ ...current, [key]: false }));
     }
   }
   const items = [
@@ -492,30 +541,37 @@ function Automations({ data, canWrite, onChange, drafts, onDraft, onSaved, onSav
   ].filter((item) => item.template);
   return (
     <div className="space-y-4">
-      <p className="max-w-md text-sm text-muted-foreground">Emails plato sends on its own. Invitation templates are always enabled; actual email delivery depends on this site’s email configuration; each of the others is off until you turn it on.</p>
-      {items.map(({ template: t, key }) => (
-        // The disclosure row closes each card, so it carries the bottom padding.
-        <Card key={t.id} className="pb-2">
-          <CardHeader>
-            <CardTitle as="h2">{t.label}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="max-w-md text-sm text-muted-foreground">{t.description}</p>
-            {key ? (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <label className="flex items-center gap-2 text-sm font-medium">
-                  <input type="checkbox" className="h-4 w-4" checked={!!data.automations?.[key]} disabled={!canWrite} onChange={(e) => toggle(key, e.target.checked)} />
-                  Send the {t.label.toLowerCase()} email
-                </label>
-                <span role="status" aria-live="polite" className={`text-sm ${toneOf(switchStatus[key])}`}>{switchStatus[key]?.text || ''}</span>
+      <p className="max-w-md text-sm text-muted-foreground">Emails plato sends on its own. Invitation emails are always on; the others stay off until you turn them on. Whether an email is actually delivered depends on this site’s email setup.</p>
+      {items.map(({ template: t, key }) => {
+        const on = !!data.automations?.[key];
+        return (
+          // The disclosure row closes each card, so it carries the bottom padding.
+          <Card key={t.id} className="pb-2">
+            {/* Name, trigger and state, laid out like a plugin card. */}
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                <div className="min-w-0 flex-1 basis-48">
+                  <CardTitle as="h2">{t.label}</CardTitle>
+                  <p className="mt-1 max-w-md text-sm text-muted-foreground">{t.description}</p>
+                  {/* Always present, so a failure is announced; empty, it takes no space. */}
+                  {key && <p role="status" aria-live="polite" className="max-w-md text-sm text-destructive not-empty:mt-1">{failures[key] || ''}</p>}
+                </div>
+                {key ? (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className={`text-xs font-medium ${on ? 'text-foreground' : 'text-muted-foreground'}`}>{pending[key] ? 'Saving…' : on ? 'On' : 'Off'}</span>
+                    <Switch checked={on} onCheckedChange={(next) => toggle(key, next)} disabled={!canWrite} label={`${t.label} email`} />
+                  </div>
+                ) : (
+                  <span className="shrink-0 text-xs font-medium">Always on</span>
+                )}
               </div>
-            ) : (
-              <p className="text-sm font-medium">Always on</p>
-            )}
-            <TemplateEditor template={t} draft={drafts[t.id]} canWrite={canWrite} onDraft={onDraft} onSaved={onSaved} onSaving={onSaving} />
-          </CardContent>
-        </Card>
-      ))}
+            </CardHeader>
+            <CardContent>
+              <TemplateEditor template={t} draft={drafts[t.id]} canWrite={canWrite} onDraft={onDraft} onSaved={onSaved} onSaving={onSaving} />
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -634,7 +690,7 @@ function messageView(m) {
     emailLine: m.email
       ? (m.status === 'sending' ? 'Emailing…' : `${c.emailed ?? 0} emailed${c.optedOut ? `, ${c.optedOut} opted out` : ''}${c.blocked ? `, ${c.blocked} not allowlisted` : ''}${c.failed ? `, ${c.failed} failed` : ''}${c.skipped ? `, ${c.skipped} not sent (email delivery disabled)` : ''}${c.pending ? `, ${c.pending} pending confirmation` : ''}`)
       : null,
-    status: m.status === 'closed' ? 'Closed' : m.status === 'failed' ? 'Delivery failed' : m.status === 'sending' ? 'Sending' : 'Processed',
+    status: m.status === 'closed' ? 'Retries stopped' : m.status === 'failed' ? 'Delivery failed' : m.status === 'sending' ? 'Sending' : 'Processed',
     actionable: ['failed', 'sending'].includes(m.status),
   };
 }
@@ -664,7 +720,7 @@ function History({ history, canWrite, onChanged, onNotice, tabRef }) {
     setRetrying(message.id);
     try {
       const result = await adminApi('POST', `/v1/admin/notifications/messages/${encodeURIComponent(message.id)}/retry`);
-      onNotice({ text: result.message?.status === 'sending' ? 'Delivery is still in progress. Refresh History shortly.' : 'Retry processed. History shows the delivery outcomes.', type: 'success' });
+      onNotice({ text: result.message?.status === 'sending' ? 'Still delivering. Use Refresh notifications in a moment to see how it went.' : 'Retry finished. History shows how it went.', type: 'success' });
     } catch (error) { onNotice({ text: problem(error, 'The retry couldn’t be started.'), type: 'error' }); }
     finally { await onChanged().catch(() => {}); setRetrying(null); }
   }
@@ -688,7 +744,7 @@ function History({ history, canWrite, onChanged, onNotice, tabRef }) {
     if (document.activeElement && document.activeElement !== document.body) return;
     const row = [...(container.current?.querySelectorAll('[data-message-id]') || [])].find((el) => el.dataset.messageId === id);
     (row?.querySelector('[data-message-action]') || row?.querySelector('[data-message-status]'))?.focus();
-  });
+  }, [retrying, closing, closeTarget, messages]);
   // Try again keeps focus while it works; once History loads, its tab takes it.
   useLayoutEffect(() => {
     if (loading || !reloaded.current) return;
@@ -705,7 +761,9 @@ function History({ history, canWrite, onChanged, onNotice, tabRef }) {
       </Button>
     </div>
   );
-  if (!messages.length) return failure || <p className="text-sm text-muted-foreground">Nothing sent yet.</p>;
+  if (!messages.length) return failure || (
+    <div className="rounded-lg border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">Nothing sent yet. Messages you send from Compose appear here.</div>
+  );
 
   const status = (m, view, className = '') => (
     <span data-message-status tabIndex={-1} className={`rounded-sm ${m.status === 'failed' ? 'text-destructive' : ''} ${className}`}>{view.status}</span>
@@ -736,7 +794,7 @@ function History({ history, canWrite, onChanged, onNotice, tabRef }) {
                 <dl className="space-y-1 text-sm">
                   <Detail label="To">{audienceLabel(m.audience)}</Detail>
                   <Detail label="How">{view.how}</Detail>
-                  <Detail label="Delivered">{view.recipients}{view.emailLine && <span className="block text-muted-foreground">{view.emailLine}</span>}</Detail>
+                  <Detail label="Recipients">{view.recipients}{view.emailLine && <span className="block text-muted-foreground">{view.emailLine}</span>}</Detail>
                 </dl>
                 {m.deliveryError && <p className="text-sm text-muted-foreground wrap-anywhere">{m.deliveryError}</p>}
                 {actions(m, view)}
@@ -753,7 +811,7 @@ function History({ history, canWrite, onChanged, onNotice, tabRef }) {
                 <TableHead>Subject</TableHead>
                 <TableHead>To</TableHead>
                 <TableHead>How</TableHead>
-                <TableHead>Delivered</TableHead>
+                <TableHead>Recipients</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -782,7 +840,7 @@ function History({ history, canWrite, onChanged, onNotice, tabRef }) {
       )}
       <ConfirmModal open={!!closeTarget} onOpenChange={open => { if (!open) setCloseTarget(null); }}
         title="Stop retrying this message?" confirmLabel="Stop retrying"
-        message={`“${closeTarget?.subject || ''}” will receive no further email delivery attempts.${closeTarget?.inApp ? ' People can still read it in the classroom.' : ''}`}
+        message={`plato won’t try to email “${closeTarget?.subject || ''}” again.${closeTarget?.inApp ? ' People can still read it in the classroom.' : ''}`}
         onConfirm={stopRetrying} />
     </div>
   );
