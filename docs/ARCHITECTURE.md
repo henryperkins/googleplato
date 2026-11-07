@@ -419,8 +419,13 @@ with it instead of spending the old token again. Without this, two requests
 that hit an expired access token together both spent the same token, the
 losing 401 came back first, and the learner was signed out of a valid session.
 One request cancelling doesn't cancel a refresh its siblings still wait on.
-When every waiter has cancelled, the refresh aborts, and a later request starts
-its own rather than joining it. There is deliberately no server-side grace
+A refresh that is still waiting for the lock stops when every waiter has
+cancelled, and a later request starts its own rather than joining it. Once a
+refresh has been sent, nothing cancels it: the server may already have used the
+old token, so it always finishes and saves the replacement. A 15-second
+deadline bounds it so a stalled refresh can't hold the lock; a refresh that
+times out doesn't sign anyone out, and a later request finds out with a real
+401 whether the token was spent. There is deliberately no server-side grace
 window for a rotated token. The cross-process localStorage lag described
 below applies here too: a tab that reads a stale record behaves as it did
 before this lock.

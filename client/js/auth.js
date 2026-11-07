@@ -307,6 +307,8 @@ export async function refreshCurrentUser() {
 const sameSession = (left, right) => left?.user?.userId === right?.user?.userId
   && left?.accessToken === right?.accessToken && left?.refreshToken === right?.refreshToken;
 const REFRESH_LOCK_NAME = 'plato:auth-refresh';
+// How long one refresh may hold the lock. Other tabs wait behind it.
+const REFRESH_DEADLINE_MS = 15_000;
 let refreshInFlight;
 
 function abortReason(signal) {
@@ -318,28 +320,40 @@ function withRefreshLock(callback, signal) {
   return locks?.request ? locks.request(REFRESH_LOCK_NAME, { mode: 'exclusive', signal }, callback) : callback();
 }
 
+// A refresh has two phases. While it waits for the lock nothing has been sent,
+// so it stops once every waiter has cancelled. Once it is sent (`committed`),
+// the server may already have used the old token, so it always finishes and
+// saves the replacement: dropping it would strand the session on a spent token.
 function waitForRefresh(refresh, signal) {
   refresh.waiters += 1;
+  const leave = () => {
+    refresh.waiters -= 1;
+    if (!refresh.settled && !refresh.committed && refresh.waiters === 0) refresh.controller.abort();
+  };
+  if (!signal) return refresh.promise.finally(leave);
   let abort;
   const cancelled = new Promise((_, reject) => {
     abort = () => reject(abortReason(signal));
-    if (signal?.aborted) abort();
-    else signal?.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
   });
+  // One caller cancelling stops only its own wait, never a sibling's refresh.
   return Promise.race([refresh.promise, cancelled]).finally(() => {
-    signal?.removeEventListener('abort', abort);
-    refresh.waiters -= 1;
-    // One caller cancelling must not interrupt its siblings. With no callers
-    // left, stop waiting for the lock or the network as before.
-    if (!refresh.settled && refresh.waiters === 0) refresh.controller.abort();
+    signal.removeEventListener('abort', abort);
+    leave();
   });
 }
 
 async function runRefresh(refresh, tokens, generation) {
+  const { signal } = refresh.controller;
   try {
-    return await withRefreshLock(() => doRefreshAccessToken(tokens, generation, refresh.controller.signal), refresh.controller.signal);
+    return await withRefreshLock(() => {
+      if (signal.aborted) throw abortReason(signal);
+      refresh.committed = true;
+      return doRefreshAccessToken(tokens, generation);
+    }, signal);
   } catch {
-    if (refresh.controller.signal.aborted) throw abortReason(refresh.controller.signal);
+    if (!refresh.committed && signal.aborted) throw abortReason(signal);
     return false;
   }
 }
@@ -347,11 +361,11 @@ async function runRefresh(refresh, tokens, generation) {
 function refreshAccessToken(tokens, generation, signal) {
   if (!tokens?.refreshToken) return false;
   let refresh = refreshInFlight;
-  // A refresh whose last waiter cancelled is aborted but may not have settled
-  // yet. A request that joins it then would inherit a cancellation it never asked for.
+  // A refresh whose waiters all cancelled before it was sent is aborted but may
+  // not have settled yet. Joining it would inherit a cancellation nobody asked for.
   if (!refresh || refresh.controller.signal.aborted || refresh.generation !== generation
     || !sameSession(refresh.tokens, tokens)) {
-    refresh = { tokens, generation, controller: new AbortController(), waiters: 0, settled: false };
+    refresh = { tokens, generation, controller: new AbortController(), waiters: 0, settled: false, committed: false };
     refresh.promise = runRefresh(refresh, tokens, generation).finally(() => {
       refresh.settled = true;
       if (refreshInFlight === refresh) refreshInFlight = undefined;
@@ -361,18 +375,20 @@ function refreshAccessToken(tokens, generation, signal) {
   return waitForRefresh(refresh, signal);
 }
 
-async function doRefreshAccessToken(tokens, generation, signal) {
+async function doRefreshAccessToken(tokens, generation) {
   // Another tab may have rotated the token while this caller waited for the
   // lock. The caller re-reads storage and reuses that rotation without a request.
   if (!sameSession(tokens, await getAuthTokens()) || generation !== sessionGeneration) return false;
+  // Only the deadline stops a sent refresh, so a stalled one can't hold the lock.
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(new DOMException('Refreshing the session took too long.', 'TimeoutError')), REFRESH_DEADLINE_MS);
   try {
     const res = await fetch(`${SERVICE_URL}/v1/auth/refresh`, {
       method: 'POST',
-      signal,
+      signal: deadline.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: tokens.refreshToken }),
     });
-    if (signal?.aborted) throw abortReason(signal);
     if (!res.ok) {
       // Don't clear auth silently — the user's data should be preserved.
       // Notify listeners so the UI can prompt re-login. A sibling rotation
@@ -381,14 +397,16 @@ async function doRefreshAccessToken(tokens, generation, signal) {
       return false;
     }
     const { accessToken, refreshToken } = await res.json();
-    if (signal?.aborted) throw abortReason(signal);
     // Compare and replace synchronously inside storage, after all awaits.
     // A late response must never merge account A's tokens into account B.
     if (generation !== sessionGeneration) return false;
     return await saveAuthTokens({ accessToken, refreshToken }, tokens);
   } catch {
-    if (signal?.aborted) throw abortReason(signal);
+    // A network failure or the deadline. The server may or may not have used
+    // the old token; a later request finds out with a real 401. Don't sign out here.
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
