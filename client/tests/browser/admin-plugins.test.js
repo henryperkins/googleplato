@@ -176,8 +176,11 @@ describe('Rendered plugin administration regressions', { timeout: 180000 }, () =
       await page.evaluate(() => document.fonts.ready);
       await page.screenshot({ path: join(evidence, 'google-default-mobile-dark.png'), fullPage: true });
       await apiKey.fill('   ');
+      // Before saving, the cleared field says what saving will do with it.
+      await page.getByText('Saving restores the default.', { exact: true }).waitFor();
+      assert.match(await apiKey.getAttribute('aria-describedby'), /plugin-google-auth-apiKey-hint/);
       await page.getByRole('button', { name: 'Save Google Sign-In settings', exact: true }).click();
-      await page.getByRole('status').filter({ hasText: 'Settings saved.' }).waitFor();
+      await page.getByRole('status').filter({ hasText: 'Settings saved. API key was reset to its default.' }).waitFor();
       assert.equal(writes.length, 1);
       assert.equal(Object.hasOwn(writes[0], 'apiKey'), false, 'a blank override is not persisted');
       assert.equal(await apiKey.inputValue(), manifests['google-auth'].settingsSchema.properties.apiKey.default);
@@ -366,8 +369,11 @@ describe('Rendered plugin administration regressions', { timeout: 180000 }, () =
       const forcedColors = await page.locator('[data-slot="card"]').evaluate(card => ({
         cardOutline: getComputedStyle(card).outlineWidth,
         switchOutline: getComputedStyle(card.querySelector('[role="switch"] > span')).outlineWidth,
+        // Forced colors repaint author fills as Canvas; the rule keeps a system color.
+        separatorShows: getComputedStyle(card.querySelector('[data-slot="separator"]')).backgroundColor
+          !== getComputedStyle(card).backgroundColor,
       }));
-      assert.deepEqual(forcedColors, { cardOutline: '1px', switchOutline: '1px' });
+      assert.deepEqual(forcedColors, { cardOutline: '1px', switchOutline: '1px', separatorShows: true });
       await page.screenshot({ path: join(evidence, 'plugins-forced-colors.png'), fullPage: true });
       await page.emulateMedia({ forcedColors: 'none' });
 
@@ -421,6 +427,292 @@ describe('Rendered plugin administration regressions', { timeout: 180000 }, () =
       assert.deepEqual([saved.botToken, saved.workspaceName, saved.connected], ['xoxb-test-token', 'Northwind Learning', true]);
       assert.equal(await page.evaluate(() => document.activeElement?.textContent.trim()), 'Connected to Northwind Learning',
         'connecting replaces the focused button, so focus moves to the connection status');
+    } finally {
+      await context.close();
+    }
+  });
+
+  it('keeps a stored required secret through other saves and says what saving does with it', async () => {
+    const { context, page } = await openPage();
+    const schema = {
+      type: 'object',
+      required: ['apiSecret'],
+      properties: {
+        apiSecret: { type: 'string', title: 'API secret', description: 'From the service dashboard.', writeOnly: true },
+        region: { type: 'string', title: 'Region', default: 'us' },
+      },
+    };
+    const synthetic = (id, name, storedWriteOnly) => ({
+      id, name, version: '1.0.0', description: 'Synthetic plugin with a required secret.', capabilities: [], slots: [],
+      hasSettingsSchema: true, settingsSchema: schema, hasStoredState: true, enabled: true, loadError: null,
+      settings: { region: 'us' }, storedWriteOnly,
+    });
+    let plugins = [synthetic('stored-secret', 'Stored Secret', ['apiSecret']), synthetic('missing-secret', 'Missing Secret', [])];
+    const writes = [];
+    try {
+      await controlPluginReads(context, () => plugins);
+      await context.route('**/v1/admin/plugins/*/settings', async route => {
+        const id = new URL(route.request().url()).pathname.split('/').at(-2);
+        const body = route.request().postDataJSON();
+        writes.push({ id, body });
+        const { apiSecret, ...settings } = body;
+        plugins = plugins.map(plugin => plugin.id !== id ? plugin : {
+          ...plugin,
+          settings: { region: 'us', ...settings },
+          storedWriteOnly: apiSecret || plugin.storedWriteOnly.includes('apiSecret') ? ['apiSecret'] : [],
+        });
+        await route.fulfill({ json: plugins.find(plugin => plugin.id === id) });
+      });
+      await navigate(page);
+      const card = name => page.locator('[data-slot="card"]').filter({ has: page.getByRole('heading', { name, exact: true }) });
+      const stored = card('Stored Secret');
+      const secret = stored.getByLabel('API secret (required)', { exact: true });
+      const savedHint = stored.getByText('A value is saved. Leave this blank to keep it.', { exact: true });
+      await savedHint.waitFor();
+      assert.equal(await secret.inputValue(), '');
+      assert.equal(await secret.getAttribute('autocomplete'), 'off', 'the browser never fills a sign-in password into a plugin secret');
+      assert.equal(await secret.getAttribute('aria-describedby'), 'plugin-stored-secret-apiSecret-description plugin-stored-secret-apiSecret-hint');
+
+      await stored.getByLabel('Region', { exact: true }).fill('eu');
+      await stored.getByRole('button', { name: 'Save Stored Secret settings', exact: true }).click();
+      await stored.getByRole('status').filter({ hasText: 'Settings saved.' }).waitFor();
+      assert.deepEqual(writes, [{ id: 'stored-secret', body: { region: 'eu' } }], 'a blank stored secret is left out, so the server keeps it');
+
+      await secret.fill('replacement-secret');
+      await stored.getByText('Saving replaces the saved value.', { exact: true }).waitFor();
+      const save = stored.getByRole('button', { name: 'Save Stored Secret settings', exact: true });
+      await save.focus();
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelector('#plugin-stored-secret-apiSecret')?.value === '');
+      assert.deepEqual(writes[1], { id: 'stored-secret', body: { region: 'eu', apiSecret: 'replacement-secret' } });
+      await savedHint.waitFor();
+      assert.equal(await stored.getByText('Unsaved changes', { exact: true }).count(), 0, 'a saved secret leaves the form without marking it unsaved');
+      assert.equal(await save.evaluate(button => button === document.activeElement), true);
+      await secret.fill('typed then erased');
+      await secret.fill('');
+      assert.equal(await stored.getByText('Unsaved changes', { exact: true }).count(), 0, 'an erased secret, which saving leaves out, is not a change');
+      await page.screenshot({ path: join(evidence, 'stored-secret-desktop.png'), fullPage: true });
+
+      const missing = card('Missing Secret');
+      await missing.getByLabel('Region', { exact: true }).fill('eu');
+      await missing.getByRole('button', { name: 'Save Missing Secret settings', exact: true }).click();
+      const missingSecret = missing.getByLabel('API secret (required)', { exact: true });
+      await missing.getByText('API secret is required.', { exact: true }).waitFor();
+      assert.equal(await missingSecret.evaluate(input => input === document.activeElement), true);
+      assert.equal(await missingSecret.getAttribute('aria-invalid'), 'true');
+      assert.equal(await missing.getByText(/A value is saved/).count(), 0);
+      assert.equal(writes.length, 2, 'a secret that was never saved is still required');
+    } finally {
+      await context.close();
+    }
+  });
+
+  it('withdraws Connect when the Slack token changes after its test', async () => {
+    const { context, page } = await openPage();
+    let plugins = [pluginView('slack', { settings: { connected: false, autoInviteEnabled: false } })];
+    const tested = [];
+    let holdTest = null;
+    let saved;
+    try {
+      await controlPluginReads(context, () => plugins);
+      await context.route('**/v1/plugins/slack/admin/test', async route => {
+        const { botToken } = route.request().postDataJSON();
+        tested.push(botToken);
+        if (holdTest) await holdTest;
+        if (botToken === 'xoxb-revoked') {
+          return route.fulfill({ status: 400, json: { error: 'Invalid token or Slack API error', code: 'invalid_auth' } });
+        }
+        return route.fulfill({ json: { ok: true, team: 'Northwind Learning' } });
+      });
+      await context.route('**/v1/plugins/slack/admin/channels', route => route.fulfill({ json: [] }));
+      await context.route('**/v1/plugins/slack/admin/auto-invite', route => route.fulfill({ json: { results: [] } }));
+      await context.route('**/v1/admin/plugins/slack/settings', async route => {
+        saved = route.request().postDataJSON();
+        const settings = { ...saved };
+        delete settings.botToken;
+        plugins = [{ ...plugins[0], settings }];
+        await route.fulfill({ json: plugins[0] });
+      });
+      await navigate(page);
+      const token = page.getByLabel('Bot User OAuth Token', { exact: true });
+      const testButton = page.getByRole('button', { name: 'Test Connection', exact: true });
+      const connect = page.getByRole('button', { name: 'Connect to Northwind Learning', exact: true });
+      const passed = page.getByRole('status').filter({ hasText: 'Connection test passed' });
+      assert.equal(await token.getAttribute('autocomplete'), 'off');
+
+      await token.fill('xoxb-tested');
+      await testButton.click();
+      await connect.waitFor();
+      await token.fill('xoxb-edited');
+      await connect.waitFor({ state: 'detached' });
+      assert.equal(await passed.count(), 0, 'the passed test is withdrawn with Connect');
+
+      // A test that finishes after the token changed doesn't offer Connect.
+      let release;
+      holdTest = new Promise(resolve => { release = resolve; });
+      await testButton.click();
+      await page.getByRole('button', { name: 'Testing…', exact: true }).waitFor();
+      await token.fill('xoxb-changed-while-testing');
+      release();
+      holdTest = null;
+      await testButton.waitFor();
+      assert.equal(await connect.count(), 0);
+      assert.equal(await passed.count(), 0);
+
+      await token.fill('xoxb-revoked');
+      await testButton.click();
+      await page.getByRole('status').filter({ hasText: 'Slack didn’t accept this token.' }).waitFor();
+      assert.equal(await connect.count(), 0);
+
+      await token.fill('xoxb-final');
+      await testButton.click();
+      await connect.click();
+      await page.getByRole('status').filter({ hasText: 'Slack integration saved.' }).waitFor();
+      assert.deepEqual([saved.botToken, saved.workspaceName, saved.connected], ['xoxb-final', 'Northwind Learning', true]);
+      assert.deepEqual(tested, ['xoxb-tested', 'xoxb-edited', 'xoxb-revoked', 'xoxb-final']);
+    } finally {
+      await context.close();
+    }
+  });
+
+  it('explains a failed Slack channel load, keeps the saved channel, and marks unsaved auto-invite edits', async () => {
+    const { context, page } = await openPage();
+    let plugins = [pluginView('slack', {
+      settings: {
+        workspaceName: 'Northwind Learning', connected: true,
+        autoInviteEnabled: true, autoInviteChannelId: 'C-learning', autoInviteChannelName: 'learning',
+      },
+    })];
+    let channelLoads = 0;
+    let releaseReload;
+    const reload = new Promise(resolve => { releaseReload = resolve; });
+    const writes = [];
+    try {
+      await controlPluginReads(context, () => plugins);
+      await context.route('**/v1/plugins/slack/admin/channels', async route => {
+        channelLoads++;
+        if (channelLoads === 1) {
+          return route.fulfill({ status: 500, json: { error: 'Slack API error', code: 'missing_scope', needed: 'channels:read' } });
+        }
+        await reload;
+        return route.fulfill({ json: [{ id: 'C-general', name: 'general' }, { id: 'C-learning', name: 'learning' }] });
+      });
+      await context.route('**/v1/plugins/slack/admin/auto-invite', route => route.fulfill({ json: { results: [] } }));
+      await context.route('**/v1/admin/plugins/slack/settings', async route => {
+        const body = route.request().postDataJSON();
+        writes.push(body);
+        const settings = { ...body };
+        delete settings.botToken;
+        plugins = [{ ...plugins[0], settings }];
+        await route.fulfill({ json: plugins[0] });
+      });
+      await navigate(page);
+      const select = page.getByLabel('Channel', { exact: true });
+      const failure = page.getByRole('alert').filter({ hasText: 'Channels couldn’t be loaded' });
+      await failure.waitFor();
+      assert.match(await failure.innerText(), /the Slack app needs the channels:read scope/);
+      assert.equal(await select.inputValue(), 'C-learning', 'the saved channel stays selected when the list fails');
+      assert.equal(await select.locator('option:checked').innerText(), '#learning');
+      assert.equal(await select.getAttribute('aria-describedby'), 'slack-auto-channel-load-error');
+      await page.screenshot({ path: join(evidence, 'slack-channels-failed.png'), fullPage: true });
+
+      const save = page.getByRole('button', { name: 'Save auto-invite settings', exact: true });
+      const enabled = page.getByRole('checkbox', { name: 'Add new accounts to a channel', exact: true });
+      const unsaved = page.getByText('Unsaved changes', { exact: true });
+      assert.equal(await save.getAttribute('aria-disabled'), 'true', 'nothing to save yet');
+      assert.equal(await unsaved.count(), 0);
+      await enabled.uncheck();
+      await unsaved.waitFor();
+      await enabled.check();
+      assert.equal(await unsaved.count(), 0, 'restoring the saved choice leaves nothing to save');
+
+      // Saving while the list is unavailable keeps the channel and its name.
+      await enabled.uncheck();
+      await save.click();
+      await page.getByRole('status').filter({ hasText: 'Auto-invite is off.' }).waitFor();
+      assert.deepEqual(
+        [writes[0].autoInviteEnabled, writes[0].autoInviteChannelId, writes[0].autoInviteChannelName],
+        [false, 'C-learning', 'learning'],
+      );
+      assert.equal(await save.getAttribute('aria-disabled'), 'true');
+      assert.equal(await save.evaluate(button => button === document.activeElement), true, 'a finished save keeps focus on Save');
+
+      const reloadButton = failure.getByRole('button', { name: 'Reload channels', exact: true });
+      await reloadButton.focus();
+      await page.keyboard.press('Enter');
+      const reloading = failure.getByRole('button', { name: 'Reloading…', exact: true });
+      await reloading.waitFor();
+      assert.equal(await reloading.evaluate(button => button === document.activeElement), true, 'a pending reload keeps focus');
+      releaseReload();
+      await failure.waitFor({ state: 'detached' });
+      assert.equal(await select.evaluate(field => field === document.activeElement), true, 'a successful reload moves focus to the channel field');
+      assert.equal(await select.locator('option:checked').innerText(), '#learning');
+      assert.equal(await select.getAttribute('aria-describedby'), null);
+
+      await enabled.check();
+      await select.selectOption('');
+      await save.click();
+      const required = page.getByText('Choose a channel for new accounts.', { exact: true });
+      await required.waitFor();
+      assert.equal(await select.evaluate(field => field === document.activeElement), true);
+      assert.equal(await select.getAttribute('aria-invalid'), 'true');
+      assert.equal(await select.getAttribute('aria-describedby'), 'slack-auto-channel-error');
+      assert.equal(writes.length, 1, 'turning auto-invite on needs a channel');
+
+      await select.selectOption('C-general');
+      assert.equal(await required.count(), 0);
+      await save.click();
+      await page.getByRole('status').filter({ hasText: 'New accounts will be added to #general.' }).waitFor();
+      assert.deepEqual(
+        [writes[1].autoInviteEnabled, writes[1].autoInviteChannelId, writes[1].autoInviteChannelName],
+        [true, 'C-general', 'general'],
+      );
+    } finally {
+      releaseReload();
+      await context.close();
+    }
+  });
+
+  it('lists the newest Slack results on phones and the rest on request', async () => {
+    const { context, page } = await openPage({ width: 390, height: 844 }, { hasTouch: true, isMobile: true });
+    const plugins = [pluginView('slack', {
+      settings: {
+        workspaceName: 'Northwind Learning', connected: true,
+        autoInviteEnabled: true, autoInviteChannelId: 'C-learning', autoInviteChannelName: 'learning',
+      },
+    })];
+    const results = Array.from({ length: 14 }, (_, index) => ({
+      userId: `learner-${index + 1}`, name: `Learner ${index + 1}`, email: `learner${index + 1}@example.test`,
+      status: index % 3 === 0 ? 'failed' : 'invited', channelId: 'C-learning',
+    }));
+    try {
+      await controlPluginReads(context, () => plugins);
+      await context.route('**/v1/plugins/slack/admin/channels', route => route.fulfill({ json: [{ id: 'C-learning', name: 'learning' }] }));
+      await context.route('**/v1/plugins/slack/admin/auto-invite', route => route.fulfill({ json: { results } }));
+      await navigate(page);
+      const list = page.getByRole('list', { name: 'Auto-invite results', exact: true });
+      await list.waitFor();
+      const visibleRows = () => list.locator('li').evaluateAll(rows => rows.filter(row => row.getBoundingClientRect().height > 0).length);
+      assert.equal(await visibleRows(), 10);
+      assert.equal(await list.evaluate(ul => ul.scrollHeight <= ul.clientHeight + 1), true, 'phones get no scrolling box inside the page');
+      const expand = page.getByRole('button', { name: 'Show all 14 results', exact: true });
+      assert.equal(await expand.getAttribute('aria-expanded'), 'false');
+      assert.equal(await expand.getAttribute('aria-controls'), 'slack-auto-invite-results');
+      await expand.tap();
+      assert.equal(await visibleRows(), 14);
+      const collapse = page.getByRole('button', { name: 'Show the 10 newest', exact: true });
+      assert.equal(await collapse.getAttribute('aria-expanded'), 'true');
+      await page.screenshot({ path: join(evidence, 'slack-results-expanded-390.png'), fullPage: true });
+      await collapse.tap();
+      assert.equal(await visibleRows(), 10);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const collapsed = await page.getByRole('button', { name: 'Show all 14 results', exact: true }).boundingBox();
+      assert.ok(collapsed && collapsed.y >= 0 && collapsed.y + collapsed.height <= 844, 'collapsing keeps its button in view');
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      assert.equal(await visibleRows(), 14, 'wider screens list every result');
+      assert.equal(await list.evaluate(ul => getComputedStyle(ul).maxHeight), '240px');
+      assert.equal(await page.getByRole('button', { name: 'Show all 14 results', exact: true }).isVisible(), false);
     } finally {
       await context.close();
     }

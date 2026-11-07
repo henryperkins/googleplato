@@ -14,7 +14,7 @@ Every slot component renders inside its own error boundary. If one throws while 
 - **When:** the plugin is enabled; the panel renders inline in its card
 - **Phase:** 1
 - **Example:** `plugins/slack/client/SlackSettingsPanel.jsx`
-- **Gotchas:** if you don't ship a custom panel, plato auto-renders a form from `manifest.settingsSchema`. Pick one; don't ship both.
+- **Gotchas:** if you don't ship a custom panel, plato auto-renders a form from `manifest.settingsSchema`. Pick one; don't ship both. The auto-rendered form leaves `writeOnly` fields blank, says when one holds a saved value, and keeps that value unless a new one is typed.
 
 ### `adminUserRowAction`
 
@@ -349,7 +349,7 @@ Adding to this surface is a core change — it widens the public plugin contract
 
 ### `GET /v1/admin/plugins`
 
-Admin only. Returns every plugin (enabled, disabled, load-failed) with its manifest and effective settings: stored values plus any manifest-declared defaults for missing keys. `writeOnly` values are stripped recursively.
+Admin only. Returns every plugin (enabled, disabled, load-failed) with its manifest and effective settings: stored values plus any manifest-declared defaults for missing keys. `writeOnly` values are stripped recursively. `storedWriteOnly` lists the top-level `writeOnly` keys that hold a stored value (names only), so the auto-rendered form can say a secret is saved and treat a stored required one as set.
 
 ### `PUT /v1/admin/plugins/:id/activation`
 

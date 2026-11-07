@@ -14,21 +14,69 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import { authenticatedFetch } from '../../../client/js/auth.js';
 
-async function postSlackTest(botToken) {
-  const res = await authenticatedFetch('/v1/plugins/slack/admin/test', {
-    method: 'POST',
+class SlackRequestError extends Error {
+  constructor(message, { status, code, needed } = {}) {
+    super(message);
+    this.name = 'SlackRequestError';
+    this.status = status;
+    this.code = code;
+    this.needed = needed;
+  }
+}
+
+async function slackApi(method, path, body) {
+  const res = await authenticatedFetch(`/v1/plugins/slack/admin/${path}`, {
+    method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ botToken }),
+    body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new SlackRequestError(data.error || `Request failed (${res.status})`, { status: res.status, code: data.code, needed: data.needed });
+  }
   return data;
+}
+
+// Slack's error codes (forwarded by the plugin's routes) become a cause and a
+// next step. Tokens never appear in these messages.
+const TOKEN_REJECTED = new Set(['invalid_auth', 'not_authed', 'account_inactive', 'token_revoked', 'token_expired']);
+
+function slackProblem(error) {
+  if (error instanceof TypeError) return 'plato couldn’t be reached. Check your connection.';
+  if (!(error instanceof SlackRequestError)) return error?.message || 'The request failed.';
+  const { code } = error;
+  if (code === 'ratelimited' || code === 'slack_webapi_rate_limited_error') return 'Slack is limiting requests. Wait a minute.';
+  if (code === 'slack_webapi_request_error' || code === 'slack_webapi_http_error') return 'plato couldn’t reach Slack.';
+  if (code && code !== 'slack_webapi_platform_error') return `Slack returned “${code}”.`;
+  return error.message;
+}
+
+function testFailure(error) {
+  if (TOKEN_REJECTED.has(error?.code)) {
+    return 'Slack didn’t accept this token. Copy the Bot User OAuth Token, which starts with xoxb-, from your Slack app’s OAuth & Permissions page.';
+  }
+  return `The connection test failed. ${slackProblem(error)}`;
+}
+
+function channelsFailure(error) {
+  if (error?.code === 'missing_scope') {
+    return `Channels couldn’t be loaded: the Slack app needs the ${error.needed || 'channels:read'} scope. Add it under OAuth & Permissions, reinstall the app, then reload.`;
+  }
+  if (TOKEN_REJECTED.has(error?.code)) {
+    return 'Channels couldn’t be loaded: Slack no longer accepts the saved token. Disconnect Slack, then connect again with a current token.';
+  }
+  return `Channels couldn’t be loaded. ${slackProblem(error)}`;
 }
 
 export default function SlackSettingsPanel({ settings, onSave }) {
   const [token, setToken] = useState('');
+  // The last passing test and the exact token it checked. Editing the token
+  // withdraws it, so Connect never saves an untested token under the tested
+  // workspace's name.
+  const [tested, setTested] = useState(null);
   const [workspaceName, setWorkspaceName] = useState(settings?.workspaceName || '');
   const [connected, setConnected] = useState(!!settings?.connected);
   const [testing, setTesting] = useState(false);
@@ -38,6 +86,8 @@ export default function SlackSettingsPanel({ settings, onSave }) {
   const tokenRef = useRef(null);
   const connectedRef = useRef(null);
   const focusAfterChange = useRef(false);
+  const currentToken = useRef('');
+  const canConnect = !!tested && tested.token === token.trim();
 
   // Connect and Disconnect each remove the control that had focus. Move it to
   // what replaced that control: the connection status, or the token field.
@@ -47,37 +97,55 @@ export default function SlackSettingsPanel({ settings, onSave }) {
     (connected ? connectedRef : tokenRef).current?.focus();
   }, [connected]);
 
+  function changeToken(value) {
+    setToken(value);
+    const next = value.trim();
+    if (next === currentToken.current) return;
+    currentToken.current = next;
+    // A test result, or an error, about the previous token no longer applies.
+    setTested(null);
+    setMessage(null);
+  }
+
   async function handleTest() {
-    if (!token.trim()) return;
+    const candidate = token.trim();
+    if (!candidate || testing || saving) return;
     setTesting(true);
+    setTested(null);
     setMessage(null);
     try {
-      const data = await postSlackTest(token.trim());
-      if (data.ok) {
-        setWorkspaceName(data.team);
+      const data = await slackApi('POST', 'test', { botToken: candidate });
+      if (currentToken.current !== candidate) return; // Edited while testing.
+      if (data.ok && data.team) {
+        setTested({ token: candidate, team: data.team });
         setMessage({ text: `Connection test passed for ${data.team}. Connect to save.`, type: 'success' });
       } else {
-        setMessage({ text: 'Connection failed', type: 'error' });
+        setMessage({ text: testFailure(data), type: 'error' });
       }
     } catch (e) {
-      setMessage({ text: e.message, type: 'error' });
+      if (currentToken.current === candidate) setMessage({ text: testFailure(e), type: 'error' });
     } finally {
       setTesting(false);
     }
   }
 
   async function handleConnect() {
-    if (!workspaceName) {
-      setMessage({ text: 'Test the connection first', type: 'error' });
+    if (saving) return;
+    if (!canConnect) {
+      setMessage({ text: 'Test the connection first.', type: 'error' });
       return;
     }
+    const { token: botToken, team } = tested;
     setSaving(true);
     setMessage(null);
     try {
-      await onSave({ ...settings, botToken: token.trim(), workspaceName, connected: true });
+      await onSave({ ...settings, botToken, workspaceName: team, connected: true });
       focusAfterChange.current = true;
+      setWorkspaceName(team);
       setConnected(true);
+      setTested(null);
       setToken('');
+      currentToken.current = '';
       setMessage({ text: 'Slack integration saved.', type: 'success' });
     } catch (e) {
       setMessage({ text: e.message, type: 'error' });
@@ -96,7 +164,9 @@ export default function SlackSettingsPanel({ settings, onSave }) {
       focusAfterChange.current = true;
       setConnected(false);
       setWorkspaceName('');
+      setTested(null);
       setToken('');
+      currentToken.current = '';
       setMessage({ text: 'Slack disconnected. Auto-invite settings were kept.', type: 'success' });
     } catch (e) {
       setMessage({ text: e.message, type: 'error' });
@@ -138,22 +208,24 @@ export default function SlackSettingsPanel({ settings, onSave }) {
                   ref={tokenRef}
                   id="slack-token"
                   type="password"
+                  autoComplete="off"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
                   placeholder="xoxb-..."
                   value={token}
-                  onChange={(e) => setToken(e.target.value)}
+                  readOnly={saving}
+                  onChange={(e) => changeToken(e.target.value)}
                   className="flex-1 font-mono"
                 />
-                <Button variant="outline" onClick={handleTest} disabled={testing || !token.trim()} focusableWhenDisabled={testing}>
+                <Button variant="outline" onClick={handleTest} disabled={testing || saving || !token.trim()} focusableWhenDisabled={testing}>
                   {testing ? 'Testing…' : 'Test Connection'}
                 </Button>
               </div>
             </div>
-            {workspaceName && (
+            {canConnect && (
               <Button onClick={handleConnect} disabled={saving} focusableWhenDisabled>
-                {saving ? 'Saving…' : `Connect to ${workspaceName}`}
+                {saving ? 'Saving…' : `Connect to ${tested.team}`}
               </Button>
             )}
           </>
@@ -189,58 +261,149 @@ export default function SlackSettingsPanel({ settings, onSave }) {
   );
 }
 
-async function slackApi(method, path, body) {
-  const res = await authenticatedFetch(`/v1/plugins/slack/admin/${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-  return data;
-}
-
 // Pending rows with a live lease are still running; expired rows can retry.
 const STATUS_TEXT = { invited: 'Added', not_in_workspace: 'Not in the workspace', failed: 'Failed', pending: 'Not finished' };
+// Phones show the newest results first and the rest on request, so a long
+// list neither traps scrolling in a box nor pushes the next plugin far down.
+const RESULTS_PREVIEW = 10;
+
+const channelLabel = (channel) => (channel?.name ? `#${channel.name}` : channel?.id || 'the chosen channel');
+
+async function fetchChannels() {
+  try {
+    const list = await slackApi('GET', 'channels');
+    return { list: Array.isArray(list) ? list : [] };
+  } catch (e) {
+    return { error: channelsFailure(e) };
+  }
+}
 
 // Auto-invite (#379): add each new plato account to a channel, if the person
 // is already in the workspace (matched by email). Results and retries below.
 function AutoInvite({ settings, onSave }) {
-  const [enabled, setEnabled] = useState(!!settings?.autoInviteEnabled);
-  const [channelId, setChannelId] = useState(settings?.autoInviteChannelId || '');
-  const [channels, setChannels] = useState(null);
+  const savedEnabled = !!settings?.autoInviteEnabled;
+  const savedChannelId = settings?.autoInviteChannelId || '';
+  const savedChannelName = settings?.autoInviteChannelName || '';
+  const [enabled, setEnabled] = useState(savedEnabled);
+  const [channelId, setChannelId] = useState(savedChannelId);
+  const [channels, setChannels] = useState(null); // null until the first load settles
+  const [channelsError, setChannelsError] = useState(null);
+  const [loadingChannels, setLoadingChannels] = useState(true);
+  const [channelError, setChannelError] = useState(null);
   const [results, setResults] = useState([]);
-  const [status, setStatus] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [pending, setPending] = useState(null); // 'save' | 'retry' | null
+  const [showAllResults, setShowAllResults] = useState(false);
+  const mounted = useRef(false);
+  const selectRef = useRef(null);
+  const resultsToggleRef = useRef(null);
+  const dirty = enabled !== savedEnabled || channelId !== savedChannelId;
 
-  const loadResults = () => slackApi('GET', 'auto-invite').then((d) => setResults(d.results || [])).catch(() => {});
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    slackApi('GET', 'channels').then((list) => { if (!cancelled) setChannels(list); }).catch(() => { if (!cancelled) setChannels([]); });
+    fetchChannels().then(({ list, error }) => {
+      if (cancelled) return;
+      setChannels(list || []);
+      setChannelsError(error || null);
+      setLoadingChannels(false);
+    });
     slackApi('GET', 'auto-invite').then((d) => { if (!cancelled) setResults(d.results || []); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
-  async function save() {
-    if (busy) return;
-    setBusy(true);
-    setStatus('');
+  async function loadResults() {
     try {
-      const channel = (channels || []).find((ch) => ch.id === channelId);
-      await onSave({ ...settings, autoInviteEnabled: enabled, autoInviteChannelId: channelId || null, autoInviteChannelName: channel?.name || null });
-      setStatus(enabled ? `New accounts will be added to #${channel?.name || 'the channel'}.` : 'Auto-invite is off.');
-    } catch (e) { setStatus(e.message); } finally { setBusy(false); }
+      const data = await slackApi('GET', 'auto-invite');
+      if (mounted.current) setResults(data.results || []);
+    } catch { /* Results are informational; the list keeps what it showed. */ }
+  }
+
+  // The saved channel stays a choice when the list failed to load or no longer
+  // includes it, so the field never misreports the saved setting and saving
+  // keeps its name.
+  const listed = channels || [];
+  const savedUnlisted = !!savedChannelId && !listed.some((ch) => ch.id === savedChannelId);
+  const options = savedUnlisted
+    ? [{ id: savedChannelId, name: savedChannelName, notFound: channels !== null && !channelsError }, ...listed]
+    : listed;
+  const describedBy = [channelError && 'slack-auto-channel-error', channelsError && 'slack-auto-channel-load-error']
+    .filter(Boolean).join(' ') || undefined;
+
+  async function reloadChannels() {
+    if (loadingChannels) return;
+    setLoadingChannels(true);
+    const { list, error } = await fetchChannels();
+    if (!mounted.current) return;
+    // Success removes the error and the Reload button holding focus.
+    if (!error) selectRef.current?.focus();
+    if (list) setChannels(list);
+    setChannelsError(error || null);
+    setLoadingChannels(false);
+  }
+
+  function changeEnabled(next) {
+    setEnabled(next);
+    setStatus(null);
+    if (!next) setChannelError(null);
+  }
+
+  function changeChannel(next) {
+    setChannelId(next);
+    setStatus(null);
+    setChannelError(null);
+  }
+
+  async function save() {
+    if (pending) return;
+    if (enabled && !channelId) {
+      setChannelError('Choose a channel for new accounts.');
+      setStatus(null);
+      selectRef.current?.focus();
+      return;
+    }
+    const channel = options.find((ch) => ch.id === channelId) || null;
+    setPending('save');
+    setStatus(null);
+    try {
+      await onSave({
+        ...settings,
+        autoInviteEnabled: enabled,
+        autoInviteChannelId: channelId || null,
+        autoInviteChannelName: channel?.name || null,
+      });
+      setStatus({ type: 'success', text: enabled ? `New accounts will be added to ${channelLabel(channel)}.` : 'Auto-invite is off.' });
+    } catch (e) {
+      setStatus({ type: 'error', text: e.message || 'Auto-invite settings couldn’t be saved. Try again.' });
+    } finally {
+      setPending(null);
+    }
   }
 
   async function retry(body, label) {
-    if (busy) return;
-    setBusy(true);
-    setStatus('');
+    if (pending) return;
+    setPending('retry');
+    setStatus(null);
     try {
       const r = await slackApi('POST', 'auto-invite/retry', body);
-      setStatus(`${label}: ${r.invited} added, ${r.not_in_workspace} not in the workspace, ${r.failed} failed, ${r.skipped} skipped, ${r.in_progress} in progress, ${r.conflict} conflicted.`);
+      setStatus({ type: 'info', text: `${label}: ${r.invited} added, ${r.not_in_workspace} not in the workspace, ${r.failed} failed, ${r.skipped} skipped, ${r.in_progress} in progress, ${r.conflict} conflicted.` });
       await loadResults();
-    } catch (e) { setStatus(e.message); } finally { setBusy(false); }
+    } catch (e) {
+      setStatus({ type: 'error', text: e.message });
+    } finally {
+      setPending(null);
+    }
+  }
+
+  function toggleResults() {
+    const next = !showAllResults;
+    setShowAllResults(next);
+    // Collapsing moves the button back up past the rows it hid; keep it in view.
+    if (!next) requestAnimationFrame(() => resultsToggleRef.current?.scrollIntoView({ block: 'nearest' }));
   }
 
   const retryable = results.filter((r) => !r.inProgress && (r.status !== 'invited' || r.channelId !== settings?.autoInviteChannelId)).length;
@@ -253,25 +416,56 @@ function AutoInvite({ settings, onSave }) {
           The app needs the <code>users:read.email</code> and <code>channels:manage</code> (or <code>groups:write</code> for a private channel) scopes, and must be in the channel.
         </p>
         <label className="touch-target flex items-center gap-2 text-sm cursor-pointer select-none">
-          <input type="checkbox" className="size-4 shrink-0 accent-primary" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          <input type="checkbox" className="size-4 shrink-0 accent-primary" checked={enabled} onChange={(e) => changeEnabled(e.target.checked)} />
           Add new accounts to a channel
         </label>
         <div className="space-y-1">
           <Label htmlFor="slack-auto-channel">Channel</Label>
-          <select id="slack-auto-channel" value={channelId} onChange={(e) => setChannelId(e.target.value)} disabled={!channels}
-            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-base md:text-sm">
-            <option value="">{channels ? 'Choose a channel' : 'Loading channels…'}</option>
-            {(channels || []).map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}
+          <select
+            ref={selectRef}
+            id="slack-auto-channel"
+            // Until the first load settles, show that it is loading.
+            value={channels === null ? '' : channelId}
+            onChange={(e) => changeChannel(e.target.value)}
+            disabled={channels === null}
+            aria-describedby={describedBy}
+            aria-invalid={channelError ? true : undefined}
+            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-base md:text-sm aria-invalid:border-destructive"
+          >
+            <option value="">{channels === null ? 'Loading channels…' : 'Choose a channel'}</option>
+            {options.map((ch) => (
+              <option key={ch.id} value={ch.id}>{channelLabel(ch)}{ch.notFound ? ' (not found)' : ''}</option>
+            ))}
           </select>
+          {channelError && <p id="slack-auto-channel-error" className="text-xs text-destructive">{channelError}</p>}
+          {channelsError && (
+            <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <p id="slack-auto-channel-load-error" className="min-w-0 flex-1 basis-56 text-xs text-destructive">{channelsError}</p>
+              <Button size="sm" variant="outline" onClick={reloadChannels} disabled={loadingChannels} focusableWhenDisabled>
+                {loadingChannels ? 'Reloading…' : 'Reload channels'}
+              </Button>
+            </div>
+          )}
         </div>
-        <Button onClick={save} disabled={busy || (enabled && !channelId)} focusableWhenDisabled={busy} aria-label="Save auto-invite settings">Save</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Stays focusable when there is nothing to save, so a finished save
+              never drops focus. */}
+          <Button onClick={save} disabled={!!pending || !dirty} focusableWhenDisabled aria-label={`${pending === 'save' ? 'Saving' : 'Save'} auto-invite settings`}>
+            {pending === 'save' ? 'Saving…' : 'Save'}
+          </Button>
+          {dirty && pending !== 'save' && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+        </div>
         {results.length > 0 && (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="text-sm font-medium">Recent results</h4>
-              {retryable > 0 && <Button size="sm" variant="outline" disabled={busy} focusableWhenDisabled onClick={() => retry({ all: true }, 'Retried')}>Retry everyone not added ({retryable})</Button>}
+              {retryable > 0 && <Button size="sm" variant="outline" disabled={!!pending} focusableWhenDisabled onClick={() => retry({ all: true }, 'Retried')}>Retry everyone not added ({retryable})</Button>}
             </div>
-            <ul className="max-h-60 space-y-1 overflow-y-auto text-sm" aria-label="Auto-invite results">
+            <ul
+              id="slack-auto-invite-results"
+              aria-label="Auto-invite results"
+              className={cn('space-y-1 text-sm sm:max-h-60 sm:overflow-y-auto', !showAllResults && 'max-sm:[&>li:nth-child(n+11)]:hidden')}
+            >
               {results.map((r) => (
                 <li key={r.userId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="min-w-0 flex-1 basis-40 [overflow-wrap:anywhere]">{r.name} <span className="text-muted-foreground">{r.email}</span></span>
@@ -279,15 +473,34 @@ function AutoInvite({ settings, onSave }) {
                     {r.inProgress ? 'In progress' : STATUS_TEXT[r.status] || r.status}{r.error ? ` (${r.error})` : ''}
                   </span>
                   {!r.inProgress && (r.status !== 'invited' || r.channelId !== settings?.autoInviteChannelId) && (
-                    <Button size="xs" variant="ghost" disabled={busy} focusableWhenDisabled aria-label={`Retry ${r.name}`} onClick={() => retry({ userId: r.userId }, `Retried ${r.name}`)}>Retry</Button>
+                    <Button size="xs" variant="ghost" disabled={!!pending} focusableWhenDisabled aria-label={`Retry ${r.name}`} onClick={() => retry({ userId: r.userId }, `Retried ${r.name}`)}>Retry</Button>
                   )}
                 </li>
               ))}
             </ul>
+            {results.length > RESULTS_PREVIEW && (
+              <Button
+                ref={resultsToggleRef}
+                size="sm"
+                variant="outline"
+                className="sm:hidden"
+                aria-expanded={showAllResults}
+                aria-controls="slack-auto-invite-results"
+                onClick={toggleResults}
+              >
+                {showAllResults ? `Show the ${RESULTS_PREVIEW} newest` : `Show all ${results.length} results`}
+              </Button>
+            )}
           </div>
         )}
       </div>
-      <p className="text-sm text-muted-foreground [&:not(:empty)]:mt-3" role="status" aria-live="polite">{status}</p>
+      <p
+        className={cn('text-sm [&:not(:empty)]:mt-3', status?.type === 'error' ? 'text-destructive' : status?.type === 'success' ? 'text-success-foreground' : 'text-muted-foreground')}
+        role="status"
+        aria-live="polite"
+      >
+        {status?.text || ''}
+      </p>
     </section>
   );
 }

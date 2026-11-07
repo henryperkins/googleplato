@@ -54,6 +54,20 @@ export function inviteMessage(inviterName, classroom, signupUrl) {
   return `${opener} to join *${escapeSlack(classroom)}*.\n\n<${signupUrl}|Create your account>\n\nThis invite expires in 7 days.`;
 }
 
+/**
+ * An error response that keeps Slack's own code (`missing_scope`,
+ * `invalid_auth`, `ratelimited`, or the Web API client's request/HTTP codes)
+ * and, for a missing scope, the scope the call needs, so the settings panel
+ * can say what to fix. Neither field ever carries the token.
+ */
+export function slackErrorBody(error, message) {
+  const body = { error: message, detail: error?.message };
+  const code = error?.data?.error || error?.code;
+  if (typeof code === 'string' && code) body.code = code;
+  if (typeof error?.data?.needed === 'string' && error.data.needed) body.needed = error.data.needed;
+  return body;
+}
+
 // POST /v1/plugins/slack/admin/test — validate a bot token
 routes.post('/admin/test', async (c) => {
   const { botToken } = await c.req.json();
@@ -62,7 +76,7 @@ routes.post('/admin/test', async (c) => {
     const result = await testSlackConnection(botToken);
     return c.json(result);
   } catch (e) {
-    return c.json({ error: 'Invalid token or Slack API error', detail: e.message }, 400);
+    return c.json(slackErrorBody(e, 'Invalid token or Slack API error'), 400);
   }
 });
 
@@ -75,7 +89,7 @@ routes.get('/admin/users', async (c) => {
     const users = await searchSlackUsers(token, q);
     return c.json(users);
   } catch (e) {
-    return c.json({ error: 'Slack API error', detail: e.message }, 500);
+    return c.json(slackErrorBody(e, 'Slack API error'), 500);
   }
 });
 
@@ -87,7 +101,7 @@ routes.get('/admin/channels', async (c) => {
     const channels = await listSlackChannels(token);
     return c.json(channels);
   } catch (e) {
-    return c.json({ error: 'Slack API error', detail: e.message }, 500);
+    return c.json(slackErrorBody(e, 'Slack API error'), 500);
   }
 });
 
@@ -99,7 +113,7 @@ routes.get('/admin/channels/:id/members', async (c) => {
     const members = await listChannelMembers(token, c.req.param('id'));
     return c.json(members);
   } catch (e) {
-    return c.json({ error: 'Slack API error', detail: e.message }, 500);
+    return c.json(slackErrorBody(e, 'Slack API error'), 500);
   }
 });
 

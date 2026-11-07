@@ -110,6 +110,10 @@ function scrubSettings(value, schema) {
   return out;
 }
 
+function hasSettingValue(value) {
+  return value !== undefined && value !== null && !(typeof value === 'string' && value.trim() === '');
+}
+
 function settingsWithDefaults(entry) {
   const settings = { ...(entry?.settings || {}) };
   for (const [key, schema] of Object.entries(entry?.manifest?.settingsSchema?.properties || {})) {
@@ -376,8 +380,7 @@ export function createRegistry(options = {}) {
       }
       const effective = settingsWithDefaults({ manifest: entry.manifest, settings });
       for (const key of entry.manifest?.settingsSchema?.required || []) {
-        const value = effective[key];
-        if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+        if (!hasSettingValue(effective[key])) {
           throw new Error(`${properties[key]?.title || key} is required.`);
         }
       }
@@ -433,6 +436,15 @@ export function createRegistry(options = {}) {
     sanitizeSettings(entry, includeDefaults = false) {
       const settings = includeDefaults ? settingsWithDefaults(entry) : entry?.settings || {};
       return scrubSettings(settings, entry?.manifest?.settingsSchema);
+    },
+
+    // Top-level writeOnly keys that hold a stored value. The values never leave
+    // the server; the key names let an admin form say a secret is saved, and
+    // leaving that field blank keeps it (the settings route restores it).
+    storedWriteOnly(entry) {
+      const properties = entry?.manifest?.settingsSchema?.properties || {};
+      return Object.keys(properties)
+        .filter((key) => properties[key]?.writeOnly && hasSettingValue(entry?.settings?.[key]));
     },
 
     async publicAuthProviders() {

@@ -11,6 +11,10 @@ let SettingsForm;
 let effectivePluginSettings;
 let settingsForSave;
 let validateRequiredSettings;
+let withoutWriteOnly;
+let defaultsRestoredBy;
+let savedSettingsMessage;
+let settingHint;
 
 before(async () => {
   vite = await createServer({
@@ -23,18 +27,22 @@ before(async () => {
     appType: 'custom',
     logLevel: 'error',
   });
-  ({ default: SettingsForm, effectivePluginSettings, settingsForSave, validateRequiredSettings } = await vite.ssrLoadModule('/src/lib/plugins/SettingsForm.jsx'));
+  ({
+    default: SettingsForm, effectivePluginSettings, settingsForSave, validateRequiredSettings,
+    withoutWriteOnly, defaultsRestoredBy, savedSettingsMessage, settingHint,
+  } = await vite.ssrLoadModule('/src/lib/plugins/SettingsForm.jsx'));
 });
 
 after(async () => {
   await vite?.close();
 });
 
-const render = (properties, settings = {}, required = []) => renderToStaticMarkup(createElement(SettingsForm, {
+const render = (properties, settings = {}, required = [], storedWriteOnly = []) => renderToStaticMarkup(createElement(SettingsForm, {
   pluginId: 'example',
   pluginName: 'Example',
   schema: { type: 'object', properties, required },
   settings,
+  storedWriteOnly,
   onSave: async () => {},
 }));
 
@@ -93,5 +101,58 @@ describe('Plugin settings form', () => {
     assert.deepEqual(validateRequiredSettings(schema, { apiKey: '', projectId: '' }), { projectId: 'Project ID is required.' });
     assert.deepEqual(validateRequiredSettings(schema, { apiKey: '', projectId: 'project' }), {});
     assert.deepEqual(effectivePluginSettings(schema, { projectId: 'stored' }), { apiKey: 'default-key', projectId: 'stored' });
+  });
+
+  it('counts a stored required secret as set while its field is blank', () => {
+    const schema = {
+      type: 'object',
+      required: ['apiSecret'],
+      properties: {
+        apiSecret: { type: 'string', title: 'API secret', writeOnly: true },
+        region: { type: 'string', default: 'us' },
+      },
+    };
+    // The server never returns the secret, so the form only knows it exists.
+    assert.deepEqual(validateRequiredSettings(schema, { region: 'eu' }, ['apiSecret']), {});
+    assert.deepEqual(validateRequiredSettings(schema, { apiSecret: '  ', region: 'eu' }, ['apiSecret']), {});
+    assert.deepEqual(validateRequiredSettings(schema, { region: 'eu' }), { apiSecret: 'API secret is required.' });
+    assert.deepEqual(validateRequiredSettings(schema, { apiSecret: 'new', region: 'eu' }), {});
+    // A typed secret leaves the form once saved; other values stay.
+    assert.deepEqual(withoutWriteOnly(schema, { apiSecret: 'new', region: 'eu' }), { region: 'eu' });
+  });
+
+  it('names the fields a save returns to their defaults', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        apiKey: { type: 'string', title: 'API key', default: 'key' },
+        authDomain: { type: 'string', title: 'Auth domain', default: 'example.test' },
+        projectId: { type: 'string', title: 'Project ID', default: 'project' },
+        note: { type: 'string' },
+        secret: { type: 'string', writeOnly: true, default: 'never shown' },
+      },
+    };
+    assert.deepEqual(defaultsRestoredBy(schema, { apiKey: ' ', authDomain: 'kept.example', note: '', secret: '' }), ['apiKey']);
+    assert.equal(savedSettingsMessage(schema, []), 'Settings saved.');
+    assert.equal(savedSettingsMessage(schema, ['apiKey']), 'Settings saved. API key was reset to its default.');
+    assert.equal(savedSettingsMessage(schema, ['apiKey', 'authDomain']), 'Settings saved. API key and Auth domain were reset to their defaults.');
+    assert.equal(savedSettingsMessage(schema, ['apiKey', 'authDomain', 'projectId']),
+      'Settings saved. API key, Auth domain, and Project ID were reset to their defaults.');
+  });
+
+  it('explains what saving does with a hidden secret or a cleared default', () => {
+    const secret = { type: 'string', writeOnly: true };
+    assert.equal(settingHint(secret, '', true), 'A value is saved. Leave this blank to keep it.');
+    assert.equal(settingHint(secret, 'replacement', true), 'Saving replaces the saved value.');
+    assert.equal(settingHint(secret, '', false), null);
+    assert.equal(settingHint({ type: 'string', default: 'key' }, '  ', false), 'Saving restores the default.');
+    assert.equal(settingHint({ type: 'string', default: 'key' }, 'custom', false), null);
+    assert.equal(settingHint({ type: 'string' }, '', false), null);
+
+    const html = render({ apiSecret: { type: 'string', title: 'API secret', description: 'From the service dashboard.', writeOnly: true } },
+      {}, ['apiSecret'], ['apiSecret']);
+    assert.match(html, /<input[^>]*type="password"[^>]*autoComplete="off"|<input[^>]*autoComplete="off"[^>]*type="password"/i);
+    assert.match(html, /aria-describedby="plugin-example-apiSecret-description plugin-example-apiSecret-hint"/);
+    assert.match(html, /<p id="plugin-example-apiSecret-hint"[^>]*>A value is saved\. Leave this blank to keep it\.<\/p>/);
   });
 });

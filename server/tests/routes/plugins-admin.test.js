@@ -105,6 +105,29 @@ describe('GET /v1/admin/plugins', () => {
     assert.equal(list[0].settings.botToken, undefined, 'writeOnly botToken must not appear in response');
     assert.equal(list[0].settings.workspaceName, 'Acme', 'non-writeOnly fields preserved');
     assert.equal(list[0].settings.connected, true);
+    assert.deepEqual(list[0].storedWriteOnly, ['botToken'], 'the key name says a secret is saved; the value never leaves');
+    assert.doesNotMatch(JSON.stringify(list), /xoxb-SECRET/);
+  });
+
+  it('lists only writeOnly settings that hold a value as stored', async () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        apiSecret: { type: 'string', writeOnly: true },
+        webhookSecret: { type: 'string', writeOnly: true },
+        signingKey: { type: 'string', writeOnly: true },
+        region: { type: 'string' },
+      },
+    };
+    pluginRegistry.list = () => [
+      makeEntry({ id: 'service', settings: { apiSecret: 's3cret', webhookSecret: '  ', signingKey: null, region: 'eu' }, schema }),
+      makeEntry({ id: 'plain', settings: { region: 'us' }, schema: null }),
+    ];
+    const app = new Hono();
+    app.route('/', admin);
+    const list = await (await adminReq(app, 'GET', '/v1/admin/plugins')).json();
+    assert.deepEqual(list[0].storedWriteOnly, ['apiSecret']);
+    assert.deepEqual(list[1].storedWriteOnly, []);
   });
 
   it('returns effective settings with manifest defaults', async () => {
@@ -207,6 +230,7 @@ describe('PUT /v1/admin/plugins/:id/settings', () => {
     assert.equal(data.settings.botToken, undefined);
     assert.equal(data.settings.workspaceName, 'NewSpace');
     assert.equal(data.settings.region, 'us-east');
+    assert.deepEqual(data.storedWriteOnly, ['botToken']);
   });
 
   it('keeps a stored writeOnly value the body leaves out; an explicit null clears it', async () => {

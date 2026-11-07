@@ -1320,15 +1320,21 @@ admin.put('/v1/admin/theme', bodyLimit({ maxSize: MAX_LOGO_DATA_URL_CHARS + 16 *
 
 // ── Plugin admin endpoints ──
 
-// GET /v1/admin/plugins — list all known plugins, including disabled and load-failed.
 // writeOnly settings (e.g. Slack's bot token) are stripped from responses; the host
 // is the source of truth for those values, the client never needs them back.
+// `storedWriteOnly` names the ones that are set, so a form can say so.
+function adminPluginView(entry) {
+  return {
+    ...pluginRegistry.publicView(entry),
+    settings: pluginRegistry.sanitizeSettings(entry, true),
+    storedWriteOnly: pluginRegistry.storedWriteOnly(entry),
+  };
+}
+
+// GET /v1/admin/plugins — list all known plugins, including disabled and load-failed.
 admin.get('/v1/admin/plugins', async (c) => {
   await pluginRegistry.reconcile({ force: true });
-  return c.json(pluginRegistry.list().map((e) => {
-    const view = pluginRegistry.publicView(e);
-    return { ...view, settings: pluginRegistry.sanitizeSettings(e, true) };
-  }));
+  return c.json(pluginRegistry.list().map(adminPluginView));
 });
 
 // PUT /v1/admin/plugins/:id/activation — enable/disable a plugin.
@@ -1403,7 +1409,7 @@ admin.put('/v1/admin/plugins/:id/settings', async (c) => {
   }
   try {
     const entry = await pluginRegistry.updateSettings(id, body);
-    return c.json({ ...pluginRegistry.publicView(entry), settings: pluginRegistry.sanitizeSettings(entry, true) });
+    return c.json(adminPluginView(entry));
   } catch (err) {
     return c.json({ error: err.message }, 400);
   }

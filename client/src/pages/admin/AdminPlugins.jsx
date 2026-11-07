@@ -81,7 +81,7 @@ export default function AdminPlugins() {
 
   function completeUninstall(pluginId) {
     setPlugins((current) => current.map((plugin) => (
-      plugin.id === pluginId ? { ...plugin, hasStoredState: false, settings: {} } : plugin
+      plugin.id === pluginId ? { ...plugin, hasStoredState: false, settings: {}, storedWriteOnly: [] } : plugin
     )));
   }
 
@@ -235,6 +235,7 @@ function PluginCard({ plugin, readOnly, registryReady, onToggle, onSaveSettings,
                 pluginName={plugin.name}
                 schema={plugin.settingsSchema}
                 settings={plugin.settings || {}}
+                storedWriteOnly={plugin.storedWriteOnly || []}
                 onSave={onSaveSettings}
               />
             )}

@@ -7,7 +7,7 @@ plato plugin that adds Slack DM invites for the learner-onboarding flow.
 1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps).
 2. Add OAuth scopes: `users:read`, `users:read.email`, `channels:read`, `groups:read`, `chat:write`, `im:write`.
 3. Install to your workspace, copy the **Bot User OAuth Token** (starts with `xoxb-`).
-4. In plato, go to **Admin → Plugins → Slack**, paste the token, click **Test Connection**, then **Connect**.
+4. In plato, go to **Admin → Plugins → Slack**, paste the token, click **Test Connection**, then **Connect**. Connect saves the exact token that passed the test; editing the token withdraws it until the new one is tested.
 5. The Invite Users dialog on the Users page now shows a Slack tab.
 
 ## Settings
@@ -60,6 +60,13 @@ not in the workspace is recorded as "Not in the workspace".
   Expired pending rows say **Not finished** and offer Retry when results are
   refreshed. Retry everyone not added can also recover expired attempts, and
   its status message includes skipped, in-progress and conflicted counts.
+  Phones list the 10 newest results with the rest behind **Show all**.
+- **Choosing the channel:** if the channel list can't load, the panel says why
+  under the field (for example, the app needs the `channels:read` scope) and
+  offers **Reload channels**. The saved channel stays selected, and saving keeps
+  its name; a saved channel missing from a loaded list is marked
+  **(not found)**. Save marks unsaved changes, and turning auto-invite on asks
+  for a channel first.
 - **Signup waits for the invite** (each Slack call gets one 4 s try, with no
   Slack SDK retries). A crash or outcome-storage failure can leave a pending
   record for a later retry; hook errors never reject account creation.
@@ -73,6 +80,12 @@ not in the workspace is recorded as "Not in the workspace".
 - `POST /v1/plugins/slack/admin/invites` — send DMs (max 200 per batch)
 - `GET  /v1/plugins/slack/admin/auto-invite` — recent auto-invite results
 - `POST /v1/plugins/slack/admin/auto-invite/retry` — `{ userId }` or `{ all: true }`
+
+When Slack rejects a call, `test`, `users`, `channels` and channel `members`
+respond with `{ error, detail, code, needed }`. `code` is Slack's error
+(`missing_scope`, `invalid_auth`, `ratelimited`) or the Web API client's
+request, HTTP or rate-limit code, and `needed` names a missing scope. The panel
+turns them into a cause and a next step.
 
 ## Disabling
 
