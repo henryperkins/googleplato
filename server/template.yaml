@@ -92,15 +92,6 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref AuditLogTable
         - Statement:
-            # DynamoDBCrudPolicy does not grant the Transact APIs, but the
-            # sync-data adapter uses TransactGet/TransactWrite for lesson
-            # state, lesson-turn commits, and branding (db-dynamodb.js).
-            - Effect: Allow
-              Action:
-                - dynamodb:TransactGetItems
-                - dynamodb:TransactWriteItems
-              Resource: !GetAtt SyncDataTable.Arn
-        - Statement:
             - Effect: Allow
               Action:
                 - ses:SendEmail
@@ -179,15 +170,6 @@ Resources:
             TableName: !Ref SyncDataTable
         - DynamoDBCrudPolicy:
             TableName: !Ref AuditLogTable
-        - Statement:
-            # DynamoDBCrudPolicy does not grant the Transact APIs, but the
-            # sync-data adapter uses TransactGet/TransactWrite for lesson
-            # state, lesson-turn commits, and branding (db-dynamodb.js).
-            - Effect: Allow
-              Action:
-                - dynamodb:TransactGetItems
-                - dynamodb:TransactWriteItems
-              Resource: !GetAtt SyncDataTable.Arn
         - Statement:
             - Effect: Allow
               Action:

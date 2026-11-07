@@ -53,13 +53,13 @@ Create these in AWS Systems Manager Parameter Store before deploying. Replace `{
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `/plato/{stage}/jwt-secret` | SecureString | JWT signing secret (at least 32 characters — the Lambda entry refuses to boot on a shorter one) |
+| `/plato/{stage}/jwt-secret` | String | JWT signing secret (at least 32 characters — the Lambda entry refuses to boot on a shorter one) |
 | `/plato/{stage}/ses-from-email` | String | Verified SES sender email |
 | `/plato/{stage}/app-url` | String | Public HTTPS URL (for invite/reset links) |
 | `/plato/{stage}/admin-email` | String | Bootstrap admin email |
-| `/plato/{stage}/admin-password` | SecureString | Bootstrap admin password |
+| `/plato/{stage}/admin-password` | String | Bootstrap admin password |
 
-All five parameters must exist before deploying: `server/template.yaml` resolves each one unconditionally, so a missing parameter fails stack creation. On AWS a fresh stack always bootstraps the admin from `admin-email`/`admin-password` on first request; the setup-UI first-admin path that `server/start.js` supports on Cloud Run is not reachable on a fresh Lambda stack.
+Create all five as `String` parameters: the template reads them with `{{resolve:ssm:…}}` dynamic references, which read only `String` and `StringList` parameters, so a `SecureString` here fails the deploy. Restrict who can read `/plato/*` with IAM. All five parameters must exist before deploying: `server/template.yaml` resolves each one unconditionally, so a missing parameter fails stack creation. On AWS a fresh stack always bootstraps the admin from `admin-email`/`admin-password` on first request; the setup-UI first-admin path that `server/start.js` supports on Cloud Run is not reachable on a fresh Lambda stack.
 
 ### Stack parameters
 
@@ -161,7 +161,7 @@ gh repo edit my-org/my-plato --visibility private --accept-visibility-change-con
 
 **The trigger workflow** lives in the public repo at `.github/workflows/trigger-deploy.yml` (already included in this project). On push to `main` or `playground`, it fires a `deploy-prod` or `deploy-playground` `repository_dispatch` event at the private fork with the commit SHA as payload.
 
-**Deploy freeze:** set the repository variable `DEPLOY_FREEZE=true` to stop automatic prod deploys on push to `main` (event days, incidents). A manual `workflow_dispatch` run still deploys, for a deliberate hotfix or rollback. Same behaviour as upstream.
+**Deploy freeze:** set the repository variable `DEPLOY_FREEZE=true` to stop automatic prod deploys on push to `main` (event days, incidents). A manual `workflow_dispatch` run still deploys, for a deliberate hotfix or rollback. Same behaviour as upstream. It covers only this dispatch path: a deployment that builds from its own trigger on `main` (for example the Cloud Run setup in `deploy/cloudrun/`, a Cloud Build trigger) isn't frozen by it. Freeze that one by not merging to `main`, or by disabling the trigger.
 
 **Add a deploy workflow** to your private fork at `.github/workflows/deploy.yml`:
 

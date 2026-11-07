@@ -15,13 +15,12 @@ describe('template.yaml', () => {
       assert.match(fn(name), /- ses:SendRawEmail/);
       assert.match(fn(name), /- ses:SendEmail/);
     });
-    it(`${name} may run DynamoDB transactions (lesson turns, branding)`, () => {
-      // SAM's DynamoDBCrudPolicy does not grant the Transact APIs, but
-      // db-dynamodb.js issues TransactGet/TransactWrite on the sync-data
-      // table for every lesson save.
-      assert.match(fn(name), /dynamodb:TransactGetItems/);
-      assert.match(fn(name), /dynamodb:TransactWriteItems/);
-      assert.match(fn(name), /Resource: !GetAtt SyncDataTable\.Arn/);
+    it(`${name} may run DynamoDB transactions on the sync-data table`, () => {
+      // A transaction is authorized by the item actions inside it (PutItem,
+      // UpdateItem, DeleteItem, GetItem, ConditionCheckItem); IAM has no
+      // dynamodb:Transact* actions. DynamoDBCrudPolicy grants all five.
+      assert.match(fn(name), /DynamoDBCrudPolicy:\s+TableName: !Ref SyncDataTable/);
+      assert.doesNotMatch(fn(name), /dynamodb:Transact/);
     });
     it(`${name} pins DB_BACKEND=dynamodb instead of relying on the default`, () => {
       assert.match(fn(name), /DB_BACKEND: dynamodb/);
