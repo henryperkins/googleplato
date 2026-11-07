@@ -33,15 +33,36 @@ not in the workspace is recorded as "Not in the workspace".
   (`invited` / `not_in_workspace` / `failed`, with Slack's error code). The
   settings panel lists recent results with **Retry**, and **Retry everyone
   not added** picks up people who joined the workspace later.
-- **Every attempt leaves a record.** A `pending` record is written before
-  Slack is called and replaced by the result. If the result can't be written
-  (storage fails, or the process ends mid-call), the attempt stays `pending`
-  ("Not finished"), so Retry everyone not added still picks it up.
-- **Never twice:** someone already added to the current channel is skipped,
-  and Slack's `already_in_channel` counts as done.
-- **Signup waits for the invite** (each Slack call gets one 4 s try). On
-  Lambda nothing may run after the response is sent, so the result is always
-  recorded before signup finishes; a timeout shows as Failed, with Retry.
+- **Atomic ownership:** the signup hook, row Retry and Retry everyone not added
+  use the same `updateUserMeta` compare-and-set claim (plugin API **1.6.0+**).
+  A pending record holds a cryptographically random `attemptId`, `startedAt`
+  and a **60-second lease**. A live lease blocks another call to the same
+  channel; a completed successful invite to that channel is skipped.
+- **Recoverable attempts:** after lease expiry, Retry can claim an abandoned
+  pending attempt. Legacy pending records without a lease are reclaimable.
+  Choosing another channel can take over immediately. The lease suppresses
+  duplicate calls; the attempt ID decides which result may be saved and does
+  not depend on clock accuracy. Slack's `already_in_channel` counts as success.
+- **Fenced outcomes:** only the current attempt can record success or failure.
+  Late results from an old attempt are discarded in either arrival order,
+  including a stale success after the current owner's failure. Deleting an
+  account or its Slack metadata during an attempt prevents its outcome from
+  recreating that data. Unrelated metadata edits are preserved. At most one
+  previous attempt (status, channel, time and error) is retained for diagnosis;
+  history and internal attempt IDs are excluded from the recent-results API.
+- **Retry counts every selected user:** responses include `invited`,
+  `not_in_workspace`, `failed`, `skipped`, `in_progress` and `conflict` counts.
+  A storage failure or exhausted comparison retries for one user does not
+  stop the remaining users. Retry all may select from lagging reads; the strong
+  claim remains authoritative. An invited result for a different channel is
+  eligible when the configured channel changes.
+- **Panel:** live pending rows say **In progress** and hide their row Retry.
+  Expired pending rows say **Not finished** and offer Retry when results are
+  refreshed. Retry everyone not added can also recover expired attempts, and
+  its status message includes skipped, in-progress and conflicted counts.
+- **Signup waits for the invite** (each Slack call gets one 4 s try, with no
+  Slack SDK retries). A crash or outcome-storage failure can leave a pending
+  record for a later retry; hook errors never reject account creation.
 
 ## Routes (admin-only)
 

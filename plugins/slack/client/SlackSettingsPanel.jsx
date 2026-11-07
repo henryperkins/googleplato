@@ -162,7 +162,7 @@ async function slackApi(method, path, body) {
   return data;
 }
 
-// 'pending': an attempt that started but never recorded its result.
+// Pending rows with a live lease are still running; expired rows can retry.
 const STATUS_TEXT = { invited: 'Added', not_in_workspace: 'Not in the workspace', failed: 'Failed', pending: 'Not finished' };
 
 // Auto-invite (#379): add each new plato account to a channel, if the person
@@ -196,12 +196,12 @@ function AutoInvite({ settings, onSave }) {
     setBusy(true);
     try {
       const r = await slackApi('POST', 'auto-invite/retry', body);
-      setStatus(`${label}: ${r.invited} added, ${r.not_in_workspace} not in the workspace, ${r.failed} failed.`);
+      setStatus(`${label}: ${r.invited} added, ${r.not_in_workspace} not in the workspace, ${r.failed} failed, ${r.skipped} skipped, ${r.in_progress} in progress, ${r.conflict} conflicted.`);
       await loadResults();
     } catch (e) { setStatus(e.message); } finally { setBusy(false); }
   }
 
-  const pending = results.filter((r) => r.status !== 'invited').length;
+  const pending = results.filter((r) => r.status !== 'invited' || r.channelId !== settings?.autoInviteChannelId).length;
   return (
     <section className="space-y-3 border-t pt-4" aria-labelledby="slack-auto-invite">
       <h3 id="slack-auto-invite" className="text-sm font-medium">Add new accounts to a channel</h3>
@@ -233,9 +233,9 @@ function AutoInvite({ settings, onSave }) {
               <li key={r.userId} className="flex items-center gap-2">
                 <span className="flex-1 truncate">{r.name} <span className="text-muted-foreground">{r.email}</span></span>
                 <span className={r.status === 'invited' ? 'text-success-foreground' : r.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'} title={r.error || undefined}>
-                  {STATUS_TEXT[r.status] || r.status}{r.error ? ` (${r.error})` : ''}
+                  {r.inProgress ? 'In progress' : STATUS_TEXT[r.status] || r.status}{r.error ? ` (${r.error})` : ''}
                 </span>
-                {r.status !== 'invited' && (
+                {!r.inProgress && (r.status !== 'invited' || r.channelId !== settings?.autoInviteChannelId) && (
                   <Button size="xs" variant="ghost" disabled={busy} aria-label={`Retry ${r.name}`} onClick={() => retry({ userId: r.userId }, `Retried ${r.name}`)}>Retry</Button>
                 )}
               </li>

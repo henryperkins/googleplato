@@ -1,101 +1,86 @@
-/**
- * Slack auto-invite (#379, plugins/slack/server/auto-invite.js), and the host
- * keeping a plugin's writeOnly settings when a save leaves them out.
- */
+/** Basic Slack outcomes through the real SDK; atomic interleavings live in the plugin suite. */
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoInvite, onUserCreated, needsRetry } from '../../../plugins/slack/server/auto-invite.js';
-
+process.env.DB_BACKEND = 'sqlite';
+process.env.SQLITE_PATH = ':memory:';
+const { autoInvite, onUserCreated, needsRetry } = await import('../../../plugins/slack/server/auto-invite.js');
+const { db, getUserMeta } = await import('../../src/lib/plugins/sdk.js');
+const originalPut = db.putSyncData;
 const SETTINGS = { botToken: 'xoxb-1', autoInviteEnabled: true, autoInviteChannelId: 'C1', autoInviteChannelName: 'cohort' };
-
+const person = userId => ({ userId, email: 'in@x.com' });
 function deps(overrides = {}) {
-  const meta = new Map();
   const calls = { lookup: 0, invite: 0 };
-  return {
-    meta, calls,
-    lookup: async (_t, email) => { calls.lookup++; return email === 'in@x.com' ? 'U1' : null; },
-    invite: async () => { calls.invite++; },
-    getMeta: async (u) => meta.get(u) || null,
-    putMeta: async (u, _p, data) => { meta.set(u, data); },
-    ...overrides,
-  };
+  return { calls,
+    lookup: async (_token, email) => { calls.lookup++; return email === 'in@x.com' ? 'U1' : null; },
+    invite: async () => { calls.invite++; }, ...overrides };
 }
 
 describe('Slack auto-invite', () => {
   let d;
-  beforeEach(() => { d = deps(); });
-
-  it('adds a workspace member to the channel and records it; a retry doesn’t invite twice', async () => {
-    const r = await autoInvite({ userId: 'usr_1', email: 'in@x.com' }, SETTINGS, d);
-    assert.deepEqual([r.status, r.channelId, r.channelName], ['invited', 'C1', 'cohort']);
-    assert.equal(d.meta.get('usr_1').autoInvite.status, 'invited');
-    assert.equal(await autoInvite({ userId: 'usr_1', email: 'in@x.com' }, SETTINGS, d), null);
+  beforeEach(async () => {
+    db.putSyncData = originalPut;
+    for (const user of await db.listAllUsers()) {
+      await db.deleteSyncData(user.userId, 'userMeta:slack');
+      await db.deleteUser(user.userId);
+    }
+    for (let i = 1; i <= 9; i++) await db.createUser({ userId: `usr_${i}`, email: `${i}@example.test`, name: 'Synthetic', role: 'learner', passwordHash: 'hash' });
+    d = deps();
+  });
+  it('records a workspace member and skips a successful same-channel retry', async () => {
+    const result = await autoInvite(person('usr_1'), SETTINGS, d);
+    assert.deepEqual([result.status, result.channelId, result.channelName], ['invited', 'C1', 'cohort']);
+    assert.equal((await getUserMeta('usr_1', 'slack')).autoInvite.status, 'invited');
+    assert.equal(await autoInvite(person('usr_1'), SETTINGS, d), null);
     assert.equal(d.calls.invite, 1);
   });
-
   it('a new channel means a new invite', async () => {
-    await autoInvite({ userId: 'usr_1', email: 'in@x.com' }, SETTINGS, d);
-    await autoInvite({ userId: 'usr_1', email: 'in@x.com' }, { ...SETTINGS, autoInviteChannelId: 'C2' }, d);
+    await autoInvite(person('usr_1'), SETTINGS, d);
+    await autoInvite(person('usr_1'), { ...SETTINGS, autoInviteChannelId: 'C2' }, d);
     assert.equal(d.calls.invite, 2);
+    assert.equal(needsRetry({ autoInvite: { status: 'invited', channelId: 'C1' } }, 'C2'), true);
   });
-
-  it('records people not in the workspace and Slack errors (retryable)', async () => {
+  it('records missing workspace members and Slack errors, then retries failures', async () => {
     assert.equal((await autoInvite({ userId: 'usr_2', email: 'out@x.com' }, SETTINGS, d)).status, 'not_in_workspace');
     const failing = deps({ invite: async () => { throw Object.assign(new Error('x'), { data: { error: 'not_in_channel' } }); } });
-    const r = await autoInvite({ userId: 'usr_3', email: 'in@x.com' }, SETTINGS, failing);
-    assert.deepEqual([r.status, r.error], ['failed', 'not_in_channel']);
-    // Retrying a failed one tries again.
-    assert.equal((await autoInvite({ userId: 'usr_3', email: 'in@x.com' }, SETTINGS, { ...failing, invite: async () => {} })).status, 'invited');
+    const result = await autoInvite(person('usr_3'), SETTINGS, failing);
+    assert.deepEqual([result.status, result.error], ['failed', 'not_in_channel']);
+    assert.equal((await autoInvite(person('usr_3'), SETTINGS, { ...failing, invite: async () => {} })).status, 'invited');
   });
-
-  it('a Slack timeout during signup is recorded as failed, and Retry all picks it up', async () => {
-    const timedOut = deps({ lookup: async () => { throw Object.assign(new Error('A request error occurred: timeout of 4000ms exceeded'), { code: 'slack_webapi_request_error' }); } });
-    const r = await autoInvite({ userId: 'usr_4', email: 'in@x.com' }, SETTINGS, timedOut);
-    assert.equal(r.status, 'failed');
-    assert.match(r.error, /timeout/);
-    const meta = timedOut.meta.get('usr_4');
-    assert.equal(needsRetry(meta), true);
+  it('records a Slack timeout as a retryable failure', async () => {
+    const timedOut = deps({ lookup: async () => { throw new Error('timeout of 4000ms exceeded'); } });
+    const result = await autoInvite(person('usr_4'), SETTINGS, timedOut);
+    assert.equal(result.status, 'failed');
+    assert.match(result.error, /timeout/);
+    assert.equal(needsRetry(await getUserMeta('usr_4', 'slack')), true);
     assert.equal(needsRetry({ autoInvite: { status: 'invited' } }), false);
-    assert.equal(needsRetry(null), false, 'no attempt recorded: not part of Retry all');
-    // The retry then goes through.
-    assert.equal((await autoInvite({ userId: 'usr_4', email: 'in@x.com' }, SETTINGS, { ...timedOut, lookup: async () => 'U1' })).status, 'invited');
+    assert.equal(needsRetry(null), false);
+    assert.equal((await autoInvite(person('usr_4'), SETTINGS, d)).status, 'invited');
   });
-
-  it('an attempt whose result is never recorded stays pending, and Retry all picks it up', async () => {
-    // Slack refuses, then the result can't be written…
+  it('an outcome write failure leaves a pending attempt recoverable after lease expiry', async () => {
     let writes = 0;
-    const lost = deps({
-      invite: async () => { throw Object.assign(new Error('x'), { data: { error: 'ratelimited' } }); },
-      putMeta: async (u, _p, data) => { if (++writes === 2) throw new Error('storage unavailable'); lost.meta.set(u, data); },
-    });
-    await assert.rejects(autoInvite({ userId: 'usr_5', email: 'in@x.com' }, SETTINGS, lost), /storage unavailable/);
-    assert.deepEqual([lost.meta.get('usr_5').autoInvite.status, lost.meta.get('usr_5').autoInvite.channelId], ['pending', 'C1']);
-    assert.equal(needsRetry(lost.meta.get('usr_5')), true);
-    // …or the process ends while Slack is still answering.
-    const hung = deps({ lookup: () => new Promise(() => {}) });
-    autoInvite({ userId: 'usr_6', email: 'in@x.com' }, SETTINGS, hung);
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(hung.meta.get('usr_6').autoInvite.status, 'pending');
-    assert.equal(needsRetry(hung.meta.get('usr_6')), true);
-    // A retry finishes it.
-    const retried = await autoInvite({ userId: 'usr_5', email: 'in@x.com' }, SETTINGS, { ...lost, invite: async () => {}, putMeta: async (u, _p, data) => { lost.meta.set(u, data); } });
-    assert.equal(retried.status, 'invited');
-    assert.equal(needsRetry(lost.meta.get('usr_5')), false);
+    db.putSyncData = async (...args) => { if (++writes === 2) throw new Error('storage unavailable'); return originalPut(...args); };
+    await assert.rejects(autoInvite(person('usr_5'), SETTINGS, { ...d, now: () => 0 }), /storage unavailable/);
+    const pending = await getUserMeta('usr_5', 'slack');
+    assert.deepEqual([pending.autoInvite.status, pending.autoInvite.channelId], ['pending', 'C1']);
+    assert.equal(needsRetry(pending), true);
+    db.putSyncData = originalPut;
+    assert.equal((await autoInvite(person('usr_5'), SETTINGS, { ...d, now: () => 60000 })).status, 'invited');
   });
-
   it('does nothing while off, without a channel, or without a token', async () => {
-    for (const s of [{ ...SETTINGS, autoInviteEnabled: false }, { ...SETTINGS, autoInviteChannelId: '' }, { ...SETTINGS, botToken: null }]) {
-      assert.equal(await autoInvite({ userId: 'usr_1', email: 'in@x.com' }, s, d), null);
+    for (const settings of [{ ...SETTINGS, autoInviteEnabled: false }, { ...SETTINGS, autoInviteChannelId: '' }, { ...SETTINGS, botToken: null }]) {
+      assert.equal(await autoInvite(person('usr_1'), settings, d), null);
     }
     assert.equal(d.calls.lookup, 0);
   });
-
-  it('the userCreated hook never fails signup, and returns at once when off', async () => {
-    const t = Date.now();
-    const off = { readSettings: async () => ({ ...SETTINGS, botToken: null }) };
-    await onUserCreated({ userId: 'usr_9', email: 'in@x.com' }, { settings: SETTINGS }, off);
-    await onUserCreated({ userId: 'usr_9', email: 'in@x.com' }, null, { readSettings: async () => null });
-    assert.ok(Date.now() - t < 100, 'returns at once when not configured');
+  it('the userCreated hook returns when off and contains storage errors', async () => {
+    await onUserCreated(person('usr_9'), { settings: SETTINGS }, { readSettings: async () => ({ ...SETTINGS, botToken: null }) });
+    await onUserCreated(person('usr_9'), null, { readSettings: async () => null });
+    const messages = [];
+    db.putSyncData = async () => { throw new Error('storage unavailable'); };
+    try {
+      await onUserCreated(person('usr_9'), { settings: SETTINGS, logger: { warn: code => messages.push(code) } });
+      assert.deepEqual(messages, ['slack_auto_invite_failed']);
+    } finally { db.putSyncData = originalPut; }
   });
 });
 

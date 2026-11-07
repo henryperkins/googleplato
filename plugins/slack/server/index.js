@@ -25,7 +25,7 @@ import {
   listChannelMembers,
   sendSlackDM,
 } from './slack-client.js';
-import { autoInvite, onUserCreated, needsRetry } from './auto-invite.js';
+import { autoInvite, onUserCreated, needsRetry, isLiveAttempt } from './auto-invite.js';
 
 const routes = new Hono();
 
@@ -198,10 +198,16 @@ async function getSlackSettings() {
 // GET /v1/plugins/slack/admin/auto-invite — everyone with a recorded result, newest first
 routes.get('/admin/auto-invite', async (c) => {
   const users = await db.listAllUsers();
+  const settings = await getSlackSettings();
   const rows = [];
   for (const u of users) {
-    const meta = await getUserMeta(u.userId, 'slack');
-    if (meta?.autoInvite) rows.push({ userId: u.userId, name: u.name || u.email, email: u.email, ...meta.autoInvite });
+    const meta = (await db.getSyncData(u.userId, 'userMeta:slack', { consistentRead: true }))?.data;
+    if (meta?.autoInvite) {
+      const { status, channelId, channelName, at, error, startedAt, leaseUntil } = meta.autoInvite;
+      rows.push({ userId: u.userId, name: u.name || u.email, email: u.email,
+        status, channelId, channelName, at, error, startedAt, leaseUntil,
+        inProgress: isLiveAttempt(meta.autoInvite, settings.autoInviteChannelId) });
+    }
   }
   rows.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
   return c.json({ results: rows.slice(0, 100) });
@@ -217,15 +223,19 @@ routes.post('/admin/auto-invite/retry', async (c) => {
   const targets = body.all
     ? users
     : users.filter((u) => u.userId === body.userId);
-  if (!targets.length) return c.json({ error: 'User not found' }, 404);
-  const counts = { invited: 0, not_in_workspace: 0, failed: 0, skipped: 0 };
+  const counts = { invited: 0, not_in_workspace: 0, failed: 0, skipped: 0, in_progress: 0, conflict: 0 };
+  if (!targets.length && !body.all) counts.skipped++;
   for (const u of targets) {
-    if (body.all) {
-      const meta = await getUserMeta(u.userId, 'slack');
-      if (!needsRetry(meta)) { counts.skipped++; continue; }
+    try {
+      if (body.all) {
+        const meta = await getUserMeta(u.userId, 'slack');
+        if (!needsRetry(meta, settings.autoInviteChannelId)) { counts.skipped++; continue; }
+      }
+      const result = await autoInvite({ userId: u.userId, email: u.email }, settings);
+      counts[result ? result.status : 'skipped']++;
+    } catch (error) {
+      counts[error.name === 'ConditionalCheckFailedException' ? 'conflict' : 'failed']++;
     }
-    const r = await autoInvite({ userId: u.userId, email: u.email }, settings);
-    counts[r ? r.status : 'skipped']++;
   }
   return c.json(counts);
 });
