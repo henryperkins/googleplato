@@ -17,7 +17,9 @@ let server, browser, base;
 async function open(t, { history = [] } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1100 } });
   const page = await context.newPage();
-  page.setDefaultTimeout(8000);
+  // Cold Vite dependency optimization in Cloud Build can exceed eight seconds
+  // before the first fixture navigation completes; behavioral waits stay bounded.
+  page.setDefaultTimeout(30000);
   const errors = [], sent = [], pending = [], waiters = [];
   let held = false;
   let holdSend = false;
