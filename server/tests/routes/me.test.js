@@ -4,6 +4,11 @@ import { Hono } from 'hono';
 import me from '../../src/routes/me.js';
 import db from '../../src/lib/db.js';
 import { signAccessToken } from '../../src/lib/jwt.js';
+import { hashPassword } from '../../src/lib/password.js';
+import { _resetAuthLimits } from '../../src/routes/auth.js';
+
+const CURRENT_PASSWORD = 'current-password';
+const currentHash = await hashPassword(CURRENT_PASSWORD);
 
 async function authedReq(app, method, path, body, role = 'user') {
   const token = await signAccessToken('usr_test', role);
@@ -134,10 +139,87 @@ describe('PATCH /v1/me', () => {
   });
 
   it('rejects short password', async () => {
+    db.getUserById = async () => ({ userId: 'usr_test', email: 'test@example.com', role: 'user', passwordHash: currentHash });
     const app = new Hono();
     app.route('/', me);
-    const res = await authedReq(app, 'PATCH', '/v1/me', { password: 'short' });
+    const res = await authedReq(app, 'PATCH', '/v1/me', { password: 'short', currentPassword: CURRENT_PASSWORD });
     assert.equal(res.status, 400);
+  });
+
+  // A new password or email needs the current password (upstream #517), and
+  // ends every other session.
+  describe('credential changes', () => {
+    let revoked;
+    let stored;
+    beforeEach(() => {
+      _resetAuthLimits();
+      revoked = 0;
+      stored = [];
+      db.getUserById = async () => ({ userId: 'usr_test', email: 'test@example.com', username: 'testuser', role: 'user', passwordHash: currentHash });
+      db.revokeUserTokens = async () => { revoked += 1; };
+      db.storeRefreshToken = async (...args) => { stored.push(args); };
+    });
+    const patch = (body, ip = '203.0.113.7') => {
+      const app = new Hono();
+      app.route('/', me);
+      return signAccessToken('usr_test', 'user').then((token) => app.request('/v1/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Forwarded-For': ip },
+        body: JSON.stringify(body),
+      }));
+    };
+
+    it('refuses a new password without the current one', async () => {
+      const res = await patch({ password: 'a-new-password' });
+      assert.equal(res.status, 403);
+      assert.equal((await res.json()).code, 'current_password_required');
+      assert.equal(revoked, 0);
+    });
+
+    it('refuses a wrong current password', async () => {
+      const res = await patch({ password: 'a-new-password', currentPassword: 'not-it' });
+      assert.equal(res.status, 403);
+    });
+
+    it('changes the password and ends every other session', async () => {
+      const res = await patch({ password: 'a-new-password', currentPassword: CURRENT_PASSWORD });
+      assert.equal(res.status, 200);
+      assert.ok((await res.json()).session?.refreshToken, 'this device gets a fresh session');
+      assert.equal(revoked, 1);
+      assert.equal(stored.length, 1);
+    });
+
+    it('needs the current password to change the email, checks its format, and ends other sessions', async () => {
+      assert.equal((await patch({ email: 'new@example.com' })).status, 403);
+      assert.equal((await patch({ email: 'not-an-email', currentPassword: CURRENT_PASSWORD })).status, 400);
+      const res = await patch({ email: ' New@Example.com ', currentPassword: CURRENT_PASSWORD });
+      assert.equal(res.status, 200);
+      assert.equal(revoked, 1);
+    });
+
+    it('sends the same email again without a password and without ending sessions', async () => {
+      const res = await patch({ email: 'TEST@example.com' });
+      assert.equal(res.status, 200);
+      assert.equal(revoked, 0);
+    });
+
+    it('delays repeated wrong current passwords like sign-in attempts', async () => {
+      const statuses = [];
+      for (let i = 0; i < 6; i++) statuses.push((await patch({ password: 'a-new-password', currentPassword: `guess-${i}` })).status);
+      assert.deepEqual(statuses, [403, 403, 403, 403, 429, 429]);
+      const res = await patch({ password: 'a-new-password', currentPassword: CURRENT_PASSWORD });
+      assert.equal(res.status, 429, 'not even the right password is checked while delayed');
+      assert.equal((await res.json()).code, 'sign_in_delayed');
+      assert.equal((await patch({ password: 'a-new-password', currentPassword: CURRENT_PASSWORD }, '198.51.100.9')).status, 200, 'another address is not delayed');
+    });
+
+    it('answers 400 to malformed JSON', async () => {
+      const app = new Hono();
+      app.route('/', me);
+      const token = await signAccessToken('usr_test', 'user');
+      const res = await app.request('/v1/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: '{not json' });
+      assert.equal(res.status, 400);
+    });
   });
 });
 

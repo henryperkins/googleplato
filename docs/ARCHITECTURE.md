@@ -379,6 +379,27 @@ local rules testing, cutover order, and publication status.
   signs out Firebase's temporary browser state after every exchange attempt,
   including rejected admissions and failures. Ordinary plato logout and refresh
   never import Firebase or probe its IndexedDB state.
+- **Sign-in protection** (upstream #517/#520, with a fixed lockout). Public auth
+  endpoints answer malformed JSON with 400 and have per-address flood limits
+  sized for a room of learners on one Wi-Fi address (login 1000, refresh 3000,
+  signup 500, reset 200, forgot 100, setup 10 per 10 minutes per instance;
+  `server/src/lib/rate-limit.js`). The address is the rightmost *public*
+  `X-Forwarded-For` entry: the edge appends the real client, and internal hops
+  after it (Cloud Run's nginx ingress at `169.254.169.126`) are skipped. With no
+  public address the limits are off rather than one shared bucket. Wrong
+  passwords are held back per requester by `server/src/lib/sign-in-guard.js`:
+  5 are free, then the next attempt waits 30 s, doubling to 15 minutes, and a
+  right password starts over. Upstream instead locks the *account* for 15
+  minutes and checks the lock before the password, so anyone who knows a
+  username can lock its owner out; here a browser that has signed in before
+  carries a signed device token (`plato_device`, kept across sign-out) and its
+  failures count for that device alone, every other attempt counts per account
+  and address, and only guessing spread across many addresses (50 failures in
+  an hour) slows untrusted attempts on the whole account. Each attempt is
+  counted before its password is checked, so parallel guesses can't slip past
+  the limit. Counts are per instance, in memory. Changing the password or email
+  (`PATCH /v1/me`) needs `currentPassword` (wrong guesses count the same way),
+  validates the email, and ends every other session.
 - **Password reset is plato's.** `/forgot-password` uses the server's
   `POST /v1/auth/forgot-password` endpoint. Firebase resets are not used for
   plato password accounts. With delivery enabled, the public endpoint returns

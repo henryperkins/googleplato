@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { clientIp } from '../lib/rate-limit.js';
 import db from '../lib/db.js';
 import { readWaitlistConfig, hasValidApiKey, validateWaitlistEntry, waitlistTokenFor } from '../lib/waitlist.js';
 import { readAutomations, sendTemplated } from '../lib/notifications.js';
@@ -23,22 +24,9 @@ function overLimit(ip, now = Date.now()) {
 }
 export function _resetJoinLimit() { recentJoins.clear(); }
 
-/**
- * The caller's IP for the limiter. CloudFront *appends* the viewer's address
- * to any X-Forwarded-For the sender wrote, so only the rightmost entry is
- * trustworthy; the leftmost is whatever the sender chose. The Lambda's own
- * source address (CloudFront's, behind it) is dropped from the end in case
- * the Function URL appended it, and used when there's no header at all.
- * A request sent straight to the Function URL, skipping CloudFront, can still
- * choose its entry; the limit is best-effort.
- */
-export function clientIp(c) {
-  const rc = c.env?.requestContext || c.env?.event?.requestContext;
-  const source = rc?.http?.sourceIp || rc?.identity?.sourceIp || '';
-  const hops = (c.req.header('x-forwarded-for') || '').split(',').map((s) => s.trim()).filter(Boolean);
-  while (hops.length > 1 && hops[hops.length - 1] === source) hops.pop();
-  return hops[hops.length - 1] || source;
-}
+// The caller's IP for the limiter: shared with sign-in (lib/rate-limit.js),
+// which also skips internal proxy hops such as Cloud Run's nginx ingress.
+export { clientIp };
 
 // GET /v1/waitlist — public. Whether the "Join the wait list" form is open.
 waitlist.get('/v1/waitlist', async (c) => {
