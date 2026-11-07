@@ -196,6 +196,47 @@ describe('auth intent across independent tabs sharing storage', { timeout: 12000
       } finally { held.resolve(); await context.close(); }
     });
   }
+  for (const method of ['password', 'google']) for (const savedSession of [false, true]) {
+    it(`root bootstrap ${method} setup retains stale cleanup with saved session ${savedSession}`, async () => {
+      const { context, a, b, revoked } = await pair();
+      const held = deferred(), received = deferred();
+      const exchange = method === 'password' ? '/v1/auth/setup' : '/v1/plugins/google-auth/exchange';
+      try {
+        await a.route('**/v1/auth/setup-status', route => route.fulfill({ json: { needsSetup: true } }));
+        await a.route('**/v1/auth/providers', route => route.fulfill({ json: method === 'google'
+          ? [{ id: 'google-auth', label: 'Google', config: {} }] : [] }));
+        // Substitute only the external popup SDK. App, Setup, provider host,
+        // Google component/exchange/error handling and core auth stay real.
+        await a.route('**/firebaseAuth.js*', route => route.fulfill({ contentType: 'application/javascript', body:
+          'export async function signInWithGooglePopup() { return { idToken: "setup-id-token" }; } export async function signOutFirebase() {}' }));
+        await a.route(`**${exchange}`, async route => {
+          received.resolve(); await held.promise;
+          await route.fulfill({ json: session('slow-root') });
+        });
+        if (savedSession) await a.evaluate(record => localStorage.setItem('plato_auth', JSON.stringify(record)), session('previous-admin'));
+        await a.goto(`${base}/`);
+        await a.getByRole('heading', { name: 'Build your classroom' }).waitFor();
+        assert.equal(new URL(a.url()).pathname, '/', 'use the real wildcard setup route');
+        if (method === 'password') {
+          await a.getByLabel('Email', { exact: true }).fill('slow@example.test');
+          await a.getByLabel('First name', { exact: false }).fill('Slow');
+          await a.getByLabel('Password', { exact: true }).fill('password123');
+          await a.getByLabel('Confirm password', { exact: true }).fill('password123');
+          await a.getByRole('button', { name: 'Create admin account', exact: true }).click();
+        } else await a.getByRole('button', { name: 'Create admin account with Google', exact: true }).click();
+        await received.promise;
+        await login(b, 'winner');
+        const revoke = a.waitForResponse('**/v1/auth/logout', { timeout: 3000 });
+        revoke.catch(() => {});
+        held.resolve();
+        await a.getByRole('alert').filter({ hasText: 'You started another sign-in' }).waitFor({ timeout: 3000 });
+        await revoke;
+        assert.equal(new URL(a.url()).pathname, '/');
+        assert.equal((await stored(a)).user.userId, 'winner');
+        assert.deepEqual(revoked, ['refresh-slow-root']);
+      } finally { held.resolve(); await context.close(); }
+    });
+  }
   it('same-user cross-tab relogin cannot publish the old mounted profile response', async () => {
     const { context, a, b } = await pair();
     const held = deferred(), received = deferred();

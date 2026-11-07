@@ -434,9 +434,12 @@ A cross-tab identity change clears the shared sync cache, blocks further
 requests from the old page, unmounts classroom children, and hard-navigates to
 `/lessons` for a new session or `/login` on sign-out. This prevents mounted old
 account drafts, including cleanup saves without an explicit owner, from writing
-as the next account. Public `/login`, `/signup`, and `/setup` screens are kept
-mounted with cleared auth state: a pending exchange must be allowed to finish
-so its unused token can be revoked and its stale-sign-in error shown. They do
+as the next account. Mounted Login, Signup, and Setup screens register their
+public-auth ownership with AuthContext, independent of URL or saved session
+state. First-run Setup can occupy the wildcard route, including `/`. These
+screens are kept mounted with cleared auth state: a pending exchange must be
+allowed to finish so its unused token can be revoked and its stale-sign-in error
+shown. They do
 not publish the other tab's account into mounted UI or automatically navigate;
 a fresh local sign-in or reload establishes their next session.
 

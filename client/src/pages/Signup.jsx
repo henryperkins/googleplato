@@ -3,7 +3,7 @@ import NameFields from '../components/NameFields.jsx';
 import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext.jsx';
+import { useAuth, usePublicAuthSurface } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import PublicFooter from '../components/PublicFooter.jsx';
 import PublicAuthProviders from '../lib/plugins/PublicAuthProviders.jsx';
@@ -22,6 +22,7 @@ import { Loader2 } from 'lucide-react';
 import ClassroomLogo from '../components/ClassroomLogo.jsx';
 
 export default function Signup() {
+  usePublicAuthSurface();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') || '';
   const [inviteState, setInviteState] = useState(token ? 'checking' : 'invalid');

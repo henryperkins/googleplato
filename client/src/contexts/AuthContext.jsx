@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { can } from '../lib/permissions.js';
 import * as authModule from '../../js/auth.js';
@@ -22,6 +22,12 @@ export function AuthProvider({ children }) {
   const [impersonatedUser, setImpersonatedUserState] = useState(null);
 
   const publication = useRef(0);
+  const publicAuthSurfaces = useRef(new Set());
+  const registerPublicAuthSurface = useCallback(() => {
+    const surface = Symbol('public-auth');
+    publicAuthSurfaces.current.add(surface);
+    return () => publicAuthSurfaces.current.delete(surface);
+  }, []);
 
   const publishUser = useCallback((u) => {
     setUser(u);
@@ -66,7 +72,7 @@ export function AuthProvider({ children }) {
     authModule.setImpersonation(null);
     // Keep a pending public exchange alive so its stale response can revoke its
     // unused token and explain the conflict. Classroom state must be destroyed.
-    const publicAuth = /^\/(login|signup|setup)(\/|$)/.test(location.pathname);
+    const publicAuth = publicAuthSurfaces.current.size > 0;
     flushSync(() => {
       setLoggedIn(false);
       setUser(null);
@@ -183,7 +189,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       loggedIn, user, loading, login, adoptExternalSession, logout, refreshUser, sessionExpired, signedOutReason,
-      impersonatedUser, startImpersonation, stopImpersonation,
+      impersonatedUser, startImpersonation, stopImpersonation, registerPublicAuthSurface,
     }}>
       {transitioning ? null : children}
     </AuthContext.Provider>
@@ -194,4 +200,12 @@ export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
+}
+
+// Setup can own any URL during first-run bootstrap. Register the mounted
+// surface rather than inferring it from a route or saved authentication state.
+export function usePublicAuthSurface(enabled = true) {
+  const { registerPublicAuthSurface } = useAuth();
+  useLayoutEffect(() => enabled ? registerPublicAuthSurface() : undefined,
+    [enabled, registerPublicAuthSurface]);
 }

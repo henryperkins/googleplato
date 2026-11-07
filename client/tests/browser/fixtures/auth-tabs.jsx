@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AuthProvider, useAuth } from '../../../src/contexts/AuthContext.jsx';
+import { AuthProvider, useAuth, usePublicAuthSurface } from '../../../src/contexts/AuthContext.jsx';
 import { createPublicAuthSessionGuard } from '../../../src/lib/plugins/PublicAuthProviders.jsx';
 import * as auth from '../../../js/auth.js';
 import * as storage from '../../../js/storage.js';
@@ -12,6 +12,7 @@ window.events = [];
 window.addEventListener('storage', event => window.events.push(event.key));
 window.publishedUsers = [];
 function Observer() {
+  usePublicAuthSurface(!classroom);
   const context = useAuth();
   useEffect(() => { window.authHarness = { ...context, auth, storage, createPublicAuthSessionGuard }; });
   useEffect(() => { window.publishedUsers.push(context.user?.name || null); }, [context.user]);

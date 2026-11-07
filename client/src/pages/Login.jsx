@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext.jsx';
+import { useAuth, usePublicAuthSurface } from '../contexts/AuthContext.jsx';
 import usePublicBranding from '../hooks/usePublicBranding.js';
 import { passwordSignInError } from '../lib/authErrors.js';
 import { returnPath } from '../lib/returnPath.js';
@@ -20,6 +20,7 @@ import InviteRequired from '../components/InviteRequired.jsx';
 const LOGIN_DRAFT_KEY = 'plato_login_draft';
 
 export default function Login() {
+  usePublicAuthSurface();
   const [email, setEmail] = useState(() => {
     try { return sessionStorage.getItem(LOGIN_DRAFT_KEY) || ''; } catch { return ''; }
   });

@@ -4,7 +4,7 @@ import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useEffect, useRef } from 'react';
 import PasswordField from '../components/PasswordField.jsx';
 import PublicAuthProviders from '../lib/plugins/PublicAuthProviders.jsx';
-import { useAuth } from '../contexts/AuthContext.jsx';
+import { useAuth, usePublicAuthSurface } from '../contexts/AuthContext.jsx';
 import PublicFooter from '../components/PublicFooter.jsx';
 import { adoptAuthSession } from '../../js/auth.js';
 import { missingFieldsMessage, requestError } from '../lib/authErrors.js';
@@ -20,6 +20,7 @@ import { MAX_CLASSROOM_NAME } from '../lib/logoUpload.js';
 const SETUP_DRAFT_KEY = 'plato_setup_draft';
 
 export default function Setup() {
+  usePublicAuthSurface();
   const { adoptExternalSession } = useAuth();
   const [savedDraft] = useState(() => {
     try {
