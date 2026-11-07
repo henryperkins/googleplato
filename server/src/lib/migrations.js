@@ -16,14 +16,18 @@
  *   as applied until it finishes with zero errors.
  *
  * State lives in `_system:migrations` = `{ applied: { [id]: { at, result } },
- * lock: { owner, until } | null }`. The lock (optimistic-versioned write)
- * keeps concurrent Lambda containers from running the same migration at once.
+ * lock: { owner, until, revision } | null }`. State is read consistently;
+ * acquisition is create-only or strictly versioned. Marker and release writes
+ * reread, fence on owner, and retry one version conflict. Markers are verified
+ * before continuing. Marker faults raise MigrationStateError; a release fault
+ * after verified markers logs a diagnostic and leaves a lock that expires.
  *
  * A migration is `{ id, description, run({ db, dryRun, log }) → result }`,
  * where `result = { scanned, updated, skipped, errors, notes? }`. In dry-run
  * mode it must not write — it reports what it *would* change.
  */
 
+import { randomUUID } from 'node:crypto';
 import defaultDb from './db.js';
 import { logger } from './logger.js';
 import { splitName } from './names.js';
@@ -77,10 +81,10 @@ export const MIGRATIONS = [
       const result = { scanned: 0, updated: 0, skipped: 0, errors: 0, notes: [] };
       const items = await db.getAllSyncData('_system');
       const units = items.filter((i) => i.dataKey.startsWith('course:'));
-      // Our own prog-default doesn't count: an earlier run that created it and
-      // then lost a unit write (or ran out of time) must finish the job.
+      // Our own prog-default doesn't count as an admin-created course. Units
+      // already listed there are reconciled later by repairUnits.
       // Neither does a course plato installed (Getting Started, `bundled`):
-      // startup installs it before migrations run, and it isn't an admin's.
+      // startup installs it after migrations, and it isn't an admin's.
       const hasProgram = items.some((i) => i.dataKey.startsWith('program:') && i.dataKey !== 'program:prog-default' && !i.data?.bundled);
       const listedUnits = new Set(items.filter((i) => i.dataKey.startsWith('program:')).flatMap((i) => i.data?.unitIds || []));
       const pending = units.filter((u) => u.data?.programId === undefined && !listedUnits.has(u.dataKey.slice(7)));
@@ -178,14 +182,14 @@ function emptyResult() {
 }
 
 async function readState(db) {
-  const item = await db.getSyncData('_system', STATE_KEY);
+  const item = await db.getSyncData('_system', STATE_KEY, { consistentRead: true });
   return { item, state: { applied: {}, lock: null, ...(item?.data || {}) } };
 }
 
 // Write state guarded by the version we read; returns false on a lost race.
 async function writeState(db, item, state) {
   try {
-    if (item) await db.putSyncData('_system', STATE_KEY, state, item.version);
+    if (item) await db.putSyncData('_system', STATE_KEY, state, item.version, { strictVersion: true });
     else await db.createSyncData('_system', STATE_KEY, state);
     return true;
   } catch (err) {
@@ -194,55 +198,88 @@ async function writeState(db, item, state) {
   }
 }
 
-/**
- * Run every pending migration. Returns `{ ran: [{ id, result }], skipped }`
- * where `skipped` is a reason string when nothing ran (locked / lost race).
- *
- * Options: `dryRun` (no writes at all, not even the lock), `migrations`
- * (override the registry — tests), `db`, `owner`, `now`.
- */
+export class MigrationStateError extends Error {
+  constructor(message, diagnostics = {}, options = {}) {
+    super(message, options);
+    this.name = 'MigrationStateError';
+    Object.assign(this, diagnostics);
+  }
+}
+
+export function createMigrationOwner() {
+  return `run_${randomUUID()}`;
+}
+
+async function ownedWrite(db, owner, update, { release = false } = {}) {
+  let last;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { item, state } = await readState(db);
+    last = { owner, lock: state.lock, version: item?.version, revision: state.lock?.revision };
+    if (!item || state.lock?.owner !== owner) {
+      if (release) return null;
+      throw new MigrationStateError('Migration lock ownership was lost', last);
+    }
+    try {
+      if (await writeState(db, item, update(state))) return last;
+    } catch (err) {
+      throw new MigrationStateError(`Migration ${release ? 'release' : 'marker'} write failed: ${err.message}`, last, { cause: err });
+    }
+  }
+  throw new MigrationStateError(`Migration ${release ? 'release' : 'marker'} write conflicted`, last);
+}
+
+/** Run every pending migration, verifying each durable marker before continuing. */
 export async function runMigrations({
   dryRun = false,
   migrations = MIGRATIONS,
   db = defaultDb,
-  owner = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  owner = createMigrationOwner(),
   now = () => Date.now(),
 } = {}) {
   let { item, state } = await readState(db);
   const pending = migrations.filter((m) => !state.applied[m.id]);
   if (pending.length === 0) return { ran: [], skipped: 'none_pending' };
-
   if (dryRun) {
     const ran = [];
-    for (const m of pending) {
-      const result = await runOne(m, { db, dryRun: true });
-      ran.push({ id: m.id, result });
-    }
+    for (const m of pending) ran.push({ id: m.id, result: await runOne(m, { db, dryRun: true }) });
     return { ran, skipped: null };
   }
-
-  // Acquire the lock (or skip: another container is migrating right now).
-  if (state.lock && state.lock.until > now()) return { ran: [], skipped: 'locked' };
-  state = { ...state, lock: { owner, until: now() + LOCK_TTL_MS } };
+  if (state.lock && state.lock.owner !== owner && state.lock.until > now()) return { ran: [], skipped: 'locked' };
+  state = { ...state, lock: { owner, until: now() + LOCK_TTL_MS, revision: process.env.K_REVISION || process.env.RELEASE_COMMIT || null } };
   if (!(await writeState(db, item, state))) return { ran: [], skipped: 'lost_race' };
 
   const ran = [];
+  let lastKnown = { owner, lock: state.lock, version: (item?.version || 0) + 1, revision: state.lock.revision };
+  let failure;
   try {
     for (const m of pending) {
       const result = await runOne(m, { db, dryRun: false });
       ran.push({ id: m.id, result });
       if (result.errors === 0) {
-        // Re-read so the version is current, then record it as applied.
-        ({ item, state } = await readState(db));
-        state.applied = { ...state.applied, [m.id]: { at: new Date(now()).toISOString(), result } };
-        await writeState(db, item, state);
+        try {
+          await ownedWrite(db, owner, current => ({ ...current, applied: { ...current.applied, [m.id]: { at: new Date(now()).toISOString(), result } } }));
+          const verified = await readState(db);
+          lastKnown = { owner, lock: verified.state.lock, version: verified.item?.version, revision: verified.state.lock?.revision };
+          if (!verified.state.applied[m.id]) throw new MigrationStateError(`Migration marker did not verify: ${m.id}`, { owner, lock: verified.state.lock, version: verified.item?.version });
+        } catch (err) {
+          throw err instanceof MigrationStateError ? err : new MigrationStateError(`Migration marker failed: ${m.id}`, { owner }, { cause: err });
+        }
       }
     }
-  } finally {
-    ({ item, state } = await readState(db));
-    if (state.lock?.owner === owner) await writeState(db, item, { ...state, lock: null });
+  } catch (err) { failure = err; }
+  let staleLock;
+  try {
+    await ownedWrite(db, owner, current => ({ ...current, lock: null }), { release: true });
+  } catch (err) {
+    if (failure) failure.cause = err;
+    else {
+      const lock = err.lock || lastKnown.lock;
+      staleLock = { owner, lock, until: lock?.until, version: err.version ?? lastKnown.version, revision: err.revision ?? lastKnown.revision, error: err.message };
+      logger.error('migration_lock_release_failed', staleLock);
+    }
   }
-  return { ran, skipped: null };
+  if (failure) throw failure;
+  return { ran, skipped: null, ...(staleLock ? { staleLock } : {}) };
 }
 
 /**

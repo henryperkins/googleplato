@@ -100,10 +100,18 @@ regardless. The fork fails startup rather than serving partly migrated data:
   to finish, then throws `Timed out waiting for launch migrations`.
 
 A migration is recorded in `_system:migrations.applied` only after it finishes
-with zero errors, so a failed one reruns on the next start. The lock lives in
-the same record and is taken with a version-checked write (`createSyncData`
-while the record is absent, then `putSyncData` with the read version). Results
-log as `migration_applied` / `migration_failed`.
+with zero errors, so a failed one reruns on the next start. The lock lives in the same record. DynamoDB state reads are strongly
+consistent; acquisition uses a create-only or strict version-checked write.
+Before each marker and release, the runner rereads state, checks the owner,
+and uses a strict version write, retrying one conflict. It verifies each marker
+before starting the next migration. Lost ownership or a failed/unverified marker
+raises `MigrationStateError`; release is attempted without masking the failure.
+An operator deleting and recreating the state between a read and write remains
+a residual race. The lock records the process owner and release revision.
+A release failure after verified markers logs `migration_lock_release_failed`
+and returns a stale-lock diagnostic without blocking readiness. A later start
+with pending migrations waits for its five-minute expiry; with none pending it
+can start immediately. Results log as `migration_applied` / `migration_failed`.
 
 **Rules every migration follows** (from upstream #444):
 - **Additive and idempotent.** Add fields or records, or change a value only

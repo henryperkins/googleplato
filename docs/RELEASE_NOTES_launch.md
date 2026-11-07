@@ -107,9 +107,9 @@ Beta-RC-232's code), see `server/scripts/rehearse-upgrade.js`.
 **3. Deploy.** On first start, the server:
 - runs `m003_role_learner`, `m004_default_program`, and `m005_name_split`
   (table above). Each is conditional and idempotent, runs once per install
-  under a lock, and never holds up serving for more than 20 s.
+  under a lock. Startup waits up to 20 seconds for a competing lock and fails readiness if migration remains incomplete.
 - installs the **Getting Started with plato** course (one unit, three
-  lessons) with its lessons *private*, before the migrations run. Admin →
+  lessons) with its lessons *private*, after the migrations run. Admin →
   Lessons shows one notice with **Publish all**, so learners see nothing new
   until an admin publishes them. m004 still puts your existing units into
   the default course; it doesn't count the bundled course as yours.
@@ -117,7 +117,9 @@ Beta-RC-232's code), see `server/scripts/rehearse-upgrade.js`.
 
 **4. Check.** Search the logs for `migration_applied`. Each migration logs
 `{ scanned, updated, skipped, errors }`, and `errors` should be 0. A
-migration with errors is retried on the next cold start. Then:
+migration with errors is retried on the next cold start. Check also for
+`migration_lock_release_failed`: verified work remains ready, but a new pending
+migration may wait until the stale lock expires after five minutes. Then:
 - Admin → Lessons → Courses & Units shows one Course (named after the
   classroom) holding your existing units in the same order. Rename it if
   you like.

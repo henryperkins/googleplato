@@ -35,7 +35,7 @@ for (const [env, t] of [['USERS_TABLE', 'users'], ['INVITES_TABLE', 'invites'], 
 process.env.DB_BACKEND = 'dynamodb';
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), '..');
 const db = (await import('../src/lib/db.js')).default;
-const { runMigrations, MIGRATIONS, incompleteMigrations, ROLLBACK_BASELINE } = await import('../src/lib/migrations.js');
+const { runMigrations, MIGRATIONS, incompleteMigrations, MigrationStateError, ROLLBACK_BASELINE } = await import('../src/lib/migrations.js');
 const { ensureBundledLessons, BUNDLED_LESSONS, BUNDLED_COURSE } = await import('../src/lib/bundled-lessons.js');
 const { repairUnits } = await import('../src/lib/unit-repair.js');
 
@@ -67,7 +67,15 @@ const byPrefix = (m) => {
 };
 lines.push('## Before', '', '```', JSON.stringify(byPrefix(before.out), null, 1), '```', '');
 
-const outcome = await runMigrations();
+async function runCheckedMigrations() {
+  try { return await runMigrations({ db }); }
+  catch (err) {
+    if (!(err instanceof MigrationStateError)) throw err;
+    console.error('Migration state failure:', err.message, { owner: err.owner, lock: err.lock, version: err.version, cause: err.cause?.message });
+    process.exit(1);
+  }
+}
+const outcome = await runCheckedMigrations();
 const bundled = await ensureBundledLessons({ db });
 const units = await repairUnits({ db });
 lines.push('## Migrations', '');
@@ -80,7 +88,9 @@ if (outcome.skipped) lines.push(`- skipped: ${outcome.skipped}`);
 // unmigrated data. Fail instead.
 const incomplete = incompleteMigrations(outcome);
 check(!incomplete, incomplete ? `migrations ran: ${incomplete}` : 'migrations ran');
-const applied = (await db.getSyncData('_system', 'migrations', { consistentRead: true }))?.data?.applied || {};
+const migrationState = (await db.getSyncData('_system', 'migrations', { consistentRead: true }))?.data;
+check(!migrationState?.lock, 'migration lock released');
+const applied = migrationState?.applied || {};
 const unapplied = MIGRATIONS.filter((m) => !applied[m.id]).map((m) => m.id);
 check(unapplied.length === 0, `every migration is recorded as applied${unapplied.length ? `; not: ${unapplied.join(', ')}` : ''}`);
 lines.push(`- bundled lessons: installed ${bundled.installed.join(', ') || 'none'}`);
@@ -100,7 +110,7 @@ const work = [...before.out.keys()].filter((k) => LEARNER_WORK.test(k));
 check(work.every((k) => after.out.get(k) === before.out.get(k)), `learner work untouched (${work.length} records: conversations, screenshots, progress, unit notes, custom lessons)`);
 const gs = (await db.getSyncData('_system', 'lesson:getting-started'))?.data;
 check(!gs || gs.status === 'private', 'Getting Started arrived private');
-const again = await runMigrations();
+const again = await runCheckedMigrations();
 check(again.ran.length === 0 && again.skipped === 'none_pending', `a second run does nothing (${again.skipped || 'ran'})`);
 
 // Rollback: Beta-RC-232's handlers against the migrated tables, from the

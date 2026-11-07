@@ -17,23 +17,32 @@
  *   USERS_TABLE=plato-rehearsal-users SYNC_DATA_TABLE=plato-rehearsal-sync-data \
  *   INVITES_TABLE=plato-rehearsal-invites ... node scripts/migrate.js --apply
  */
-const apply = process.argv.includes('--apply');
-const { runMigrations, MIGRATIONS, incompleteMigrations } = await import('../src/lib/migrations.js');
-const db = (await import('../src/lib/db.js')).default;
+import { pathToFileURL } from 'node:url';
+import defaultDb from '../src/lib/db.js';
+import { runMigrations, MIGRATIONS, incompleteMigrations, MigrationStateError } from '../src/lib/migrations.js';
 
-const state = (await db.getSyncData('_system', 'migrations'))?.data || { applied: {} };
-console.log(`Backend: ${process.env.DB_BACKEND || 'dynamodb'}  |  mode: ${apply ? 'APPLY' : 'dry run (no writes)'}`);
-for (const m of MIGRATIONS) {
-  console.log(`  ${state.applied?.[m.id] ? '✓ applied' : '· pending'}  ${m.id} — ${m.description}`);
+export async function main({ db = defaultDb, argv = process.argv.slice(2), migrate = runMigrations } = {}) {
+  const apply = argv.includes('--apply');
+  try {
+    const state = (await db.getSyncData('_system', 'migrations', { consistentRead: true }))?.data || { applied: {} };
+    console.log(`Backend: ${process.env.DB_BACKEND || 'dynamodb'}  |  mode: ${apply ? 'APPLY' : 'dry run (no writes)'}`);
+    for (const m of MIGRATIONS) console.log(`  ${state.applied?.[m.id] ? '✓ applied' : '· pending'}  ${m.id} — ${m.description}`);
+    const outcome = await migrate({ db, dryRun: !apply });
+    if (outcome?.skipped === 'none_pending') console.log('\nNothing to run: every migration is applied.');
+    for (const { id, result } of outcome?.ran || []) {
+      console.log(`\n${id}: scanned ${result.scanned}, ${apply ? 'updated' : 'would update'} ${result.updated}, skipped ${result.skipped}, errors ${result.errors}`);
+      for (const note of result.notes || []) console.log(`  - ${note}`);
+    }
+    const incomplete = incompleteMigrations(outcome);
+    if (incomplete) console.error(`\nMigrations are not complete: ${incomplete}.`);
+    return incomplete ? 1 : 0;
+  } catch (err) {
+    if (!(err instanceof MigrationStateError)) throw err;
+    console.error('Migration state failure:', err.message, { owner: err.owner, lock: err.lock, version: err.version, cause: err.cause?.message });
+    return 1;
+  }
 }
 
-const outcome = await runMigrations({ dryRun: !apply });
-if (outcome.skipped === 'none_pending') console.log('\nNothing to run: every migration is applied.');
-for (const { id, result } of outcome.ran) {
-  console.log(`\n${id}: scanned ${result.scanned}, ${apply ? 'updated' : 'would update'} ${result.updated}, skipped ${result.skipped}, errors ${result.errors}`);
-  for (const note of result.notes || []) console.log(`  - ${note}`);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exitCode = await main();
 }
-// A held or lost lock means nothing ran: that's incomplete, not success.
-const incomplete = incompleteMigrations(outcome);
-if (incomplete) console.error(`\nMigrations are not complete: ${incomplete}.`);
-process.exit(incomplete ? 1 : 0);
