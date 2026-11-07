@@ -31,3 +31,9 @@ for (const outcome of [
 ]) test(`migrate apply rejects unverified outcome ${outcome?.skipped || (outcome ? 'errors' : 'missing')}`, async () => {
   assert.equal(await main({ db: fakeDb(null), argv: ['--apply'], migrate: async () => outcome }), 1);
 });
+
+test('dry run ignores unverified skip outcomes but reports execution errors', async () => {
+  const db = fakeDb(null);
+  assert.equal(await main({ db, argv: [], migrate: async () => ({ ran: [], skipped: 'unexpected' }) }), 0);
+  assert.equal(await main({ db, argv: [], migrate: async () => ({ ran: [{ id: 'bad', result: { errors: 1 } }], skipped: null }) }), 1);
+});

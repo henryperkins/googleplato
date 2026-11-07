@@ -82,7 +82,7 @@ export const MIGRATIONS = [
       const items = await db.getAllSyncData('_system');
       const units = items.filter((i) => i.dataKey.startsWith('course:'));
       // Our own prog-default doesn't count as an admin-created course. Units
-      // already listed there are reconciled later by repairUnits.
+      // already listed there are reconciled by the runner's verified repair.
       // Neither does a course plato installed (Getting Started, `bundled`):
       // startup installs it after migrations, and it isn't an admin's.
       const hasProgram = items.some((i) => i.dataKey.startsWith('program:') && i.dataKey !== 'program:prog-default' && !i.data?.bundled);
@@ -141,6 +141,26 @@ export const MIGRATIONS = [
       }
       result.skipped = units.length - pending.length;
       return result;
+    },
+    async verify({ db }) {
+      // A partial older run can append a unit to a program before its unit
+      // write loses a race. Repair only this missing, uniquely owned link;
+      // explicit unassignment, names and lesson order remain the admin's.
+      const items = await db.getAllSyncData('_system', { consistentRead: true });
+      const programs = items.filter(item => item.dataKey.startsWith('program:'));
+      for (const item of items) {
+        if (!item.dataKey.startsWith('course:') || item.data?.programId !== undefined) continue;
+        const id = item.dataKey.slice('course:'.length);
+        const owners = programs.filter(program => program.data?.unitIds?.includes(id));
+        if (owners.length !== 1) continue;
+        const current = await db.getSyncData('_system', item.dataKey, { consistentRead: true });
+        if (!current || current.data?.programId !== undefined) continue;
+        await db.putSyncData('_system', item.dataKey, {
+          ...current.data, programId: owners[0].dataKey.slice('program:'.length),
+        }, current.version, { strictVersion: true });
+        const verified = await db.getSyncData('_system', item.dataKey, { consistentRead: true });
+        if (verified && verified.data?.programId === undefined) throw new Error(`Unit assignment did not verify: ${id}`);
+      }
     },
   },
   {
@@ -327,6 +347,7 @@ async function runOne(m, { db, dryRun }) {
   let result;
   try {
     result = { ...emptyResult(), ...(await m.run({ db, dryRun, log })) };
+    if (!dryRun && result.errors === 0 && m.verify) await m.verify({ db });
   } catch (err) {
     result = { ...emptyResult(), errors: 1, fatal: err?.message || String(err) };
   }

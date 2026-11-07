@@ -76,6 +76,14 @@ async function runCheckedMigrations() {
   }
 }
 const outcome = await runCheckedMigrations();
+// Refuse to seed or repair anything until the migration outcome and released
+// lock are proven. A rehearsal may be sharing its restored copy with a runner.
+const incomplete = incompleteMigrations(outcome);
+const migrationState = (await db.getSyncData('_system', 'migrations', { consistentRead: true }))?.data;
+if (incomplete || migrationState?.lock) {
+  console.error(`Migration rehearsal is not complete: ${incomplete || 'migration lock was not released'}.`);
+  process.exit(1);
+}
 const bundled = await ensureBundledLessons({ db });
 const units = await repairUnits({ db });
 lines.push('## Migrations', '');
@@ -86,9 +94,7 @@ for (const { id, result } of outcome.ran) {
 if (outcome.skipped) lines.push(`- skipped: ${outcome.skipped}`);
 // A held or lost lock means nothing ran, so every later check would pass on
 // unmigrated data. Fail instead.
-const incomplete = incompleteMigrations(outcome);
 check(!incomplete, incomplete ? `migrations ran: ${incomplete}` : 'migrations ran');
-const migrationState = (await db.getSyncData('_system', 'migrations', { consistentRead: true }))?.data;
 check(!migrationState?.lock, 'migration lock released');
 const applied = migrationState?.applied || {};
 const unapplied = MIGRATIONS.filter((m) => !applied[m.id]).map((m) => m.id);

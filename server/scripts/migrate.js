@@ -33,7 +33,10 @@ export async function main({ db = defaultDb, argv = process.argv.slice(2), migra
       console.log(`\n${id}: scanned ${result.scanned}, ${apply ? 'updated' : 'would update'} ${result.updated}, skipped ${result.skipped}, errors ${result.errors}`);
       for (const note of result.notes || []) console.log(`  - ${note}`);
     }
-    const incomplete = incompleteMigrations(outcome);
+    // Dry runs make no state claims; actual migration execution errors still
+    // fail, but locks/unknown skip diagnostics are meaningful only on apply.
+    const incomplete = apply ? incompleteMigrations(outcome)
+      : (outcome?.ran || []).some(({ result }) => result.errors > 0) ? 'dry run finished with errors' : null;
     if (incomplete) console.error(`\nMigrations are not complete: ${incomplete}.`);
     return incomplete ? 1 : 0;
   } catch (err) {

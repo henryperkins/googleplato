@@ -112,6 +112,12 @@ A release failure after verified markers logs `migration_lock_release_failed`
 and returns a stale-lock diagnostic without blocking readiness. A later start
 with pending migrations waits for its five-minute expiry; with none pending it
 can start immediately. Results log as `migration_applied` / `migration_failed`.
+Before m004 receives its marker, a verified repair restores a missing
+`programId` only when one program lists that unit. A conflicting or unverified
+repair leaves m004 pending and fails readiness, including the apply CLI.
+Explicit `programId: null`, names and custom order are preserved. Rehearsals
+check the migration outcome and released lock before any seeding or repair;
+dry-run reports do not claim verified durable state.
 
 **Rules every migration follows** (from upstream #444):
 - **Additive and idempotent.** Add fields or records, or change a value only

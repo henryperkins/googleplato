@@ -175,6 +175,38 @@ describe('m004_default_program', () => {
     assert.deepEqual(db.rows.get('_system:program:prog-default'), beforeRepair);
   });
 
+  it('runner repairs and verifies a partially attached unit before recording m004', async () => {
+    const db = unitDb();
+    const put = db.putSyncData;
+    let fail = true;
+    db.putSyncData = async (u, k, d, v, opts) => {
+      if (fail && k === 'course:u2') { fail = false; throw Object.assign(new Error('lost'), { name: 'ConditionalCheckFailedException' }); }
+      return put(u, k, d, v, opts);
+    };
+    const first = await runMigrations({ db, migrations: [m004] });
+    assert.equal(first.ran[0].result.errors, 1);
+    assert.equal((await db.getSyncData('_system', 'migrations')).data.applied[m004.id], undefined);
+    const order = structuredClone(db.rows.get('_system:program:prog-default').data.unitIds);
+    const second = await runMigrations({ db, migrations: [m004] });
+    assert.equal(second.ran[0].result.errors, 0);
+    assert.equal(db.rows.get('_system:course:u2').data.programId, 'prog-default');
+    assert.deepEqual(db.rows.get('_system:program:prog-default').data.unitIds, order);
+    assert.ok((await db.getSyncData('_system', 'migrations')).data.applied[m004.id]);
+  });
+
+  it('runner does not record m004 if repairing a listed unit conflicts', async () => {
+    const db = unitDb();
+    db.rows.set('_system:program:prog-default', { data: { unitIds: ['u1', 'u2', 'u3'] }, version: 1 });
+    const put = db.putSyncData;
+    db.putSyncData = async (u, k, d, v, opts) => {
+      if (k === 'course:u2') throw Object.assign(new Error('lost'), { name: 'ConditionalCheckFailedException' });
+      return put(u, k, d, v, opts);
+    };
+    const out = await runMigrations({ db, migrations: [m004] });
+    assert.ok(out.ran[0].result.errors > 0);
+    assert.equal((await db.getSyncData('_system', 'migrations')).data.applied[m004.id], undefined);
+  });
+
   it('leaves unassigned units alone when an admin already made courses', async () => {
     const db = unitDb();
     db.rows.set('_system:program:p-admin', { data: { name: 'Mine', unitIds: [] }, version: 1 });
