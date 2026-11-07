@@ -80,3 +80,18 @@ test('a submitted note keeps its identity with the owner until the text changes'
   storage.setItem('plato_settings_draft_v1:a:noteAt', JSON.stringify({ userId: 'a', kind: 'noteAt', value: 'not a time' }));
   assert.equal(createSettingsDraftStore({ storage: () => storage }).read('a', 'noteAt'), null);
 });
+
+// Two mounted dialogs share storage, but each completion owns one identity.
+test('an earlier note completion preserves the newer submitted note identity', () => {
+  const storage = disk();
+  const first = createSettingsDraftStore({ storage: () => storage });
+  first.write('a', 'noteAt', 1730000000000);
+  const submittedAt = first.read('a', 'noteAt');
+  first.write('a', 'feedback', 'Second note');
+  first.write('a', 'noteAt', 1730000000001);
+  assert.equal(first.clear('a', 'noteAt', submittedAt), false);
+  const reloaded = createSettingsDraftStore({ storage: () => storage });
+  assert.equal(reloaded.read('a', 'noteAt'), 1730000000001);
+  assert.equal(reloaded.read('a', 'feedback'), 'Second note');
+  assert.equal(reloaded.clear('a', 'noteAt', 1730000000001), true);
+});

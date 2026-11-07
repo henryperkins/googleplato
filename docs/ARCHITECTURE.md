@@ -257,7 +257,7 @@ The notification composer binds each resolved audience preview to the exact
 current audience. A changed, pending or failed preview cannot enable Send or
 reuse an earlier count. Confirmation and submission use the same reviewed
 audience and message snapshot, so the displayed count cannot describe another
-recipient selection.
+recipient selection. While a send is pending, Compose remains editable. Success clears only the unchanged submitted draft; a newer subject, body or selection stays in Compose with its focus and an acknowledgement naming the sent message. Every acknowledged send rotates the request ID, including when a newer draft is retained. History refreshes in place for a retained draft. The disabled Send button stays focusable.
 
 **Jobs.** On Cloud Run and in local development, `dispatchJob` runs a job in
 process and the HTTP request awaits it, because Cloud Run doesn't guarantee CPU
@@ -1208,7 +1208,19 @@ accessible description, it must be true for every busy state:
 announced when a send is attempted while held, from one cascade, so they
 always agree. The lesson and knowledge-base editors pass their own: saving, a
 failed reply ("Send after retrying the reply"), an unconfirmed lesson save, a
-save conflict, or a preview being generated.
+save conflict, or a preview being generated. The lesson editor derives its description and attempted-send status from the pure `lessonEditorComposerHint` cascade, in this order:
+
+| Lesson-editor state | Recovery instruction |
+|---|---|
+| Save conflict (409) | Choose “Load saved lesson”, then send. |
+| Final save rejected (400) | Choose “Revise lesson” in Preview, then send. |
+| Starting or receiving a reply | Wait for the reply to finish, then send. |
+| Saving conversation, lesson or visibility | Wait for saving to finish, then send. |
+| Recovered visibility save rejected (400) | Choose a visibility again in Visibility and sharing, then send. |
+| Failed pending visibility or final save | Choose “Retry saving”, then send. |
+| Idle pending final save | Choose “Retry saving lesson” in Preview, then send. |
+| Idle pending visibility save | Wait for saving to finish, then send. |
+| Failed reply | Choose “Retry reply”, then send. |
 
 **Send key.** The `sendKey` preference (`'mod-enter'`, the default, or
 `'enter'`) decides whether plain Enter sends. Cmd/Ctrl+Enter always sends,
@@ -2448,7 +2460,7 @@ rewrite) carries `noteSaved: true`, and Settings drops that owner's draft
 instead of keeping it to submit again. The note's `at` is also kept with the
 owner's draft (`settingsDrafts` kind `noteAt`) until the text changes, so a
 page that loaded the draft before the earlier submission finished resubmits
-the same identity and finds the note already saved. Removal resolves the
+the same identity and finds the note already saved. A completion clears `noteAt` only when it still equals that submission’s captured time, preserving the identity of a newer note submitted from another Settings mount. Removal resolves the
 selected identity after earlier queued operations, so cap shifts cannot remove
 a different note. Optimistic conflicts remain explicit; no latest-version
 rewrite bypasses server CAS. Owner-bound profile/summary reads fail explicitly

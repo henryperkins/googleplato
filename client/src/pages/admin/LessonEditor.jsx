@@ -11,6 +11,7 @@ import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
 import ShareLessonModal from '../../components/modals/ShareLessonModal.jsx';
 import ChatArea from '../../components/chat/ChatArea.jsx';
 import ComposeBar from '../../components/chat/ComposeBar.jsx';
+import { lessonEditorComposerHint } from '../../lib/lessonEditorHints.js';
 import AssistantMessage from '../../components/chat/AssistantMessage.jsx';
 import UserMessage from '../../components/chat/UserMessage.jsx';
 import ThinkingSpinner from '../../components/chat/ThinkingSpinner.jsx';
@@ -247,14 +248,7 @@ export default function LessonEditor({ lessonId, userId, isDraft, initialMessage
   }, [displayText, draining, snapshot.conversation.length]);
 
   const blocked = !!busy || snapshot.finalizePending || !!snapshot.visibilityPending || saveState.error?.status === 409;
-  // Name what actually holds the composer, for its hint and the message when a
-  // send waits; ComposeBar's defaults describe a reply in progress.
-  const [composerHint, composerMessage] = busy === 'starting' || busy === 'reply' ? []
-    : busy || snapshot.visibilityPending ? ['Send when saving finishes', 'Wait for saving to finish, then send.']
-      : saveState.error?.status === 409 ? ['Send after loading the saved lesson', 'This lesson changed elsewhere. Load the saved lesson, then send.']
-        : snapshot.finalizePending ? ['Send after the lesson is saved', 'Retry saving the lesson, then send.']
-          : snapshot.failedReply ? ['Send after retrying the reply', 'Retry the reply, then send.']
-            : [];
+  const [composerHint, composerMessage] = lessonEditorComposerHint({ busy, saveState, snapshot });
   const previewCurrent = !!snapshot.previewMarkdown && snapshot.previewRevision === snapshot.revision;
   const previewSaved = !isDraft && snapshot.previewMarkdown === initialMarkdown;
   const saveRejected = saveState.error?.status === 400 && snapshot.finalizePending;

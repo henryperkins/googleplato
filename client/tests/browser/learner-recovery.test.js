@@ -115,7 +115,7 @@ async function withPage(t, run) {
     results.push({ name: t.name, status: 'pass' });
   } catch (error) {
     results.push({ name: t.name, status: 'fail', error: error.message, errors, pendingRequests: [...pendingRequests], recentRequests: recentRequests.slice(-30) });
-    await writeFile(join(evidence, `${engine}-${t.name.replace(/\W+/g, '-').slice(0,90)}-failure.txt`), await page.locator('body').ariaSnapshot());
+    await writeFile(join(evidence, `${engine}-${t.name.replace(/\W+/g, '-').slice(0,90)}-failure.txt`), await page.locator('body').ariaSnapshot().catch(() => 'Renderer unavailable'));
     await page.screenshot({ path: join(evidence, `${engine}-${t.name.replace(/\W+/g, '-').slice(0,90)}-failure.png`), fullPage: true }).catch(() => {});
     throw error;
   } finally { await context.close(); }
@@ -152,7 +152,10 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 360000
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.goto(`${base}/login`);
-    await login(page, 'a');
+    try { await login(page, 'a'); } catch (error) {
+      await writeFile(join(evidence, `${engine}-startup.txt`), await page.locator('body').ariaSnapshot());
+      throw error;
+    }
     storageState = await context.storageState();
     await context.close();
   });
@@ -1074,6 +1077,78 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 360000
     assert.equal(writes.filter(write => /profileSummary$/.test(write.url)).length, 0);
     await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
     assert.equal(await input.inputValue(), '', 'the independently saved note is not retained as an unsubmitted draft');
+  }));
+
+  for (const abrupt of engine === 'chromium' ? [false, true] : [false]) it(`a late first mounted note completion preserves the second note identity at the cap (${abrupt ? 'crash and restore' : 'ordinary reload'})`, t => withPage(t, async page => {
+    await page.goto(`${base}/settings`);
+    await page.evaluate(async () => {
+      const auth = JSON.parse(localStorage.getItem('plato_auth'));
+      const previous = await fetch('/v1/sync/profile', { headers: { Authorization: `Bearer ${auth.accessToken}` } }).then(response => response.json());
+      const response = await fetch('/v1/sync/profile', { method: 'PUT', headers: { Authorization: `Bearer ${auth.accessToken}`, 'Content-Type': 'application/json', 'X-Plato-Client-Protocol': '1', 'X-Plato-Client-Epoch': '1', 'X-Plato-Protocol': '1', 'X-Plato-Server-Epoch': '1' }, body: JSON.stringify({ data: { learnerNotes: Array.from({ length: 9 }, (_, i) => ({ text: `Seed ${i}`, at: 1700000000000 + i })) }, version: previous.version }) });
+      if (!response.ok) throw new Error(`seed profile: ${response.status} ${JSON.stringify(await response.json())}; previous ${JSON.stringify(previous)}`);
+    });
+    await page.reload();
+    const first = deferred(), second = deferred(), releaseFirst = deferred(), releaseSecond = deferred();
+    let calls = 0;
+    await page.route('**/v1/ai/messages', async route => {
+      const n = ++calls;
+      if (n === 1) { first.resolve(); await releaseFirst.promise; }
+      if (n === 2) { second.resolve(); await releaseSecond.promise; }
+      await route.fulfill({ json: { content: [{ type: 'text', text: '{"changed":false}' }] } }).catch(() => {});
+    });
+    let input = page.getByRole('textbox', { name: 'Profile feedback', exact: true });
+    let recoveredContext;
+    const submit = async text => {
+      await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+      await input.fill(text);
+      await page.getByRole('button', { name: 'Update profile', exact: true }).click();
+    };
+    try {
+      await submit('T1 first mounted note');
+      await first.promise;
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      // In-app navigation preserves the profile queue ownership generation.
+      await page.getByRole('link', { name: /— Lessons$/ }).first().click();
+      await settings(page);
+      await submit('T2 second mounted note');
+      const identity = await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_settings_draft_v1:a:noteAt')).value);
+      releaseFirst.resolve();
+      await second.promise;
+      assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_settings_draft_v1:a:noteAt')).value), identity);
+      assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_settings_draft_v1:a:feedback')).value), 'T2 second mounted note', 'feedback remains before renderer replacement');
+      const beforeReload = (await api(page, '/v1/sync/profile')).data.learnerNotes;
+      assert.equal(beforeReload.length, 10);
+      if (!abrupt) {
+        await page.reload();
+        await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+        const notes = (await api(page, '/v1/sync/profile')).data.learnerNotes;
+        assert.equal(notes.filter(note => note.text === 'T2 second mounted note').length, 1);
+        assert.deepEqual(notes, beforeReload, 'ordinary reload retains the durable note without another cap eviction');
+        return;
+      }
+      // Chromium's crashed target cannot be reused by Playwright. Restore the
+      // browser's actual auth and session-storage snapshot into a fresh renderer,
+      // modelling browser session recovery after a crash, without outgoing JS.
+      const recoveredStorage = await page.evaluate(() => Object.fromEntries(Object.entries(sessionStorage)));
+      const recoveredAuth = await page.context().storageState();
+      const renderer = await page.context().newCDPSession(page);
+      const crashed = page.waitForEvent('crash');
+      void renderer.send('Page.crash').catch(() => {});
+      await crashed;
+      recoveredContext = await browser.newContext({ storageState: recoveredAuth, viewport: { width: 390, height: 844 } });
+      await recoveredContext.addInitScript(values => { for (const [key, value] of Object.entries(values)) sessionStorage.setItem(key, value); }, recoveredStorage);
+      page = await recoveredContext.newPage();
+      await page.goto(`${base}/settings`);
+      input = page.getByRole('textbox', { name: 'Profile feedback', exact: true });
+      await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+      assert.equal(await input.inputValue(), 'T2 second mounted note');
+      releaseSecond.resolve();
+      await page.getByRole('button', { name: 'Update profile', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden' });
+      const notes = (await api(page, '/v1/sync/profile')).data.learnerNotes;
+      assert.equal(notes.filter(note => note.text === 'T2 second mounted note').length, 1);
+      assert.deepEqual(notes, beforeReload, 'resubmission does not evict another note at the cap');
+    } finally { releaseFirst.resolve(); releaseSecond.resolve(); await recoveredContext?.close(); }
   }));
 
   it('delayed feedback generation cannot save into the next account', t => withPage(t, async page => {

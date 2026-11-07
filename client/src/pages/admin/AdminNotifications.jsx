@@ -145,6 +145,8 @@ function Compose({ canWrite, onNotice, onSent }) {
   const count = currentPreview?.status === 'ready' ? currentPreview.data.count : null;
   const payload = { subject, body, inApp, email, important: inApp && important, audience };
   const fingerprint = JSON.stringify(payload);
+  const draftFingerprint = useRef(fingerprint);
+  useEffect(() => { draftFingerprint.current = fingerprint; }, [fingerprint]);
   const canSend = canWrite && !sending && audienceReady && subject.trim() && body.trim()
     && (inApp || email) && Number.isFinite(count) && count > 0;
   const confirmationCurrent = !!confirmation && !!canSend && confirmation.fingerprint === fingerprint
@@ -174,14 +176,16 @@ function Compose({ canWrite, onNotice, onSent }) {
       setRequestId(crypto.randomUUID());
       attempted.current = null;
       const outcome = payload.email ? 'Message processed. History shows email delivery outcomes, including delivery disabled or failed.' : 'Message sent to the classroom.';
-      onNotice({ text: outcome, type: 'success' });
-      setSubject(''); setBody(''); setSelected([]);
+      const unchanged = draftFingerprint.current === fingerprint;
+      const acknowledged = unchanged ? outcome : `“${payload.subject.trim()}” was sent. Your newer draft is kept.`;
+      onNotice({ text: acknowledged, type: 'success' });
+      if (unchanged) { setSubject(''); setBody(''); setSelected([]); }
       try {
-        await onSent();
+        await onSent(unchanged);
       } catch (error) {
         // The POST is acknowledged. A failed read must not turn it back into
         // an unsent draft or encourage a second send under the next request ID.
-        onNotice({ text: `${outcome} History could not be refreshed: ${error.message} Use Refresh notifications to check it. Do not resend this message.`, type: 'error' });
+        onNotice({ text: `${acknowledged} History could not be refreshed: ${error.message} Use Refresh notifications to check it. Do not resend this message.`, type: 'error' });
       }
     } catch (e) {
       onNotice({ text: `${e.message} Your draft is retained. History shows any delivery attempt already created.`, type: 'error' });
@@ -275,7 +279,7 @@ function Compose({ canWrite, onNotice, onSent }) {
         </p>
         <Button onClick={() => {
           if (canSend) setConfirmation({ payload: structuredClone(payload), fingerprint, audienceKey, count, preview: currentPreview });
-        }} disabled={!canSend}>
+        }} disabled={!canSend} focusableWhenDisabled>
           {sending ? 'Sending…' : 'Send'}
         </Button>
         {!canWrite && <p className="text-xs text-muted-foreground">Only admins can send messages.</p>}

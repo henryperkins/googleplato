@@ -496,10 +496,11 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
       // second copy (withLearnerNote skips a note with the same text and time).
       noteAt.current ??= settingsDrafts.read(userId, 'noteAt') || Date.now();
       settingsDrafts.write(userId, 'noteAt', noteAt.current);
-      const result = await addLearnerNote(text.trim(), { expectedUserId: userId, at: noteAt.current });
+      const submittedAt = noteAt.current;
+      const result = await addLearnerNote(text.trim(), { expectedUserId: userId, at: submittedAt });
       await assertTurnOwner(userId);
       settingsDrafts.clear(userId, 'feedback', text);
-      settingsDrafts.clear(userId, 'noteAt');
+      settingsDrafts.clear(userId, 'noteAt', submittedAt);
       onOpenChange(false);
       setText('');
       noteAt.current = null;

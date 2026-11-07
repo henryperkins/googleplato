@@ -211,6 +211,45 @@ describe('Lesson publishing workflow', { timeout: 300000 }, () => {
     });
   }
 
+  for (const scenario of ['visibility conflict', 'visibility network failure', 'rejected final save', 'recovered rejected visibility']) {
+    it(`explains composer recovery for ${scenario}`, async () => {
+      const final = scenario === 'rejected final save';
+      const { context, page, state } = await fixture({ draft: !scenario.startsWith('visibility') && final, width: final ? 320 : 1280 });
+      try {
+        if (final) await review(page);
+        state.beforeWrite = async route => {
+          if (scenario === 'visibility network failure' || scenario === 'recovered rejected visibility') await route.abort('failed');
+          else await route.fulfill({ status: final ? 400 : 409, json: { error: 'Controlled save rejection' } });
+          return true;
+        };
+        await page.getByRole('button', { name: final ? 'Save & make public' : 'Make public', exact: true }).click();
+        const recovery = page.getByRole('button', { name: final ? 'Revise lesson' : scenario === 'visibility conflict' ? 'Load saved lesson' : 'Retry saving', exact: true });
+        await recovery.waitFor();
+        if (scenario === 'recovered rejected visibility') {
+          state.beforeWrite = async route => { await route.fulfill({ status: 400, json: { error: 'Choose another visibility' } }); return true; };
+          await recovery.click();
+          await page.getByRole('status').filter({ hasText: 'Choose another visibility' }).waitFor();
+        }
+        if (final) {
+          await page.getByRole('tabpanel', { name: 'Preview', exact: true }).getByRole('button', { name: 'Revise lesson', exact: true }).waitFor();
+          await page.screenshot({ path: join(publishingEvidence, 'rejected-final-save-320.png'), fullPage: true });
+          await page.getByRole('tab', { name: 'Refine', exact: true }).click();
+        }
+        const expected = final ? 'Choose “Revise lesson” in Preview, then send.'
+          : scenario === 'visibility conflict' ? 'This lesson changed elsewhere. Choose “Load saved lesson”, then send.'
+            : scenario === 'recovered rejected visibility' ? 'Choose a visibility again in Visibility and sharing, then send.'
+              : 'Choose “Retry saving”, then send.';
+        const composer = page.getByRole('textbox', { name: 'Your message', exact: true });
+        await composer.fill('Keep this next change.');
+        await composer.press('Control+Enter');
+        assert.equal(await composer.evaluate(element => element.getAttribute('aria-describedby').split(/\s+/).map(id => document.getElementById(id)?.textContent).join(' ')), expected);
+        assert.equal(await page.locator('.lesson-editor-composer [role="status"]').innerText(), expected);
+        assert.equal(await composer.inputValue(), 'Keep this next change.');
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      } finally { await context.close(); }
+    });
+  }
+
   it('changes editor visibility without losing shares or the acknowledged save version', async () => {
     const { context, page, state } = await fixture({ draft: false });
     try {

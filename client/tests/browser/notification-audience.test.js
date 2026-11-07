@@ -1,6 +1,7 @@
 import { browserEvidence } from './evidence.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { realpathSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +20,8 @@ async function open(t) {
   page.setDefaultTimeout(8000);
   const errors = [], sent = [], pending = [], waiters = [];
   let held = false;
+  let holdSend = false;
+  const sendPending = [], sendWaiters = [];
   page.on('pageerror', error => errors.push(error.message));
   await context.addInitScript(() => localStorage.setItem('plato_auth', JSON.stringify({
     accessToken: 'local-only', refreshToken: 'local-only-r', user: { userId: 'synthetic-admin', role: 'admin' },
@@ -45,6 +48,11 @@ async function open(t) {
     }
     if (path === '/v1/admin/notifications/messages' && request.method() === 'POST') {
       sent.push(request.postDataJSON());
+      if (holdSend) {
+        const release = () => reply({ message: { status: 'sent' } });
+        if (sendWaiters.length) sendWaiters.shift()(release); else sendPending.push(release);
+        return;
+      }
       return reply({ message: { status: 'sent' } });
     }
     if (path === '/v1/admin/notifications/messages') return reply({ messages: [] });
@@ -66,6 +74,8 @@ async function open(t) {
   });
   return {
     page, sent,
+    holdSend() { holdSend = true; },
+    nextSend() { return sendPending.length ? Promise.resolve(sendPending.shift()) : new Promise(resolve => sendWaiters.push(resolve)); },
     send: page.getByRole('button', { name: 'Send', exact: true }),
     hold() { held = true; },
     nextPreview() { return pending.length ? Promise.resolve(pending.shift()) : new Promise(resolve => waiters.push(resolve)); },
@@ -81,7 +91,7 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
     server = await createServer({
       configFile: join(root, 'client/vite.config.js'), root: join(root, 'client'),
       cacheDir: join(evidence, 'vite-cache'),
-      server: { host: '127.0.0.1', port: 0, strictPort: true, hmr: false },
+      server: { host: '127.0.0.1', port: 0, strictPort: true, hmr: false, fs: { allow: [root, realpathSync(join(root, 'node_modules'))] } },
       plugins: [{
         name: 'notification-audience-test', enforce: 'pre',
         resolveId(id) { if (id === '/__audience-entry.jsx') return '\0audience-review'; },
@@ -102,6 +112,36 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
     browser = await chromium.launch();
   });
   after(async () => { await browser?.close(); await server?.close(); });
+
+  it('keeps a newer draft and its focus when an earlier send completes', async t => {
+    const f = await open(t);
+    f.holdSend();
+    await f.send.click();
+    await f.page.getByRole('alertdialog').getByRole('button', { name: 'Send', exact: true }).click();
+    const release = await f.nextSend();
+    const sending = f.page.getByRole('button', { name: 'Sending…', exact: true });
+    assert.equal(await sending.getAttribute('aria-disabled'), 'true');
+    await sending.focus();
+    assert.equal(await sending.evaluate(element => document.activeElement === element), true);
+    await f.page.getByLabel('Subject', { exact: true }).fill('Second subject');
+    const field = f.page.getByLabel('Message', { exact: true });
+    await field.fill('Second exact body\nwith another line.');
+    release();
+    await f.page.getByRole('status').filter({ hasText: '“Reviewed message” was sent. Your newer draft is kept.' }).waitFor();
+    assert.equal(await f.page.getByLabel('Subject', { exact: true }).inputValue(), 'Second subject');
+    assert.equal(await field.inputValue(), 'Second exact body\nwith another line.');
+    assert.equal(await field.evaluate(element => document.activeElement === element), true);
+    assert.equal(await f.page.getByRole('tab', { name: 'Compose', selected: true }).count(), 1);
+    assert.deepEqual(f.sent[0], { subject: 'Reviewed message', body: 'Synthetic classroom message.', inApp: true, email: false, important: false, audience: { type: 'all' }, requestId: f.sent[0].requestId });
+    await f.send.click();
+    await f.page.getByRole('alertdialog').getByRole('button', { name: 'Send', exact: true }).click();
+    const releaseSecond = await f.nextSend();
+    assert.notEqual(f.sent[1].requestId, f.sent[0].requestId);
+    assert.equal(f.sent[1].subject, 'Second subject');
+    assert.equal(f.sent[1].body, 'Second exact body\nwith another line.');
+    releaseSecond();
+    await f.page.getByRole('tab', { name: 'History', selected: true }).waitFor();
+  });
 
   it('requires the new Everyone preview before confirming the reviewed count and audience', async t => {
     const f = await open(t);
