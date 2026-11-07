@@ -306,9 +306,64 @@ export async function refreshCurrentUser() {
  */
 const sameSession = (left, right) => left?.user?.userId === right?.user?.userId
   && left?.accessToken === right?.accessToken && left?.refreshToken === right?.refreshToken;
+const REFRESH_LOCK_NAME = 'plato:auth-refresh';
+let refreshInFlight;
 
-async function refreshAccessToken(tokens, generation, signal) {
+function abortReason(signal) {
+  return signal?.reason || new DOMException('Request cancelled.', 'AbortError');
+}
+
+function withRefreshLock(callback, signal) {
+  const locks = globalThis.navigator?.locks;
+  return locks?.request ? locks.request(REFRESH_LOCK_NAME, { mode: 'exclusive', signal }, callback) : callback();
+}
+
+function waitForRefresh(refresh, signal) {
+  refresh.waiters += 1;
+  let abort;
+  const cancelled = new Promise((_, reject) => {
+    abort = () => reject(abortReason(signal));
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
+  });
+  return Promise.race([refresh.promise, cancelled]).finally(() => {
+    signal?.removeEventListener('abort', abort);
+    refresh.waiters -= 1;
+    // One caller cancelling must not interrupt its siblings. With no callers
+    // left, stop waiting for the lock or the network as before.
+    if (!refresh.settled && refresh.waiters === 0) refresh.controller.abort();
+  });
+}
+
+async function runRefresh(refresh, tokens, generation) {
+  try {
+    return await withRefreshLock(() => doRefreshAccessToken(tokens, generation, refresh.controller.signal), refresh.controller.signal);
+  } catch {
+    if (refresh.controller.signal.aborted) throw abortReason(refresh.controller.signal);
+    return false;
+  }
+}
+
+function refreshAccessToken(tokens, generation, signal) {
   if (!tokens?.refreshToken) return false;
+  let refresh = refreshInFlight;
+  // A refresh whose last waiter cancelled is aborted but may not have settled
+  // yet. A request that joins it then would inherit a cancellation it never asked for.
+  if (!refresh || refresh.controller.signal.aborted || refresh.generation !== generation
+    || !sameSession(refresh.tokens, tokens)) {
+    refresh = { tokens, generation, controller: new AbortController(), waiters: 0, settled: false };
+    refresh.promise = runRefresh(refresh, tokens, generation).finally(() => {
+      refresh.settled = true;
+      if (refreshInFlight === refresh) refreshInFlight = undefined;
+    });
+    refreshInFlight = refresh;
+  }
+  return waitForRefresh(refresh, signal);
+}
+
+async function doRefreshAccessToken(tokens, generation, signal) {
+  // Another tab may have rotated the token while this caller waited for the
+  // lock. The caller re-reads storage and reuses that rotation without a request.
   if (!sameSession(tokens, await getAuthTokens()) || generation !== sessionGeneration) return false;
   try {
     const res = await fetch(`${SERVICE_URL}/v1/auth/refresh`, {
@@ -317,21 +372,22 @@ async function refreshAccessToken(tokens, generation, signal) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: tokens.refreshToken }),
     });
-    if (signal?.aborted) throw signal.reason;
+    if (signal?.aborted) throw abortReason(signal);
     if (!res.ok) {
       // Don't clear auth silently — the user's data should be preserved.
-      // Notify listeners so the UI can prompt re-login.
+      // Notify listeners so the UI can prompt re-login. A sibling rotation
+      // means this rejection belongs to the old token, not the current session.
       if (sameSession(tokens, await getAuthTokens()) && generation === sessionGeneration) _notifySessionExpired();
       return false;
     }
     const { accessToken, refreshToken } = await res.json();
-    if (signal?.aborted) throw signal.reason;
+    if (signal?.aborted) throw abortReason(signal);
     // Compare and replace synchronously inside storage, after all awaits.
     // A late response must never merge account A's tokens into account B.
     if (generation !== sessionGeneration) return false;
     return await saveAuthTokens({ accessToken, refreshToken }, tokens);
   } catch {
-    if (signal?.aborted) throw signal.reason || new DOMException('Request cancelled.', 'AbortError');
+    if (signal?.aborted) throw abortReason(signal);
     return false;
   }
 }
