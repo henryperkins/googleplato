@@ -2,6 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import db from './db.js';
 import ai, { LLM } from './ai-provider.js';
+import { coachTurnActivity, lessonStartActivity } from '../shared/agentActivity.js';
+import { evidenceIsMet } from '../shared/lessonAssessment.js';
+import { nameFields } from './names.js';
 import { normalizeStatus } from './lesson-visibility.js';
 import { parseLessonPrompt } from '../shared/lessonMarkdown.js';
 import { validateLessonKB } from '../shared/lessonInitialization.js';
@@ -31,7 +34,14 @@ export async function resolveCoachLesson(userId, lessonId) {
   if (!lesson.exemplar || !lesson.learningObjectives.length) throw failure('The lesson needs authored assessment criteria.', 422);
   if (typeof record.course === 'string') {
     const course = (await db.getSyncData('_system', `course:${record.course}`))?.data;
-    if (course) lesson.course = { id: record.course, name: course.name };
+    if (course) {
+      lesson.course = { id: record.course, name: course.name }; // legacy unit alias
+      lesson.unit = { ...lesson.course };
+      if (typeof course.programId === 'string') {
+        const program = (await db.getSyncData('_system', `program:${course.programId}`))?.data;
+        if (program) lesson.program = { id: course.programId, name: program.name };
+      }
+    }
   }
   return lesson;
 }
@@ -90,7 +100,7 @@ async function generate(userId, lessonId, input, onText) {
   // their eventual replies. One small server-owned marker per lesson.
   await db.putSyncData(userId, `coachAttempt:${lessonId}`, { turnId, generation: base.generation });
   const telemetry = { lessonId, turnId, generation: base.generation };
-  const [profile, preferences, user] = await Promise.all([db.getSyncData(userId, 'profileSummary'), db.getSyncData(userId, 'preferences'), db.getUserById(userId)]);
+  const [profile, user] = await Promise.all([db.getSyncData(userId, 'profileSummary'), db.getUserById(userId)]);
   const criteriaHash = lessonCriteriaHash(lesson);
   let kb = structuredClone(base.lessonKB.data);
   if (opening) {
@@ -142,7 +152,7 @@ async function generate(userId, lessonId, input, onText) {
   kb = { ...kb, sources: retainSources(priorSources, sources, sourceIdsForEvidence(kb)) };
   const history = buildCoachHistory(base.messages.data, kb.conversationState);
   const courseProgress = lesson.course ? (await db.getSyncData(userId, `courseProgress:${lesson.course.id}`))?.data?.summary : null;
-  const context = buildContext(lesson, kb, profile?.data, preferences?.data?.name || user?.name || '', courseProgress);
+  const context = buildContext(lesson, kb, profile?.data, nameFields(user).firstName || '', courseProgress);
   const parts = [{ type: 'text', text: opening ? 'Start the lesson.' : JSON.stringify({ learnerSubmission: submission.text || '(See attached sources)', currentSourceIds: sources.map(source => source.id) }) }];
   // Rehydrate retained images, bounded to four, including later confirmation.
   for (const [id, part] of suppliedImages) parts.push({ type: 'text', text: `Reference image source ${id}` }, part);
@@ -160,6 +170,9 @@ async function generate(userId, lessonId, input, onText) {
   } else {
     let raw = '';
     for await (const event of ai.invokeStream(LLM, body, { context: inferenceContext(userId, { ...telemetry, agentRole: 'coach' }) })) {
+      if (event.type === 'message_delta' && event.delta?.stop_reason === 'max_tokens') {
+        throw Object.assign(failure('The coach reply was cut off. Your response is retained; retry it to generate a complete reply.', 502), { code: 'coach_response_truncated' });
+      }
       if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') { raw += event.delta.text; await onText?.(visibleCoachText(raw, { partial: true })); }
     }
     assessed = await assessCoachResponse(raw, body, async repairBody => {
@@ -187,6 +200,13 @@ async function generate(userId, lessonId, input, onText) {
   const turn = { userId, lessonId, turnId, base, messages, lessonKB: applied.lessonKB, phase, achieved: applied.achieved,
     assessmentRepair: assessed.repair,
     profileObservation: profileObservationForTurn(parsed, applied.lessonKB, { opening, completed: wasCompleted }) };
+  const activityOptions = { before: kb, after: applied.lessonKB, achieved: applied.achieved,
+    images: suppliedImages.length, links: kb.sources.filter(source => source.kind === 'link' && source.text?.trim()).length,
+    hasUnitNote: !!courseProgress, assessmentRepair: turn.assessmentRepair, profileObservation: turn.profileObservation,
+    newlyMet: (applied.lessonKB.objectives || []).filter(objective => evidenceIsMet(applied.lessonKB.evidence?.find(e => e.objectiveId === objective.id), applied.lessonKB.sources)
+      && !evidenceIsMet(kb.evidence?.find(e => e.objectiveId === objective.id), kb.sources)).map(o => o.objective),
+  };
+  messages.at(-1).metadata = { agents: opening ? lessonStartActivity({ ...activityOptions, lessonKB: applied.lessonKB, enrichments: applied.lessonKB.enrichments }) : coachTurnActivity(activityOptions) };
   turn.receipt = signCoachTurn(turn);
   // One recoverable result per lesson; save/reload never needs inference.
   await storeCoachResult(turn);

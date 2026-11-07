@@ -22,7 +22,7 @@ aiRoute.get('/v1/ai/coach/:lessonId', async (c) => {
 aiRoute.post('/v1/ai/coach/:lessonId', async (c) => {
   if (c.req.query('asUserId')) return c.json({ error: 'Coaching is unavailable while viewing another user.' }, 403);
   const body = await c.req.json();
-  const report = error => error.status ? { code: 'coach_request_failed', error: error.message, status: error.status }
+  const report = error => error.status ? { code: error.code === 'coach_response_truncated' ? error.code : 'coach_request_failed', error: error.message, status: error.status }
     : { ...classifyAiError(error), status: aiErrorStatus(classifyAiError(error).code) };
   if (!body.stream) {
     try { return c.json(await generateCoachTurn(c.get('userId'), c.req.param('lessonId'), body)); }

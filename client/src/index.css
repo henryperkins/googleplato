@@ -332,7 +332,7 @@
 }
 @container admin-tabs (max-width: 29rem) {
   .admin-bottom-nav > a {
-    flex-basis: calc(100% / 3);
+    flex-basis: calc(100% / 4);
   }
 }
 
@@ -700,9 +700,6 @@ html {
   .lesson-editor-actions > button {
     flex-basis: 100%;
     min-block-size: 2.75rem;
-  }
-  .lesson-editor-shortcut {
-    display: none;
   }
 }
 

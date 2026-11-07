@@ -105,3 +105,18 @@ test('reload verifies every retained reply, including other lessons and accounts
   assert.equal(store.preserveAllForReload(), true);
   assert.deepEqual(createGeneratedTurnStore({ storage: () => storage }).read(other.userId, other.lessonId).turn, other);
 });
+
+test('large signed activity and provenance survive staging and reload byte-for-byte without display mutation or trimming', () => {
+  const target = disk();
+  const activity = [{ agent: 'coach', label: 'Coach', notes: Array(10).fill('学'.repeat(5000)) }];
+  const signed = { ...structuredClone(turn), receipt: `v1.${'a'.repeat(64)}`, assessmentRepair: { attempted: true, succeeded: true, method: 'model' },
+    profileObservation: { observation: 'Prefers examples', source: 'learner_statement', kind: 'preference', sourceIds: ['s'] } };
+  signed.messages[0].metadata = { agents: activity };
+  const exact = JSON.stringify(signed);
+  const store = createGeneratedTurnStore({ storage: () => target });
+  store.stage(signed);
+  signed.messages[0].metadata.imageDataUrls = ['render-only'];
+  signed.messages[0].metadata.agents[0].notes = ['display changed'];
+  assert.equal(JSON.stringify(store.read(turn.userId, turn.lessonId).turn), exact);
+  assert.equal(JSON.stringify(createGeneratedTurnStore({ storage: () => target }).read(turn.userId, turn.lessonId).turn), exact);
+});

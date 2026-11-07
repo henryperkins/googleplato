@@ -5,22 +5,33 @@ Plato's plugin API is versioned with semver. The host declares a single `PLUGIN_
 ## Current host version
 
 ```
-PLUGIN_API_VERSION = '1.4.0'
+PLUGIN_API_VERSION = '1.6.0'
 ```
 
 Defined in `server/src/lib/plugins/version.js`.
 
 ## Changelog
 
-### 1.4.0 (additive)
+### 1.6.0 (additive)
 - **Added** the `publicAuthProvider` slot, `auth.provider` capability, and `extensionPoints.authProvider` manifest declaration. Public `GET /v1/auth/providers` exposes only enabled providers and explicitly allowlisted, non-writeOnly browser settings; disabled providers are not imported by the client.
 - **Added** SDK `completeExternalAuth(identity, options)` so an auth plugin verifies its own token while core retains admission, accounts, roles, lifecycle hooks, and plato sessions. Added `createRemoteJWKSet` and `jwtVerify` re-exports for token verification.
 - **Added** SDK `updateUserMeta(userId, pluginId, updater)` using one consistent read and a strict conditional write for atomic read/modify/write updates.
 - **Fixed** manifest vocabulary to recognize the already-emitted `userDeleted` hook and to strip nested `writeOnly` settings recursively.
 - **Hardened** activation/settings writes with strict compare-and-swap, consistent-read reconciliation before plugin surfaces, fail-closed dispatch on activation-read failures, and disabled uninstall tombstones. Existing manifests and SDK calls remain compatible.
 
-### 1.3.0 (additive)
-- **Added** the lesson-enrichment contract used by WordPress Info: `lessonEnrichment`, `lessonStarted`, and optional `lessonStartupSteps` metadata.
+### 1.5.1 (fix)
+- **Changed** `PUT /v1/admin/plugins/:id/settings` keeps a stored **writeOnly** value (e.g. a bot token) when the body leaves that key out. Clients never receive writeOnly values, so a settings panel that saved its other fields used to erase them. Send `null` to clear one.
+
+### 1.5.0 (additive)
+- **Added** `firstName`, `lastName`, and `nameSource` (`'user' | 'auto'`) to `AdminUser` (#402). `name` stays, always derived as `firstName lastName`. `'auto'` means the parts were inferred from an older single name (split at the first space) and haven't been confirmed.
+
+### 1.4.0
+- **Changed** the role values in `userCreated` / `userDeleted` payloads and the `AdminUser.role` type (#435): roles are now `admin`, `educator`, `learner`, `tester`, always normalized. New signups are stored as `learner`, and accounts stored as `user` before this version are reported as `learner`. A plugin comparing `role === 'user'` should compare `role === 'learner'`; none of the bundled plugins read the role.
+- Plugin admin routes guarded with the SDK's `requireAdmin` remain **admin-only**. Educators and testers don't pass it.
+
+### 1.3.0 (additive, #242)
+- **Added** the `lessonStarted` hook (`hook.lessonStarted`, emitted from `POST /v1/sync/lesson-started`) and the `lessonEnrichment` capability. A handler may return `{ label, context, reasoning, sources }`; the host stores the returns on `lessonKB.enrichments`, adds them to the coach's context, and shows them to the learner. Hook return values are now collected (`emit` returns them). Reference plugin: `plugins/wordpress-info`.
+- **Added** optional `lessonStartupSteps` metadata for plugin-provided lesson loading steps.
 
 ### 1.2.0 (additive)
 - **Added** `onUninstall(ctx)` lifecycle hook — optional. Runs when an admin uses the "Delete plugin data" flow on `/plato/plugins` and the plugin needs cleanup beyond its activation record (e.g., per-user `userMeta:<id>` records). The host clears the activation record (settings) automatically; plugins only implement `onUninstall` when they own data elsewhere. Plugin must be **disabled** first, and the admin must type the plugin id in a confirm dialog before the destructive button enables. Errors propagate so partial-cleanup failures are surfaced loudly.

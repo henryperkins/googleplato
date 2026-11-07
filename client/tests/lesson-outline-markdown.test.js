@@ -33,14 +33,19 @@ describe('lesson markdown on learner surfaces', () => {
     assert.match(read('pages/LessonsList.jsx'), /line-clamp-2[^>]*>\s*\{stripInlineMd\(lesson\.description\)\}/);
   });
 
-  for (const rel of ['pages/LessonsList.jsx', 'pages/LessonChat.jsx']) {
+  for (const rel of ['pages/LessonsList.jsx', 'components/chat/LessonOverview.jsx']) {
     it(`renders lesson markdown in the ${rel} outline dialog`, () => {
       const src = read(rel);
       // DialogDescription is a <p>, so it only ever gets inline HTML.
       // dir="auto" lets right-to-left author text set its own direction.
       assert.match(src, /<DialogDescription (?:dir="auto" )?className="coach-copy" dangerouslySetInnerHTML=\{\{ __html: renderInlineMd\(lesson\.description\) \}\} \/>/);
+      if (rel.includes('LessonOverview')) {
+        assert.match(src, /renderMd\(lessonKB\?\.exemplar \|\| lesson.exemplar\)/);
+        assert.match(src, /renderInlineMd\(o.objective\)/);
+      } else {
       assert.match(src, /<div (?:dir="auto" )?className="coach-copy [^"]*" dangerouslySetInnerHTML=\{\{ __html: renderMd\(lesson\.exemplar\) \}\} \/>/);
       assert.match(src, /<li key=\{i\} className="coach-copy" dangerouslySetInnerHTML=\{\{ __html: renderInlineMd\(obj\) \}\} \/>/);
+      }
       assert.doesNotMatch(src, /\{lesson\.(description|exemplar)\}|<li key=\{i\}>\{obj\}<\/li>/, 'no raw author markdown as a text child');
     });
   }

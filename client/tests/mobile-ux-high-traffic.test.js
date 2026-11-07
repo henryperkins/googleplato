@@ -129,7 +129,7 @@ describe('Mobile Web UX Audit — High-Traffic Routes Contract', () => {
     assert.match(tableSrc, /sm:\[&_td:first-child\]:max-w-none/);
 
     const lessonsSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminLessons.jsx'), 'utf8');
-    assert.match(lessonsSrc, /onClick=\{\(\) => openLessonEditor\(c\.lessonId\)\}/);
+    assert.match(lessonsSrc, /onClick=\{\(\) => openLessonEditor\(lesson\.lessonId\)\}/);
     assert.match(lessonsSrc, /className="touch-target truncate max-w-full rounded-sm text-left font-medium underline/);
 
     const usersSrc = fs.readFileSync(path.join(SRC_DIR, 'pages/admin/AdminUsers.jsx'), 'utf8');

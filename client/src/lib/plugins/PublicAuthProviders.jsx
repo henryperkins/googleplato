@@ -1,4 +1,6 @@
 import { Component, useEffect, useState } from 'react';
+import { rejectStaleAuthSession } from '../../../js/auth.js';
+import { beginAuthAttempt, isAuthAttemptCurrent } from '../../../js/authCoordination.js';
 import { loadPluginClient } from './loader.js';
 import { resolveSlotComponent } from './resolvers.js';
 
@@ -22,8 +24,29 @@ class PublicProviderBoundary extends Component {
  * Enabled public auth providers for Login, Setup, and Signup. Provider metadata
  * comes from a public allowlist endpoint; disabled providers are never imported.
  */
+export function createPublicAuthSessionGuard() {
+  return (provider, context) => {
+    let attemptId;
+    return {
+      ...context,
+      beforeStart: async () => {
+        if (context.beforeStart && await context.beforeStart() === false) return false;
+        attemptId = await beginAuthAttempt();
+        return true;
+      },
+      onSession: async (session, providerId) => {
+        const currentAttempt = attemptId;
+        attemptId = undefined;
+        if (!isAuthAttemptCurrent(currentAttempt)) return rejectStaleAuthSession(session);
+        return context.onSession?.(session, providerId, currentAttempt);
+      },
+    };
+  };
+}
+
 export default function PublicAuthProviders({ surface, context = {}, dividerText }) {
   const [providers, setProviders] = useState([]);
+  const [guard] = useState(createPublicAuthSessionGuard);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -61,7 +84,7 @@ export default function PublicAuthProviders({ surface, context = {}, dividerText
             pluginId={provider.id}
             provider={provider}
             surface={surface}
-            {...context}
+            {...guard(provider, context)}
           />
         </PublicProviderBoundary>
       ))}

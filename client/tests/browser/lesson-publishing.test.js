@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -15,9 +16,10 @@ const root = fileURLToPath(new URL('../../..', import.meta.url));
 const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
 const browserType = { chromium, firefox, webkit }[browserName];
 assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
-const publishingEvidence = join(root, 'output/playwright/lesson-publishing', browserName === 'chromium' ? '' : browserName);
-const mobileEvidence = join(root, 'output/playwright/lesson-mobile-refinement', browserName === 'chromium' ? '' : browserName);
-const workspaceEvidence = join(root, 'output/playwright/lesson-workspace', browserName);
+const evidenceRoot = browserEvidence('lesson-publishing', browserName);
+const publishingEvidence = join(evidenceRoot, 'publishing');
+const mobileEvidence = join(evidenceRoot, 'mobile-refinement');
+const workspaceEvidence = join(evidenceRoot, 'workspace');
 const markdown = '# Reviewed Lesson\n\n## Exemplar\nWrite a clear summary.\n\n## Learning Objectives\n- Can identify the main idea.\n- Can write a concise summary.';
 let browser;
 let server;
@@ -62,7 +64,8 @@ async function fixture({ draft = true, width = 1280, height = 900, theme = 'ligh
       }
     }
     if (path === '/v1/admin/lessons') return route.fulfill({ json: [state.lesson] });
-    if (path === '/v1/admin/courses') return route.fulfill({ json: [] });
+    if (path === '/v1/admin/units') return route.fulfill({ json: [] });
+    if (path === '/v1/admin/programs') return route.fulfill({ json: { programs: [], unassignedUnitIds: [] } });
     if (path === '/v1/admin/stats/lessons') return route.fulfill({ json: { byLesson: {} } });
     if (path === '/v1/admin/users') return route.fulfill({ json: [
       { userId: 'learner', name: 'Avery Learner', email: 'avery@example.test', role: 'user' },
@@ -82,7 +85,7 @@ async function review(page) {
   await page.getByRole('complementary', { name: 'Lesson markdown preview' }).getByRole('heading', { name: 'Reviewed Lesson', exact: true }).waitFor();
 }
 
-describe('Lesson publishing workflow', { timeout: 90000 }, () => {
+describe('Lesson publishing workflow', { timeout: 300000 }, () => {
   before(async () => {
     await mkdir(publishingEvidence, { recursive: true });
     await mkdir(mobileEvidence, { recursive: true });
@@ -204,6 +207,45 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
         assert.equal(state.aiCalls, 1, 'saving and reload must not generate another preview');
         assert.equal(state.writes.length, committed ? 1 : 2);
         if (!committed) assert.deepEqual(state.writes[1], original);
+      } finally { await context.close(); }
+    });
+  }
+
+  for (const scenario of ['visibility conflict', 'visibility network failure', 'rejected final save', 'recovered rejected visibility']) {
+    it(`explains composer recovery for ${scenario}`, async () => {
+      const final = scenario === 'rejected final save';
+      const { context, page, state } = await fixture({ draft: !scenario.startsWith('visibility') && final, width: final ? 320 : 1280 });
+      try {
+        if (final) await review(page);
+        state.beforeWrite = async route => {
+          if (scenario === 'visibility network failure' || scenario === 'recovered rejected visibility') await route.abort('failed');
+          else await route.fulfill({ status: final ? 400 : 409, json: { error: 'Controlled save rejection' } });
+          return true;
+        };
+        await page.getByRole('button', { name: final ? 'Save & make public' : 'Make public', exact: true }).click();
+        const recovery = page.getByRole('button', { name: final ? 'Revise lesson' : scenario === 'visibility conflict' ? 'Load saved lesson' : 'Retry saving', exact: true });
+        await recovery.waitFor();
+        if (scenario === 'recovered rejected visibility') {
+          state.beforeWrite = async route => { await route.fulfill({ status: 400, json: { error: 'Choose another visibility' } }); return true; };
+          await recovery.click();
+          await page.getByRole('status').filter({ hasText: 'Choose another visibility' }).waitFor();
+        }
+        if (final) {
+          await page.getByRole('tabpanel', { name: 'Preview', exact: true }).getByRole('button', { name: 'Revise lesson', exact: true }).waitFor();
+          await page.screenshot({ path: join(publishingEvidence, 'rejected-final-save-320.png'), fullPage: true });
+          await page.getByRole('tab', { name: 'Refine', exact: true }).click();
+        }
+        const expected = final ? 'Choose “Revise lesson” in Preview, then send.'
+          : scenario === 'visibility conflict' ? 'This lesson changed elsewhere. Choose “Load saved lesson”, then send.'
+            : scenario === 'recovered rejected visibility' ? 'Choose a visibility again in Visibility and sharing, then send.'
+              : 'Choose “Retry saving”, then send.';
+        const composer = page.getByRole('textbox', { name: 'Your message', exact: true });
+        await composer.fill('Keep this next change.');
+        await composer.press('Control+Enter');
+        assert.equal(await composer.evaluate(element => element.getAttribute('aria-describedby').split(/\s+/).map(id => document.getElementById(id)?.textContent).join(' ')), expected);
+        assert.equal(await page.locator('.lesson-editor-composer [role="status"]').innerText(), expected);
+        assert.equal(await composer.inputValue(), 'Keep this next change.');
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       } finally { await context.close(); }
     });
   }
@@ -1048,7 +1090,7 @@ describe('Lesson publishing workflow', { timeout: 90000 }, () => {
           && message.text() === 'Viewport argument key "interactive-widget" not recognized and ignored.')) errors.push(message.text());
       });
       try {
-        await context.route('**/v1/admin/courses', route => route.fulfill({ json: [{ courseId: 'communication', name: 'Workplace communication' }] }));
+        await context.route('**/v1/admin/units', route => route.fulfill({ json: [{ unitId: 'communication', name: 'Workplace communication' }] }));
         await page.reload();
         if (width === 390) {
           await page.getByRole('tab', { name: 'Refine', exact: true }).waitFor();

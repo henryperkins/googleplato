@@ -18,7 +18,9 @@ export function buildContext(lesson, lessonKB, profileSummary, learnerName, cour
       ? { ...lessonKB.conversationState, assignment: null } : lessonKB?.conversationState || null,
   };
   if (lesson.coachDirective) context.coachDirective = lesson.coachDirective;
-  if (lesson.course?.name) context.course = { name: lesson.course.name, ...(courseProgress ? { progress: courseProgress } : {}) };
+  const unit = lesson.unit || lesson.course; // course is the legacy unit alias.
+  if (unit?.name) context.unit = { name: unit.name, ...(courseProgress ? { progress: courseProgress } : {}) };
+  if (lesson.program?.name) context.course = { name: lesson.program.name };
   if (Array.isArray(lessonKB?.enrichments) && lessonKB.enrichments.length) context.enrichmentContext = lessonKB.enrichments.slice(0, 5).map(item => ({
     source: String(item.source || item.label || item.pluginId || 'Reference').slice(0, 200),
     context: String(item.context || '').slice(0, 6000), reasoning: String(item.reasoning || '').slice(0, 500),

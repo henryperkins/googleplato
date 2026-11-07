@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
+import { can } from './lib/permissions.js';
 import { useAuth } from './contexts/AuthContext.jsx';
 import AppShell from './components/AppShell.jsx';
 import LessonsList from './pages/LessonsList.jsx';
@@ -11,6 +12,11 @@ import { loadPublicBranding } from './lib/publicBranding.js';
 import { returnPath } from './lib/returnPath.js';
 import ProfileCompletionGate from './components/ProfileCompletionGate.jsx';
 import { BrandingProvider } from './contexts/BrandingContext.jsx';
+
+const CourseStructure = lazy(() => import('./pages/admin/CourseStructure.jsx'));
+const AdminNotifications = lazy(() => import('./pages/admin/AdminNotifications.jsx'));
+const SignedInInvite = lazy(() => import('./pages/SignedInInvite.jsx'));
+const HowAssessmentWorks = lazy(() => import('./pages/HowAssessmentWorks.jsx'));
 
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout.jsx'));
 const AdminHome = lazy(() => import('./pages/admin/AdminHome.jsx'));
@@ -49,16 +55,22 @@ function RequireAuth({ children }) {
   return children;
 }
 
-function RequireAdmin({ children }) {
+function RequireAdmin({ children, permission = 'admin.access' }) {
   const { user } = useAuth();
-  if (user?.role !== 'admin') return <Navigate to="/lessons" replace />;
+  if (!can(user, permission)) return <Navigate to={can(user, 'admin.access') ? '/plato' : '/lessons'} replace />;
   return children;
 }
 
-function RequireGuest({ children }) {
+function LessonRoute() {
+  const { lessonGroupId } = useParams();
+  return <LessonChat key={lessonGroupId} />;
+}
+
+function RequireGuest({ children, invite = false }) {
   const { loggedIn, loading } = useAuth();
   const location = useLocation();
   if (loading) return null;
+  if (loggedIn && invite && new URLSearchParams(location.search).get('token')) return <Suspense fallback={<PageFallback />}><SignedInInvite /></Suspense>;
   if (loggedIn) return <Navigate to={returnPath(location.state?.from)} replace />;
   return children;
 }
@@ -121,10 +133,11 @@ export default function App() {
       <ErrorBoundary resetKey={location.pathname}>
       <Routes>
         <Route path="/login" element={<RequireGuest><Login /></RequireGuest>} />
-        <Route path="/signup" element={<RequireGuest><Suspense fallback={<PageFallback />}><Signup /></Suspense></RequireGuest>} />
+        <Route path="/signup" element={<RequireGuest invite><Suspense fallback={<PageFallback />}><Signup /></Suspense></RequireGuest>} />
         <Route path="/waitlist" element={<RequireGuest><Suspense fallback={<PageFallback />}><Waitlist /></Suspense></RequireGuest>} />
         <Route path="/forgot-password" element={<RequireGuest><Suspense fallback={<PageFallback />}><ForgotPassword /></Suspense></RequireGuest>} />
         <Route path="/reset-password" element={<RequireGuest><Suspense fallback={<PageFallback />}><ResetPassword /></Suspense></RequireGuest>} />
+        <Route path="/how-assessment-works" element={<Suspense fallback={<PageFallback />}><HowAssessmentWorks /></Suspense>} />
         <Route path="/privacy" element={<Suspense fallback={<PageFallback />}><Privacy /></Suspense>} />
 
         <Route path="/plato/*" element={
@@ -137,24 +150,26 @@ export default function App() {
           </RequireAuth>
         }>
           <Route index element={<Suspense fallback={<PageFallback />}><AdminHome /></Suspense>} />
-          <Route path="users" element={<Suspense fallback={<PageFallback />}><AdminUsers /></Suspense>} />
-          <Route path="users/:userId" element={<Suspense fallback={<PageFallback />}><AdminUsers /></Suspense>} />
-          <Route path="users/waitlist/:waitlistToken" element={<Suspense fallback={<PageFallback />}><AdminUsers /></Suspense>} />
-          <Route path="lessons" element={<Suspense fallback={<PageFallback />}><AdminLessons /></Suspense>} />
-          <Route path="lessons/new" element={<Suspense fallback={<PageFallback />}><AdminLessons /></Suspense>} />
-          <Route path="lessons/:lessonId/edit" element={<Suspense fallback={<PageFallback />}><AdminLessons /></Suspense>} />
+          <Route path="users" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="users.read"><AdminUsers /></RequireAdmin></Suspense>} />
+          <Route path="users/:userId" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="users.read"><AdminUsers /></RequireAdmin></Suspense>} />
+          <Route path="users/waitlist/:waitlistToken" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="users.read"><AdminUsers /></RequireAdmin></Suspense>} />
+          <Route path="lessons" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="content.read"><AdminLessons /></RequireAdmin></Suspense>} />
+          <Route path="lessons/structure" element={<RequireAdmin permission="content.read"><Suspense fallback={<PageFallback />}><CourseStructure /></Suspense></RequireAdmin>} />
+          <Route path="notifications" element={<RequireAdmin permission="notifications.read"><Suspense fallback={<PageFallback />}><AdminNotifications /></Suspense></RequireAdmin>} />
+          <Route path="lessons/new" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="content.read"><AdminLessons /></RequireAdmin></Suspense>} />
+          <Route path="lessons/:lessonId/edit" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="content.read"><AdminLessons /></RequireAdmin></Suspense>} />
           {/* Course management lives inside Admin → Lessons (a "Courses" button
               opens a modal). Keep this route as a redirect for any bookmarked
               link from the prior standalone-page iteration. */}
-          <Route path="courses" element={<Navigate to="/plato/lessons" replace />} />
-          <Route path="customizer" element={<Suspense fallback={<PageFallback />}><AdminCustomizer /></Suspense>} />
-          <Route path="ai" element={<Suspense fallback={<PageFallback />}><AdminAI /></Suspense>} />
-          <Route path="customizer/knowledge" element={<Suspense fallback={<PageFallback />}><AdminCustomizer /></Suspense>} />
-          <Route path="customizer/knowledge/edit" element={<Suspense fallback={<PageFallback />}><AdminCustomizer /></Suspense>} />
-          <Route path="plugins" element={<Suspense fallback={<PageFallback />}><AdminPlugins /></Suspense>} />
+          <Route path="courses" element={<Navigate to="/plato/lessons/structure" replace />} />
+          <Route path="customizer" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="kb.read"><AdminCustomizer /></RequireAdmin></Suspense>} />
+          <Route path="ai" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="ai.read"><AdminAI /></RequireAdmin></Suspense>} />
+          <Route path="customizer/knowledge" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="kb.read"><AdminCustomizer /></RequireAdmin></Suspense>} />
+          <Route path="customizer/knowledge/edit" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="kb.read"><AdminCustomizer /></RequireAdmin></Suspense>} />
+          <Route path="plugins" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="plugins.read"><AdminPlugins /></RequireAdmin></Suspense>} />
           {/* Back-compat redirect from the old /plato/integrations URL */}
           <Route path="integrations" element={<Navigate to="/plato/plugins" replace />} />
-          <Route path="setup-kb" element={<Suspense fallback={<PageFallback />}><AdminKBSetup /></Suspense>} />
+          <Route path="setup-kb" element={<Suspense fallback={<PageFallback />}><RequireAdmin permission="kb.write"><AdminKBSetup /></RequireAdmin></Suspense>} />
           <Route path="*" element={<Navigate to="/plato" replace />} />
         </Route>
 
@@ -168,7 +183,7 @@ export default function App() {
               <Routes>
                 <Route path="/lessons" element={<LessonsList />} />
                 <Route path="/lessons/create" element={<Navigate to="/lessons" replace />} />
-                <Route path="/lessons/:lessonGroupId" element={<LessonChat />} />
+                <Route path="/lessons/:lessonGroupId" element={<LessonRoute />} />
                 <Route path="/settings" element={<Suspense fallback={<ContentFallback />}><Settings /></Suspense>} />
                 <Route path="/" element={<Navigate to="/lessons" replace />} />
                 <Route path="*" element={<Navigate to="/lessons" replace />} />

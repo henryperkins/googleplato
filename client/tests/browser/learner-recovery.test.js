@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -15,7 +16,7 @@ import { chromium, webkit } from 'playwright';
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const engine = process.env.PLATO_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
 const assets = process.env.PLATO_TEST_CLIENT_DIST || join(root, 'client/dist');
-const evidence = process.env.PLATO_TEST_EVIDENCE || join(root, 'output/playwright/learner-recovery');
+const evidence = browserEvidence('learner-recovery', engine);
 const password = randomBytes(24).toString('base64url');
 let browser, server, directory, base, storageState;
 const results = [];
@@ -107,20 +108,23 @@ async function withPage(t, run) {
   page.on('request', request => { pendingRequests.add(request.url()); recentRequests.push(request.method() + ' ' + request.url()); });
   page.on('requestfinished', request => pendingRequests.delete(request.url()));
   page.on('requestfailed', request => pendingRequests.delete(request.url()));
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', error => {
+    if (engine === 'webkit' && page.allowExpectedNavigationErrors && error.message.includes('due to access control checks')) return;
+    errors.push(error.message);
+  });
   try {
     await run(page);
     assert.deepEqual(errors, [], 'no unhandled browser errors');
     results.push({ name: t.name, status: 'pass' });
   } catch (error) {
     results.push({ name: t.name, status: 'fail', error: error.message, errors, pendingRequests: [...pendingRequests], recentRequests: recentRequests.slice(-30) });
-    await writeFile(join(evidence, `${engine}-${t.name.replace(/\W+/g, '-').slice(0,90)}-failure.txt`), await page.locator('body').ariaSnapshot());
+    await writeFile(join(evidence, `${engine}-${t.name.replace(/\W+/g, '-').slice(0,90)}-failure.txt`), await page.locator('body').ariaSnapshot().catch(() => 'Renderer unavailable'));
     await page.screenshot({ path: join(evidence, `${engine}-${t.name.replace(/\W+/g, '-').slice(0,90)}-failure.png`), fullPage: true }).catch(() => {});
     throw error;
   } finally { await context.close(); }
 }
 
-describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000 }, () => {
+describe(`Learner recovery and responsive layout (${engine})`, { timeout: 360000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(assets, 'index.html')), 'Build the client before browser tests');
     await mkdir(evidence, { recursive: true });
@@ -150,8 +154,15 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     browser = await (engine === 'webkit' ? webkit : chromium).launch();
     const context = await browser.newContext();
     const page = await context.newPage();
+    const startupErrors = [];
+    page.on('pageerror', error => startupErrors.push(error.message));
     await page.goto(`${base}/login`);
-    await login(page, 'a');
+    try { await login(page, 'a'); } catch (error) {
+      const snapshot = (await page.locator('body').ariaSnapshot()).slice(-12000);
+      await writeFile(join(evidence, `${engine}-startup.txt`), snapshot);
+      error.message += `\nLearner startup errors: ${JSON.stringify(startupErrors).slice(-4000)}\nLearner startup page: ${snapshot}`;
+      throw error;
+    }
     storageState = await context.storageState();
     await context.close();
   });
@@ -175,6 +186,7 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
         await page.setViewportSize({ width, height });
         await page.goto(`${base}/login`);
         await page.getByRole('textbox', { name: 'Email or Username', exact: true }).waitFor();
+        await page.getByRole('button', { name: 'Continue with Google', exact: true }).waitFor();
         await page.evaluate(({ theme, scale }) => {
           document.documentElement.classList.toggle('dark', theme === 'dark');
           document.documentElement.style.fontSize = `${scale * 100}%`;
@@ -374,24 +386,26 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
       const response = await route.fetch();
       const catalog = await response.json();
       const template = catalog.find(item => item.lessonId === 'feedback');
+      const communicationProgram = { id: 'communication-program', name: 'Communication practice', position: 1 };
       const lessons = catalog.map(item => ({
         ...item,
+        // Legacy standalone courses now render as units. Put those lessons in
+        // a real course to exercise course-level progress in the new hierarchy.
+        program: !item.program && item.unit?.id === 'communication' ? communicationProgram : item.program,
         status: item.lessonId === 'long-title' || (completedIsPrivate && item.lessonId === 'completed') ? 'private' : item.status,
       }));
       lessons.push(
-        { ...template, lessonId: 'fresh-public', name: 'Unstarted public practice', markdown: '# Unstarted public practice' },
-        { ...template, lessonId: 'private-only', name: 'Shared private practice', markdown: '# Shared private practice', status: 'private', course: { id: 'private-course', name: 'Private practice' } },
-        { ...template, lessonId: 'uncategorized', name: 'Uncategorized practice', markdown: '# Uncategorized practice', course: null },
+        { ...template, program: communicationProgram, lessonId: 'fresh-public', name: 'Unstarted public practice', markdown: '# Unstarted public practice' },
+        { ...template, program: { id: 'private-course', name: 'Private practice', position: 2 }, unit: null, lessonId: 'private-only', name: 'Shared private practice', markdown: '# Shared private practice', status: 'private', course: { id: 'private-course', name: 'Private practice' } },
+        { ...template, program: null, unit: null, lessonId: 'uncategorized', name: 'Uncategorized practice', markdown: '# Uncategorized practice', course: null },
       );
       await route.fulfill({ json: lessons });
     });
     await page.goto(`${base}/lessons`);
     const progress = page.getByRole('progressbar', { name: /progress: 1 of 14 public lessons completed$/ });
-    // While every status shows, this learner's 13 lessons in progress lead the
-    // list and fill page 1, so the course group and its progress start on page 2.
-    const inProgressPage = page.getByRole('list', { name: 'Lessons in progress' });
+    // Course progress comes from the full catalog on either page, not only
+    // the visible cards or the active status filter.
     const nextPage = async () => {
-      await inProgressPage.waitFor();
       await page.getByRole('button', { name: 'Next page', exact: true }).click();
       await page.getByText('Page 2 of 2', { exact: true }).waitFor();
     };
@@ -973,6 +987,41 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal(await submission(page), null);
   }));
 
+  it('Settings splits a cached pre-#402 name, then follows the refreshed account until edited', t => withPage(t, async page => {
+    // Sign in as c without revoking the shared session of a.
+    await page.goto(`${base}/login`);
+    await page.evaluate(() => localStorage.removeItem('plato_auth'));
+    await page.goto(`${base}/login`);
+    await login(page, 'c');
+    // The person had corrected their split on another device…
+    await page.evaluate(async () => {
+      const auth = JSON.parse(localStorage.getItem('plato_auth'));
+      const res = await fetch('/v1/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.accessToken}` }, body: JSON.stringify({ firstName: 'Mary Ann', lastName: 'Evans' }) });
+      if (!res.ok) throw new Error(`fixture PATCH ${res.status}`);
+      // …but this browser still caches the account as it was before #402.
+      localStorage.setItem('plato_auth', JSON.stringify({ ...auth, user: { userId: 'c', email: 'learner-c@example.test', username: 'learner-c', name: 'Mary Ann Evans', role: 'learner' } }));
+    });
+    const refreshed = deferred(), held = deferred();
+    await page.route(url => new URL(url).pathname === '/v1/me', async route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      refreshed.resolve(); await held.promise; await route.continue();
+    });
+    await page.goto(`${base}/settings`);
+    const first = page.getByRole('textbox', { name: 'First name', exact: true });
+    const last = page.getByRole('textbox', { name: /^Last name/ });
+    await refreshed.promise;
+    await first.waitFor();
+    assert.deepEqual([await first.inputValue(), await last.inputValue()], ['Mary', 'Ann Evans'], 'a cached full name is split, never put whole into First name');
+    held.resolve();
+    await page.waitForFunction(() => document.getElementById('account-first-name')?.value === 'Mary Ann');
+    assert.equal(await last.inputValue(), 'Evans', 'the refreshed account replaces fields the person has not edited');
+    const saved = page.waitForRequest(request => new URL(request.url()).pathname === '/v1/me' && request.method() === 'PATCH');
+    await page.getByRole('button', { name: 'Save name', exact: true }).click();
+    const body = JSON.parse((await saved).postData());
+    assert.deepEqual([body.firstName, body.lastName], ['Mary Ann', 'Evans']);
+    await page.getByText('Saved!', { exact: true }).first().waitFor();
+  }));
+
   it('Settings fields and feedback stay with their owner through A B A and reload', t => withPage(t, async page => {
     await page.goto(`${base}/settings`); await page.getByLabel('Learning goal').fill('A private goal 🌱');
     await page.getByLabel('Phone', { exact: true }).fill('+1 (555) 010-1234');
@@ -1000,12 +1049,14 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal(await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).inputValue(), 'A private feedback draft');
   }));
 
-  it('acknowledges unchanged profile feedback without writes and still retains malformed responses', t => withPage(t, async page => {
+  it('saves notes independently of unchanged or malformed optional profile rewrites', t => withPage(t, async page => {
     await page.goto(`${base}/settings`);
     let result = { changed: false };
     const writes = [];
     page.on('request', request => {
-      if (request.method() === 'PUT' && /\/v1\/sync\/profile(?:Summary)?$/.test(request.url())) writes.push(request.url());
+      if (request.method() === 'PUT' && /\/v1\/sync\/profile(?:Summary)?$/.test(request.url())) {
+        writes.push({ url: request.url(), data: request.postDataJSON()?.data });
+      }
     });
     await page.route('**/v1/ai/messages', route => route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(result) }] }) }));
@@ -1014,16 +1065,106 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     await input.fill('My profile already describes my preferences.');
     await page.getByRole('button', { name: 'Update profile', exact: true }).click();
     await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden', timeout: 3000 });
-    await page.getByRole('status').filter({ hasText: 'Your profile is already up to date.' }).waitFor();
-    assert.deepEqual(writes, []);
+    await page.getByRole('status').filter({ hasText: 'Your note is saved.' }).waitFor();
+    await page.getByRole('list', { name: 'Your notes' }).getByText('My profile already describes my preferences.', { exact: true }).waitFor();
+    assert.equal(writes.length, 1, 'the note has one durable write; unchanged profile data is not rewritten again');
+    assert.match(writes[0].url, /\/v1\/sync\/profile$/);
+    assert.ok(writes[0].data.learnerNotes.some(note => note.text === 'My profile already describes my preferences.'));
     await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
     assert.equal(await input.inputValue(), '');
     result = {};
     await input.fill('Retain this feedback if the response is malformed.');
     await page.getByRole('button', { name: 'Update profile', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: 'The profile update was empty.' }).waitFor();
-    assert.equal(await input.inputValue(), 'Retain this feedback if the response is malformed.');
-    assert.deepEqual(writes, []);
+    await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden', timeout: 3000 });
+    await page.getByRole('status').filter({ hasText: 'Your note is saved. The optional profile rewrite was unavailable; your note will be included in future updates.' }).waitFor();
+    await page.getByRole('list', { name: 'Your notes' }).getByText('Retain this feedback if the response is malformed.', { exact: true }).waitFor();
+    assert.equal(writes.length, 2, 'the malformed optional rewrite adds no second profile mutation');
+    assert.match(writes[1].url, /\/v1\/sync\/profile$/);
+    assert.ok(writes[1].data.learnerNotes.some(note => note.text === 'Retain this feedback if the response is malformed.'));
+    assert.equal(writes.filter(write => /profileSummary$/.test(write.url)).length, 0);
+    await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+    assert.equal(await input.inputValue(), '', 'the independently saved note is not retained as an unsubmitted draft');
+  }));
+
+  for (const abrupt of engine === 'chromium' ? [false, true] : [false]) it(`a late first mounted note completion preserves the second note identity at the cap (${abrupt ? 'crash and restore' : 'ordinary reload'})`, t => withPage(t, async page => {
+    // WebKit reports fetches cancelled by this test's deliberate navigations
+    // as page errors. Actual API and durability failures remain asserted below.
+    page.allowExpectedNavigationErrors = true;
+    await page.goto(`${base}/settings`);
+    await page.evaluate(async () => {
+      const auth = JSON.parse(localStorage.getItem('plato_auth'));
+      const previous = await fetch('/v1/sync/profile', { headers: { Authorization: `Bearer ${auth.accessToken}` } }).then(response => response.json());
+      const response = await fetch('/v1/sync/profile', { method: 'PUT', headers: { Authorization: `Bearer ${auth.accessToken}`, 'Content-Type': 'application/json', 'X-Plato-Client-Protocol': '1', 'X-Plato-Client-Epoch': '1', 'X-Plato-Protocol': '1', 'X-Plato-Server-Epoch': '1' }, body: JSON.stringify({ data: { learnerNotes: Array.from({ length: 9 }, (_, i) => ({ text: `Seed ${i}`, at: 1700000000000 + i })) }, version: previous.version }) });
+      if (!response.ok) throw new Error(`seed profile: ${response.status} ${JSON.stringify(await response.json())}; previous ${JSON.stringify(previous)}`);
+    });
+    await page.reload();
+    const first = deferred(), second = deferred(), releaseFirst = deferred(), releaseSecond = deferred();
+    let calls = 0;
+    await page.route('**/v1/ai/messages', async route => {
+      const n = ++calls;
+      if (n === 1) { first.resolve(); await releaseFirst.promise; }
+      if (n === 2) { second.resolve(); await releaseSecond.promise; }
+      await route.fulfill({ json: { content: [{ type: 'text', text: '{"changed":false}' }] } }).catch(() => {});
+    });
+    let input = page.getByRole('textbox', { name: 'Profile feedback', exact: true });
+    let recoveredContext;
+    const submit = async text => {
+      await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+      await input.fill(text);
+      await page.getByRole('button', { name: 'Update profile', exact: true }).click();
+    };
+    try {
+      await submit('T1 first mounted note');
+      await first.promise;
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      // In-app navigation preserves the profile queue ownership generation.
+      await page.getByRole('link', { name: /— Lessons$/ }).first().click();
+      await settings(page);
+      await submit('T2 second mounted note');
+      const identity = await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_settings_draft_v1:a:noteAt')).value);
+      releaseFirst.resolve();
+      await second.promise;
+      assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_settings_draft_v1:a:noteAt')).value), identity);
+      assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('plato_settings_draft_v1:a:feedback')).value), 'T2 second mounted note', 'feedback remains before renderer replacement');
+      const beforeReload = (await api(page, '/v1/sync/profile')).data.learnerNotes;
+      assert.equal(beforeReload.length, 10);
+      if (!abrupt) {
+        // The crash branch below covers renderer replacement with T2 still in
+        // flight. An ordinary reload waits for T2 instead of turning expected
+        // document-cancellation errors into WebKit page errors.
+        releaseSecond.resolve();
+        await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden' });
+        await page.waitForLoadState('networkidle');
+        await page.reload();
+        await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+        const notes = (await api(page, '/v1/sync/profile')).data.learnerNotes;
+        assert.equal(notes.filter(note => note.text === 'T2 second mounted note').length, 1);
+        assert.deepEqual(notes, beforeReload, 'ordinary reload retains the durable note without another cap eviction');
+        return;
+      }
+      // Chromium's crashed target cannot be reused by Playwright. Restore the
+      // browser's actual auth and session-storage snapshot into a fresh renderer,
+      // modelling browser session recovery after a crash, without outgoing JS.
+      const recoveredStorage = await page.evaluate(() => Object.fromEntries(Object.entries(sessionStorage)));
+      const recoveredAuth = await page.context().storageState();
+      const renderer = await page.context().newCDPSession(page);
+      const crashed = page.waitForEvent('crash');
+      void renderer.send('Page.crash').catch(() => {});
+      await crashed;
+      recoveredContext = await browser.newContext({ storageState: recoveredAuth, viewport: { width: 390, height: 844 } });
+      await recoveredContext.addInitScript(values => { for (const [key, value] of Object.entries(values)) sessionStorage.setItem(key, value); }, recoveredStorage);
+      page = await recoveredContext.newPage();
+      await page.goto(`${base}/settings`);
+      input = page.getByRole('textbox', { name: 'Profile feedback', exact: true });
+      await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+      assert.equal(await input.inputValue(), 'T2 second mounted note');
+      releaseSecond.resolve();
+      await page.getByRole('button', { name: 'Update profile', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden' });
+      const notes = (await api(page, '/v1/sync/profile')).data.learnerNotes;
+      assert.equal(notes.filter(note => note.text === 'T2 second mounted note').length, 1);
+      assert.deepEqual(notes, beforeReload, 'resubmission does not evict another note at the cap');
+    } finally { releaseFirst.resolve(); releaseSecond.resolve(); await recoveredContext?.close(); }
   }));
 
   it('delayed feedback generation cannot save into the next account', t => withPage(t, async page => {
@@ -1039,8 +1180,40 @@ describe(`Learner recovery and responsive layout (${engine})`, { timeout: 180000
     assert.equal((await api(page, '/v1/sync/profile')).data.goal, undefined);
     assert.ok(!(await page.locator('body').innerText()).includes('Private summary A'));
     await logout(page); await login(page, 'a'); await settings(page);
+    // A's note was saved before the switch: it's listed once, and its draft is
+    // gone, so it can't be submitted again as a second copy.
+    await page.getByRole('list', { name: 'Your notes' }).getByText('Private pending feedback A', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
-    assert.equal(await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).inputValue(), 'Private pending feedback A');
+    assert.equal(await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).inputValue(), '');
+    assert.equal((await api(page, '/v1/sync/profile')).data.learnerNotes.filter(note => note.text === 'Private pending feedback A').length, 1);
+  }));
+
+  it('a note saved just before signing in again is not added twice', t => withPage(t, async page => {
+    await page.goto(`${base}/settings`);
+    const reached = deferred(), released = deferred();
+    let calls = 0;
+    await page.route('**/v1/ai/messages', async route => {
+      if (++calls === 1) { reached.resolve(); await released.promise; }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: [{ type: 'text', text: '{"changed":false}' }] }) });
+    });
+    await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Profile feedback', exact: true }).fill('I learn best from short examples');
+    await page.getByRole('button', { name: 'Update profile', exact: true }).click(); await reached.promise;
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    // Same account, new session: Settings mounts (reading the draft, still
+    // there) while the earlier submission's rewrite is held open.
+    await logout(page); await login(page, 'a'); await settings(page);
+    released.resolve();
+    await page.getByRole('list', { name: 'Your notes' }).getByText('I learn best from short examples', { exact: true }).waitFor();
+    const input = page.getByRole('textbox', { name: 'Profile feedback', exact: true });
+    await page.getByRole('button', { name: 'Add Feedback', exact: true }).click();
+    if (await input.inputValue()) {
+      // This page read the draft before the earlier submission finished:
+      // sending it again finds the note already saved.
+      await page.getByRole('button', { name: 'Update profile', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Add Profile Feedback' }).waitFor({ state: 'hidden' });
+    }
+    assert.equal((await api(page, '/v1/sync/profile')).data.learnerNotes.filter(note => note.text === 'I learn best from short examples').length, 1);
   }));
 
   it('lesson titles and metadata fit narrow enlarged text in both themes', t => withPage(t, async page => {

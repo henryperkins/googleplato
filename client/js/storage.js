@@ -5,7 +5,7 @@
  * as `screenshot:*` sync data, referenced by key from conversation messages.
  */
 
-import { authenticatedFetch } from './auth.js';
+import { authenticatedFetch, captureAuthSession, isAuthSessionCurrent } from './auth.js';
 import { isClientUpgradeRequired } from './clientCompatibility.js';
 import { saveObserver, saveFailureReason } from './saveObservability.js';
 
@@ -25,18 +25,28 @@ export function _populateCache(syncKey, data, version) {
   _versions.set(syncKey, version);
 }
 
-async function fetchSyncData(syncKey, { expectedUserId } = {}) {
-  if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return null;
+async function fetchSyncData(syncKey, { expectedUserId, authSession } = {}) {
+  const session = expectedUserId ? authSession || await captureAuthSession() : null;
+  const checkOwner = async () => {
+    if (expectedUserId && (session?.userId !== expectedUserId || !await isAuthSessionCurrent(session))) {
+      throw new Error('Return to the original account to read your profile.');
+    }
+  };
+  await checkOwner();
   if (_cache.has(syncKey)) return _cache.get(syncKey);
   try {
     const res = await authenticatedFetch(`/v1/sync/${encodeURIComponent(syncKey)}`, { expectedUserId });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (expectedUserId && res.status !== 404) throw new Error('Your profile or preferences could not be loaded. Try again.');
+      return null;
+    }
     const item = await res.json();
-    if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return null;
+    await checkOwner();
     _cache.set(syncKey, item.data);
     _versions.set(syncKey, item.version);
     return item.data;
-  } catch {
+  } catch (error) {
+    if (expectedUserId) throw error;
     return null;
   }
 }
@@ -47,8 +57,12 @@ async function fetchSyncData(syncKey, { expectedUserId } = {}) {
  * `false` otherwise — callers that need durability (e.g. the legacy-image
  * migration) check this rather than assuming the cache write stuck.
  */
-export async function putSyncData(syncKey, data, { createOnly = false, expectedUserId } = {}) {
-  if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return false;
+export async function putSyncData(syncKey, data, { createOnly = false, expectedUserId, authSession } = {}) {
+  const session = authSession ? Promise.resolve(authSession) : captureAuthSession();
+  if (expectedUserId) {
+    const origin = await session;
+    if (origin?.userId !== expectedUserId || !await isAuthSessionCurrent(origin)) return false;
+  }
   // Snapshot both owners before yielding. Awaiting telemetry's owner lookup
   // here could let an account switch bind this payload to the next account.
   const owner = getAuthUser();
@@ -68,13 +82,17 @@ export async function putSyncData(syncKey, data, { createOnly = false, expectedU
     });
     if (res.ok) {
       const result = await res.json();
-      if (expectedUserId && (await getAuthUser())?.userId !== expectedUserId) return false;
       if (!Number.isSafeInteger(result?.version) || result.version <= version) {
         throw Object.assign(new Error('Save acknowledgement is invalid'), { code: 'invalid_ack' });
       }
+      observe({ ok: true, status: res.status });
+      // The server acknowledged this write even if its originating login ended
+      // while the body was pending. Keep that success truthful without letting
+      // an obsolete acknowledgement replace a newer session's cache/version.
+      const origin = await session;
+      if (origin && !await isAuthSessionCurrent(origin)) return true;
       _versions.set(syncKey, result.version);
       if (expectedUserId) _cache.set(syncKey, data);
-      observe({ ok: true, status: res.status });
       return true;
     }
     // Do not read a rejected response body for telemetry: it may never finish.
@@ -125,13 +143,14 @@ export function acceptSavedLessonState(lessonId, state) {
 
 // -- Preferences --------------------------------------------------------------
 
-export async function getPreferences() {
-  const data = await fetchSyncData('preferences');
+export async function getPreferences(options) {
+  const data = await fetchSyncData('preferences', options);
   return data || { name: '' };
 }
 
-export async function savePreferences(prefs) {
-  await putSyncData('preferences', prefs);
+export async function savePreferences(prefs, options) {
+  const saved = await putSyncData('preferences', prefs, options);
+  if (options?.expectedUserId && !saved) throw new Error('Your preferences could not be confirmed saved.');
 }
 
 // -- Learner profile ----------------------------------------------------------
@@ -145,8 +164,8 @@ export async function saveLearnerProfile(profile, options) {
   if (options?.expectedUserId && !saved) throw new Error('Your profile update could not be confirmed saved. Your feedback is retained.');
 }
 
-export async function getLearnerProfileSummary() {
-  const data = await fetchSyncData('profileSummary');
+export async function getLearnerProfileSummary(options) {
+  const data = await fetchSyncData('profileSummary', options);
   return data || '';
 }
 
@@ -363,6 +382,19 @@ export async function saveAuthTokens({ accessToken, refreshToken }, expected = n
   } catch { return false; /* storage full or disabled */ }
 }
 
+/**
+ * Store a newly issued session in one synchronous write. It replaces the whole
+ * record, so tokens, user, and provider always belong to the same sign-in:
+ * nothing from a previous account survives, and no other session can write in
+ * between the parts. Returns false when storage refuses the write.
+ */
+export function saveAuthSession({ accessToken, refreshToken, user, provider, attemptId }) {
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ accessToken, refreshToken, user, provider, attemptId }));
+    return true;
+  } catch { return false; /* storage full or disabled */ }
+}
+
 export async function clearAuth() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
   clearCache();
@@ -386,11 +418,14 @@ export async function getAuthUser() {
   }
 }
 
-export async function saveAuthUser(user) {
+export async function saveAuthUser(user, expected = null) {
   try {
     const existing = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || '{}');
+    if (expected && (existing.user?.userId !== expected.user?.userId
+      || existing.accessToken !== expected.accessToken || existing.refreshToken !== expected.refreshToken)) return false;
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...existing, user }));
-  } catch { /* storage full or disabled */ }
+    return true;
+  } catch { return false; /* storage full or disabled */ }
 }
 
 // -- Onboarding ---------------------------------------------------------------
@@ -462,8 +497,8 @@ export async function saveScreenshot(key, dataUrl, { expectedUserId } = {}) {
   } catch { return false; }
 }
 
-export async function getScreenshot(key) {
-  return fetchSyncData(`screenshot:${key}`);
+export async function getScreenshot(key, options) {
+  return fetchSyncData(`screenshot:${key}`, options);
 }
 
 export async function deleteScreenshot(key) {

@@ -17,6 +17,7 @@
     "dev:server": "cd server && npm run dev:sqlite",
     "test:client": "cd client && npm test",
     "test:server": "cd server && npm test",
+    "test:plugins": "for test_file in plugins/*/server/*.test.js; do node --test \"$test_file\" || exit 1; done && node scripts/validate-plugins.js",
     "test:firestore": "node --test client/tests/firestore-rules.test.js",
     "test": "npm run test:client && npm run test:server",
     "lint": "npm --prefix client run lint && npm --prefix server run lint",
@@ -33,6 +34,8 @@
   "overrides": {
     "@firebase/firestore": {
       "@grpc/grpc-js": "1.14.6"
-    }
+    },
+    "rimraf": "6.1.4",
+    "follow-redirects": "1.16.2"
   }
 }

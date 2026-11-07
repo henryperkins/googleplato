@@ -1,3 +1,4 @@
+import { can } from '../../lib/permissions.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { adminApi } from './adminApi.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
@@ -23,6 +24,7 @@ const MISTRAL_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
 export default function AdminAI() {
   const { user } = useAuth();
   const userId = user?.userId;
+  const canWrite = can(user, 'ai.write');
   const [settings, setSettings] = useState(null);
   const [provider, setProvider] = useState('bedrock');
   const [model, setModel] = useState('');
@@ -399,7 +401,7 @@ export default function AdminAI() {
                     name="ai-provider"
                     value={item.id}
                     checked={provider === item.id}
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                     onChange={() => changeSelection({ provider: item.id })}
                     className="mt-1 size-4 shrink-0 accent-primary"
                   />
@@ -421,7 +423,7 @@ export default function AdminAI() {
                     <select
                       id="workers-ai-model"
                       value={model}
-                      disabled={pending}
+                      disabled={pending || !canWrite}
                       onChange={event => changeSelection({ workersAiModel: event.target.value })}
                       aria-describedby="workers-model-description"
                       className="touch-target w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -440,7 +442,7 @@ export default function AdminAI() {
                   </div>
                   <CloudflareConnection
                     key={settings.workersAiOAuth?.pendingFlowId || 'connection'}
-                    settings={settings} pending={pending} busy={busy} connectRef={connectRef} headingRef={connectionHeadingRef}
+                    settings={settings} pending={pending || !canWrite} busy={busy} connectRef={connectRef} headingRef={connectionHeadingRef}
                     onConnect={connectCloudflare}
                     onSelectAccount={(accountId, trigger) => changeCloudflareConnection('account', { accountId, flowId: settings.workersAiOAuth.pendingFlowId }, trigger)}
                     onDisconnect={trigger => changeCloudflareConnection('disconnect', { version: settings.workersAiOAuth.version }, trigger)}
@@ -485,8 +487,8 @@ export default function AdminAI() {
               Test connection sends a short AI request and may incur usage charges. It does not save changes.
             </p>
             <div className="flex flex-wrap gap-2 [&>button]:h-auto [&>button]:min-h-10 [&>button]:max-w-full [&>button]:whitespace-normal [&>button]:py-2">
-              <Button ref={saveRef} type="submit" aria-describedby={saveDescription} disabled={pending || !changed || missingCredentials} focusableWhenDisabled>{busy === 'save' ? 'Saving…' : 'Save AI settings'}</Button>
-              <Button ref={testRef} type="button" variant="outline" aria-describedby={`ai-test-help ${missingCredentials ? 'workers-credentials-help' : 'ai-feedback'}`} onClick={testConnection} disabled={pending || missingCredentials} focusableWhenDisabled>{busy === 'test' ? 'Testing connection…' : 'Test connection'}</Button>
+              <Button ref={saveRef} type="submit" aria-describedby={saveDescription} disabled={!canWrite || pending || !changed || missingCredentials} focusableWhenDisabled>{busy === 'save' ? 'Saving…' : 'Save AI settings'}</Button>
+              <Button ref={testRef} type="button" variant="outline" aria-describedby={`ai-test-help ${missingCredentials ? 'workers-credentials-help' : 'ai-feedback'}`} onClick={testConnection} disabled={!canWrite || pending || missingCredentials} focusableWhenDisabled>{busy === 'test' ? 'Testing connection…' : 'Test connection'}</Button>
               <Button ref={reloadRef} type="button" variant="ghost" aria-describedby={changed ? 'ai-pending-changes' : undefined} onClick={() => reloadSettings({ reloading: true, discarding: changed })} disabled={pending} focusableWhenDisabled>{loading ? 'Reloading…' : changed ? 'Discard changes and reload' : 'Reload settings'}</Button>
             </div>
           </section>

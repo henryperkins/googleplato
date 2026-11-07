@@ -14,6 +14,8 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import db from '../db.js';
 import { logger } from '../logger.js';
 import ai, { LLM } from '../ai-provider.js';
+import { normalizeRole } from '../permissions.js';
+import { nameFields } from '../names.js';
 import { validateManifest } from './manifest.js';
 import { satisfies, PLUGIN_API_VERSION } from './version.js';
 import { on as hookOn, emit as hookEmit } from './hooks.js';
@@ -75,9 +77,10 @@ async function dynamicImportServer(dir, manifest) {
 }
 
 function db_view(database) {
+  const present = user => user ? { ...user, ...nameFields(user), role: normalizeRole(user.role) } : user;
   return {
-    getUserById: (id) => database.getUserById(id),
-    listAllUsers: () => database.listAllUsers(),
+    getUserById: async id => present(await database.getUserById(id)),
+    listAllUsers: async () => (await database.listAllUsers()).map(present),
   };
 }
 

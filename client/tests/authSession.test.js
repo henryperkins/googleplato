@@ -18,6 +18,12 @@ globalThis.sessionStorage = browserStorage();
 globalThis.window = {};
 const storage = await import('../js/storage.js');
 const auth = await import('../js/auth.js');
+async function credentials() {
+  const record = await storage.getAuthTokens();
+  if (!record) return record;
+  const { attemptId: _attemptId, ...credentials } = record;
+  return credentials;
+}
 
 beforeEach(async () => {
   await storage.clearAuth();
@@ -50,7 +56,7 @@ test('logout snapshots and clears the old credentials before yielding to another
   await storage.saveAuthUser(session('b').user);
   storage.saveAuthProvider('password');
   await logout;
-  assert.deepEqual(await storage.getAuthTokens(), session('b'));
+  assert.deepEqual(await credentials(), session('b'));
 });
 
 test('logout ends local access and resolves while remote revocation is still stalled', async () => {
@@ -84,7 +90,55 @@ test('late logout completion cannot clear a newer signed-in session', async () =
   remote.resolve(json({ ok: true }));
   await logout;
   await nextTurn();
-  assert.deepEqual(await storage.getAuthTokens(), session('b'));
+  assert.deepEqual(await credentials(), session('b'));
+});
+
+// The newest sign-in or sign-out owns plato_auth. A login response that lands
+// after another one started is discarded and revoked, never stored: otherwise
+// React shows one account while every request authenticates as the other.
+function loginServer({ held = {}, revoked = [] } = {}) {
+  return async (url, options) => {
+    if (url === '/v1/auth/logout') { revoked.push(JSON.parse(options.body).refreshToken); return json({ ok: true }); }
+    if (url !== '/v1/auth/login') throw new Error(`Unexpected request: ${url}`);
+    const id = JSON.parse(options.body).email.split('@')[0];
+    return held[id] ? held[id].promise : json({ accessToken: `access-${id}`, refreshToken: `refresh-${id}`, user: { userId: id } });
+  };
+}
+
+test('a password login that finishes after an external sign-in cannot replace it', async () => {
+  const held = { x: deferred() };
+  const revoked = [];
+  globalThis.fetch = loginServer({ held, revoked });
+  const older = auth.login('x@example.test', 'test-password').then(() => null, error => error);
+  await nextTurn();
+  await auth.adoptAuthSession(session('y'), 'google-auth');
+  held.x.resolve(json({ accessToken: 'access-x', refreshToken: 'refresh-x', user: { userId: 'x' } }));
+  assert.equal((await older)?.code, 'stale_auth_exchange');
+  assert.deepEqual(await credentials(), { ...session('y'), provider: 'google-auth' });
+  await nextTurn();
+  assert.deepEqual(revoked, ['refresh-x'], 'the discarded session is revoked, best effort');
+});
+
+test('of two password logins, the one started last owns the stored session', async () => {
+  const held = { x: deferred() };
+  globalThis.fetch = loginServer({ held });
+  const older = auth.login('x@example.test', 'test-password').then(() => null, error => error);
+  await nextTurn();
+  assert.equal((await auth.login('y@example.test', 'test-password')).userId, 'y');
+  held.x.resolve(json({ accessToken: 'access-x', refreshToken: 'refresh-x', user: { userId: 'x' } }));
+  assert.equal((await older)?.code, 'stale_auth_exchange');
+  assert.deepEqual(await credentials(), session('y'), 'the whole record is the newer sign-in, nothing merged');
+});
+
+test('a login that finishes after logout cannot restore credentials', async () => {
+  const held = { x: deferred() };
+  globalThis.fetch = loginServer({ held });
+  const pending = auth.login('x@example.test', 'test-password').then(() => null, error => error);
+  await nextTurn();
+  await auth.logout();
+  held.x.resolve(json({ accessToken: 'access-x', refreshToken: 'refresh-x', user: { userId: 'x' } }));
+  assert.equal((await pending)?.code, 'stale_auth_exchange');
+  assert.equal(await storage.getAuthTokens(), null);
 });
 
 test('remote revocation is aborted after five seconds without delaying local logout', async t => {
@@ -184,7 +238,7 @@ test('an old refresh cannot overwrite a newer account or retry a request as that
   await auth.login('b@example.test', 'test-password');
   refresh.resolve(json(session('refreshed-a')));
   await request;
-  assert.deepEqual(await storage.getAuthTokens(), session('b'));
+  assert.deepEqual(await credentials(), session('b'));
   assert.equal(protectedRequests, 1);
 });
 
@@ -204,7 +258,7 @@ test('a pending response cannot cross logout and re-login even as the same accou
   await auth.login('a@example.test', 'test-password');
   response.resolve(json({ name: 'Stale profile' }));
   await rejected;
-  assert.deepEqual(await storage.getAuthTokens(), session('a'));
+  assert.deepEqual(await credentials(), session('a'));
 });
 
 test('a stale refresh rejection does not expire the newer session', async () => {
@@ -223,7 +277,7 @@ test('a stale refresh rejection does not expire the newer session', async () => 
     refresh.resolve(json({}, 401));
     await request;
     assert.equal(expired, 0);
-    assert.deepEqual(await storage.getAuthTokens(), session('b'));
+    assert.deepEqual(await credentials(), session('b'));
   } finally { unsubscribe(); }
 });
 
@@ -234,7 +288,7 @@ test('a password change keeps this device signed in with the pair the server iss
     return json({ userId: 'a', name: 'A', session: { accessToken: 'access-a2', refreshToken: 'refresh-a2' } });
   };
   assert.deepEqual(await auth.updateProfile({ password: 'new-password' }), { userId: 'a', name: 'A' });
-  assert.deepEqual(await storage.getAuthTokens(), {
+  assert.deepEqual(await credentials(), {
     ...session('a'), accessToken: 'access-a2', refreshToken: 'refresh-a2', user: { userId: 'a', name: 'A' },
   });
 });
@@ -261,7 +315,7 @@ test('an owner-bound Settings request cannot submit old draft values under anoth
   await assert.rejects(auth.updateProfile({ customFields: { goal: 'A private draft' } }, 'a'), /account changed/);
   await assert.rejects(auth.getMyFields('a'), /account changed/);
   assert.equal(calls, 0);
-  assert.deepEqual(await storage.getAuthTokens(), session('b'));
+  assert.deepEqual(await credentials(), session('b'));
 });
 
 test('a delayed Settings response body cannot replace the next account profile', async () => {
@@ -274,7 +328,7 @@ test('a delayed Settings response body cannot replace the next account profile',
   localStorage.setItem('plato_auth', JSON.stringify(session('b')));
   body.resolve({ userId: 'a', customFields: { goal: 'A draft' } });
   await rejected;
-  assert.deepEqual(await storage.getAuthTokens(), session('b'));
+  assert.deepEqual(await credentials(), session('b'));
 });
 
 test('compatibility checks support cancellation and deadlines without newer AbortSignal helpers', async t => {
@@ -353,4 +407,60 @@ test('compatibility checks support cancellation and deadlines without newer Abor
     AbortSignal.timeout = originalTimeout;
     t.mock.timers.reset();
   }
+});
+
+for (const transition of ['switch', 'logout', 'relogin']) {
+  test(`profile refresh rejects a delayed JSON body after ${transition}`, async () => {
+    const body = deferred();
+    const parsing = deferred();
+    globalThis.fetch = async url => {
+      if (url === '/v1/me') return { ok: true, status: 200, json: () => { parsing.resolve(); return body.promise; } };
+      return json(url === '/v1/auth/login' ? session(transition === 'switch' ? 'b' : 'a') : { ok: true });
+    };
+    const pending = auth.refreshCurrentUser();
+    await parsing.promise;
+    await auth.logout();
+    if (transition !== 'logout') await auth.login('next@example.test', 'password');
+    const expected = await storage.getAuthTokens();
+    body.resolve({ userId: 'a', role: 'admin', name: 'Old A' });
+    assert.equal(await pending, null);
+    assert.deepEqual(await storage.getAuthTokens(), expected);
+  });
+}
+
+test('refresh rejects a mismatched owner and accepts current-session token rotation', async () => {
+  globalThis.fetch = async () => json({ userId: 'b', name: 'Wrong owner' });
+  assert.equal(await auth.refreshCurrentUser(), null);
+  assert.deepEqual(await credentials(), session('a'));
+  globalThis.fetch = async (url, options) => {
+    if (url === '/v1/auth/refresh') return json({ accessToken: 'rotated-a', refreshToken: 'rotated-refresh-a' });
+    return json({ userId: 'a', role: 'educator' }, new Headers(options.headers).get('Authorization') === 'Bearer access-a' ? 401 : 200);
+  };
+  assert.deepEqual(await auth.refreshCurrentUser(), { userId: 'a', role: 'educator' });
+  assert.equal((await storage.getAuthTokens()).accessToken, 'rotated-a');
+  assert.equal((await storage.getAuthTokens()).user.role, 'educator');
+});
+
+test('user-cache compare and replace refuses stale credentials', async () => {
+  const old = await storage.getAuthTokens();
+  localStorage.setItem('plato_auth', JSON.stringify(session('b')));
+  assert.equal(await storage.saveAuthUser({ userId: 'a', name: 'Old A' }, old), false);
+  assert.deepEqual(await credentials(), session('b'));
+});
+
+
+test('profile refresh rejects delayed headers after an account switch', async () => {
+  const response = deferred();
+  const started = deferred();
+  globalThis.fetch = async url => {
+    if (url === '/v1/me') { started.resolve(); return response.promise; }
+    return json(url === '/v1/auth/login' ? session('b') : { ok: true });
+  };
+  const pending = auth.refreshCurrentUser();
+  await started.promise;
+  await auth.logout();
+  await auth.login('b@example.test', 'password');
+  response.resolve(json({ userId: 'a', name: 'Old A' }));
+  assert.equal(await pending, null);
+  assert.deepEqual(await credentials(), session('b'));
 });

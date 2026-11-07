@@ -1,3 +1,8 @@
+import { can } from '../../lib/permissions.js';
+import { renderMd } from '../../lib/helpers.js';
+import BundledLessonNotices from './BundledLessonNotices.jsx';
+import ColumnsDialog from './ColumnsDialog.jsx';
+import { visibleColumns, arrangeable, loadPrefs, savePrefs, toggleColumn, moveColumn, defaultPrefs } from '../../lib/tableColumns.js';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ChevronDown, Info, X } from 'lucide-react';
@@ -14,7 +19,6 @@ import { MAX_EXCHANGES } from '../../lib/constants.js';
 
 import ConfirmModal from '../../components/modals/ConfirmModal.jsx';
 import ShareLessonModal from '../../components/modals/ShareLessonModal.jsx';
-import CoursesModal from './CoursesModal.jsx';
 import LessonEditor from './LessonEditor.jsx';
 import LessonVisibilityButton from './LessonVisibilityButton.jsx';
 import MobileLessonRow from './MobileLessonRow.jsx';
@@ -23,6 +27,11 @@ import { canStartNewDraft, readLessonRecovery, lessonRecoveryKey } from '../../l
 import { normalizeStatus } from '../../../../server/src/lib/lesson-visibility.js';
 
 const PAGE_SIZE = 20;
+const LESSON_COLUMNS = [
+  { id: 'name', label: 'Name', fixed: true }, { id: 'id', label: 'Lesson ID', defaultHidden: true },
+  { id: 'unit', label: 'Unit' }, { id: 'completions', label: 'Completions' },
+  { id: 'average', label: 'Avg exchanges' }, { id: 'updated', label: 'Updated' }, { id: 'actions', label: 'Actions', fixed: true },
+];
 
 function MetricHelp({ id, title, description }) {
   const [open, setOpen] = useState(false);
@@ -65,11 +74,18 @@ export default function AdminLessons() {
   const location = useLocation();
   const { lessonId: routeLessonId } = useParams();
   const { user } = useAuth();
+  const canWrite = can(user, 'content.write');
+  const columnKey = `plato:columns:lessons:v1:${user?.userId || ''}`;
+  const [columnPrefs, setColumnPrefs] = useState(() => loadPrefs(columnKey));
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  useEffect(() => { setColumnPrefs(loadPrefs(columnKey)); }, [columnKey]);
+  const changeColumns = next => { setColumnPrefs(next); savePrefs(columnKey, next); };
+  const shownColumns = visibleColumns(LESSON_COLUMNS, columnPrefs);
   const isNewRoute = location.pathname.endsWith('/lessons/new');
 
   const [lessons, setLessons] = useState([]);
   const [courses, setCourses] = useState([]);
-  const [coursesOpen, setCoursesOpen] = useState(false);
+  const [programs, setPrograms] = useState([]);
   // Editor data for the lesson open at /plato/lessons/:lessonId/edit.
   const [editing, setEditing] = useState(null); // { lessonId, conversation, readiness, needsAgentReply, isDraft, initialCourse, markdown }
   const [editorLoading, setEditorLoading] = useState(false);
@@ -101,13 +117,14 @@ export default function AdminLessons() {
     newDraftIdRef.current = null;
   }
   useEffect(() => {
+    if (isNewRoute && !canWrite) { navigate('/plato/lessons', { replace: true }); return; }
     if (isNewRoute && newDraftIdRef.current) {
       navigate(`/plato/lessons/${encodeURIComponent(newDraftIdRef.current)}/edit`, { replace: true });
     }
-  }, [isNewRoute, navigate]);
+  }, [isNewRoute, navigate, canWrite]);
 
   // Map courseId -> name for rendering tags on lesson rows.
-  const courseNamesById = useMemo(() => new Map(courses.map((c) => [c.courseId, c.name])), [courses]);
+  const courseNamesById = useMemo(() => new Map(courses.map(unit => [unit.unitId, [programs.find(p => p.programId === unit.programId)?.name, unit.name].filter(Boolean).join(' › ')])), [courses, programs]);
   const filteredLessons = useMemo(() => {
     const q = lessonSearch.trim().toLowerCase();
     return lessons.filter((lesson) => {
@@ -149,11 +166,12 @@ export default function AdminLessons() {
 
   async function loadCourses() {
     try {
-      const data = await adminApi('GET', '/v1/admin/courses');
-      setCourses(Array.isArray(data) ? data : []);
+      const [units, hierarchy] = await Promise.all([adminApi('GET', '/v1/admin/units'), adminApi('GET', '/v1/admin/programs')]);
+      setCourses(Array.isArray(units) ? units : []);
+      setPrograms(hierarchy.programs || []);
       setCoursesError(null);
     } catch (e) {
-      setCoursesError(e?.message || 'Courses could not be loaded.');
+      setCoursesError(e?.message || 'Units could not be loaded.');
     }
   }
 
@@ -292,6 +310,12 @@ export default function AdminLessons() {
       </div>
     );
     if (editorLoading || !editing || editing.lessonId !== routeLessonId) return spinner;
+    if (!canWrite) return <div className="flex flex-col gap-4">
+      <Button variant="outline" onClick={() => navigate('/plato/lessons')}>Back to lessons</Button>
+      <h1 className="text-2xl font-bold">Lesson</h1><p className="text-sm text-muted-foreground">Read-only lesson content.</p>
+      <div className="coach-copy" dangerouslySetInnerHTML={{ __html: renderMd(editing.markdown || 'This draft has no saved lesson content yet.') }} />
+      <details><summary className="touch-target cursor-pointer">Authoring conversation</summary>{editing.conversation?.map((m, i) => <p key={i} className="my-3 whitespace-pre-wrap text-sm"><strong>{m.role}:</strong> {m.content}</p>)}</details>
+    </div>;
     return (
       <LessonEditor
         key={`${editing.lessonId}:${editorAttempt}`}
@@ -331,13 +355,13 @@ export default function AdminLessons() {
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-4">
         <h1 className="text-2xl font-bold">Lessons</h1>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => navigate('/plato/lessons/new')}>
+          <Button disabled={!canWrite} onClick={() => navigate('/plato/lessons/new')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Add Lesson
           </Button>
-          <Button variant="outline" onClick={() => setCoursesOpen(true)}>
+          <Button variant="outline" onClick={() => navigate('/plato/lessons/structure')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-            Courses
+            Courses &amp; Units
           </Button>
         </div>
       </div>
@@ -366,6 +390,7 @@ export default function AdminLessons() {
         </div>
       )}
 
+      <BundledLessonNotices onChanged={loadLessons} onMessage={setMessage} />
       {lessonsError && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger-border bg-danger px-4 py-3 mb-4 text-sm text-danger-foreground" role="alert">
           <span>{lessonsError}</span>
@@ -408,15 +433,15 @@ export default function AdminLessons() {
           <div className="mt-2 flex flex-col flex-wrap gap-2 sm:flex-row">
             <select
               id="lessons-course-filter"
-              aria-label="Filter by course"
+              aria-label="Filter by unit"
               value={courseFilter}
               onChange={(e) => { setCourseFilter(e.target.value); setPage(1); }}
               className="h-10 min-w-0 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
             >
-              <option value="">All courses</option>
-              <option value="none">No course</option>
+              <option value="">All units</option>
+              <option value="none">No unit</option>
               {courses.map((course) => (
-                <option key={course.courseId} value={course.courseId}>{course.name}</option>
+                <option key={course.unitId} value={course.unitId}>{courseNamesById.get(course.unitId)}</option>
               ))}
             </select>
             <select
@@ -437,96 +462,44 @@ export default function AdminLessons() {
             }}>Clear filters</Button>}
           </div>
         </details>
+        <Button variant="outline" onClick={() => setColumnsOpen(true)}>Columns</Button>
       </div>
 
       <ul aria-label="Lessons" className="min-w-0 divide-y divide-border border-y border-border md:hidden">
         {pageLessons.map(lesson => <MobileLessonRow key={lesson.lessonId}
-          lesson={lesson} courseName={courseNamesById.get(lesson.course)} stats={lessonStats[lesson.lessonId]}
-          visibility={<LessonVisibilityButton lesson={lesson} expanded={shareModal?.lessonId === lesson.lessonId} onOpen={openShareModal} />}
+          lesson={lesson} readOnly={!canWrite} courseName={courseNamesById.get(lesson.course)} stats={lessonStats[lesson.lessonId]}
+          visibility={<LessonVisibilityButton readOnly={!canWrite} lesson={lesson} expanded={shareModal?.lessonId === lesson.lessonId} onOpen={openShareModal} />}
           onEdit={() => openLessonEditor(lesson.lessonId)} onDelete={() => deleteLesson(lesson.lessonId)} />)}
         {filteredLessons.length === 0 && <li className="py-6 text-sm text-muted-foreground">{emptyMessage}</li>}
       </ul>
       <div className="hidden md:block">
         <Card className="p-0 overflow-hidden">
           <Table aria-label="Lessons">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Course</TableHead>
-                <TableHead className="text-right">
-                  <div className="inline-flex items-center justify-end gap-1">
-                    <span>Completions</span>
-                    <MetricHelp
-                      id="help-completions"
-                      title="Completions"
-                      description="Completions of the published lesson."
-                    />
-                  </div>
-                </TableHead>
-                <TableHead className="text-right">
-                  <div className="inline-flex items-center justify-end gap-1">
-                    <span>Avg exchanges</span>
-                    <MetricHelp
-                      id="help-avg-exchanges"
-                      title="Avg exchanges"
-                      description={`Average exchanges on published completions. Over ${MAX_EXCHANGES} is past the lesson target.`}
-                    />
-                  </div>
-                </TableHead>
-                <TableHead>Updated</TableHead>
-                <TableHead><span className="sr-only">Actions</span></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pageLessons.map(c => {
-                const isDraft = c.status === 'draft';
-                const courseName = c.course ? (courseNamesById.get(c.course) || null) : null;
-                const pacing = lessonStats[c.lessonId];
-                const avgExchanges = pacing?.avgExchanges;
-                const overPacing = typeof avgExchanges === 'number' && avgExchanges > MAX_EXCHANGES;
-                return (
-                  <TableRow key={c.lessonId}>
-                    <TableCell as="th" scope="row" className="whitespace-normal font-normal text-left">
-                      <div className="flex min-w-0 flex-col items-start gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openLessonEditor(c.lessonId)}
-                          aria-label={isDraft ? `Resume draft ${c.name || c.lessonId}` : `Edit ${c.name || c.lessonId}`}
-                          className="touch-target truncate max-w-full rounded-sm text-left font-medium underline underline-offset-4 cursor-pointer hover:text-link"
-                        >
-                          {c.name || c.lessonId}
-                        </button>
-                        <LessonVisibilityButton lesson={c} expanded={shareModal?.lessonId === c.lessonId} onOpen={openShareModal} />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{courseName || '\u2014'}</TableCell>
-                    <TableCell className="text-right tabular-nums">{pacing ? pacing.completions : '\u2014'}</TableCell>
-                    <TableCell className={`text-right tabular-nums ${overPacing ? 'font-medium text-warning-foreground' : ''}`}>
-                      {typeof avgExchanges === 'number' ? avgExchanges : '\u2014'}
-                      {overPacing && <span className="sr-only">, over the {MAX_EXCHANGES}-exchange target</span>}
-                    </TableCell>
-                    <TableCell>{c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '\u2014'}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1" role="group" aria-label={`Actions for ${c.name}`}>
-                        <Button variant="ghost" size="icon-xs" title={isDraft ? 'Resume draft' : 'Edit'} onClick={() => openLessonEditor(c.lessonId)} aria-label={isDraft ? `Resume draft ${c.name}` : `Edit ${c.name}`}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                        </Button>
-                        <Button variant="ghost" size="icon-xs" title="Delete" onClick={() => deleteLesson(c.lessonId)} aria-label={`Delete ${c.name}`}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {filteredLessons.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="static! max-w-none! border-r-0! bg-transparent! whitespace-normal text-center py-6 text-muted-foreground">
-                    {emptyMessage}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
+            <TableHeader><TableRow>{shownColumns.map(column => <TableHead key={column.id}>{column.label}
+              {column.id === 'completions' && <MetricHelp id="help-completions" title="Completions" description="Completions of the published lesson." />}
+              {column.id === 'average' && <MetricHelp id="help-avg-exchanges" title="Avg exchanges" description={`Average exchanges on published completions. Over ${MAX_EXCHANGES} is past the lesson target.`} />}
+            </TableHead>)}</TableRow></TableHeader>
+            <TableBody>{pageLessons.map(lesson => {
+              const pacing = lessonStats[lesson.lessonId];
+              return <TableRow key={lesson.lessonId}>{shownColumns.map(column => {
+                const name = lesson.name || lesson.lessonId;
+                let content;
+                if (column.id === 'name') content = <div className="flex min-w-0 flex-col items-start gap-1">
+                  <button type="button" onClick={() => openLessonEditor(lesson.lessonId)} aria-label={`${lesson.status === 'draft' ? 'Resume draft' : 'Edit'} ${name}`} className="touch-target truncate max-w-full rounded-sm text-left font-medium underline underline-offset-4 hover:text-link">{name}</button>
+                  <LessonVisibilityButton readOnly={!canWrite} lesson={lesson} expanded={shareModal?.lessonId === lesson.lessonId} onOpen={openShareModal} />
+                </div>;
+                else if (column.id === 'id') content = <span className="text-xs font-mono select-all">{lesson.lessonId}</span>;
+                else if (column.id === 'unit') content = courseNamesById.get(lesson.course) || '—';
+                else if (column.id === 'completions') content = pacing?.completions ?? '—';
+                else if (column.id === 'average') content = <span className={pacing?.avgExchanges > MAX_EXCHANGES ? 'font-medium text-warning-foreground' : ''}>{pacing?.avgExchanges ?? '—'}{pacing?.avgExchanges > MAX_EXCHANGES && <span className="sr-only">, over the {MAX_EXCHANGES}-exchange target</span>}</span>;
+                else if (column.id === 'updated') content = lesson.updatedAt ? new Date(lesson.updatedAt).toLocaleDateString() : '—';
+                else content = <div className="flex gap-1" role="group" aria-label={`Actions for ${name}`}>
+                  <Button variant="ghost" size="xs" onClick={() => openLessonEditor(lesson.lessonId)}>{canWrite ? lesson.status === 'draft' ? 'Resume draft' : 'Edit' : 'View'}</Button>
+                  {canWrite && <Button variant="ghost" size="xs" onClick={() => deleteLesson(lesson.lessonId)} aria-label={`Delete ${name}`}>Delete</Button>}
+                </div>;
+                return <TableCell key={column.id} as={column.id === 'name' ? 'th' : undefined} scope={column.id === 'name' ? 'row' : undefined} className={column.id === 'name' ? 'whitespace-normal font-normal text-left' : undefined}>{content}</TableCell>;
+              })}</TableRow>;
+            })}{filteredLessons.length === 0 && <TableRow><TableCell colSpan={shownColumns.length} className="static! max-w-none! border-r-0! bg-transparent! whitespace-normal py-6 text-center text-muted-foreground">{emptyMessage}</TableCell></TableRow>}</TableBody>
           </Table>
         </Card>
       </div>
@@ -558,11 +531,9 @@ export default function AdminLessons() {
         />
       )}
 
-      <CoursesModal
-        open={coursesOpen}
-        onOpenChange={setCoursesOpen}
-        onMutated={() => { loadCourses(); loadLessons(); }}
-      />
+      <ColumnsDialog open={columnsOpen} onOpenChange={setColumnsOpen} title="Lessons table columns" columns={arrangeable(LESSON_COLUMNS, columnPrefs)}
+        onToggle={(id, show) => changeColumns(toggleColumn(LESSON_COLUMNS, columnPrefs, id, show))}
+        onMove={(id, delta) => changeColumns(moveColumn(LESSON_COLUMNS, columnPrefs, id, delta))} onReset={() => changeColumns(defaultPrefs(LESSON_COLUMNS))} />
 
       {shareModal && (
         <ShareLessonModal

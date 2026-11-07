@@ -107,16 +107,29 @@ export async function createPostgresDatabase(pool) {
   }
 
   return {
-    async createUser({ userId, email, passwordHash, name, username, userGroup, role, slackUserId, customFields }) {
+    async createUser({ userId, email, passwordHash, name, firstName, lastName, nameSource, username, userGroup, role, slackUserId, customFields }) {
       const timestamp = now();
       await insert('users', userId, { userId, email: email.toLowerCase(), passwordHash, name,
         username: username || null, userGroup: userGroup || null, role, slackUserId: slackUserId || null,
+        ...(firstName !== undefined ? { firstName, lastName: lastName || '', nameSource: nameSource || 'user' } : {}),
         customFields: customFields || null, createdAt: timestamp, updatedAt: timestamp });
     },
     getUserById: userId => one('users', 'id = $1', [userId]),
     getUserByEmail: email => one('users', "lower(document->>'email') = $1", [email.toLowerCase()]),
     getUserByUsername: username => one('users', "lower(document->>'username') = $1", [username.toLowerCase()]),
     updateUser: (userId, fields) => patch('users', userId, { ...fields, userId, updatedAt: now() }),
+    // Profile CAS protects the fill-only invite merge without replacing
+    // unrelated account attributes or ever inserting a missing account.
+    async updateUserProfileIf(userId, expected, updates) {
+      const keys = Object.keys(updates);
+      if (!keys.length || keys.some(key => !['userGroup', 'customFields'].includes(key))) throw new Error('Invalid profile updates');
+      const snapshot = { userGroup: expected.userGroup, customFields: expected.customFields };
+      const result = await pool.query(`UPDATE users SET document = document || $3::jsonb
+        WHERE id = $1 AND document->'userGroup' IS NOT DISTINCT FROM ($2::jsonb->'userGroup')
+        AND document->'customFields' IS NOT DISTINCT FROM ($2::jsonb->'customFields')`,
+      [userId, JSON.stringify(snapshot), JSON.stringify({ ...updates, updatedAt: now() })]);
+      return result.rowCount === 1;
+    },
     deleteUser: userId => remove('users', userId),
     async incrementUserCounter(userId, field, delta = 1) {
       if (field !== 'lessonsCompleted') throw new Error(`Unsupported counter field: ${field}`);
@@ -130,13 +143,23 @@ export async function createPostgresDatabase(pool) {
     async removeUserCustomField(userId, fieldId) {
       await pool.query('UPDATE users SET document = document #- $2::text[] WHERE id = $1', [userId, ['customFields', fieldId]]);
     },
-    listUsers: () => many('users', "document->>'role' = 'user'"),
+    async setUserRoleIf(userId, from, to) {
+      const result = await pool.query("UPDATE users SET document = document || jsonb_build_object('role', $3::text) WHERE id = $1 AND document->>'role' = $2", [userId, from, to]);
+      return result.rowCount === 1;
+    },
+    async setUserNameSplitIf(userId, expectedName, { firstName, lastName, nameSource }) {
+      const result = await pool.query(`UPDATE users SET document = document || $3::jsonb
+        WHERE id = $1 AND document->>'name' IS NOT DISTINCT FROM $2 AND document->>'firstName' IS NULL`,
+      [userId, expectedName ?? null, JSON.stringify({ firstName, lastName, nameSource })]);
+      return result.rowCount === 1;
+    },
+    listUsers: () => many('users', "document->>'role' IN ('user', 'learner')"),
     listAllUsers: () => many('users'),
     async countUsers() { return Number((await pool.query('SELECT count(*) FROM users')).rows[0].count); },
 
-    createInvite: ({ inviteToken, email, invitedBy, slackUserId, isLink = false, usageCount = 0, maxUsages = null, profile = null }) =>
+    createInvite: ({ inviteToken, email, invitedBy, slackUserId, isLink = false, usageCount = 0, maxUsages = null, profile = null, forUserId = null }) =>
       insert('invites', inviteToken, { inviteToken, email: email?.toLowerCase() || null, invitedBy, slackUserId: slackUserId || null,
-        isLink, usageCount, maxUsages, profile, status: 'pending', createdAt: now(), ttl: expiresIn(INVITE_TTL_DAYS * 86400) }),
+        isLink, usageCount, maxUsages, profile, ...(forUserId ? { forUserId } : {}), status: 'pending', createdAt: now(), ttl: expiresIn(INVITE_TTL_DAYS * 86400) }),
     createWaitlistEntry: ({ inviteToken, email, profile }) => insert('invites', inviteToken,
       { inviteToken, email: email.toLowerCase(), profile, status: 'waitlist', createdAt: now() }),
     setInviteProfile: (token, profile) => patch('invites', token, { profile }),
@@ -208,6 +231,16 @@ export async function createPostgresDatabase(pool) {
     async getSyncDataByPrefix(userId, prefix) {
       return (await pool.query(`SELECT ${syncColumns} FROM sync_data WHERE user_id = $1 AND left(data_key, length($2)) = $2`, [userId, prefix])).rows;
     },
+    createSyncData(userId, dataKey, data) {
+      return transaction(async client => {
+        const updatedAt = now();
+        const result = await client.query(`INSERT INTO sync_data (user_id, data_key, data, version, updated_at)
+          VALUES ($1, $2, $3::jsonb, 1, $4) ON CONFLICT (user_id, data_key) DO NOTHING`,
+        [userId, dataKey, JSON.stringify(data), updatedAt]);
+        if (!result.rowCount) throw conflict('Record already exists');
+        return { version: 1, updatedAt };
+      }, userId);
+    },
     putSyncData(userId, dataKey, data, expectedVersion, { strictVersion = false } = {}) {
       return transaction(async client => {
         const row = (await client.query('SELECT version FROM sync_data WHERE user_id = $1 AND data_key = $2', [userId, dataKey])).rows[0];
@@ -250,11 +283,14 @@ export async function createPostgresDatabase(pool) {
         return saved;
       }, userId);
     },
-    deleteSyncData(userId, dataKey, { invalidateLesson = false } = {}) {
+    deleteSyncData(userId, dataKey, { invalidateLesson = false, expectedVersion } = {}) {
       return transaction(async client => {
         const lessonId = invalidateLesson && /^(?:messages|lessonKB):(.+)$/.exec(dataKey)?.[1];
         if (lessonId) await writeSync(client, userId, `lessonGeneration:${lessonId}`, randomUUID(), 1);
-        await client.query('DELETE FROM sync_data WHERE user_id = $1 AND data_key = $2', [userId, dataKey]);
+        const deleted = expectedVersion === undefined
+          ? await client.query('DELETE FROM sync_data WHERE user_id = $1 AND data_key = $2', [userId, dataKey])
+          : await client.query('DELETE FROM sync_data WHERE user_id = $1 AND data_key = $2 AND version = $3', [userId, dataKey, expectedVersion]);
+        if (expectedVersion !== undefined && !deleted.rowCount) throw conflict('Record changed before deletion');
       }, userId);
     },
 

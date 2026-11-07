@@ -17,6 +17,10 @@ import db from './lib/db.js';
 import { generateUserId } from './lib/crypto.js';
 import { hashPassword } from './lib/password.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD } from './config.js';
+import { initializeLaunch, scheduleLaunchJobs } from './lib/launch.js';
+import { isJobEvent, runJob } from './lib/jobs.js';
+import { viewAsReadOnly } from './middleware/viewAsReadOnly.js';
+import unsubscribe from './routes/unsubscribe.js';
 import { seedDefaultContent } from './lib/seed.js';
 import { logger } from './lib/logger.js';
 import { pluginRegistry } from './lib/plugins/registry.js';
@@ -30,54 +34,52 @@ const server = new Hono();
 server.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', ...CLIENT_COMPATIBILITY_HEADERS],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Plato-View-As', ...CLIENT_COMPATIBILITY_HEADERS],
 }));
 
 // First-request initialization: admin bootstrap, content seeding
-let initChecked = false;
+let initialization = null;
 server.use('*', async (c, next) => {
-  if (!initChecked) {
-    initChecked = true;
-    // Admin bootstrap
-    if (ADMIN_EMAIL && ADMIN_PASSWORD) {
-      try {
-        const count = await db.countUsers();
-        if (count === 0) {
-          const userId = generateUserId();
-          const passwordHash = await hashPassword(ADMIN_PASSWORD);
-          await db.createUser({
-            userId,
-            email: ADMIN_EMAIL.toLowerCase(),
-            passwordHash,
-            name: 'Admin',
-            role: 'admin',
-          });
-          console.log(`Admin bootstrapped: ${ADMIN_EMAIL}`);
-        }
-      } catch (err) {
-        console.error('Admin bootstrap failed:', err.message);
-      }
-    }
-    // Seed/update prompts and lessons
-    try {
-      const seeded = await seedDefaultContent();
-      if (seeded > 0) console.log(`Seeded ${seeded} content item(s)`);
-    } catch (err) {
-      console.error('Seed failed (non-fatal):', err.message);
-    }
-    // Plugin registry: discover and activate plugins. Routes are NOT mounted here —
-    // Hono throws "Can not add a route since the matcher is already built" if you
-    // call server.route() mid-request. Instead we register a static catch-all (below)
-    // that dispatches via the registry once it's booted.
-    try {
-      await pluginRegistry.boot();
-    } catch (err) {
-      logger.error('plugin_registry_boot_failed', { error: err?.message, stack: err?.stack });
-    }
+  if (!initialization) {
+    initialization = initializeServer().catch(error => {
+      initialization = null;
+      throw error;
+    });
   }
+  await initialization;
   await next();
 });
 
+async function initializeServer() {
+  // Admin bootstrap
+  if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+    try {
+      const count = await db.countUsers();
+      if (count === 0) {
+        const userId = generateUserId();
+        const passwordHash = await hashPassword(ADMIN_PASSWORD);
+        await db.createUser({
+          userId,
+          email: ADMIN_EMAIL.toLowerCase(),
+          passwordHash,
+          name: 'Admin',
+          role: 'admin',
+        });
+        console.log(`Admin bootstrapped: ${ADMIN_EMAIL}`);
+      }
+    } catch (err) {
+      console.error('Admin bootstrap failed:', err.message);
+    }
+  }
+  await initializeLaunch();
+  // Routes are statically mounted below; registry boot populates dispatchers.
+  const seeded = await seedDefaultContent();
+  if (seeded > 0) console.log(`Seeded ${seeded} content item(s)`);
+  await pluginRegistry.boot();
+}
+
+server.use('*', viewAsReadOnly);
+server.use('*', scheduleLaunchJobs);
 server.route('/', health);
 server.route('/', auth);
 server.route('/', me);
@@ -88,6 +90,7 @@ server.route('/', ai);
 server.route('/', content);
 server.route('/', links);
 server.route('/', waitlist);
+server.route('/', unsubscribe);
 
 // Plugin catch-all + legacy shim. See server/src/lib/plugins/dispatcher.js for
 // the handler logic. Registered BEFORE `app` because app.js has a global SPA
@@ -114,6 +117,7 @@ server.onError((err, c) => {
 // Wrapped to also handle self-invoke events for async dashboard-stats refresh.
 const _httpHandler = handle(server);
 export const handler = async (event, context) => {
+  if (isJobEvent(event)) return runJob(event.job, event.payload);
   if (isSelfInvokeEvent(event)) {
     try {
       await recomputeAndCacheLessonStats();

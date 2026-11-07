@@ -1,3 +1,5 @@
+import { useApp } from '../../contexts/AppContext.jsx';
+import { sendKeyOf, isSendKeystroke, sendHint } from '../../lib/chatPrefs.js';
 import { memo, useState, useRef, useId, useEffect } from 'react';
 import { useAutoResize } from '../../hooks/useAutoResize.js';
 import { compressImageDataUrl } from '../../lib/imageCompression.js';
@@ -30,6 +32,10 @@ function ComposeBar({
   // the next message can be drafted and the mobile keyboard stays open.
   disabled = false,
   busy = false,
+  // While busy, `busyHint` replaces the send-key hint (and the textarea's
+  // description); `busyMessage` is announced if a send is attempted. Callers
+  // with more than one busy state pass the reason that applies.
+  busyHint = 'Send when the reply finishes',
   busyMessage = 'Wait for the reply to finish, then send.',
   allowImages = false,
   allowLinks = false,
@@ -43,6 +49,9 @@ function ComposeBar({
   links: linksProp,
   onLinksChange,
 }) {
+  const { state } = useApp();
+  const sendKey = sendKeyOf(state.preferences);
+  const shortcutId = useId();
   const [localText, setLocalText] = useState(() => {
     if (!storageKey) return '';
     try { return sessionStorage.getItem(storageKey) || ''; } catch { return ''; }
@@ -347,8 +356,9 @@ function ComposeBar({
           value={text}
           onChange={(e) => { setText(e.target.value); handleResize(e); }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+            if (isSendKeystroke(e, sendKey)) { e.preventDefault(); send(); }
           }}
+          aria-describedby={shortcutId}
           onPaste={handlePaste}
           disabled={disabled}
         />
@@ -439,6 +449,7 @@ function ComposeBar({
               </svg>
             </Button>
           )}
+          <span id={shortcutId} className="min-w-0 text-xs text-muted-foreground">{busy ? busyHint : sendHint(sendKey)}</span>
           <span id={statusId} className="min-w-0 text-xs text-muted-foreground" role="status" aria-live="polite">
             {status}
           </span>

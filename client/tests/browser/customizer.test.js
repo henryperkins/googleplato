@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -21,6 +22,7 @@ let directory;
 let base;
 let storageState;
 const browserName = process.env.PLATO_TEST_BROWSER || 'chromium';
+const evidence = browserEvidence('customizer', browserName);
 const browserType = { chromium, firefox, webkit }[browserName];
 assert.ok(browserType, `Unsupported PLATO_TEST_BROWSER: ${browserName}`);
 
@@ -48,8 +50,8 @@ async function visibleKnowledgeWritingSpace(page) {
   });
 }
 
-// The timeout covers the whole suite, which takes about 70 seconds in WebKit.
-describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => {
+// The budget includes at least twice the first measured suite duration.
+describe('Classroom Customizer browser regressions', { timeout: 300000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(root, 'client/dist/index.html')), 'Run npm run build:client before browser tests');
     directory = await mkdtemp(join(tmpdir(), 'plato-customizer-'));
@@ -153,7 +155,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       }));
       assert.ok(hexToOklchParts(vars.header).c < 0.011, 'the header is charcoal, not a dark teal');
       assert.equal(await page.locator('summary').filter({ hasText: 'Color contrast checks pass' }).count(), 2);
-      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/logo-color-themes'), browserName);
+      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || evidence, 'logo-color-themes');
       await mkdir(assets, { recursive: true });
       await page.screenshot({ path: join(assets, 'logo-palette-desktop.png'), fullPage: true });
       await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -219,7 +221,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
           assert.ok(contrastRatio(...hover) >= 4.5, `${color} ${mode} hover keeps readable text`);
         }
       }
-      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/logo-color-themes'), browserName);
+      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || evidence, 'logo-color-themes');
       await mkdir(assets, { recursive: true });
       await page.getByRole('figure', { name: 'Dark mode preview', exact: true }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: join(assets, 'logo-palette-phone.png') });
@@ -490,7 +492,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       await page.getByRole('button', { name: 'Remove logo image', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Save', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor();
-      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-2026-10-25'), browserName);
+      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || evidence, 'customizer-2026-10-25');
       await mkdir(assets, { recursive: true });
       await page.screenshot({ path: join(assets, 'styles-desktop-light.png'), fullPage: true });
       const palette = () => page.locator('figure button').evaluateAll(buttons => buttons.map(button => {
@@ -614,7 +616,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
     page.setDefaultTimeout(6000);
     const auth = JSON.parse(storageState.origins[0].localStorage.find(item => item.name === 'plato_auth').value);
     const headers = { Authorization: `Bearer ${auth.accessToken}` };
-    const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-phone-editor'), browserName);
+    const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || evidence, 'customizer-phone-editor');
     await mkdir(assets, { recursive: true });
     try {
       await page.route('**/v1/ai/**', route => route.abort());
@@ -646,7 +648,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       const content = '# Program reference\n\nLearners practise one skill at a time and bring a concrete example to each lesson.\n\n' + '## Teaching approach\n\nGive specific feedback and let the learner explain the next step.\n\n'.repeat(6);
       let inference = 0;
       try {
-        const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-phone-editor'), browserName);
+        const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || evidence, 'customizer-phone-editor');
         await mkdir(assets, { recursive: true });
         await page.route('**/v1/ai/**', route => { inference++; return route.abort(); });
         await context.request.put(`${base}/v1/admin/knowledge-base`, { headers, data: { content: '', conversation: null, readiness: 0 } });
@@ -861,7 +863,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       assert.equal(await preview.locator('pre code').textContent(), 'const policy = "alt text";');
       assert.equal(await preview.locator('blockquote').textContent(), 'Review every image.');
       assert.equal(inference.filter(body => !body.stream).length, 1);
-      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || join(root, 'output/playwright/customizer-validation-2026-10-26'), browserName);
+      const assets = join(process.env.PLATO_TEST_ARTIFACT_DIR || evidence, 'customizer-validation-2026-10-26');
       await mkdir(assets, { recursive: true });
       await page.screenshot({ path: join(assets, 'knowledge-reviewed-preview.png'), fullPage: true });
       await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
@@ -1310,7 +1312,7 @@ describe('Classroom Customizer browser regressions', { timeout: 150000 }, () => 
       assert.equal(await page.locator('figure img').count(), 0);
       assert.equal(await page.getByRole('button', { name: 'Optimize logo', exact: true }).count(), 0);
       const downloadButton = page.getByRole('button', { name: 'Download original logo', exact: true });
-      const assets = join(root, `output/playwright/customizer-readiness-2026-10-25/${browserName}`);
+      const assets = join(evidence, 'customizer-readiness-2026-10-25');
       await mkdir(assets, { recursive: true });
       await page.screenshot({ path: join(assets, 'blocked-logo-desktop.png'), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });

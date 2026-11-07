@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useBranding } from '../contexts/BrandingContext.jsx';
-import { useStreamedText } from '../hooks/useStreamedText.js';
+import LessonOverview from '../components/chat/LessonOverview.jsx';
+import AgentActivity from '../components/chat/AgentActivity.jsx';
+import { nextLessonAfter } from '../lib/lessonOrder.js';
+import { progressLabel, messageImageUrls } from '../lib/lessonWork.js';
 import { useTitleNotification } from '../hooks/useTitleNotification.js';
 import { useVisualViewportKeyboardOffset } from '../hooks/useVisualViewportKeyboardOffset.js';
 import { useStickyScrollPadding } from '../hooks/useStickyScrollPadding.js';
@@ -12,7 +15,6 @@ import { useLessonDraft } from '../hooks/useLessonDraft.js';
 import { isClientUpgradeRequired, onClientUpgrade } from '../../js/clientCompatibility.js';
 import { LESSON_PHASES, MSG_TYPES } from '../lib/constants.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
-import { renderMd, renderInlineMd } from '../lib/helpers.js';
 import { pageTitle } from '../lib/routeTitles.js';
 import { lessonSubmissions, hasLessonDraft } from '../lib/lessonSubmissions.js';
 import {
@@ -30,10 +32,7 @@ import ComposeBar from '../components/chat/ComposeBar.jsx';
 import LessonLoadingView from '../components/chat/LessonLoadingView.jsx';
 import ConfirmModal from '../components/modals/ConfirmModal.jsx';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
+
 
 export default function LessonChat() {
   const { lessonGroupId } = useParams();
@@ -96,7 +95,7 @@ function LessonConversation() {
   const headingRef = useRef(null);
 
   const [streamingText, setStreamingText] = useState(null);
-  const displayText = useStreamedText(streamingText);
+  const displayText = streamingText;
   const pendingAfterStreamRef = useRef(null);
   const [srAnnouncement, setSrAnnouncement] = useState('');
   const srClearTimeoutRef = useRef(null);
@@ -110,7 +109,15 @@ function LessonConversation() {
   // Confirm modal state
   const [confirmModal, setConfirmModal] = useState(null);
   const [showObjectives, setShowObjectives] = useState(false);
-  const objectivesTitleRef = useRef(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (['overview', 'work'].includes(searchParams.get('view'))) {
+      setShowObjectives(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('view');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const keyboardOffset = useVisualViewportKeyboardOffset();
   const [stickyTopRef, stickyBottomRef] = useStickyScrollPadding();
   const { draft, setText: setComposeText, setImages: setComposeImages, setLinks: setComposeLinks, restore: restoreDraft, retentionStatus, retryRetention } = useLessonDraft(impersonating ? null : user?.userId, lessonGroupId);
@@ -126,10 +133,15 @@ function LessonConversation() {
       : pendingSave ? 'Progress not confirmed saved.'
         : submission ? 'Response not sent.'
           : persistence?.status === 'saved' ? 'Progress saved.' : '';
-  const busyMessage = savingProgress ? 'Wait for progress to finish saving, then send.'
-    : pendingSave ? 'Save the retained reply before sending another response.'
-      : submission && submission.status !== 'sending' ? 'Recover the earlier response before sending another.'
-        : 'Wait for the reply to finish, then send.';
+  // One cascade for the composer's persistent hint (also its accessible
+  // description) and the message announced when a send is held, so both name
+  // what actually blocks sending — never "the reply" when none is running.
+  const [busyHint, busyMessage] = upgradeRequired ? ['Reload this page to send', 'Reload this page, then send.']
+    : savingProgress ? ['Send when progress is saved', 'Wait for progress to finish saving, then send.']
+      : pendingSave ? ['Send after the reply is saved', 'Save the retained reply before sending another response.']
+        : submission && submission.status !== 'sending' ? ['Send after recovering the earlier response', 'Recover the earlier response before sending another.']
+          : resuming && !loading ? ['Send when the lesson loads', 'Wait for the lesson to load, then send.']
+            : ['Send when the reply finishes', 'Wait for the reply to finish, then send.'];
 
   const reloadForUpgrade = async () => {
     if (loading || resuming || savingRef.current || impersonating) return;
@@ -226,16 +238,6 @@ function LessonConversation() {
     if (srClearTimeoutRef.current) clearTimeout(srClearTimeoutRef.current);
     if (srRafRef.current) cancelAnimationFrame(srRafRef.current);
   }, []);
-
-  // Move focus to the Objectives dialog title when it opens so screen
-  // readers announce the dialog's purpose instead of landing on the close button.
-  useEffect(() => {
-    if (!showObjectives) return;
-    const id = requestAnimationFrame(() => {
-      objectivesTitleRef.current?.focus();
-    });
-    return () => cancelAnimationFrame(id);
-  }, [showObjectives]);
 
   useEffect(() => {
     const lesson = lessonRef.current;
@@ -451,26 +453,7 @@ function LessonConversation() {
 
   const isCustomLesson = lessonGroupId?.startsWith('custom-');
 
-  // Find the next lesson in the same course
-  const nextLesson = (() => {
-    if (!lesson || !lessons.length) return null;
-    if (!lesson.course?.id) return null; // No next lesson for uncategorized lessons
-
-    // Get lessons in the same course, sorted by name
-    const sameCourse = lessons
-      .filter(l => l.course?.id === lesson.course?.id)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-
-    // Find current lesson index in the sorted list
-    const currentIndex = sameCourse.findIndex(l => l.lessonId === lessonGroupId);
-
-    // Return next lesson in the course (if any)
-    if (currentIndex >= 0 && currentIndex < sameCourse.length - 1) {
-      return sameCourse[currentIndex + 1];
-    }
-
-    return null;
-  })();
+  const nextLesson = nextLessonAfter(lessons, lessonGroupId);
 
   const handleExport = useCallback(async () => {
     const markdown = await getUserLessonMarkdown(lessonGroupId);
@@ -525,20 +508,19 @@ function LessonConversation() {
   const renderMessage = (msg, idx) => {
     switch (msg.msgType) {
       case MSG_TYPES.GUIDE:
-        return <AssistantMessage key={idx} content={msg.content} />;
+        return <div key={msg.id || idx}><AgentActivity agents={msg.metadata?.agents} /><AssistantMessage content={msg.content} /></div>;
       case MSG_TYPES.USER:
         return (
           <div key={idx}>
             {msg.content && <UserMessage content={msg.content} />}
             {(() => {
-              const urls = Array.isArray(msg.metadata?.imageDataUrls)
-                ? msg.metadata.imageDataUrls
-                : msg.metadata?.imageDataUrl ? [msg.metadata.imageDataUrl] : [];
-              if (urls.length === 0) return null;
+              // By position; an image that couldn't be loaded is null and skipped.
+              const urls = messageImageUrls(msg.metadata);
+              if (!urls.some(Boolean)) return null;
               return (
                 <div className="flex justify-end mt-1">
                   <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-bubble p-1.5 flex flex-wrap gap-1">
-                    {urls.map((url, i) => (
+                    {urls.map((url, i) => url && (
                       // Hydrated data URLs are already in memory: lazy loading
                       // saved nothing and decoded late, shifting the scrolled log.
                       <img key={i} src={url} alt={`Your uploaded work ${i + 1}`} decoding="async" className="max-w-full rounded-lg" />
@@ -576,7 +558,7 @@ function LessonConversation() {
           </div>
         );
       default:
-        return <AssistantMessage key={idx} content={msg.content} />;
+        return <div key={msg.id || idx}><AgentActivity agents={msg.metadata?.agents} /><AssistantMessage content={msg.content} /></div>;
     }
   };
 
@@ -600,9 +582,10 @@ function LessonConversation() {
                 className="touch-target-inline rounded-sm text-left text-xs font-medium text-primary-text hover:underline underline-offset-4 cursor-pointer whitespace-nowrap"
                 onClick={() => setShowObjectives(true)}
                 aria-expanded={showObjectives}
-                aria-controls="lesson-objectives-dialog"
+                aria-controls="lesson-overview-dialog"
+                aria-label={`${progressLabel(lessonKB, lesson.learningObjectives)}: lesson overview`}
               >
-                View outline
+                {progressLabel(lessonKB, lesson.learningObjectives)}
               </button>
             </div>
             <ProgressBar lessonKB={lessonKB} celebrate={celebratedLessonId === lessonGroupId} />
@@ -766,6 +749,7 @@ function LessonConversation() {
             onSend={handleSend}
             disabled={impersonating}
             busy={busy}
+            busyHint={busyHint}
             busyMessage={busyMessage}
             allowImages
             allowLinks
@@ -779,87 +763,8 @@ function LessonConversation() {
         </div>
       )}
 
-      {/* Objectives dialog — bottom sheet on mobile, centered dialog on desktop */}
-      <Dialog open={showObjectives} onOpenChange={setShowObjectives}>
-        <DialogContent id="lesson-objectives-dialog" variant="sheet">
-          <DialogHeader>
-            <DialogTitle ref={objectivesTitleRef} tabIndex={-1}>{lesson.name}</DialogTitle>
-            {lesson.description && <DialogDescription className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(lesson.description) }} />}
-          </DialogHeader>
-          <div className="space-y-4">
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">Exemplar</h3>
-            <div className="coach-copy text-sm text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMd(lesson.exemplar) }} />
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">Learning Objectives</h3>
-            <ul className="list-disc pl-5 text-sm text-muted-foreground leading-relaxed space-y-1">
-              {lesson.learningObjectives.map((obj, i) => (
-                <li key={i} className="coach-copy" dangerouslySetInnerHTML={{ __html: renderInlineMd(obj) }} />
-              ))}
-            </ul>
-          </div>
-          {lessonKB?.enrichments && lessonKB.enrichments.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium">Reference material</h3>
-              {lessonKB.enrichments.map((enrichment, idx) => (
-                <section
-                  key={idx}
-                  className="rounded-lg border border-border bg-muted/50 p-3 space-y-2"
-                  aria-labelledby={`enrichment-${idx}-label`}
-                >
-                  <h4
-                    id={`enrichment-${idx}-label`}
-                    className="text-sm font-medium"
-                  >
-                    {enrichment.label || enrichment.pluginId}
-                  </h4>
-                  {enrichment.reasoning && (
-                    <div role="note">
-                      <p className="sr-only">Why this context matters:</p>
-                      <p className="text-xs text-muted-foreground">
-                        {enrichment.reasoning}
-                      </p>
-                    </div>
-                  )}
-                  {enrichment.context && (
-                    <div>
-                      <p className="sr-only">Context:</p>
-                      <p className="text-sm whitespace-pre-wrap">
-                        {enrichment.context}
-                      </p>
-                    </div>
-                  )}
-                  {enrichment.sources && enrichment.sources.length > 0 && (
-                    <nav aria-label={`Sources from ${enrichment.label || enrichment.pluginId}`}>
-                      <div className="text-xs font-medium text-muted-foreground mb-1">Sources:</div>
-                      <ul className="text-xs space-y-1">
-                        {enrichment.sources.map((source, sidx) => (
-                          <li key={sidx}>
-                            <a
-                              href={source.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="rounded-sm text-link underline underline-offset-4 hover:decoration-2"
-                              aria-label={`${source.title || source.url} (opens in new tab)`}
-                            >
-                              {source.title || source.url}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </nav>
-                  )}
-                </section>
-              ))}
-            </div>
-          )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowObjectives(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <LessonOverview open={showObjectives} onOpenChange={setShowObjectives} lesson={lesson}
+        lessonKB={lessonKB} messages={messages} ownerId={user?.userId} />
 
       {confirmModal && (
         <ConfirmModal

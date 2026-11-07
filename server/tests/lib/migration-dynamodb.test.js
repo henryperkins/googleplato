@@ -1,0 +1,32 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import db, { setDocumentClientForTests } from '../../src/lib/db-dynamodb.js';
+import { runMigrations } from '../../src/lib/migrations.js';
+import { StaleDocumentClient } from '../helpers/stale-document-client.js';
+
+test('DynamoDB migration survives lag and competing runners with strongly read, guarded state', async () => {
+  const fake = new StaleDocumentClient();
+  setDocumentClientForTests(fake);
+  let enter;
+  const started = new Promise(resolve => { enter = resolve; });
+  let finish;
+  const gate = new Promise(resolve => { finish = resolve; });
+  let calls = 0;
+  const migrations = [{ id: 'a', async run() { calls++; enter(); await gate; return {}; } }, { id: 'b', async run() { calls++; return {}; } }];
+  const first = runMigrations({ db, migrations, owner: 'first' });
+  await started;
+  const second = await runMigrations({ db, migrations, owner: 'second' });
+  assert.equal(second.skipped, 'locked');
+  finish();
+  assert.equal((await first).skipped, null);
+  assert.equal(calls, 2);
+  const gets = fake.commands.filter(c => c instanceof GetCommand);
+  const puts = fake.commands.filter(c => c instanceof PutCommand);
+  assert.ok(gets.every(c => c.input.ConsistentRead === true));
+  assert.ok(puts.every(c => ['attribute_not_exists(dataKey)', 'version = :v'].includes(c.input.ConditionExpression)));
+  const eventual = await db.getSyncData('_system', 'migrations');
+  const strong = await db.getSyncData('_system', 'migrations', { consistentRead: true });
+  assert.notDeepEqual(eventual, strong);
+  assert.ok(strong.data.applied.a && strong.data.applied.b);
+});

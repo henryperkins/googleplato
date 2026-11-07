@@ -1,3 +1,5 @@
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { can, normalizeRole } from '../../lib/permissions.js';
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { adminApi } from './adminApi.js';
@@ -261,6 +263,8 @@ function PacingSection({ stats }) {
 }
 
 export default function AdminHome() {
+  const { user } = useAuth();
+  const canReadKB = can(user, 'kb.read');
   const location = useLocation();
   const [pageNotice, setPageNotice] = useState('');
   useEffect(() => {
@@ -285,17 +289,17 @@ export default function AdminHome() {
       const [users, invites, kb, stats] = await Promise.all([
         adminApi('GET', '/v1/admin/users'),
         adminApi('GET', '/v1/admin/invites'),
-        adminApi('GET', '/v1/admin/knowledge-base'),
+        canReadKB ? adminApi('GET', '/v1/admin/knowledge-base').catch(() => null) : Promise.resolve(null),
         loadStats(),
       ]);
-      setUserCount(Array.isArray(users) ? users.length : 0);
+      setUserCount(Array.isArray(users) ? users.filter(u => normalizeRole(u.role) === 'learner').length : 0);
       setPendingCount(Array.isArray(invites) ? invites.filter(i => i.status === 'pending').length : 0);
       setHasKB(!!kb?.content);
       setLessonStats(stats);
     } catch (e) {
       setLoadError(e?.message || 'Failed to load dashboard stats.');
     }
-  }, [loadStats]);
+  }, [loadStats, canReadKB]);
 
   useEffect(() => {
     document.title = 'Dashboard — plato';
@@ -365,7 +369,7 @@ export default function AdminHome() {
         </div>
       )}
 
-      {!hasKB && (
+      {can(user, 'kb.write') && !hasKB && (
         <Link to="/plato/setup-kb" className="block no-underline mb-6">
           <div className="rounded-lg border border-warning-border bg-warning px-4 py-3 text-sm text-warning-foreground hover:underline">
             <strong>Set up your knowledge base</strong> — tell plato about your program so the AI can give learners informed answers.{' '}
@@ -379,8 +383,8 @@ export default function AdminHome() {
           <Card className="[@media(hover:hover)_and_(pointer:fine)]:hover:ring-2 [@media(hover:hover)_and_(pointer:fine)]:hover:ring-primary/30 active:ring-2 active:ring-primary/30 transition-shadow cursor-pointer">
             <CardContent>
               <div className="text-3xl font-bold tabular-nums">{userCount ?? '—'}</div>
-              {/* Every account, admins included; nothing here measures recent activity. */}
-              <div className="text-sm text-muted-foreground">Users</div>
+              {/* Learner accounts, including legacy user roles. */}
+              <div className="text-sm text-muted-foreground">Learners</div>
             </CardContent>
           </Card>
         </Link>

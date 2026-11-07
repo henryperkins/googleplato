@@ -82,3 +82,19 @@ test('reload preflight verifies every retained submission, including another acc
   storage.setItem = () => { throw new Error('Quota'); };
   assert.equal(store.preserveAllForReload(), false);
 });
+
+test('a failed full four-image three-link submission stays separate from every byte of a newer full draft', () => {
+  const target = disk();
+  const submissions = createLessonSubmissionStore({ storage: () => target });
+  const drafts = createLessonDraftStore({ storage: () => target });
+  const full = prefix => ({ text: `${prefix} 日本語`, images: Array.from({ length: 4 }, (_, i) => ({ ...image, name: `${prefix}-${i}.png`, dataUrl: `${image.dataUrl}${i}` })),
+    links: Array.from({ length: 3 }, (_, i) => ({ ...link, url: `${link.url}/${prefix}/${i}`, text: `${prefix} full text ${i}` })) });
+  const earlier = full('earlier'), newer = full('newer');
+  const entry = submissions.stage('a', 'lesson', earlier);
+  drafts.write('a', 'lesson', newer);
+  submissions.setStatus(entry, 'failed');
+  const restored = createLessonSubmissionStore({ storage: () => target }).read('a', 'lesson');
+  assert.deepEqual(restored.draft, earlier);
+  assert.deepEqual(createLessonDraftStore({ storage: () => target }).read('a', 'lesson'), newer);
+  assert.equal(hasLessonDraft(newer), true, 'moving retained input back must remain unavailable until the newer draft is cleared');
+});

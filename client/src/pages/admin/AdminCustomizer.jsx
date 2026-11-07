@@ -1,3 +1,5 @@
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { can } from '../../lib/permissions.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
@@ -60,10 +62,13 @@ function ResourceState({ resource, name, headingRef, children }) {
 }
 
 export default function AdminCustomizer() {
+  const { user } = useAuth();
+  const canWriteKB = can(user, 'kb.write');
+  const canWriteTheme = can(user, 'theme.write');
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname.replace(/\/+$/, '');
-  const editing = path.endsWith('/knowledge/edit');
+  const editing = canWriteKB && path.endsWith('/knowledge/edit');
   const tab = editing || path.endsWith('/knowledge') ? 'knowledge' : 'styles';
   const styles = useResource('/v1/admin/theme');
   const knowledge = useResource('/v1/admin/knowledge-base');
@@ -87,7 +92,7 @@ export default function AdminCustomizer() {
         </TabsList>
         <TabsContent value="styles">
           <ResourceState resource={styles} name="Appearance" headingRef={headingRef}>
-            {styles.data && <AdminStyles initialData={styles.data} onSaved={styles.update} />}
+            {styles.data && <AdminStyles readOnly={!canWriteTheme} initialData={styles.data} onSaved={styles.update} />}
           </ResourceState>
         </TabsContent>
         <TabsContent value="knowledge">
@@ -111,7 +116,7 @@ export default function AdminCustomizer() {
                   }} />
               </div>
             ) : (
-              <KBViewer content={kb.content || ''} updatedAt={kb.updatedAt} updatedByName={kb.updatedByName} saved={knowledgeSaved}
+              <KBViewer readOnly={!canWriteKB} content={kb.content || ''} updatedAt={kb.updatedAt} updatedByName={kb.updatedByName} saved={knowledgeSaved}
                 onEdit={mode => {
                   // Reload first: draft turns from an earlier visit to the editor are
                   // newer than this page's copy, and the editor would overwrite them.
@@ -127,7 +132,7 @@ export default function AdminCustomizer() {
   );
 }
 
-function KBViewer({ content, updatedAt, updatedByName, onEdit, saved }) {
+function KBViewer({ readOnly, content, updatedAt, updatedByName, onEdit, saved }) {
   return (
     <div>
       {saved && <p role="status" className="text-sm text-success-foreground mb-4">Knowledge base saved. The coach and lesson creator now use this version.</p>}
@@ -142,7 +147,7 @@ function KBViewer({ content, updatedAt, updatedByName, onEdit, saved }) {
             </p>
           )}
         </div>
-        <div className="knowledge-viewer-actions">
+        <div className="knowledge-viewer-actions" hidden={readOnly}>
           <Button onClick={() => onEdit('conversation')}>{content ? 'Edit with assistant' : 'Create with assistant'}</Button>
           <Button variant="outline" onClick={() => onEdit('text')}>{content ? 'Edit text' : 'Write or paste text'}</Button>
         </div>

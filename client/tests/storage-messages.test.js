@@ -167,3 +167,7 @@ describe('saveLessonMessages', () => {
     assert.ok(typeof msgs[0].timestamp === 'number');
   });
 });
+
+// Signed turns must remain exact; budget enforcement belongs to the atomic
+// server commit. Coverage: generatedTurns.test.js, coach-recovery.test.js and
+// routes/coach.test.js (oversized signed activity preserves recovery).

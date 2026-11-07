@@ -49,7 +49,7 @@ Phase 1.1+ (declarative; not yet runtime-enforced — same trust model as
 Allows writing `userMeta:<pluginId>` for any user via
 `putUserMeta(userId, pluginId, data)`, `updateUserMeta(userId, pluginId, updater)`,
 and `deleteUserMeta(userId, pluginId)`. `putUserMeta` and `deleteUserMeta` are
-available since Plugin API 1.1.0; atomic `updateUserMeta` is available since 1.4.0.
+available since Plugin API 1.1.0; atomic `updateUserMeta` is available since 1.6.0.
 
 By design, `userMeta:*` records are admin-owned. Every learner-facing
 path that touches the user's own data excludes them — `/v1/sync` bulk GET
@@ -85,7 +85,7 @@ Allows a plugin to declare public external-auth metadata, verify its own provide
 
 Required when `extensionPoints.authProvider` is set. A visible provider also declares `ui.slot.publicAuthProvider`. Public browser configuration must be explicitly allowlisted through `authProvider.publicSettings`; undeclared, object-valued, and `writeOnly` keys are rejected.
 
-Available since Plugin API 1.4.0.
+Available since Plugin API 1.6.0.
 
 ### `lessonEnrichment`
 

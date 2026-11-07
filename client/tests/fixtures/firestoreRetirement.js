@@ -44,7 +44,7 @@ async function loadClient(provider = 'google-auth') {
   // Execute the real plugin exchange and core auth/storage/sync graph. Any
   // dynamic provider SDK or Firestore import is an explicit test failure.
   const urls = [
-    ...['auth.js', 'storage.js', 'sync.js', 'clientCompatibility.js', 'saveObservability.js']
+    ...['auth.js', 'authCoordination.js', 'storage.js', 'sync.js', 'clientCompatibility.js', 'saveObservability.js']
       .map(file => new URL(`../../js/${file}`, import.meta.url)),
     new URL('../../../plugins/google-auth/client/exchange.js', import.meta.url),
   ];

@@ -28,13 +28,14 @@ export function setDocumentClientForTests(documentClient) {
 const db = {
   // ── Users ──
 
-  async createUser({ userId, email, passwordHash, name, username, userGroup, role, slackUserId, customFields }) {
+  async createUser({ userId, email, passwordHash, name, firstName, lastName, nameSource, username, userGroup, role, slackUserId, customFields }) {
     const now = new Date().toISOString();
     const item = {
       userId, email: email.toLowerCase(), username: username || null, passwordHash, name,
       userGroup: userGroup || null,
       role, createdAt: now, updatedAt: now,
     };
+    if (firstName !== undefined) Object.assign(item, { firstName, lastName: lastName || '', nameSource: nameSource || 'user' });
     if (slackUserId) item.slackUserId = slackUserId;
     if (customFields && Object.keys(customFields).length > 0) item.customFields = customFields;
     await doc.send(new PutCommand({
@@ -90,6 +91,44 @@ const db = {
     }));
   },
 
+  // Compare the complete prior profile while updating only its attributes.
+  // attribute_exists prevents UpdateItem from recreating a deleted account.
+  async updateUserProfileIf(userId, expected, updates) {
+    const keys = Object.keys(updates);
+    if (!keys.length || keys.some(key => !['userGroup', 'customFields'].includes(key))) throw new Error('Invalid profile updates');
+    const names = { '#id': 'userId', '#group': 'userGroup', '#fields': 'customFields', '#updatedAt': 'updatedAt' };
+    const values = { ':now': new Date().toISOString() };
+    const conditions = ['attribute_exists(#id)'];
+    for (const [key, alias, valueAlias] of [['userGroup', '#group', ':expectedGroup'], ['customFields', '#fields', ':expectedFields']]) {
+      if (Object.hasOwn(expected, key)) {
+        conditions.push(`${alias} = ${valueAlias}`);
+        values[valueAlias] = expected[key];
+      } else conditions.push(`attribute_not_exists(${alias})`);
+    }
+    const assignments = [];
+    if (Object.hasOwn(updates, 'userGroup')) {
+      assignments.push('#group = :group');
+      values[':group'] = updates.userGroup;
+    }
+    if (Object.hasOwn(updates, 'customFields')) {
+      assignments.push('#fields = :fields');
+      values[':fields'] = updates.customFields;
+    }
+    assignments.push('#updatedAt = :now');
+    try {
+      await doc.send(new UpdateCommand({
+        TableName: USERS_TABLE, Key: { userId },
+        UpdateExpression: `SET ${assignments.join(', ')}`,
+        ConditionExpression: conditions.join(' AND '),
+        ExpressionAttributeNames: names, ExpressionAttributeValues: values,
+      }));
+      return true;
+    } catch (error) {
+      if (error.name === 'ConditionalCheckFailedException') return false;
+      throw error;
+    }
+  },
+
   async deleteUser(userId) {
     await doc.send(new DeleteCommand({
       TableName: USERS_TABLE,
@@ -137,30 +176,57 @@ const db = {
     });
   },
 
-  async listUsers() {
-    const items = [];
-    let lastKey;
-    do {
-      const result = await doc.send(new ScanCommand({
+  // Migration helper: change a user's role only if it still holds `from`.
+  // Deliberately leaves updatedAt alone (a data migration, not a profile
+  // edit). Returns true if it changed the record.
+  async setUserRoleIf(userId, from, to) {
+    try {
+      await doc.send(new UpdateCommand({
         TableName: USERS_TABLE,
-        FilterExpression: '#r = :role',
+        Key: { userId },
+        UpdateExpression: 'SET #r = :to',
+        ConditionExpression: '#r = :from',
         ExpressionAttributeNames: { '#r': 'role' },
-        ExpressionAttributeValues: { ':role': 'user' },
-        ExclusiveStartKey: lastKey,
+        ExpressionAttributeValues: { ':from': from, ':to': to },
       }));
-      items.push(...result.Items);
-      lastKey = result.LastEvaluatedKey;
-    } while (lastKey);
-    return items;
+      return true;
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') return false;
+      throw err;
+    }
   },
 
-  async listAllUsers() {
+  // Migration helper: set the inferred name split (#402) only while `name` is
+  // still `expectedName` and no split exists yet. Leaves updatedAt alone.
+  async setUserNameSplitIf(userId, expectedName, { firstName, lastName, nameSource }) {
+    try {
+      await doc.send(new UpdateCommand({
+        TableName: USERS_TABLE,
+        Key: { userId },
+        UpdateExpression: 'SET #f = :f, #l = :l, #s = :s',
+        ConditionExpression: '#n = :n AND attribute_not_exists(#f)',
+        ExpressionAttributeNames: { '#f': 'firstName', '#l': 'lastName', '#s': 'nameSource', '#n': 'name' },
+        ExpressionAttributeValues: { ':f': firstName, ':l': lastName, ':s': nameSource, ':n': expectedName },
+      }));
+      return true;
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') return false;
+      throw err;
+    }
+  },
+
+  async listUsers() {
+    return (await this.listAllUsers()).filter(user => ['user', 'learner'].includes(user.role));
+  },
+
+  async listAllUsers({ consistentRead = false } = {}) {
     const items = [];
     let lastKey;
     do {
       const result = await doc.send(new ScanCommand({
         TableName: USERS_TABLE,
         ExclusiveStartKey: lastKey,
+        ConsistentRead: consistentRead,
       }));
       items.push(...result.Items);
       lastKey = result.LastEvaluatedKey;
@@ -185,7 +251,7 @@ const db = {
 
   // ── Invites ──
 
-  async createInvite({ inviteToken, email, invitedBy, slackUserId, isLink = false, usageCount = 0, maxUsages = null, profile = null }) {
+  async createInvite({ inviteToken, email, invitedBy, slackUserId, isLink = false, usageCount = 0, maxUsages = null, profile = null, forUserId = null }) {
     const now = new Date();
     const ttl = Math.floor(now.getTime() / 1000) + INVITE_TTL_DAYS * 86400;
     const item = {
@@ -201,6 +267,7 @@ const db = {
     if (slackUserId) item.slackUserId = slackUserId;
     if (maxUsages !== null) item.maxUsages = maxUsages;
     if (profile) item.profile = profile;
+    if (forUserId) item.forUserId = forUserId;
     await doc.send(new PutCommand({
       TableName: INVITES_TABLE,
       Item: item,
@@ -219,6 +286,9 @@ const db = {
         createdAt: new Date().toISOString(),
         profile,
       },
+      // Create-only: the route derives the token from the email, so a second
+      // concurrent join for the same address fails here instead of duplicating.
+      ConditionExpression: 'attribute_not_exists(inviteToken)',
     }));
   },
 
@@ -297,13 +367,14 @@ const db = {
     }));
   },
 
-  async listInvites() {
+  async listInvites({ consistentRead = false } = {}) {
     const items = [];
     let lastKey;
     do {
       const result = await doc.send(new ScanCommand({
         TableName: INVITES_TABLE,
         ExclusiveStartKey: lastKey,
+        ConsistentRead: consistentRead,
       }));
       items.push(...result.Items);
       lastKey = result.LastEvaluatedKey;
@@ -477,7 +548,7 @@ const db = {
     return result.Item || null;
   },
 
-  async getAllSyncData(userId, { excludePrefixes = [] } = {}) {
+  async getAllSyncData(userId, { excludePrefixes = [], consistentRead = false } = {}) {
     const items = [];
     let lastKey;
     // A FilterExpression saves payload, not RCU: DynamoDB still reads the
@@ -492,6 +563,7 @@ const db = {
       const result = await doc.send(new QueryCommand({
         TableName: SYNC_DATA_TABLE,
         KeyConditionExpression: 'userId = :uid',
+        ConsistentRead: consistentRead,
         ...filter,
         ExpressionAttributeValues: { ':uid': userId, ...(filter.ExpressionAttributeValues || {}) },
         ExclusiveStartKey: lastKey,
@@ -653,11 +725,26 @@ const db = {
     return { generation: base.generation, ...Object.fromEntries(names.map(name => [name, { data: desired[name], version: base[name].version + 1 }])) };
   },
 
-  async deleteSyncData(userId, dataKey, { invalidateLesson = false } = {}) {
+  // Create-only write: throws ConditionalCheckFailedException if the record
+  // already exists. putSyncData with expectedVersion 0/undefined is an
+  // unconditional overwrite, so it can't be used for "create if absent"
+  // (migration state, bundled content) where concurrent cold starts race.
+  async createSyncData(userId, dataKey, data) {
+    const now = new Date().toISOString();
+    await doc.send(new PutCommand({
+      TableName: SYNC_DATA_TABLE,
+      Item: { userId, dataKey, data, updatedAt: now, version: 1 },
+      ConditionExpression: 'attribute_not_exists(dataKey)',
+    }));
+    return { version: 1, updatedAt: now };
+  },
+
+  async deleteSyncData(userId, dataKey, { invalidateLesson = false, expectedVersion } = {}) {
+    const condition = expectedVersion === undefined ? {} : { ConditionExpression: 'version = :v', ExpressionAttributeValues: { ':v': expectedVersion } };
     const lessonId = invalidateLesson && /^(?:messages|lessonKB):(.+)$/.exec(dataKey)?.[1];
     if (lessonId) {
       await doc.send(new TransactWriteCommand({ TransactItems: [
-        { Delete: { TableName: SYNC_DATA_TABLE, Key: { userId, dataKey } } },
+        { Delete: { TableName: SYNC_DATA_TABLE, Key: { userId, dataKey }, ...condition } },
         { Put: { TableName: SYNC_DATA_TABLE, Item: {
           userId, dataKey: `lessonGeneration:${lessonId}`, data: randomUUID(), version: 1, updatedAt: new Date().toISOString(),
         } } },
@@ -667,6 +754,7 @@ const db = {
     await doc.send(new DeleteCommand({
       TableName: SYNC_DATA_TABLE,
       Key: { userId, dataKey },
+      ...condition,
     }));
   },
 

@@ -1,3 +1,4 @@
+import { browserEvidence } from './evidence.js';
 // Browser checks for the learner's lesson list (/lessons): where focus goes
 // when paging, the lesson card's focus ring, Start here, and the progress
 // bars' colors. Runs against the isolated learner fixture (SQLite, synthetic
@@ -20,7 +21,7 @@ import { contrastRatio } from '../../src/lib/branding.js';
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const engine = process.env.PLATO_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
 const assets = process.env.PLATO_TEST_CLIENT_DIST || join(root, 'client/dist');
-const evidence = process.env.PLATO_TEST_EVIDENCE;
+const evidence = browserEvidence('lessons-list', engine);
 const password = randomBytes(24).toString('base64url');
 let browser, server, directory, base;
 
@@ -45,6 +46,7 @@ const deferred = () => {
 };
 const progressRequest = /\/v1\/sync\/lessonKB(?:%3A|:)/i;
 const cards = page => page.getByRole('button', { name: /^Open lesson / });
+const cardSnapshots = async locator => Promise.all((await locator.all()).map(card => card.ariaSnapshot()));
 const refresh = async page => {
   const catalog = page.waitForResponse(response => new URL(response.url()).pathname === '/v1/lessons');
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -89,7 +91,7 @@ const assertVisible = (colors, where) => {
   assert.ok(contrastRatio(colors.fill, colors.track) >= 3, `${where}: fill ${colors.fill} on ${colors.track}`);
 };
 
-describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
+describe(`lesson list (${engine})`, { timeout: 240000 }, () => {
   before(async () => {
     assert.ok(existsSync(join(assets, 'index.html')), 'Build the client before browser tests');
     if (evidence) await mkdir(evidence, { recursive: true });
@@ -163,9 +165,10 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
       const control = document.activeElement;
       const card = control.closest('[data-slot=card]');
       const cardStyle = getComputedStyle(card);
-      return { control: control.textContent.trim().slice(0, 12), button: getComputedStyle(control).outlineStyle,
+      return { control: control.querySelector('span[dir=auto]')?.textContent.trim().slice(0, 12) ?? control.textContent.trim().slice(0, 12), button: getComputedStyle(control).outlineStyle,
         card: cardStyle.outlineStyle === 'none' ? 'none' : `${cardStyle.outlineStyle} ${cardStyle.outlineWidth}` };
     });
+    // Learner a's lessons in progress lead the whole list (All statuses).
     assert.deepEqual(await ring(), { control: 'Give constru', button: 'none', card: 'solid 3px' });
     // View outline, inside the same card, keeps its own ring.
     await page.keyboard.press('Tab');
@@ -173,15 +176,34 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await context.close();
   });
 
+  it('leads the whole list with lessons in progress, ahead of the course that sorts first', async () => {
+    const { context, page } = await signIn('a');
+    try {
+      // Getting Started sorts first, but learner a's 13 lessons in progress
+      // lead: twelve fill page one, the thirteenth opens page two.
+      const inProgress = page.getByRole('list', { name: 'Lessons in progress' });
+      assert.equal(await inProgress.getByRole('button', { name: /^Open lesson / }).count(), 12);
+      assert.equal(await cards(page).count(), 12);
+      assert.equal(await page.getByRole('heading', { name: 'Getting Started with plato', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Next page', exact: true }).click();
+      await inProgress.getByRole('button', { name: /^Open lesson Practice giving thoughtful/ }).waitFor();
+      assert.deepEqual((await page.getByRole('heading', { level: 2 }).allTextContents()).slice(0, 2), ['In progress', 'Getting Started with plato']);
+      // A status filter keeps plain hierarchy order and grouping.
+      await page.locator('#status-filter').selectOption('in-progress');
+      await page.getByRole('list', { name: 'Lessons in progress' }).waitFor({ state: 'detached' });
+      assert.match(await cards(page).first().getAttribute('aria-label') ?? await cards(page).first().textContent(), /Give constructive feedback/);
+    } finally { await context.close(); }
+  });
+
   it('marks Start here on the first lesson only for a learner who has started nothing', async () => {
     const fresh = await signIn('admin');
     const cards = fresh.page.getByRole('button', { name: /^Open lesson / });
-    assert.match(await cards.first().getAttribute('aria-label'), /\. Not started\. Start here\.$/);
-    assert.equal(await fresh.page.getByRole('button', { name: /Start here\.$/ }).count(), 1);
+    assert.match(await cards.first().ariaSnapshot(), /Start here\.[\s\S]*Not started/);
+    assert.equal(await fresh.page.getByRole('button', { name: /Start here\./ }).count(), 1);
     await fresh.context.close();
 
     const returning = await signIn('a');
-    assert.equal(await returning.page.getByRole('button', { name: /Start here\.$/ }).count(), 0);
+    assert.equal(await returning.page.getByRole('button', { name: /Start here\./ }).count(), 0);
     await returning.context.close();
   });
 
@@ -203,14 +225,14 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await page.getByText('Loading lessons…', { exact: true }).waitFor();
     await screenshot(page, 'progress-loading');
     fallback.resolve();
-    const first = cards(page).first();
+    const first = page.getByRole('button', { name: /^Open lesson Give constructive feedback/ });
     await first.waitFor();
-    assert.match(await first.getAttribute('aria-label'), /^Open lesson Give constructive feedback\. In progress, 30% complete\.$/);
+    assert.match(await first.ariaSnapshot(), /^- button "Open lesson Give constructive feedback[\s\S]*In progress, 30% complete/);
     assert.equal(await page.getByText('Start here', { exact: true }).count(), 0);
     await page.locator('#status-filter').focus();
     await page.keyboard.press('Tab');
     await page.waitForLoadState('networkidle');
-    assert.equal(await first.evaluate(button => button === document.activeElement), true);
+    assert.equal(await cards(page).first().evaluate(button => button === document.activeElement), true);
     await screenshot(page, 'progress-recovered');
   });
 
@@ -229,9 +251,10 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     assert.equal(await page.getByText('Start here', { exact: true }).count(), 0);
     failing = false;
     await page.getByRole('button', { name: 'Try again', exact: true }).click();
-    await page.getByRole('list', { name: 'Lessons in progress' }).waitFor();
+    const recovered = page.getByRole('button', { name: /^Open lesson Give constructive feedback/ });
+    await recovered.waitFor();
     assert.equal(await page.getByRole('alert').count(), 0);
-    assert.match(await cards(page).first().getAttribute('aria-label'), /In progress, 30% complete/);
+    assert.match(await recovered.ariaSnapshot(), /In progress, 30% complete/);
   });
 
   it('keeps loading after an initial catalog failure while retry progress is pending', async t => {
@@ -261,8 +284,9 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await page.getByText('Loading lessons…', { exact: true }).waitFor();
     await screenshot(page, 'catalog-retry-loading');
     fallback.resolve();
-    await cards(page).first().waitFor();
-    assert.match(await cards(page).first().getAttribute('aria-label'), /In progress, 30% complete/);
+    const recovered = page.getByRole('button', { name: /^Open lesson Give constructive feedback/ });
+    await recovered.waitFor();
+    assert.match(await recovered.ariaSnapshot(), /In progress, 30% complete/);
     assert.equal(await page.getByRole('alert').count(), 0);
   });
 
@@ -299,9 +323,10 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     });
     t.after(async () => { blocked.resolve(); await context.close(); });
     await page.waitForLoadState('networkidle');
-    assert.equal(await page.getByRole('list', { name: 'Lessons in progress' }).getByRole('button', { name: /^Open lesson / }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: /^Open lesson .*In progress, 30% complete/ }).count(), 1);
     refreshed = true;
     await refresh(page);
+    await page.locator('#status-filter').selectOption('in-progress');
     await page.getByRole('button', { name: /^Open lesson Practice giving thoughtful.* In progress/ }).waitFor({ timeout: 3000 });
     assert.equal(perLessonReads, 0, 'successful bulk sync already knows which lessons have no progress record');
     await screenshot(page, 'fresh-bulk-progress');
@@ -326,22 +351,22 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     });
     t.after(async () => { release.resolve(); await context.close(); });
     await page.waitForLoadState('networkidle');
-    const before = await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
+    const before = await cardSnapshots(cards(page));
     await page.locator('#status-filter').focus();
     await page.keyboard.press('Tab');
     failing = true;
     await refresh(page);
     await reached.promise;
-    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+    assert.deepEqual(await cardSnapshots(cards(page)), before);
     assert.equal(await cards(page).first().evaluate(button => button === document.activeElement), true);
     release.resolve();
     await page.getByRole('alert').filter({ hasText: 'lesson progress' }).waitFor();
-    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+    assert.deepEqual(await cardSnapshots(cards(page)), before);
     assert.equal(await cards(page).first().evaluate(button => button === document.activeElement), true);
     failing = false;
     await page.getByRole('button', { name: 'Try again', exact: true }).click();
     await page.getByRole('alert').waitFor({ state: 'detached' });
-    assert.deepEqual(await cards(page).evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), before);
+    assert.deepEqual(await cardSnapshots(cards(page)), before);
   });
 
   it('does not let a superseded fallback overwrite a successful refresh or drop focus', async t => {
@@ -368,6 +393,7 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await reached.promise;
     refreshed = true;
     await refresh(page);
+    await page.locator('#status-filter').selectOption('in-progress');
     const current = page.getByRole('button', { name: /^Open lesson Practice giving thoughtful.* In progress/ });
     await current.waitFor();
     await current.focus();
@@ -375,7 +401,7 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     await page.waitForLoadState('networkidle');
     assert.equal(fallbackReads, 1, 'cancelled catalog reads stop before the next lesson');
     assert.equal(await current.evaluate(button => button === document.activeElement), true);
-    assert.equal(await cards(page).first().getAttribute('aria-label'), await current.getAttribute('aria-label'));
+    assert.equal(await cards(page).first().ariaSnapshot(), await current.ariaSnapshot());
     assert.equal(await page.getByRole('alert').count(), 0);
   });
 
@@ -398,7 +424,7 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     const aborted = page.waitForEvent('requestfailed', { predicate: request => progressRequest.test(request.url()), timeout: 5000 });
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('plato:lesson-completed', { detail: { lessonId: 'feedback' } })));
     await reached.promise;
-    await cards(page).first().click();
+    await page.getByRole('button', { name: /^Open lesson Give constructive feedback/ }).click();
     await page.waitForURL('**/lessons/feedback');
     const request = await aborted;
     assert.match(request.failure().errorText, /abort|cancel/i);
@@ -428,8 +454,8 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     assert.equal(await cards(page).count(), 0);
     await page.getByText('Loading lessons…', { exact: true }).waitFor();
     release.resolve();
-    await page.getByRole('button', { name: /\. Not started\. Start here\.$/ }).waitFor();
-    assert.equal(await page.getByRole('list', { name: 'Lessons in progress' }).count(), 0);
+    await page.getByRole('button', { name: /Start here\./ }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /In progress,/ }).count(), 0);
   });
 
   it("lines up card titles across a row, each status mark on its title's first line", async () => {
@@ -437,7 +463,7 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     const { context, page } = await signIn('admin');
     const rows = await page.evaluate(() => {
       const byRow = new Map();
-      for (const item of document.querySelectorAll('ul[role=list] > li')) {
+      for (const item of document.querySelectorAll('ul[aria-label] > li')) {
         const title = item.querySelector('.lesson-open span[dir=auto]');
         const mark = title.parentElement.nextElementSibling;
         const box = title.getBoundingClientRect();
@@ -458,12 +484,18 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
   });
 
   it('shows each progress bar whole in both themes, and keeps the bars in forced colors', async () => {
-    const courseBar = page => page.getByRole('progressbar', { name: /progress: 1 of 14 public lessons completed$/ });
-    // A status filter keeps the course grouping, so the course's bar leads.
-    const showInProgress = page => page.locator('#status-filter').selectOption('in-progress');
+    const courseBar = page => page.getByRole('progressbar', { name: 'Getting Started with plato progress: 0 of 3 public lessons completed' });
     const outlineBar = async (page) => {
-      await page.getByRole('button', { name: 'View outline' }).first().click();
+      const open = page.getByRole('button', { name: /^Open lesson Give constructive feedback/ });
+      await page.getByRole('listitem').filter({ has: open }).getByRole('button', { name: 'View outline' }).click();
       return page.getByRole('dialog').getByRole('progressbar', { name: '30% complete' });
+    };
+    // Learner a's lessons in progress fill page one. A status filter keeps
+    // plain course grouping, so the unstarted Getting Started course leads.
+    const showNotStarted = async (page) => {
+      await page.keyboard.press('Escape');
+      await page.getByRole('dialog').waitFor({ state: 'detached' });
+      await page.locator('#status-filter').selectOption('not-started');
     };
 
     for (const theme of ['light', 'dark']) {
@@ -473,9 +505,9 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
         await page.reload();
         await page.getByRole('button', { name: /^Open lesson / }).first().waitFor();
       }
-      await showInProgress(page);
-      assertVisible(await barColors(courseBar(page)), `${theme} course bar`);
       assertVisible(await barColors(await outlineBar(page)), `${theme} outline bar`);
+      await showNotStarted(page);
+      assertVisible(await barColors(courseBar(page)), `${theme} course bar`);
       await context.close();
     }
 
@@ -483,9 +515,9 @@ describe(`lesson list (${engine})`, { timeout: 120000 }, () => {
     // the text color. WebKit has no forced colors mode.
     if (engine === 'webkit') return;
     const { context, page } = await signIn('a', { forcedColors: 'active' });
-    await showInProgress(page);
-    for (const bar of [courseBar(page), await outlineBar(page)]) {
-      const colors = await barColors(bar);
+    const outline = await barColors(await outlineBar(page));
+    await showNotStarted(page);
+    for (const colors of [await barColors(courseBar(page)), outline]) {
       assert.equal(colors.outline, 'solid');
       assert.equal(colors.fill, colors.text);
       assert.notEqual(colors.fill, colors.track);

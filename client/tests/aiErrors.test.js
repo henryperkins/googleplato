@@ -19,7 +19,7 @@ describe('aiErrorMessage', () => {
   it('tells learners the coach is unavailable without technical detail', () => {
     assert.equal(
       aiErrorMessage(serverError('ai_unavailable'), 'coach-reply'),
-      "Your coach can't reply because the AI service is unavailable right now. Try again later, and tell your program admin if this keeps happening. Your message is back in the box.",
+      "Your coach can't reply because the AI service is unavailable right now. Try again later, and tell your program admin if this keeps happening. Your response is retained separately from your newer draft.",
     );
   });
 
@@ -33,7 +33,7 @@ describe('aiErrorMessage', () => {
   it('replaces the empty-content validation text with a next step', () => {
     const message = aiErrorMessage(serverError('empty_message', 400), 'coach-reply');
     assert.doesNotMatch(message, /non-empty content|raw server text/);
-    assert.equal(message, "Your coach couldn't reply because the AI service couldn't process the request. If you attached an image or link, try sending without it. Your message is back in the box.");
+    assert.equal(message, "Your coach couldn't reply because the AI service couldn't process the request. If you attached an image or link, try sending without it. Your response is retained separately from your newer draft.");
   });
 
   it('words retries for the surface the learner is on', () => {
@@ -47,7 +47,7 @@ describe('aiErrorMessage', () => {
   it('covers client-side failures', () => {
     assert.equal(
       aiErrorMessage(new ApiError('empty_response', 'The AI returned an empty reply.'), 'coach-reply'),
-      'Your coach sent an empty reply. Try again. Your message is back in the box.',
+      'Your coach sent an empty reply. Try again. Your response is retained separately from your newer draft.',
     );
     assert.equal(
       aiErrorMessage(new ApiError('parse', 'Failed to parse agent JSON response.'), 'lesson-builder'),
@@ -74,7 +74,7 @@ describe('aiErrorMessage', () => {
     );
     assert.equal(
       aiErrorMessage(new Error('Image is larger than 5 MB'), 'coach-reply'),
-      'Image is larger than 5 MB. Your message is back in the box.',
+      'Image is larger than 5 MB. Your response is retained separately from your newer draft.',
     );
   });
 
@@ -92,4 +92,10 @@ describe('aiErrorKind', () => {
   it('does not mistake programming errors for network failures', () => {
     assert.equal(aiErrorKind(new TypeError("Cannot read properties of undefined (reading 'map')")), 'other');
   });
+});
+
+it('explains a truncated dedicated coach reply and the separate retained response', () => {
+  assert.match(aiErrorMessage({ code: 'coach_response_truncated' }, 'coach-reply'), /cut off/);
+  assert.match(aiErrorMessage({ code: 'coach_response_truncated' }, 'coach-reply'), /retained separately/);
+  assert.doesNotMatch(aiErrorMessage({ code: 'coach_response_truncated' }, 'coach-reply'), /back in the box/);
 });

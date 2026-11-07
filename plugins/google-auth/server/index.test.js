@@ -14,6 +14,7 @@ import { Hono } from 'hono';
 process.env.ADMIN_EMAIL = 'Operator@Example.test';
 const { default: plugin, setFirebaseTokenVerifier } = await import('./index.js');
 const { default: db } = await import('../../../server/src/lib/db.js');
+const { verifyAccessToken } = await import('../../../server/src/lib/jwt.js');
 const { on: onHook } = await import('../../../server/src/lib/plugins/hooks.js');
 
 const future = () => Math.floor(Date.now() / 1000) + 86400;
@@ -110,7 +111,7 @@ describe('Google sign-in with an invitation', () => {
     assert.equal(res.status, 201);
     const data = await res.json();
     assert.equal(data.user.email, 'invited@example.com');
-    assert.equal(data.user.role, 'user');
+    assert.equal(data.user.role, 'learner');
     assert.equal(calls.created.length, 1);
     assert.deepEqual(calls.used, ['inv_email']);
   });
@@ -122,7 +123,7 @@ describe('Google sign-in with an invitation', () => {
       : null);
     const res = await post({ idToken: 'valid_token', inviteToken: 'inv_link' });
     assert.equal(res.status, 201);
-    assert.equal((await res.json()).user.role, 'user');
+    assert.equal((await res.json()).user.role, 'learner');
     assert.deepEqual(calls.linkUses, ['inv_link']);
   });
 
@@ -131,7 +132,31 @@ describe('Google sign-in with an invitation', () => {
     db.getInviteByEmail = async () => ({ inviteToken: 'inv_someone', email: 'someone@example.com', status: 'pending', ttl: future() });
     const res = await post();
     assert.equal(res.status, 201);
-    assert.equal(calls.created[0].role, 'user');
+    assert.equal(calls.created[0].role, 'learner');
+  });
+
+  it('rejects an existing-account invite supplied as a public signup token', async () => {
+    signInAs({ email: 'existing-invite@example.com' });
+    db.getInvite = async token => token === 'inv_existing'
+      ? { inviteToken: token, email: 'existing-invite@example.com', status: 'pending', ttl: future(), forUserId: 'usr_existing' }
+      : null;
+    const res = await post({ idToken: 'valid_token', inviteToken: 'inv_existing' });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'Invalid or expired invite' });
+    assert.deepEqual(calls, { created: [], used: [], deleted: [], linkUses: [], tokens: 0 });
+  });
+
+  it('does not adopt an existing-account invite found by email', async () => {
+    signInAs({ email: 'existing-invite@example.com' });
+    db.getInviteByEmail = async () => ({
+      inviteToken: 'inv_existing', email: 'existing-invite@example.com', status: 'pending', ttl: future(), forUserId: 'usr_existing',
+    });
+    const res = await post();
+    assert.equal(res.status, 403);
+    const body = await res.json();
+    assert.equal(body.code, 'invite_required');
+    assert.equal(body.inviteExpired, false);
+    assert.deepEqual(calls, { created: [], used: [], deleted: [], linkUses: [], tokens: 0 });
   });
 
   it('emits the core userCreated hook used by Slack after persisting the account', async () => {
@@ -145,7 +170,7 @@ describe('Google sign-in with an invitation', () => {
       const res = await post();
       assert.equal(res.status, 201);
       assert.equal(calls.created[0].slackUserId, 'U123');
-      assert.deepEqual(seen, [{ userId: calls.created[0].userId, email: 'slack-linked@example.com', role: 'user' }]);
+      assert.deepEqual(seen, [{ userId: calls.created[0].userId, email: 'slack-linked@example.com', role: 'learner' }]);
     } finally {
       unsubscribe();
     }
@@ -177,7 +202,8 @@ describe('Existing accounts and first-time setup', () => {
       assert.equal(res.status, 200);
       const data = await res.json();
       assert.equal(data.user.userId, `usr_${role}`);
-      assert.equal(data.user.role, role);
+      assert.equal(data.user.role, role === 'user' ? 'learner' : role);
+      assert.equal((await verifyAccessToken(data.accessToken)).role, role === 'user' ? 'learner' : role);
     }
     assert.equal(inviteLookups, 0, 'an existing account never needs an invitation');
     assert.deepEqual(calls.created, []);
@@ -197,6 +223,33 @@ describe('Existing accounts and first-time setup', () => {
     assert.equal(calls.created[0].role, 'admin');
     assert.deepEqual(calls.used, []);
   });
+});
+
+it('preserves an explicitly entered Google name split on setup and invited signup', async () => {
+  signInAs({ email: 'mary@example.test', name: 'Mary Ann Evans' });
+  db.countUsers = async () => 0;
+  db.putSyncData = async () => ({ version: 1 });
+  const setup = await post({ idToken: 'valid_token', firstName: 'Mary Ann', lastName: 'Evans' });
+  assert.equal(setup.status, 201);
+  const setupBody = await setup.json();
+  for (const user of [calls.created[0], setupBody.user]) {
+    assert.deepEqual(
+      [user.firstName, user.lastName, user.name, user.nameSource],
+      ['Mary Ann', 'Evans', 'Mary Ann Evans', 'user'],
+    );
+  }
+  db.countUsers = async () => 1;
+  db.getInviteByEmail = async () => ({ inviteToken: 'inv_mary', email: 'mary@example.test', status: 'pending', ttl: future() });
+  const signup = await post({ idToken: 'valid_token', firstName: 'Mary Ann', lastName: 'Evans' });
+  assert.equal(signup.status, 201);
+  const signupBody = await signup.json();
+  for (const user of [calls.created[1], signupBody.user]) {
+    assert.deepEqual(
+      [user.firstName, user.lastName, user.name, user.nameSource],
+      ['Mary Ann', 'Evans', 'Mary Ann Evans', 'user'],
+    );
+  }
+  assert.equal((await verifyAccessToken(signupBody.accessToken)).role, 'learner');
 });
 
 describe('Firebase token validation', () => {

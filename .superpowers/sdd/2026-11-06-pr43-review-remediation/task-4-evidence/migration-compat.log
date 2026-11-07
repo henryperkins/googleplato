@@ -1,0 +1,52 @@
+{"migration":"a","dryRun":false,"scanned":0,"updated":0,"skipped":0,"errors":0,"logId":"log_1794013021080_2z2nni","timestamp":"2026-11-07T00:57:01.080Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+{"migration":"b","dryRun":false,"scanned":0,"updated":0,"skipped":0,"errors":0,"logId":"log_1794013021081_pay2si","timestamp":"2026-11-07T00:57:01.081Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+✔ DynamoDB migration survives lag and competing runners with strongly read, guarded state (3.413686ms)
+{"migration":"test","dryRun":false,"scanned":0,"updated":0,"skipped":0,"errors":0,"logId":"log_1794013021103_nlt77h","timestamp":"2026-11-07T00:57:01.103Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+✔ migration concurrency with SQLite (2.49454ms)
+{"migration":"test","dryRun":false,"scanned":0,"updated":0,"skipped":0,"errors":0,"logId":"log_1794013021136_hgj53u","timestamp":"2026-11-07T00:57:01.136Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+✔ migration concurrency with PostgreSQL (42.376701ms)
+{"migration":"a","dryRun":false,"scanned":0,"updated":0,"skipped":0,"errors":0,"logId":"log_1794013021088_ibaolg","timestamp":"2026-11-07T00:57:01.088Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+{"migration":"b","dryRun":false,"scanned":0,"updated":0,"skipped":0,"errors":0,"logId":"log_1794013021089_ihscuv","timestamp":"2026-11-07T00:57:01.089Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+{"migration":"once","dryRun":false,"scanned":1,"updated":1,"skipped":0,"errors":0,"logId":"log_1794013021091_gnjlgq","timestamp":"2026-11-07T00:57:01.091Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+{"migration":"flaky","dryRun":false,"scanned":0,"updated":0,"skipped":0,"errors":1,"logId":"log_1794013021091_s6s4dr","timestamp":"2026-11-07T00:57:01.091Z","severity":"ERROR","level":"error","code":"migration_failed","event":"migration_failed"}
+{"migration":"flaky","dryRun":false,"scanned":0,"updated":1,"skipped":0,"errors":0,"logId":"log_1794013021091_o6kaqt","timestamp":"2026-11-07T00:57:01.091Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+{"migration":"boom","dryRun":false,"scanned":0,"updated":0,"skipped":0,"errors":1,"fatal":"kaboom","logId":"log_1794013021092_gow9d3","timestamp":"2026-11-07T00:57:01.092Z","severity":"ERROR","level":"error","code":"migration_failed","event":"migration_failed"}
+{"migration":"next","dryRun":false,"scanned":1,"updated":1,"skipped":0,"errors":0,"logId":"log_1794013021092_nacdq4","timestamp":"2026-11-07T00:57:01.092Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+{"migration":"m","dryRun":false,"scanned":1,"updated":1,"skipped":0,"errors":0,"logId":"log_1794013021093_rrzl4n","timestamp":"2026-11-07T00:57:01.093Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+{"migration":"race","dryRun":false,"scanned":1,"updated":1,"skipped":0,"errors":0,"logId":"log_1794013021093_w03k5p","timestamp":"2026-11-07T00:57:01.093Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+{"migration":"dry","dryRun":true,"scanned":0,"updated":3,"skipped":0,"errors":0,"logId":"log_1794013021094_zsshfj","timestamp":"2026-11-07T00:57:01.094Z","severity":"WARNING","level":"warn","code":"migration_applied","event":"migration_applied"}
+▶ runMigrations
+  ✔ runs pending migrations in order and records them (3.055632ms)
+  ✔ is idempotent: applied migrations never run again (0.536181ms)
+  ✔ a migration with errors is not recorded, so the next cold start retries it (0.612571ms)
+  ✔ a throwing migration counts as an error and does not block later ones (0.598201ms)
+  ✔ skips while another container holds a live lock, and takes over an expired one (0.439753ms)
+  ✔ only one of two concurrent runners wins the lock (0.511451ms)
+  ✔ dry run reports but writes nothing (not even the lock) (0.293716ms)
+✔ runMigrations (7.249845ms)
+▶ incompleteMigrations
+  ✔ is null when everything ran cleanly or nothing was pending (0.236356ms)
+  ✔ names a held or lost lock: nothing ran, so the data is not migrated (0.213707ms)
+  ✔ names migrations that finished with errors (0.201977ms)
+✔ incompleteMigrations (0.879966ms)
+{"budgetMs":50,"logId":"log_1794013021144_gpc7a0","timestamp":"2026-11-07T00:57:01.144Z","severity":"WARNING","level":"warn","code":"migrations_startup_budget_exceeded","event":"migrations_startup_budget_exceeded"}
+{"error":"db down","stack":"Error: db down\n    at Object.getSyncData (file:///home/ubuntu/.codex/worktrees/pr43-units/googleplato/server/tests/lib/migrations.test.js:141:55)\n    at readState (file:///home/ubuntu/.codex/worktrees/pr43-units/googleplato/server/src/lib/migrations.js:207:25)\n    at runMigrations (file:///home/ubuntu/.codex/worktrees/pr43-units/googleplato/server/src/lib/migrations.js:261:31)\n    at runMigrationsBounded (file:///home/ubuntu/.codex/worktrees/pr43-units/googleplato/server/src/lib/migrations.js:336:41)\n    at TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units/googleplato/server/tests/lib/migrations.test.js:142:24)\n    at Test.runInAsyncScope (node:async_hooks:227:14)\n    at Test.run (node:internal/test_runner/test:1402:25)\n    at Suite.processPendingSubtests (node:internal/test_runner/test:974:18)\n    at Test.postRun (node:internal/test_runner/test:1542:19)","logId":"log_1794013021145_e3csst","timestamp":"2026-11-07T00:57:01.145Z","severity":"ERROR","level":"error","code":"migrations_failed","event":"migrations_failed"}
+▶ runMigrationsBounded
+  ✔ returns after the budget even if a migration hangs (49.762334ms)
+  ✔ never throws (0.551492ms)
+✔ runMigrationsBounded (50.497942ms)
+▶ m004_default_program
+  ✔ a retry preserves a unit already listed after a lost unit write (6.660145ms)
+  ✔ leaves unassigned units alone when an admin already made courses (0.147388ms)
+✔ m004_default_program (6.92959ms)
+▶ scripts/migrate.js
+  ✔ --apply fails while another run holds the lock, then applies, then has nothing to do (136.846659ms)
+✔ scripts/migrate.js (137.640646ms)
+ℹ tests 18
+ℹ suites 5
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 215.86744

@@ -23,7 +23,7 @@ const holdHexFocus = event => {
   if (document.activeElement?.id?.endsWith('-hex')) event.preventDefault();
 };
 
-export default function AdminStyles({ initialData, onSaved }) {
+export default function AdminStyles({ readOnly = false, initialData, onSaved }) {
   const [draft, setDraft] = useState(() => stylesFrom(initialData));
   const [saved, setSaved] = useState(draft);
   const [legacyLogo, setLegacyLogo] = useState(Boolean(initialData.logoLegacy));
@@ -241,13 +241,13 @@ export default function AdminStyles({ initialData, onSaved }) {
         <div className="customizer-identity-grid">
           <div className="space-y-1.5">
             <Label htmlFor="classroom-name">Classroom Name</Label>
-            <Input id="classroom-name" type="text" value={draft.classroomName} maxLength={MAX_CLASSROOM_NAME} readOnly={saving}
+            <Input id="classroom-name" type="text" value={draft.classroomName} maxLength={MAX_CLASSROOM_NAME} readOnly={readOnly || saving}
               placeholder="e.g. AI Leaders Academy" onChange={event => change({ classroomName: event.target.value })} aria-describedby="classroom-name-hint" />
             <p id="classroom-name-hint" className="text-xs leading-normal text-muted-foreground max-w-prose">Up to 100 characters, or leave blank for plato. Screen readers use this name for the logo.</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="logo-file">Logo image (optional)</Label>
-            <Input ref={fileInput} id="logo-file" type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" disabled={saving} onMouseDown={holdHexFocus}
+            <Input ref={fileInput} id="logo-file" type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" disabled={readOnly || saving} onMouseDown={holdHexFocus}
               onChange={handleLogoUpload} aria-invalid={logoError ? true : undefined} aria-describedby={logoError ? 'logo-file-error logo-file-hint' : 'logo-file-hint'} />
             <p id="logo-file-hint" className="text-xs leading-normal text-muted-foreground max-w-prose">PNG, JPG, WebP, or SVG up to 5 MiB. Sized to fit the header while keeping proportions and transparency.</p>
             {processingLogo && <p role="status" className="text-sm text-muted-foreground">Preparing logo...</p>}
@@ -266,8 +266,8 @@ export default function AdminStyles({ initialData, onSaved }) {
             {draft.logoBase64 && (
               <div className="flex flex-wrap gap-2 pt-1.5">
                 {blockedOriginal && <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={() => downloadOriginalLogo(draft.logoBase64)}>Download original logo</Button>}
-                {showLegacyNotice && <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={optimizeLogo} disabled={busy} focusableWhenDisabled>Optimize logo</Button>}
-                <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={removeLogo} disabled={saving} focusableWhenDisabled>Remove logo image</Button>
+                {showLegacyNotice && <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={optimizeLogo} disabled={readOnly || busy} focusableWhenDisabled>Optimize logo</Button>}
+                <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={removeLogo} disabled={readOnly || saving} focusableWhenDisabled>Remove logo image</Button>
               </div>
             )}
           </div>
@@ -281,13 +281,13 @@ export default function AdminStyles({ initialData, onSaved }) {
         {paletteSource && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <Button variant="outline" size="sm" onMouseDown={holdHexFocus} onClick={applyLogoColors}
-              disabled={busy || !logoColors.length} focusableWhenDisabled>Use logo colors</Button>
+              disabled={readOnly || busy || !logoColors.length} focusableWhenDisabled>Use logo colors</Button>
             <span className="text-xs leading-normal text-muted-foreground" role="status">
               {!palette ? 'Finding logo colors…' : palette.error ? 'Colors could not be read. You can still choose them below.'
                 : logoColors.length ? `${logoColors.length} logo ${logoColors.length === 1 ? 'color found' : 'colors found'}. Choose individual swatches below to fine-tune.`
                   : 'No clear colors found. Choose colors below or try another logo.'}
             </span>
-            {palette?.error && <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setLogoPalette(null); setPaletteAttempt(value => value + 1); }}>Retry logo colors</Button>}
+            {palette?.error && <Button size="sm" variant="ghost" disabled={readOnly || busy} onClick={() => { setLogoPalette(null); setPaletteAttempt(value => value + 1); }}>Retry logo colors</Button>}
           </div>
         )}
         <div className="customizer-color-grid">
@@ -297,7 +297,7 @@ export default function AdminStyles({ initialData, onSaved }) {
             return (
               <div key={field} className="flex items-start gap-3">
                 <input id={`theme-${field}`} type="color" value={field === 'primary' ? safePrimary : safeAccent}
-                  disabled={saving || matching} onChange={event => changeColor(field, event.target.value)}
+                  disabled={readOnly || saving || matching} onChange={event => changeColor(field, event.target.value)}
                   className="w-11 h-11 shrink-0 rounded-lg border border-border cursor-pointer p-0.5 disabled:cursor-default"
                   aria-label={`${field === 'primary' ? 'Primary' : 'Accent'} color`} aria-describedby={description} />
                 <div className="space-y-1">
@@ -305,13 +305,13 @@ export default function AdminStyles({ initialData, onSaved }) {
                   <p id={`theme-${field}-hint`} className="text-xs leading-normal text-muted-foreground">{field === 'primary' ? 'Header, buttons, badges' : 'Links, focus rings'}</p>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
                     <Input id={`theme-${field}-hex`} type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={7}
-                      value={matching ? draft.primary : draft[field]} readOnly={saving || matching}
+                      value={matching ? draft.primary : draft[field]} readOnly={readOnly || saving || matching}
                       onChange={event => changeColor(field, event.target.value)} onBlur={event => { if (!matching && !saving) commitColor(field, event.target.value); }}
                       aria-label={`${field === 'primary' ? 'Primary' : 'Accent'} color hex code`} aria-invalid={colorErrors[field] ? true : undefined}
                       aria-describedby={description} className={`h-9 w-28 font-mono text-sm tabular-nums ${matching ? 'text-muted-foreground' : ''}`} />
                     {field === 'accent' && (
                       <label className="touch-target inline-flex min-h-9 items-center gap-2 text-sm cursor-pointer select-none">
-                        <input type="checkbox" className="size-4 shrink-0 accent-primary" checked={draft.matchPrimary} disabled={saving}
+                        <input type="checkbox" className="size-4 shrink-0 accent-primary" checked={draft.matchPrimary} disabled={readOnly || saving}
                           onChange={event => changeMatchPrimary(event.target.checked)} />
                         Match primary
                       </label>
@@ -322,7 +322,7 @@ export default function AdminStyles({ initialData, onSaved }) {
                     <div className="flex flex-wrap gap-1 pt-1" role="group" aria-label={`Logo colors for ${field}`}>
                       {logoColors.map(hex => {
                         const selected = hex === (field === 'primary' ? safePrimary : safeAccent);
-                        return <Button key={hex} variant="ghost" className="logo-color-swatch size-11 p-1.5" disabled={busy}
+                        return <Button key={hex} variant="ghost" className="logo-color-swatch size-11 p-1.5" disabled={readOnly || busy}
                           aria-label={`Use ${hex} as ${field}`} aria-pressed={selected} title={hex} onMouseDown={holdHexFocus} onClick={() => applyLogoSwatch(field, hex)}>
                           <span className="size-7 rounded-md border border-input" style={{ backgroundColor: hex }} aria-hidden="true" />
                           {selected && <Check className="logo-color-selected size-3" aria-hidden="true" />}
@@ -400,9 +400,9 @@ export default function AdminStyles({ initialData, onSaved }) {
         </div>
       </section>
       <div className="customizer-actions flex flex-wrap items-center gap-3 border-t border-border pt-4" data-pristine={!dirty && !busy && !styleMessage}>
-        <Button ref={saveButton} onMouseDown={holdHexFocus} onClick={saveStyle} disabled={busy || !dirty} focusableWhenDisabled>{saving ? 'Saving...' : 'Save'}</Button>
-        <Button variant="outline" onMouseDown={holdHexFocus} onClick={() => restore(saved, 'Changes discarded.')} disabled={saving || (!dirty && !processingLogo)} focusableWhenDisabled>Discard changes</Button>
-        <Button variant="ghost" aria-label="Reset to defaults" onMouseDown={holdHexFocus} onClick={() => restore(DEFAULT_STYLES, Object.keys(changedStyles(DEFAULT_STYLES, saved)).length ? 'Defaults restored. Save to apply them.' : 'These are already the defaults.')} disabled={saving} focusableWhenDisabled>
+        <Button ref={saveButton} onMouseDown={holdHexFocus} onClick={saveStyle} disabled={readOnly || busy || !dirty} focusableWhenDisabled>{saving ? 'Saving...' : 'Save'}</Button>
+        <Button variant="outline" onMouseDown={holdHexFocus} onClick={() => restore(saved, 'Changes discarded.')} disabled={readOnly || saving || (!dirty && !processingLogo)} focusableWhenDisabled>Discard changes</Button>
+        <Button variant="ghost" aria-label="Reset to defaults" onMouseDown={holdHexFocus} onClick={() => restore(DEFAULT_STYLES, Object.keys(changedStyles(DEFAULT_STYLES, saved)).length ? 'Defaults restored. Save to apply them.' : 'These are already the defaults.')} disabled={readOnly || saving} focusableWhenDisabled>
           <span className="hidden sm:inline">Reset to defaults</span><span className="sm:hidden">Reset</span>
         </Button>
         <span role="status" aria-live="polite" className={`text-sm ${styleMessage?.type === 'error' ? 'text-destructive' : styleMessage?.type === 'success' ? 'text-success-foreground' : 'text-muted-foreground'}`}>
@@ -418,7 +418,7 @@ export default function AdminStyles({ initialData, onSaved }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Stay here</AlertDialogCancel>
-            <Button disabled={saving} focusableWhenDisabled onClick={() => blocker.proceed?.()}>Leave without saving</Button>
+            <Button disabled={readOnly || saving} focusableWhenDisabled onClick={() => blocker.proceed?.()}>Leave without saving</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

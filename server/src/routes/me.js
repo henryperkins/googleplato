@@ -1,10 +1,15 @@
 import { Hono } from 'hono';
 import db from '../lib/db.js';
+import { normalizeRole } from '../lib/permissions.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { hashPassword } from '../lib/password.js';
 import { generateRefreshToken, hashToken } from '../lib/crypto.js';
 import { signAccessToken } from '../lib/jwt.js';
 import { validateUsername } from './auth.js';
+import { nameFields, readNameInput } from '../lib/names.js';
+import { readNotifyState, setOptOut } from '../lib/notifications.js';
+import { messagesFor, markRead } from '../lib/messages.js';
+import { pendingInviteFor, mergeProfile, acceptInvite, declineInvite } from '../lib/account-invites.js';
 import { pluginRegistry } from '../lib/plugins/registry.js';
 import { listEvents } from '../lib/plugins/hooks.js';
 import { STATIC_CAPABILITIES } from '../lib/plugins/capabilities.js';
@@ -33,9 +38,9 @@ me.get('/v1/me', async (c) => {
     userId: user.userId,
     email: user.email,
     username: user.username,
-    name: user.name,
+    ...nameFields(user),
     userGroup: user.userGroup,
-    role: user.role,
+    role: normalizeRole(user.role),
     customFields: visibleFieldValues(defs, user.customFields),
     createdAt: user.createdAt,
   });
@@ -60,9 +65,14 @@ me.get('/v1/me/fields', async (c) => {
 me.patch('/v1/me', async (c) => {
   const userId = c.get('userId');
   const body = await c.req.json();
-  const allowed = ['name', 'email', 'username', 'group', 'password'];
+  const allowed = ['email', 'username', 'group', 'password'];
   const updates = {};
   let defs = null;
+
+  // firstName / lastName (#402); a lone `name` from an older client is split.
+  const nameInput = readNameInput(body, { current: c.get('user') });
+  if (nameInput.error) return c.json({ error: nameInput.error }, 400);
+  if (nameInput.fields) Object.assign(updates, nameInput.fields);
 
   if (body.customFields !== undefined) {
     defs = await loadFieldDefinitions();
@@ -119,12 +129,68 @@ me.patch('/v1/me', async (c) => {
     userId: updated.userId,
     email: updated.email,
     username: updated.username,
-    name: updated.name,
+    ...nameFields(updated),
     userGroup: updated.userGroup,
-    role: updated.role,
+    role: normalizeRole(updated.role),
     customFields: visibleFieldValues(defs, updated.customFields),
     ...(refreshToken && { session: { accessToken: await signAccessToken(userId, updated.role), refreshToken } }),
   });
+});
+
+// GET/PUT /v1/me/notifications — the learner's email opt-outs (#400):
+// `{ optOut: { nudge?, digest?, messages? } }`, true meaning "don't email me".
+// Stored in the server-only notify:state record.
+me.get('/v1/me/notifications', async (c) => {
+  const { optOut } = await readNotifyState(c.get('userId'));
+  return c.json({ optOut });
+});
+me.put('/v1/me/notifications', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const result = await setOptOut(c.get('userId'), body.optOut);
+  if (result.error) return c.json({ error: result.error }, 400);
+  return c.json(result);
+});
+
+// GET /v1/me/messages — announcements and messages for the bell (#389).
+me.get('/v1/me/messages', async (c) => c.json({ messages: await messagesFor(c.get('user')) }));
+
+// POST /v1/me/messages/read — body { ids }
+me.post('/v1/me/messages/read', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  return c.json(await markRead(c.get('userId'), body.ids));
+});
+
+// GET /v1/me/invite — an invite to this account (#363: the person joined
+// the wait list and an admin invited them), with what accepting would add.
+me.get('/v1/me/invite', async (c) => {
+  const user = c.get('user');
+  const inv = await pendingInviteFor(user);
+  if (!inv) return c.json({ invite: null });
+  const settings = (await db.getSyncData('_system', 'settings'))?.data || {};
+  const { userGroup, fields } = mergeProfile(user, inv.profile, settings);
+  const labels = new Map(getFieldDefinitions(settings).map((d) => [d.id, d.label]));
+  const inviter = inv.invitedBy ? await db.getUserById(inv.invitedBy).catch(() => null) : null;
+  return c.json({
+    invite: {
+      inviteToken: inv.inviteToken,
+      invitedByName: inviter ? nameFields(inviter).name || inviter.username || null : null,
+      userGroup,
+      fields: fields.map((id) => labels.get(id)),
+      createdAt: inv.createdAt,
+    },
+  });
+});
+
+// POST /v1/me/invite/:token/accept — merge the invite's answers into the account
+me.post('/v1/me/invite/:token/accept', async (c) => {
+  const r = await acceptInvite(c.get('user'), c.req.param('token'));
+  return r.error ? c.json({ error: r.error }, r.status) : c.json(r);
+});
+
+// POST /v1/me/invite/:token/decline — discard it; the account is untouched
+me.post('/v1/me/invite/:token/decline', async (c) => {
+  const r = await declineInvite(c.get('user'), c.req.param('token'));
+  return r.error ? c.json({ error: r.error }, r.status) : c.json(r);
 });
 
 // GET /v1/me/export — download all user data as JSON.
@@ -134,7 +200,7 @@ me.patch('/v1/me', async (c) => {
 me.get('/v1/me/export', async (c) => {
   const user = c.get('user');
   const syncItems = (await db.getAllSyncData(user.userId))
-    .filter((item) => !item.dataKey?.startsWith('userMeta:'));
+    .filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('notify:'));
   const defs = await loadFieldDefinitions();
   const syncData = {};
   for (const item of syncItems) {
@@ -145,9 +211,9 @@ me.get('/v1/me/export', async (c) => {
       userId: user.userId,
       email: user.email,
       username: user.username,
-      name: user.name,
+      ...nameFields(user),
       userGroup: user.userGroup,
-      role: user.role,
+      role: normalizeRole(user.role),
       // Exported with labels so the file is readable without the definitions.
       customFields: defs
         .filter((d) => typeof user.customFields?.[d.id] === 'string')
@@ -170,6 +236,13 @@ me.delete('/v1/me', async (c) => {
   const user = c.get('user');
   const userId = user.userId;
 
+  // The last admin can't delete themselves: nobody could run the classroom,
+  // and /v1/auth/setup is closed once any user exists.
+  if (normalizeRole(user.role) === 'admin') {
+    const admins = (await db.listAllUsers()).filter((u) => normalizeRole(u.role) === 'admin').length;
+    if (admins <= 1) return c.json({ error: 'You’re the only admin. Make someone else an admin before deleting your account.' }, 409);
+  }
+
   // Log deletion before destroying data
   await db.createAuditLog({
     action: 'user_deleted',
@@ -182,7 +255,7 @@ me.delete('/v1/me', async (c) => {
   // Emit userDeleted BEFORE the cascade so plugins can read their per-user data
   // (userMeta:<id> records) while it still exists. Hook errors are caught by
   // emit(); they never block the deletion.
-  await pluginRegistry.emit('userDeleted', { userId, email: user.email, role: user.role });
+  await pluginRegistry.emit('userDeleted', { userId, email: user.email, role: normalizeRole(user.role) });
 
   // Delete all sync data (cascades plugin userMeta:* records too) with one
   // bulk delete — never a full read plus one delete per row (PR-8).
@@ -218,7 +291,7 @@ me.get('/v1/plugins/extension-points', (c) => {
       { name: 'adminSettingsPanel', capability: 'ui.slot.adminSettingsPanel', context: 'admin', props: { pluginId: 'string', settings: 'object', onSave: '(next) => Promise<void>' }, location: 'client/src/pages/admin/AdminPlugins.jsx', phase: '1' },
       { name: 'adminUserRowAction', capability: 'ui.slot.adminUserRowAction', context: 'admin', props: { user: 'AdminUser' }, location: 'client/src/pages/admin/AdminUsers.jsx', phase: '1.1' },
       { name: 'adminProfileFields', capability: 'ui.slot.adminProfileFields', context: 'admin', props: { user: 'AdminUser' }, location: 'client/src/pages/admin/AdminUsers.jsx (Edit User card)', phase: '1.1' },
-      { name: 'publicAuthProvider', capability: 'ui.slot.publicAuthProvider', context: 'public', props: { pluginId: 'string', provider: 'PublicAuthProviderDescriptor', surface: "'login' | 'setup' | 'signup'", options: 'object', busy: 'boolean', setBusy: '(busy) => void', beforeStart: '() => boolean | Promise<boolean>', onSession: '(session, pluginId) => Promise<void>', onAdmission: '(admission) => void', onError: '(message, error) => void' }, location: 'client/src/lib/plugins/PublicAuthProviders.jsx (Login, Setup, Signup)', phase: '1.4' },
+      { name: 'publicAuthProvider', capability: 'ui.slot.publicAuthProvider', context: 'public', props: { pluginId: 'string', provider: 'PublicAuthProviderDescriptor', surface: "'login' | 'setup' | 'signup'", options: 'object', busy: 'boolean', setBusy: '(busy) => void', beforeStart: '() => boolean | Promise<boolean>', onSession: '(session, pluginId) => Promise<void>', onAdmission: '(admission) => void', onError: '(message, error) => void' }, location: 'client/src/lib/plugins/PublicAuthProviders.jsx (Login, Setup, Signup)', phase: '1.6' },
     ],
     hooks: {
       coreEmits: listEvents(),

@@ -1,3 +1,5 @@
+import NameFields from '../components/NameFields.jsx';
+import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import usePublicBranding from '../hooks/usePublicBranding.js';
@@ -27,11 +29,19 @@ export default function Waitlist() {
     }
   });
   // From the sign-in page after a Google account without an invitation:
-  // Google's verified email and name start the form.
+  // Google's verified email and firstName start the form.
   const prefill = location.state?.prefill || {};
   const [open, setOpen] = useState(null);
   const [email, setEmail] = useState((typeof prefill.email === 'string' && prefill.email) || savedDraft.email || '');
-  const [name, setName] = useState((typeof prefill.name === 'string' && prefill.name) || savedDraft.name || '');
+  // The prefill (a Google account's name) or a draft saved before first/last
+  // names (#402) can carry only a full `name`: split it, never put it all in
+  // the first-name field.
+  const [initialName] = useState(() => {
+    const fromPrefill = formNameParts(prefill);
+    const fromDraft = formNameParts(savedDraft);
+    return { firstName: fromPrefill.firstName || fromDraft.firstName, lastName: fromPrefill.lastName || fromDraft.lastName };
+  });
+  const [firstName, setFirstName] = useState(initialName.firstName);
   const [group, setGroup] = useState(savedDraft.group || '');
   const [groups, setGroups] = useState([]);
   const [userFields, setUserFields] = useState([]);
@@ -42,7 +52,9 @@ export default function Waitlist() {
   const [done, setDone] = useState(false);
   const [website, setWebsite] = useState(''); // honeypot — see below
   const navigate = useNavigate();
-  const nameRef = useRef(null);
+  const firstNameRef = useRef(null);
+  const lastNameRef = useRef(null);
+  const [lastName, setLastName] = useState(initialName.lastName);
   const emailRef = useRef(null);
   const doneRef = useRef(null);
   const branding = usePublicBranding('Join the wait list');
@@ -55,9 +67,9 @@ export default function Waitlist() {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(WAITLIST_DRAFT_KEY, JSON.stringify({ email, name, group, fieldValues }));
+      sessionStorage.setItem(WAITLIST_DRAFT_KEY, JSON.stringify({ email, firstName, lastName, group, fieldValues }));
     } catch { /* ignore */ }
-  }, [email, name, group, fieldValues]);
+  }, [email, firstName, lastName, group, fieldValues]);
 
   useEffect(() => {
     fetch('/v1/waitlist')
@@ -84,7 +96,7 @@ export default function Waitlist() {
   async function handleSubmit(e) {
     if (e) e.preventDefault();
     const nextErrs = {};
-    if (!name.trim()) nextErrs.name = 'Name is required.';
+    if (!firstName.trim()) nextErrs.firstName = 'First name is required.';
     const emailErr = validateEmail(email);
     if (emailErr) nextErrs.email = emailErr;
     const cfErrs = validateCustomFields(userFields, fieldValues);
@@ -96,8 +108,8 @@ export default function Waitlist() {
 
     if (Object.keys(nextErrs).length > 0) {
       setFieldErrors(nextErrs);
-      if (!name.trim() || !email.trim()) {
-        setError('Name and email are required.');
+      if (!firstName.trim() || !email.trim()) {
+        setError('First name and email are required.');
       } else if (nextErrs.email) {
         setError(nextErrs.email);
       } else if (missing.length) {
@@ -106,7 +118,7 @@ export default function Waitlist() {
       } else if (cfIds.length) {
         setError(cfErrs[cfIds[0]]);
       }
-      if (nextErrs.name) nameRef.current?.focus();
+      if (nextErrs.firstName) firstNameRef.current?.focus();
       else if (nextErrs.email) emailRef.current?.focus();
       else if (cfIds.length) document.getElementById(`waitlist-field-${cfIds[0]}`)?.focus();
       return;
@@ -120,7 +132,7 @@ export default function Waitlist() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: name.trim(),
+          lastName: lastName.trim(), firstName: firstName.trim(),
           email: email.trim(),
           userGroup: group || undefined,
           customFields: userFields.length ? fieldValues : undefined,
@@ -162,32 +174,10 @@ export default function Waitlist() {
               {error}
             </div>
           )}
-          <div className="space-y-2">
-            <Label htmlFor="waitlist-name">Name</Label>
-            <Input
-              id="waitlist-name"
-              ref={nameRef}
-              type="text"
-              enterKeyHint="next"
-              autoComplete="name"
-              value={name}
-              aria-invalid={fieldErrors.name ? true : undefined}
-              aria-describedby={fieldErrors.name ? 'waitlist-name-error' : undefined}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
-              }}
-              onBlur={() => {
-                if (name || fieldErrors.name) {
-                  setFieldErrors(prev => ({ ...prev, name: name.trim() ? '' : 'Name is required.' }));
-                }
-              }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); emailRef.current?.focus(); } }}
-            />
-            {fieldErrors.name && (
-              <p id="waitlist-name-error" className="text-xs text-destructive" role="alert">{fieldErrors.name}</p>
-            )}
-          </div>
+          <NameFields idPrefix="waitlist" value={{ firstName, lastName }} firstNameRef={firstNameRef} lastNameRef={lastNameRef} nextRef={emailRef}
+            errors={fieldErrors} disabled={submitting}
+            onChange={value => { setFirstName(value.firstName); setLastName(value.lastName); if (fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: '' })); }}
+            onBlur={() => { if (firstName || fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: firstName.trim() ? '' : 'First name is required.' })); }} />
           <div className="space-y-2">
             <Label htmlFor="waitlist-email">Email</Label>
             <Input

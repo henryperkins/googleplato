@@ -96,7 +96,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.skip != 'true'
         with:
-          node-version: 20
+          node-version: 24
       - name: Build review context
         # Pre-fetches everything the reviewer needs into a single file so the
         # agent doesn't burn turns rediscovering context with shell tools.
@@ -128,9 +128,9 @@ jobs:
 
           # ── Test output (run once here so the agent doesn't spend turns) ─
           {
-            echo "## Test output (cd server && npm ci && npm test)"
+            echo "## Test output (npm ci && npm run test:server)"
             echo '```'
-            (cd server && npm ci --silent && npm test) 2>&1 | tail -120 || echo "(tests failed — see above)"
+            (npm ci --silent && npm run test:server) 2>&1 | tail -120 || echo "(tests failed — see above)"
             echo '```'
             echo
           } >> "$CTX"
@@ -187,6 +187,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_BEDROCK_ROLE_ARN }}
+          # Names the session so Bedrock logs and CloudTrail show which repo and workflow spent what.
+          role-session-name: plato-code-review
           aws-region: us-east-2
       - uses: anthropics/claude-code-action@v1
         if: steps.guard.outputs.skip != 'true'
@@ -216,9 +218,10 @@ jobs:
 
             Then read CLAUDE.md and REVIEW.md (if present) for project conventions.
 
-            **plato is live.** plato.courses has active users, many mid-lesson
-            as you review. Every merge to `main` auto-deploys to prod. Your review is
-            the last human-free checkpoint before real sessions see this code.
+            **This fork has no actual users.** Its Cloud Run deployment is a
+            development environment. Pushes to `main` still trigger deployment;
+            review data compatibility and release risks without claiming active
+            learners or treating upstream plato.courses as this fork.
 
             ## What to look for
 
@@ -228,11 +231,11 @@ jobs:
             - **Security**: XSS, injection, leaked secrets, auth bypass
             - **Accessibility**: missing aria labels, keyboard traps, broken screen reader support
             - **Missing tests**: server route/lib changes without test coverage
-            - **Live-user impact** (see below — call out even when other checks pass)
+            - **User impact** (see below — call out even when other checks pass)
 
-            ### Live-user impact — call out explicitly in every review
-            Because merges auto-deploy to prod, always surface changes that could
-            affect active learners. Flag any of the following, either as blocking
+            ### User impact — call out explicitly in every review
+            Because main pushes deploy automatically, surface changes to saved
+            content, synthetic sessions and future learner behavior. Flag any of the following, either as blocking
             (when the risk is real and unmitigated) or as a user-impact note on
             an otherwise-clean review:
 

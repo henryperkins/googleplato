@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { isDeepStrictEqual } from 'node:util';
 import db from '../lib/db.js';
+import { resolveReadUserId } from '../lib/view-as.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { clientCompatibility, requireCurrentClient } from '../middleware/clientCompatibility.js';
 import { isPublicLessonRecord } from '../lib/lesson-visibility.js';
@@ -27,13 +28,6 @@ sync.get('/v1/sync/status', (c) => {
 });
 
 const VALID_DATA_KEYS = /^(profile|profileSummary|preferences|work|progress:.+|courseProgress:.+|lessonKB:.+|activities:.+|activityKBs:.+|drafts:.+|messages:.+|screenshot:.+|lessons:.+|onboardingComplete)$/;
-
-// Keep user record name in sync with extension preferences
-async function syncNameIfNeeded(userId, dataKey, data) {
-  if (dataKey === 'preferences' && data?.name) {
-    await db.updateUser(userId, { name: data.name });
-  }
-}
 
 function validateDataKey(dataKey) {
   return typeof dataKey === 'string' && dataKey.length <= 512 && VALID_DATA_KEYS.test(dataKey);
@@ -116,19 +110,6 @@ async function readOldLessonKBStatus(userId, dataKey) {
  * own JWT-derived userId. Writes never honor `asUserId` — callers must
  * reject the request before reaching the DB.
  */
-function resolveReadUserId(c) {
-  const url = new URL(c.req.url);
-  const asUserId = url.searchParams.get('asUserId');
-  if (!asUserId) return { userId: c.get('userId'), impersonating: false };
-  if (c.get('role') !== 'admin') {
-    return { error: c.json({ error: 'Admin access required to read as another user' }, 403) };
-  }
-  if (asUserId.startsWith('_')) {
-    return { error: c.json({ error: 'Server records are not available through user sync' }, 403) };
-  }
-  return { userId: asUserId, impersonating: true };
-}
-
 function rejectWriteIfImpersonating(c) {
   const url = new URL(c.req.url);
   if (url.searchParams.get('asUserId')) {
@@ -144,7 +125,7 @@ function rejectWriteIfImpersonating(c) {
  */
 function estimateSyncDataSize(userId, dataKey, data) {
   const item = { userId, dataKey, data, updatedAt: new Date().toISOString(), version: 1 };
-  return JSON.stringify(item).length;
+  return Buffer.byteLength(JSON.stringify(item), 'utf8');
 }
 
 
@@ -152,7 +133,7 @@ function estimateSyncDataSize(userId, dataKey, data) {
 // Generated turns have a dedicated commit boundary. Retrying this endpoint
 // never runs inference, reapplies coach tags, or overwrites another session.
 sync.get('/v1/sync/lesson-turn/:lessonId', async (c) => {
-  const resolved = resolveReadUserId(c);
+  const resolved = await resolveReadUserId(c);
   if (resolved.error) return resolved.error;
   c.header('Cache-Control', 'no-store');
   return c.json(await db.getLessonState(resolved.userId, c.req.param('lessonId')));
@@ -245,14 +226,14 @@ sync.post('/v1/sync/lesson-turn/:lessonId', async (c) => {
 //   - `lessonGeneration:<lessonId>` — internal reset markers, exposed only
 //     through the consistent lesson-turn snapshot.
 sync.get('/v1/sync', async (c) => {
-  const resolved = resolveReadUserId(c);
+  const resolved = await resolveReadUserId(c);
   if (resolved.error) return resolved.error;
   // The adapter excludes the three families in the query itself, so the
   // large screenshot:* bodies are never read or returned (PR-8).
   const items = await db.getAllSyncData(resolved.userId, {
-    excludePrefixes: ['screenshot:', 'userMeta:', 'lessonGeneration:', 'coachResult:', 'coachAttempt:'],
+    excludePrefixes: ['notify:', 'screenshot:', 'userMeta:', 'lessonGeneration:', 'coachResult:', 'coachAttempt:'],
   });
-  return c.json(items.map((item) => ({
+  return c.json(items.filter(item => !item.dataKey?.startsWith('notify:')).map((item) => ({
     dataKey: item.dataKey,
     data: item.data,
     version: item.version,
@@ -262,7 +243,7 @@ sync.get('/v1/sync', async (c) => {
 
 // GET /v1/sync/:dataKey — get specific item
 sync.get('/v1/sync/:dataKey', async (c) => {
-  const resolved = resolveReadUserId(c);
+  const resolved = await resolveReadUserId(c);
   if (resolved.error) return resolved.error;
   const dataKey = c.req.param('dataKey');
 
@@ -318,6 +299,11 @@ sync.put('/v1/sync/batch', async (c) => {
       results.push({ dataKey: item.dataKey, status: 'error', error: 'Invalid item' });
       continue;
     }
+    const recordSize = estimateSyncDataSize(userId, item.dataKey, item.data);
+    if (recordSize > MAX_SCREENSHOT_RECORD_BYTES) {
+      results.push({ dataKey: item.dataKey, status: 'error', error: item.dataKey.startsWith('screenshot:') ? 'Screenshot too large' : 'Record too large', size: recordSize, limit: MAX_SCREENSHOT_RECORD_BYTES });
+      continue;
+    }
     // Size guard for screenshots (same defense-in-depth as single PUT)
     if (item.dataKey.startsWith('screenshot:')) {
       const existing = await db.getSyncData(userId, item.dataKey);
@@ -340,7 +326,6 @@ sync.put('/v1/sync/batch', async (c) => {
     try {
       const oldStatus = await readOldLessonKBStatus(userId, item.dataKey);
       const result = await db.putSyncData(userId, item.dataKey, item.data, item.version, { strictVersion: true });
-      await syncNameIfNeeded(userId, item.dataKey, item.data);
       await applyActivityEffects(userId, item.dataKey, oldStatus, item.data);
       results.push({ dataKey: item.dataKey, status: 'ok', version: result.version });
     } catch (err) {
@@ -377,6 +362,13 @@ sync.put('/v1/sync/:dataKey', async (c) => {
   if (!validVersion(version)) {
     return c.json({ code: 'sync_validation_failure', error: 'A nonnegative safe integer version is required.' }, 400);
   }
+  const recordSize = estimateSyncDataSize(userId, dataKey, data);
+  if (recordSize > MAX_SCREENSHOT_RECORD_BYTES) {
+    const screenshot = dataKey.startsWith('screenshot:');
+    // observeSyncSave records the 413 once, without data keys or record sizes.
+    return c.json({ error: screenshot ? 'Screenshot is too large' : 'This record is too large to save',
+      code: screenshot ? 'screenshot_too_large' : 'sync_item_too_large', size: recordSize, limit: MAX_SCREENSHOT_RECORD_BYTES }, 413);
+  }
   if (controlledKey(dataKey) && !await legacyImageMigration(userId, dataKey, data)) return c.json({ error: 'Lesson assessment and conversations require a generated turn.' }, 403);
 
   // Defense-in-depth size check: reject items that will exceed DynamoDB's
@@ -400,7 +392,6 @@ sync.put('/v1/sync/:dataKey', async (c) => {
   try {
     const oldStatus = await readOldLessonKBStatus(userId, dataKey);
     const result = await db.putSyncData(userId, dataKey, data, version, { strictVersion: true });
-    await syncNameIfNeeded(userId, dataKey, data);
     await applyActivityEffects(userId, dataKey, oldStatus, data);
     return c.json({ dataKey, version: result.version, updatedAt: result.updatedAt });
   } catch (err) {
@@ -426,7 +417,7 @@ sync.delete('/v1/sync', async (c) => {
   if (reject) return reject;
   const userId = c.get('userId');
   const items = await db.getAllSyncData(userId);
-  const deletable = items.filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('lessonGeneration:'));
+  const deletable = items.filter((item) => !item.dataKey?.startsWith('userMeta:') && !item.dataKey?.startsWith('notify:') && !item.dataKey?.startsWith('lessonGeneration:'));
   // A generated opening may have recovery fragments but no committed lesson
   // records yet. Rotate its reset marker before removing that recovery copy.
   for (const item of deletable) {

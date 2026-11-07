@@ -8,9 +8,12 @@
 
 import { randomBytes } from 'node:crypto';
 import db from './db.js';
+import { settleAdmissionGroupAssignment } from './groups.js';
 import { generateUserId, generateRefreshToken, hashToken } from './crypto.js';
 import { hashPassword } from './password.js';
 import { signAccessToken } from './jwt.js';
+import { normalizeRole } from './permissions.js';
+import { nameFields, readNameInput } from './names.js';
 import { DEFAULT_THEME, seedDefaultContent } from './seed.js';
 import { classroomNameError } from './branding.js';
 import { ADMIN_EMAIL } from '../config.js';
@@ -27,7 +30,8 @@ function isOperatorEmail(email) {
 }
 
 async function issueSession(user, status = 200, extra = {}) {
-  const accessToken = await signAccessToken(user.userId, user.role);
+  const role = normalizeRole(user.role);
+  const accessToken = await signAccessToken(user.userId, role);
   const refreshToken = generateRefreshToken();
   await db.storeRefreshToken(hashToken(refreshToken), user.userId, hashToken(user.passwordHash || ''));
   return response(status, {
@@ -37,8 +41,8 @@ async function issueSession(user, status = 200, extra = {}) {
       userId: user.userId,
       email: user.email,
       username: user.username,
-      name: user.name,
-      role: user.role,
+      ...nameFields(user),
+      role,
     },
     ...extra,
   });
@@ -86,9 +90,11 @@ export async function completeExternalAuth(identity, options = {}) {
       if (usernameError) return response(400, { error: usernameError });
     }
 
+    const nameInput = readNameInput(options.firstName !== undefined ? options : { name: displayName }, { required: true });
+    if (nameInput.error) return response(400, { error: nameInput.error });
     const userId = generateUserId();
     const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
-    const user = { userId, email, username, passwordHash, name: displayName, role: 'admin' };
+    const user = { userId, email, username, passwordHash, ...nameInput.fields, role: 'admin' };
     await db.createUser(user);
     await pluginRegistry.emit('userCreated', { userId, email, role: 'admin' });
 
@@ -126,7 +132,8 @@ export async function completeExternalAuth(identity, options = {}) {
   let inviteExpired = false;
   if (inviteToken) {
     invite = await db.getInvite(inviteToken);
-    if (!invite || invite.status !== 'pending' || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
+    if (!invite || invite.status !== 'pending' || invite.forUserId
+      || (invite.ttl && invite.ttl < Math.floor(Date.now() / 1000))) {
       return response(400, { error: 'Invalid or expired invite' });
     }
     if (invite.email && invite.email.toLowerCase() !== email) {
@@ -134,7 +141,7 @@ export async function completeExternalAuth(identity, options = {}) {
     }
   } else {
     const byEmail = await db.getInviteByEmail(email);
-    if (byEmail && byEmail.status === 'pending') {
+    if (byEmail && byEmail.status === 'pending' && !byEmail.forUserId) {
       if (!byEmail.ttl || byEmail.ttl >= Math.floor(Date.now() / 1000)) invite = byEmail;
       else inviteExpired = true;
     }
@@ -178,11 +185,19 @@ export async function completeExternalAuth(identity, options = {}) {
     customFields = merged.values;
   }
 
+  // Only one of the classroom's groups, as at password signup: broadcasts and
+  // admin filters match groups by name. A provider's choice comes first; a
+  // wait-list group may have been renamed or deleted since the person joined.
   let profileGroup = null;
-  if (profile?.userGroup) {
-    const settings = await db.getSyncData('_system', 'settings');
-    if ((settings?.data?.userGroups || []).includes(profile.userGroup)) profileGroup = profile.userGroup;
+  let chosenGroup = null;
+  if (profile?.userGroup || options.userGroup) {
+    const groups = (await db.getSyncData('_system', 'settings'))?.data?.userGroups || [];
+    if (groups.includes(profile?.userGroup)) profileGroup = profile.userGroup;
+    if (typeof options.userGroup === 'string' && groups.includes(options.userGroup)) chosenGroup = options.userGroup;
   }
+
+  const nameInput = readNameInput(options.firstName !== undefined ? options : { name: displayName }, { required: true });
+  if (nameInput.error) return response(400, { error: nameInput.error });
 
   if (invite?.isLink) {
     try {
@@ -197,20 +212,20 @@ export async function completeExternalAuth(identity, options = {}) {
 
   const userId = generateUserId();
   const passwordHash = await hashPassword(randomBytes(24).toString('hex'));
-  const finalName = displayName || profile?.name || email.split('@')[0];
-  const assignedRole = operator ? 'admin' : 'user';
+  const assignedRole = operator ? 'admin' : 'learner';
   const user = {
     userId,
     email,
     username,
     passwordHash,
-    name: finalName,
-    userGroup: options.userGroup || profileGroup || null,
+    ...nameInput.fields,
+    userGroup: chosenGroup || profileGroup || null,
     role: assignedRole,
     slackUserId: invite?.slackUserId || null,
     customFields,
   };
   await db.createUser(user);
+  await settleAdmissionGroupAssignment(userId);
   await pluginRegistry.emit('userCreated', { userId, email, role: assignedRole });
 
   if (invite?.isLink) {

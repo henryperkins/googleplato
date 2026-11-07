@@ -176,6 +176,31 @@ You have a new error or failure condition. Ask, in order:
 When unsure between A and B, ask: *if this fires once, has someone definitely
 lost something?* Yes → A. No → B.
 
+## Codes added in the launch release
+
+| Code | Level | Tier | Means |
+|---|---|---|---|
+| `migration_applied` | warn | — | a data migration ran (`{ scanned, updated, skipped, errors }`); `errors > 0` is retried next cold start |
+| `migrations_failed`, `migrations_startup_budget_exceeded` | error / warn | B | upstream's bounded startup runner (`runMigrationsBounded`) failed or ran past its 20 s budget. **Not emitted by the fork's startup**: `initializeLaunch` awaits migrations and fails startup instead, so watch for a revision that never becomes ready |
+| `migration_lock_release_failed` | error | B | markers verified but lock release failed; includes owner, lock expiry, version and revision; new pending migrations may wait for lock expiry |
+| `migration_failed` | error | B | one migration finished with item errors (`migration`, counts); it isn't recorded as applied, so it retries on the next start. In the fork that startup also fails, so the revision never becomes ready |
+| `units_repaired` | warn | — | startup restored absent unit ownership or bundled metadata (`repaired`); multiple owners (`ambiguous`) remain for an admin; version conflicts (`conflicted`) retry next start. Order is stored independently and needs no repair (`lib/unit-repair.js`) |
+| `unit_repair_failed` | error | B | that startup repair threw; startup continues and the next start tries again |
+| `unit_orders_reconciled` | warn | — | removed orphaned or incarnation-mismatched order records (`removed`), or preserved concurrently changed records (`conflicted`) |
+| `unit_order_reconcile_failed` | error | B | best-effort unit order cleanup threw; startup continues and next start retries |
+| `job_completed` | warn | — | a background job finished, with its counts |
+| `job_failed`, `job_unknown`, `job_dispatch_failed` | error | B | a background job threw, wasn't registered, or couldn't be invoked |
+| `schedule_check_failed` | error | B | the traffic-driven schedule check (`lib/schedule.js`) threw |
+| `learner_email_failed` | error | B | SES refused a reminder or digest; its claim was released for the next run |
+| `admission_group_dropped` | warn | B | a post-write check cleared a group no longer listed; metadata contains only the stale group name (`group`), with no account identifiers |
+| `admission_group_settle_failed` | warn | B | an admission post-write group check failed or exhausted three profile comparisons; no metadata or exception text; hooks, invite consumption and session issuance continue |
+| `waitlist_confirmation_failed` | error | B | the wait-list confirmation didn't send (the join still succeeded) |
+| `waitlist_removed_email_failed` | error | B | the "removed from the wait list" email didn't send (the entry was still removed) |
+| `ai_stream_failed` | error | B | an AI reply stream failed partway (Bedrock error or the 115 s timeout); the learner sees an error and the turn isn't saved |
+| `ai_invoke_failed` | error | B | a non-streamed AI call failed (background agents: learner profile, unit notes, lesson creation, extractors); the caller gets a 500 |
+| `sync_item_too_large` | — | — | **Not a log code in the fork.** It's the 413 response's `code`; the refusal logs one content-free `sync_validation_failure` (status 413), which log-watch and the Cloud Monitoring alert count as a save failure. See `docs/SAVE_OBSERVABILITY.md` |
+| `email_not_allowlisted` | warn | C | a notification email was skipped by `EMAIL_ALLOWLIST` (expected on non-prod) |
+
 ## How to add a check
 
 ### Step 0 — always: give the error a meaningful `code`

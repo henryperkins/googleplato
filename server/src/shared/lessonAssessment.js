@@ -75,6 +75,14 @@ export function submissionSources({ turnId, text = '', links = [], imageKeys = [
   return retainSources([], sources);
 }
 
+// The checklist and completion gate share exactly the same source predicate.
+export function evidenceIsMet(item, sources = []) {
+  return validEvidence(item, !!item?.objectiveId) && item.status === 'met' && item.sourceIds.length > 0
+    && item.sourceIds.every(id => sources.some(source => source.id === id && source.confirmed === true
+      && (source.available !== false || source.contentUnchanged === true)
+      && (source.kind !== 'link' || !!source.text?.trim())));
+}
+
 export function applyCoachResponseToKB(previous, parsed, { now = Date.now, opening = false, sources = [], submissionId } = {}) {
   const wasCompleted = previous?.status === 'completed';
   const next = { ...previous, insights: boundedInsights(previous?.insights) };
@@ -129,8 +137,7 @@ export function applyCoachResponseToKB(previous, parsed, { now = Date.now, openi
   for (const item of update.evidence) evidence.set(item.objectiveId, { ...item, sourceIds: [...item.sourceIds] });
   next.evidence = [...evidence.values()];
   next.exemplarEvidence = { ...update.exemplarEvidence, sourceIds: [...update.exemplarEvidence.sourceIds] };
-  const confirmed = new Set(next.sources.filter(item => item.confirmed && (item.available !== false || item.contentUnchanged) && (item.kind !== 'link' || item.text?.trim())).map(item => item.id));
-  const met = item => item?.status === 'met' && item.sourceIds.length > 0 && item.sourceIds.every(id => confirmed.has(id));
+  const met = item => evidenceIsMet(item, next.sources);
   const achieved = parsed.progress === 10 && validIds.size > 0
     && [...validIds].every(id => met(evidence.get(id))) && met(next.exemplarEvidence);
   if (parsed.progress === 10 && !achieved) issues.push('completion_evidence_missing');

@@ -15,3 +15,6 @@ output
 data
 client/data
 server/data
+# Beta-RC-232's server/src, extracted for the upgrade gate and rehearsals
+**/.rc232
+**/.rc232-rehearsal-*

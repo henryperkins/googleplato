@@ -1,3 +1,6 @@
+import { Fragment } from 'react';
+import AgentActivity from '../../components/chat/AgentActivity.jsx';
+import { authoringActivity, AUTHORING_READS } from '../../lib/agentActivity.js';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBlocker } from 'react-router-dom';
 import { ChevronDown, X } from 'lucide-react';
@@ -153,7 +156,7 @@ export default function KnowledgeBaseEditor({
           );
           if (cancelled) return;
           const { text, readiness: r } = parseResponse(raw);
-          const msg = { role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE, timestamp: Date.now() };
+          const msg = { role: 'assistant', content: text, msgType: MSG_TYPES.GUIDE, metadata: { agents: authoringActivity('knowledge-base-editor', { before: readinessRef.current, after: r, reads: AUTHORING_READS }) }, timestamp: Date.now() };
           pendingRef.current = { msgs: [msg], r: r ?? (isEditing ? 8 : 1), opening: true };
           setStreamingText(null);
         } catch (e) {
@@ -191,7 +194,7 @@ export default function KnowledgeBaseEditor({
         512
       );
       const { text: respText, readiness: r } = parseResponse(raw);
-      const assistantMsg = { role: 'assistant', content: respText, msgType: MSG_TYPES.GUIDE, timestamp: Date.now() };
+      const assistantMsg = { role: 'assistant', content: respText, msgType: MSG_TYPES.GUIDE, metadata: { agents: authoringActivity('knowledge-base-editor', { before: readinessRef.current, after: r, reads: AUTHORING_READS }) }, timestamp: Date.now() };
       pendingRef.current = { msgs: [assistantMsg], r };
       setStreamingText(null);
     } catch (e) {
@@ -203,6 +206,10 @@ export default function KnowledgeBaseEditor({
   }, [draftMarkdown, initialContent]);
 
   const isBusy = !!busy || previewLoading;
+  // ComposeBar's defaults describe a reply in progress; name any other hold.
+  const [composerHint, composerMessage] = busy === 'saving' || busy === 'saved' ? ['Send when saving finishes', 'Wait for saving to finish, then send.']
+    : !busy && previewLoading ? ['Send when the preview is ready', 'Wait for the preview to finish, then send.']
+      : [];
   const generationBlocked = readiness < 3 || chatMessages.length === 0;
   const unreviewedText = draftMarkdown !== previewMarkdown;
   const saveBlocked = !editor.previewCurrent || editor.saved || !savableKnowledgeBase(previewMarkdown, savedMarkdown);
@@ -280,7 +287,7 @@ export default function KnowledgeBaseEditor({
 
   const renderMessage = (msg, idx) => {
     if (msg.msgType === MSG_TYPES.USER) return <UserMessage key={idx} content={msg.content} />;
-    return <AssistantMessage key={idx} content={msg.content} />;
+    return <Fragment key={idx}><AgentActivity agents={msg.metadata?.agents} /><AssistantMessage content={msg.content} /></Fragment>;
   };
 
   return (
@@ -330,7 +337,8 @@ export default function KnowledgeBaseEditor({
                 {busy === 'starting' && !displayText && <ThinkingSpinner text="Starting..." />}
                 {busy === 'qa' && !displayText && <ThinkingSpinner />}
               </ChatArea>
-              <ComposeBar placeholder="Tell me about your program..." storageKey={storageKey} onSend={handleSend} busy={isBusy} />
+              <ComposeBar placeholder="Tell me about your program..." storageKey={storageKey} onSend={handleSend} busy={isBusy}
+                busyHint={composerHint} busyMessage={composerMessage} />
             </TabsContent>
             <TabsContent value="text" className="knowledge-text-panel space-y-3">
               <Label htmlFor="kb-document-text">Knowledge base text</Label>

@@ -1,6 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, ChevronDown, ExternalLink, House, Palette, Puzzle, Sparkles, Users } from 'lucide-react';
+import { Bell, BookOpen, ChevronDown, ExternalLink, House, Palette, Puzzle, Sparkles, Users } from 'lucide-react';
+import { can, isTester } from '../../lib/permissions.js';
+import { adminPagePermission } from '../../lib/routeTitles.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { adminPageName } from '../../lib/routeTitles.js';
@@ -33,13 +35,14 @@ const NAV_LINKS = [
   { to: '/plato/users', label: 'Users', Icon: Users },
   { to: '/plato/customizer', label: 'Customizer', Icon: Palette },
   { to: '/plato/ai', label: 'AI Settings', Icon: Sparkles },
+  { to: '/plato/notifications', label: 'Notifications', Icon: Bell },
   { to: '/plato/plugins', label: 'Plugins', Icon: Puzzle },
 ];
 
 const SOURCE_URL = 'https://github.com/1111philo/plato';
 
-function NavItems() {
-  return NAV_LINKS.map(({ to, label, end }) => (
+function NavItems({ user }) {
+  return NAV_LINKS.filter(link => can(user, adminPagePermission(link.to))).map(({ to, label, end }) => (
     <NavLink
       key={to}
       to={to}
@@ -173,7 +176,7 @@ export default function AdminLayout() {
         </div>
 
         <nav className="flex flex-col flex-1 gap-0.5 px-2" aria-label="Admin navigation">
-          <NavItems />
+          <NavItems user={user} />
         </nav>
 
         <div className="flex flex-col gap-2 px-4 py-3 mt-auto">
@@ -213,7 +216,8 @@ export default function AdminLayout() {
         tabIndex={-1}
         className="admin-main min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] lg:ml-56 lg:overflow-visible"
       >
-        <div className="min-w-0 max-w-4xl has-[.lesson-editor]:max-w-6xl pb-4">
+        <div className="min-w-0 max-w-6xl pb-4">
+          {isTester(user) && <p role="note" className="mb-4 rounded-md border bg-muted px-3 py-2 text-sm">Tester (read-only). You can explore pages and view as a learner.</p>}
           <Outlet />
         </div>
       </main>
@@ -223,7 +227,7 @@ export default function AdminLayout() {
         className="admin-bottom-nav lg:hidden shrink-0 flex flex-wrap items-stretch border-t bg-background pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)]"
         aria-label="Admin navigation"
       >
-        {NAV_LINKS.map(({ to, label, end, Icon }) => (
+        {NAV_LINKS.filter(link => can(user, adminPagePermission(link.to))).map(({ to, label, end, Icon }) => (
           <NavLink
             key={to}
             to={to}

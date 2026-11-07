@@ -66,3 +66,32 @@ test('unavailable storage retains drafts in memory without exposing them to anot
   assert.equal(store.read('a', 'feedback'), 'Retained');
   assert.equal(store.read('b', 'feedback'), '');
 });
+
+test('a submitted note keeps its identity with the owner until the text changes', () => {
+  const storage = disk();
+  const page = createSettingsDraftStore({ storage: () => storage });
+  assert.equal(page.read('a', 'noteAt'), null);
+  page.write('a', 'noteAt', 1730000000000);
+  const later = createSettingsDraftStore({ storage: () => storage });
+  assert.equal(later.read('a', 'noteAt'), 1730000000000, 'survives a reload or a new session');
+  assert.equal(later.read('b', 'noteAt'), null, 'never another owner’s');
+  later.clear('a', 'noteAt');
+  assert.equal(createSettingsDraftStore({ storage: () => storage }).read('a', 'noteAt'), null);
+  storage.setItem('plato_settings_draft_v1:a:noteAt', JSON.stringify({ userId: 'a', kind: 'noteAt', value: 'not a time' }));
+  assert.equal(createSettingsDraftStore({ storage: () => storage }).read('a', 'noteAt'), null);
+});
+
+// Two mounted dialogs share storage, but each completion owns one identity.
+test('an earlier note completion preserves the newer submitted note identity', () => {
+  const storage = disk();
+  const first = createSettingsDraftStore({ storage: () => storage });
+  first.write('a', 'noteAt', 1730000000000);
+  const submittedAt = first.read('a', 'noteAt');
+  first.write('a', 'feedback', 'Second note');
+  first.write('a', 'noteAt', 1730000000001);
+  assert.equal(first.clear('a', 'noteAt', submittedAt), false);
+  const reloaded = createSettingsDraftStore({ storage: () => storage });
+  assert.equal(reloaded.read('a', 'noteAt'), 1730000000001);
+  assert.equal(reloaded.read('a', 'feedback'), 'Second note');
+  assert.equal(reloaded.clear('a', 'noteAt', 1730000000001), true);
+});

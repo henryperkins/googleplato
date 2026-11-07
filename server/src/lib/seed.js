@@ -7,6 +7,10 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import db from './db.js';
+import { ensureBundledLessons } from './bundled-lessons.js';
+import { reconcileUnitOrders } from './unit-order.js';
+import { repairUnits } from './unit-repair.js';
+import { logger } from './logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -55,6 +59,7 @@ async function seedOnce() {
       const content = readFileSync(join(promptsDir, file), 'utf-8');
       const existing = await db.getSyncData('_system', `prompt:${name}`);
       if (!existing || existing.data.content !== content) {
+        // Another container starting at the same time may have just written it.
         await db.putSyncData('_system', `prompt:${name}`, { content, updatedBy: 'setup' }, existing?.version || 0);
         seeded++;
       }
@@ -83,6 +88,7 @@ async function seedOnce() {
         const key = `prompt:plugin:${pluginDirName}:${name}`;
         const existing = await db.getSyncData('_system', key);
         if (!existing || existing.data.content !== content) {
+          // Another container starting at the same time may have just written it.
           await db.putSyncData('_system', key, { content, updatedBy: `plugin:${pluginDirName}` }, existing?.version || 0);
           seeded++;
         }
@@ -90,7 +96,28 @@ async function seedOnce() {
     }
   }
 
-  // Lessons are NOT seeded — admins create their own for their deployment context via the lesson creation tools.
+  const bundled = await ensureBundledLessons({ db });
+  seeded += bundled.installed.length + bundled.updated.length;
+
+  // Units an older release rewrote (a rollback, or an old instance during a
+  // rolling deploy) get their course and marker back.
+  try {
+    const units = await repairUnits({ db });
+    if (units.repaired.length || units.ambiguous.length || units.conflicted.length) logger.warn('units_repaired', units);
+  } catch (err) {
+    logger.error('unit_repair_failed', { error: err?.message });
+  }
+
+  try {
+    const orders = await reconcileUnitOrders({ db });
+    if (orders.removed.length || orders.conflicted.length) logger.warn('unit_orders_reconciled', orders);
+  } catch (err) {
+    logger.error('unit_order_reconcile_failed', { error: err?.message });
+  }
+
+  // Lessons are NOT seeded, with one exception: lessons bundled with plato
+  // (Getting Started, #443) are installed and kept current by
+  // lib/bundled-lessons.js. Everything else, admins create for their context.
   // Knowledge base is NOT seeded — admins create their own via the KB Editor agent.
 
   // Seed default theme colors (no logo — admins set classroom name + optional logo in setup/customizer)

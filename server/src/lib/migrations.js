@@ -1,0 +1,380 @@
+/**
+ * Data migrations: run once per install, automatically, on cold start.
+ *
+ * Every production install upgrades from Beta-RC-232 on its own (self-hosted
+ * ones included), so migrations must be safe without an operator:
+ *
+ * - **Additive & idempotent.** A migration only adds fields or records, or
+ *   changes a value that still holds the exact old value it expects
+ *   (conditional per-item writes). Running it twice changes nothing.
+ * - **Rollback-compatible.** Beta-RC-232 code must keep working on migrated
+ *   data — that's the bar `tests/migrations/upgrade-from-rc232.test.js`
+ *   enforces against the real RC-232 route handlers.
+ * - **Readiness waits for success.** Launch initialization awaits migrations
+ *   and fails startup on errors or a bounded lock wait. An item that fails
+ *   is retried on the next cold start because the migration is not recorded
+ *   as applied until it finishes with zero errors.
+ *
+ * State lives in `_system:migrations` = `{ applied: { [id]: { at, result } },
+ * lock: { owner, until, revision } | null }`. State is read consistently;
+ * acquisition is create-only or strictly versioned. Marker and release writes
+ * reread, fence on owner, and retry one version conflict. Markers are verified
+ * before continuing. Marker faults raise MigrationStateError; a release fault
+ * after verified markers logs a diagnostic and leaves a lock that expires.
+ *
+ * A migration is `{ id, description, run({ db, dryRun, log }) → result }`,
+ * where `result = { scanned, updated, skipped, errors, notes? }`. In dry-run
+ * mode it must not write — it reports what it *would* change.
+ */
+
+import { randomUUID } from 'node:crypto';
+import defaultDb from './db.js';
+import { logger } from './logger.js';
+import { splitName } from './names.js';
+
+const STATE_KEY = 'migrations';
+const LOCK_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * The release migrations must stay rollback-compatible with, pinned by commit:
+ * this fork's remote has no tags, and its main contains the commit, so CI
+ * fetches it by SHA (.github/workflows/test.yml, deploy/cloudrun/cloudbuild.yaml).
+ */
+export const ROLLBACK_BASELINE = Object.freeze({ tag: 'Beta-RC-232', commit: '629c77811985085b88dacabe1514b2f221eb0859' });
+
+// Ordered registry. Append only — never reorder or remove an entry that may
+// already be recorded as applied on some install.
+export const MIGRATIONS = [
+  {
+    // #435: the 'user' role is renamed 'learner'. normalizeRole() already
+    // reads 'user' as learner, so this only tidies stored data; code doesn't
+    // depend on it running. Rollback-safe: Beta-RC-232 treats any non-'admin'
+    // role as a regular user.
+    id: 'm003_role_learner',
+    description: "rename stored role 'user' to 'learner'",
+    async run({ db, dryRun }) {
+      const result = { scanned: 0, updated: 0, skipped: 0, errors: 0 };
+      for (const u of await db.listAllUsers()) {
+        result.scanned++;
+        if (u.role !== 'user') { result.skipped++; continue; }
+        if (dryRun) { result.updated++; continue; }
+        try {
+          if (await db.setUserRoleIf(u.userId, 'user', 'learner')) result.updated++;
+          else result.skipped++;
+        } catch {
+          result.errors++;
+        }
+      }
+      return result;
+    },
+  },
+  {
+    // #408: today's courses become Units under a new Course level. Put every
+    // existing unit in one default Course (admins can rename or split it).
+    // Each unit also gets the name-sorted lesson order it already had, so
+    // nothing reorders. Only `_system` records change; lessons, progress, and
+    // course memory keep their keys. Rollback-safe: Beta-RC-232 ignores
+    // program:* records and the extra unit fields.
+    id: 'm004_default_program',
+    description: 'put existing units (stored course:*) into a default Course',
+    async run({ db, dryRun }) {
+      const result = { scanned: 0, updated: 0, skipped: 0, errors: 0, notes: [] };
+      const items = await db.getAllSyncData('_system');
+      const units = items.filter((i) => i.dataKey.startsWith('course:'));
+      // Our own prog-default doesn't count as an admin-created course. Units
+      // already listed there are reconciled by the runner's verified repair.
+      // Neither does a course plato installed (Getting Started, `bundled`):
+      // startup installs it after migrations, and it isn't an admin's.
+      const hasProgram = items.some((i) => i.dataKey.startsWith('program:') && i.dataKey !== 'program:prog-default' && !i.data?.bundled);
+      const listedUnits = new Set(items.filter((i) => i.dataKey.startsWith('program:')).flatMap((i) => i.data?.unitIds || []));
+      const pending = units.filter((u) => u.data?.programId === undefined && !listedUnits.has(u.dataKey.slice(7)));
+      result.scanned = units.length;
+      if (pending.length === 0) { result.skipped = units.length; return result; }
+      if (hasProgram) {
+        // Courses an admin created already exist. Leave unassigned units for
+        // the admin to place.
+        result.skipped = units.length;
+        result.notes.push(`${pending.length} unit(s) left unassigned: courses already exist`);
+        return result;
+      }
+
+      const sortByName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+      const settings = items.find((i) => i.dataKey === 'settings')?.data || {};
+      const programId = 'prog-default';
+      // Units not in a course yet (the bundled Getting Started unit already is).
+      const unitIds = pending.map((u) => ({ id: u.dataKey.slice(7), name: u.data?.name })).sort(sortByName).map((u) => u.id);
+      const name = (settings.classroomName || settings.logoAlt || '').trim() || 'Main Course';
+      const existing = items.find((i) => i.dataKey === `program:${programId}`);
+      result.notes.push(`${existing ? 'append to' : 'create'} Course "${existing?.data?.name || name}" with ${unitIds.length} unit(s)`);
+      if (!dryRun) {
+        try {
+          if (existing) {
+            await db.putSyncData('_system', `program:${programId}`, {
+              ...existing.data, unitIds: [...(existing.data.unitIds || []), ...unitIds],
+            }, existing.version, { strictVersion: true });
+          } else {
+            await db.createSyncData('_system', `program:${programId}`, {
+              name, description: '', unitIds,
+              createdBy: 'migration', createdByName: 'migration', createdAt: new Date().toISOString(),
+            });
+          }
+        } catch (err) {
+          if (err.name !== 'ConditionalCheckFailedException') throw err;
+          result.errors++;
+          return result;
+        }
+      }
+
+      const lessons = items.filter((i) => i.dataKey.startsWith('lesson:')).map((i) => ({ id: i.dataKey.slice(7), name: i.data?.name, unit: i.data?.course }));
+      for (const u of pending) {
+        const unitId = u.dataKey.slice(7);
+        const lessonIds = u.data?.lessonIds || lessons.filter((l) => l.unit === unitId).sort(sortByName).map((l) => l.id);
+        if (dryRun) { result.updated++; continue; }
+        try {
+          await db.putSyncData('_system', u.dataKey, { ...u.data, programId, lessonIds }, u.version, { strictVersion: true });
+          result.updated++;
+        } catch (err) {
+          // Lost a race with an admin edit: retry on the next cold start.
+          if (err.name === 'ConditionalCheckFailedException') result.errors++;
+          else throw err;
+        }
+      }
+      result.skipped = units.length - pending.length;
+      return result;
+    },
+    async verify({ db }) {
+      // A partial older run can append a unit to a program before its unit
+      // write loses a race. Repair only this missing, uniquely owned link;
+      // explicit unassignment, names and lesson order remain the admin's.
+      const items = await db.getAllSyncData('_system', { consistentRead: true });
+      const programs = items.filter(item => item.dataKey.startsWith('program:'));
+      for (const item of items) {
+        if (!item.dataKey.startsWith('course:') || item.data?.programId !== undefined) continue;
+        const id = item.dataKey.slice('course:'.length);
+        const owners = programs.filter(program => program.data?.unitIds?.includes(id));
+        if (owners.length !== 1) continue;
+        const current = await db.getSyncData('_system', item.dataKey, { consistentRead: true });
+        if (!current || current.data?.programId !== undefined) continue;
+        await db.putSyncData('_system', item.dataKey, {
+          ...current.data, programId: owners[0].dataKey.slice('program:'.length),
+        }, current.version, { strictVersion: true });
+        const verified = await db.getSyncData('_system', item.dataKey, { consistentRead: true });
+        if (verified && verified.data?.programId === undefined) throw new Error(`Unit assignment did not verify: ${id}`);
+      }
+    },
+  },
+  {
+    // #402: first and last names. Infer them from the stored `name` by
+    // splitting at the first whitespace ("Mary Ann Evans" → "Mary" / "Ann
+    // Evans"), marked nameSource 'auto' so the UI can invite a correction.
+    // `name` itself is never rewritten. Conditional on `name` being unchanged
+    // and no split existing, so a person's own edit always wins. Rollback-safe:
+    // Beta-RC-232 reads only `name`.
+    id: 'm005_name_split',
+    description: 'infer firstName/lastName from the stored name',
+    async run({ db, dryRun }) {
+      const result = { scanned: 0, updated: 0, skipped: 0, errors: 0, notes: [] };
+      let multiPart = 0;
+      let empty = 0;
+      for (const u of await db.listAllUsers()) {
+        result.scanned++;
+        if (typeof u.firstName === 'string') { result.skipped++; continue; }
+        const { firstName, lastName, parts } = splitName(u.name);
+        if (!firstName) { empty++; result.skipped++; continue; }
+        if (parts > 2) multiPart++;
+        if (dryRun) { result.updated++; continue; }
+        try {
+          if (await db.setUserNameSplitIf(u.userId, u.name, { firstName, lastName, nameSource: 'auto' })) result.updated++;
+          else result.skipped++;
+        } catch {
+          result.errors++;
+        }
+      }
+      if (multiPart) result.notes.push(`${multiPart} name(s) with 3+ parts: everything after the first word became the last name`);
+      if (empty) result.notes.push(`${empty} user(s) with no name: left without a split`);
+      return result;
+    },
+  },
+  {
+    id: 'm006_unit_order',
+    description: 'copy legacy unit lesson order into incarnation-stamped records',
+    async run({ db, dryRun }) {
+      const result = { scanned: 0, updated: 0, skipped: 0, errors: 0 };
+      const items = await db.getAllSyncData('_system', { consistentRead: true });
+      for (const unit of items.filter(i => i.dataKey.startsWith('course:'))) {
+        result.scanned++;
+        const key = `unitOrder:${unit.dataKey.slice(7)}`;
+        if (!Array.isArray(unit.data?.lessonIds) || items.some(i => i.dataKey === key)) { result.skipped++; continue; }
+        if (dryRun) { result.updated++; continue; }
+        try {
+          await db.createSyncData('_system', key, { lessonIds: unit.data.lessonIds, unitCreatedAt: unit.data.createdAt ?? null });
+          result.updated++;
+        } catch (err) {
+          if (err.name === 'ConditionalCheckFailedException') result.skipped++;
+          else throw err;
+        }
+      }
+      return result;
+    },
+  },
+];
+
+function emptyResult() {
+  return { scanned: 0, updated: 0, skipped: 0, errors: 0 };
+}
+
+async function readState(db) {
+  const item = await db.getSyncData('_system', STATE_KEY, { consistentRead: true });
+  return { item, state: { applied: {}, lock: null, ...(item?.data || {}) } };
+}
+
+// Write state guarded by the version we read; returns false on a lost race.
+async function writeState(db, item, state) {
+  try {
+    if (item) await db.putSyncData('_system', STATE_KEY, state, item.version, { strictVersion: true });
+    else await db.createSyncData('_system', STATE_KEY, state);
+    return true;
+  } catch (err) {
+    if (err.name === 'ConditionalCheckFailedException') return false;
+    throw err;
+  }
+}
+
+export class MigrationStateError extends Error {
+  constructor(message, diagnostics = {}, options = {}) {
+    super(message, options);
+    this.name = 'MigrationStateError';
+    Object.assign(this, diagnostics);
+  }
+}
+
+export function createMigrationOwner() {
+  return `run_${randomUUID()}`;
+}
+
+async function ownedWrite(db, owner, update, { release = false } = {}) {
+  let last;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { item, state } = await readState(db);
+    last = { owner, lock: state.lock, version: item?.version, revision: state.lock?.revision };
+    if (!item || state.lock?.owner !== owner) {
+      if (release) return null;
+      throw new MigrationStateError('Migration lock ownership was lost', last);
+    }
+    try {
+      if (await writeState(db, item, update(state))) return last;
+    } catch (err) {
+      throw new MigrationStateError(`Migration ${release ? 'release' : 'marker'} write failed: ${err.message}`, last, { cause: err });
+    }
+  }
+  throw new MigrationStateError(`Migration ${release ? 'release' : 'marker'} write conflicted`, last);
+}
+
+/** Run every pending migration, verifying each durable marker before continuing. */
+export async function runMigrations({
+  dryRun = false,
+  migrations = MIGRATIONS,
+  db = defaultDb,
+  owner = createMigrationOwner(),
+  now = () => Date.now(),
+} = {}) {
+  let { item, state } = await readState(db);
+  const pending = migrations.filter((m) => !state.applied[m.id]);
+  if (pending.length === 0) return { ran: [], skipped: 'none_pending' };
+  if (dryRun) {
+    const ran = [];
+    for (const m of pending) ran.push({ id: m.id, result: await runOne(m, { db, dryRun: true }) });
+    return { ran, skipped: null };
+  }
+  if (state.lock && state.lock.owner !== owner && state.lock.until > now()) return { ran: [], skipped: 'locked' };
+  state = { ...state, lock: { owner, until: now() + LOCK_TTL_MS, revision: process.env.K_REVISION || process.env.RELEASE_COMMIT || null } };
+  if (!(await writeState(db, item, state))) return { ran: [], skipped: 'lost_race' };
+
+  const ran = [];
+  let lastKnown = { owner, lock: state.lock, version: (item?.version || 0) + 1, revision: state.lock.revision };
+  let failure;
+  try {
+    for (const m of pending) {
+      const result = await runOne(m, { db, dryRun: false });
+      ran.push({ id: m.id, result });
+      if (result.errors === 0) {
+        try {
+          await ownedWrite(db, owner, current => ({ ...current, applied: { ...current.applied, [m.id]: { at: new Date(now()).toISOString(), result } } }));
+          const verified = await readState(db);
+          lastKnown = { owner, lock: verified.state.lock, version: verified.item?.version, revision: verified.state.lock?.revision };
+          if (!verified.state.applied[m.id]) throw new MigrationStateError(`Migration marker did not verify: ${m.id}`, { owner, lock: verified.state.lock, version: verified.item?.version });
+        } catch (err) {
+          throw err instanceof MigrationStateError ? err : new MigrationStateError(`Migration marker failed: ${m.id}`, { owner }, { cause: err });
+        }
+      }
+    }
+  } catch (err) { failure = err; }
+  let staleLock;
+  try {
+    await ownedWrite(db, owner, current => ({ ...current, lock: null }), { release: true });
+  } catch (err) {
+    if (failure) failure.cause = err;
+    else {
+      const lock = err.lock || lastKnown.lock;
+      staleLock = { owner, lock, until: lock?.until, version: err.version ?? lastKnown.version, revision: err.revision ?? lastKnown.revision, error: err.message };
+      logger.error('migration_lock_release_failed', staleLock);
+    }
+  }
+  if (failure) throw failure;
+  return { ran, skipped: null, ...(staleLock ? { staleLock } : {}) };
+}
+
+/**
+ * Why a runMigrations() outcome left work undone, or null when it didn't.
+ * 'none_pending' is success (nothing to do). 'locked' and 'lost_race' are not
+ * failures of a migration, but nothing ran: another process holds (or just
+ * took) the lock, so the data isn't migrated yet. Scripts and rehearsals must
+ * report that, not exit 0. (Startup waits for the other process instead:
+ * lib/launch.js.)
+ */
+export function incompleteMigrations(outcome) {
+  if (!outcome) return 'migrations did not report an outcome';
+  if (outcome.skipped === 'locked') return 'another run holds the migration lock (a stale lock expires after 5 minutes)';
+  if (outcome.skipped === 'lost_race') return 'another run took the migration lock first';
+  if (outcome.skipped && outcome.skipped !== 'none_pending') return `migrations were skipped: ${outcome.skipped}`;
+  const failed = (outcome.ran || []).filter(({ result }) => result.errors > 0).map(({ id }) => id);
+  return failed.length ? `finished with errors: ${failed.join(', ')}` : null;
+}
+
+const STARTUP_BUDGET_MS = 20_000;
+
+/**
+ * Upstream's non-blocking startup entry point: never throws, never waits longer
+ * than the budget. Fork startup doesn't use it; `initializeLaunch`
+ * (lib/launch.js) awaits migrations and fails startup on errors instead. Kept,
+ * with its tests, for upstream parity and ad-hoc callers.
+ */
+export async function runMigrationsBounded({ budgetMs = STARTUP_BUDGET_MS, ...opts } = {}) {
+  let timer;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), budgetMs); });
+  try {
+    const outcome = await Promise.race([runMigrations(opts), timeout]);
+    if (outcome === 'timeout') logger.warn('migrations_startup_budget_exceeded', { budgetMs });
+    return outcome;
+  } catch (err) {
+    logger.error('migrations_failed', { error: err?.message, stack: err?.stack });
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runOne(m, { db, dryRun }) {
+  const log = (event, fields) => logger.warn(event, { migration: m.id, dryRun, ...fields });
+  let result;
+  try {
+    result = { ...emptyResult(), ...(await m.run({ db, dryRun, log })) };
+    if (!dryRun && result.errors === 0 && m.verify) await m.verify({ db });
+  } catch (err) {
+    result = { ...emptyResult(), errors: 1, fatal: err?.message || String(err) };
+  }
+  // Tier 1 (OBSERVABILITY.md): visible in CloudWatch / GET /v1/admin/logs.
+  if (result.errors > 0) logger.error('migration_failed', { migration: m.id, dryRun, ...result });
+  else logger.warn('migration_applied', { migration: m.id, dryRun, ...result });
+  return result;
+}

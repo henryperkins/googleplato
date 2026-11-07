@@ -1,8 +1,9 @@
+import { can } from '../lib/permissions.js';
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { routePageName, adminPageName, publicPageName, pageTitle } from '../lib/routeTitles.js';
+import { routePageName, adminPageName, adminPagePermission, publicPageName, pageTitle } from '../lib/routeTitles.js';
 import { cachedPublicBranding, loadPublicBranding, subscribePublicBranding } from '../lib/publicBranding.js';
 
 export default function ScreenReaderAnnounce() {
@@ -36,8 +37,8 @@ export default function ScreenReaderAnnounce() {
   // The announcer survives auth redirects. Announce only a destination its
   // guard can render, and clear the old message while the destination is unknown.
   const allowed = !loading && (adminName
-    ? loggedIn && user?.role === 'admin'
-    : publicName ? location.pathname === '/privacy' || !loggedIn : loggedIn);
+    ? loggedIn && can(user, adminPagePermission(location.pathname))
+    : publicName ? ['/privacy', '/how-assessment-works'].includes(location.pathname) || (location.pathname === '/signup' && !!new URLSearchParams(location.search).get('token')) || !loggedIn : loggedIn);
   const announcementName = allowed ? adminName || publicName || (!pending && name) : null;
 
   useEffect(() => {

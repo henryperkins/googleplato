@@ -20,6 +20,8 @@ import {
 import ViewAsUserModal from './modals/ViewAsUserModal.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
 import { useTheme } from '../hooks/useTheme.js';
+import { can } from '../lib/permissions.js';
+import NotificationsBell from './NotificationsBell.jsx';
 import ClassroomLogo from './ClassroomLogo.jsx';
 
 export default function AppShell({ children }) {
@@ -29,7 +31,7 @@ export default function AppShell({ children }) {
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [viewAsOpen, setViewAsOpen] = useState(false);
   const [theme, toggleTheme] = useTheme();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = can(user, 'admin.access');
   const impersonating = !!impersonatedUser;
 
   // An expired session signs out; RequireAuth then sends the learner to
@@ -73,7 +75,7 @@ export default function AppShell({ children }) {
               <img src="/assets/logo-white.svg" alt="plato admin" width="48" height="12" className="h-3 w-auto" />
             </a>
             <div className="flex-1" />
-            {!impersonating && (
+            {!impersonating && can(user, 'impersonation.use') && (
               <button
                 type="button"
                 onClick={() => setViewAsOpen(true)}
@@ -134,6 +136,7 @@ export default function AppShell({ children }) {
           <div className="flex min-w-0 items-center gap-1">
             {/* Under 30rem a 414-430 px phone can't fit the button and the
                 learner's name, so the choice moves into the account menu. */}
+            {!impersonating && <NotificationsBell key={`${user?.userId}:${user?.role}`} />}
             <ThemeToggle className="header-control hidden min-[30rem]:flex" />
             <DropdownMenu>
               <DropdownMenuTrigger

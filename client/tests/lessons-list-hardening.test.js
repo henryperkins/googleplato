@@ -42,8 +42,7 @@ describe('author text direction', () => {
     for (const pattern of [
       /<span dir="auto" className="wrap-anywhere text-base font-semibold/,
       /<p dir="auto" className="wrap-anywhere text-sm text-muted-foreground line-clamp-2/,
-      /<h2 dir="auto" className=\{GROUP_HEADING\}>/,
-      /<h2 dir="auto" className=\{`mb-3 \$\{GROUP_HEADING\}`\}>/,
+      /<Heading dir="auto" className=\{GROUP_HEADING\}>/,
       /<bdi title=\{part\.title\}>\{part\.text\}<\/bdi>/,
       /<p dir="auto" className="wrap-anywhere text-xs leading-relaxed text-muted-foreground">/,
       /<DialogTitle dir="auto" /,

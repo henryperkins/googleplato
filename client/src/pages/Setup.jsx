@@ -1,9 +1,12 @@
+import { beginAuthAttempt } from '../../js/authCoordination.js';
+import NameFields from '../components/NameFields.jsx';
+import { formNameParts } from '../../../server/src/shared/names.js';
 import { useState, useEffect, useRef } from 'react';
 import PasswordField from '../components/PasswordField.jsx';
 import PublicAuthProviders from '../lib/plugins/PublicAuthProviders.jsx';
-import { useAuth } from '../contexts/AuthContext.jsx';
+import { useAuth, usePublicAuthSurface } from '../contexts/AuthContext.jsx';
 import PublicFooter from '../components/PublicFooter.jsx';
-import { saveAuthTokens, saveAuthUser, saveAuthProvider } from '../../js/storage.js';
+import { adoptAuthSession } from '../../js/auth.js';
 import { missingFieldsMessage, requestError } from '../lib/authErrors.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +20,7 @@ import { MAX_CLASSROOM_NAME } from '../lib/logoUpload.js';
 const SETUP_DRAFT_KEY = 'plato_setup_draft';
 
 export default function Setup() {
+  usePublicAuthSurface();
   const { adoptExternalSession } = useAuth();
   const [savedDraft] = useState(() => {
     try {
@@ -28,14 +32,19 @@ export default function Setup() {
   });
   const [classroomName, setClassroomName] = useState(savedDraft.classroomName || '');
   const [email, setEmail] = useState(savedDraft.email || '');
-  const [name, setName] = useState(savedDraft.name || '');
+  // A draft saved before first/last names (#402) has only `name`: split it.
+  const [firstName, setFirstName] = useState(() => formNameParts(savedDraft).firstName);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [providerSubmitting, setProviderSubmitting] = useState(false);
-  const nameRef = useRef(null);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const signInRef = useRef(null);
+  const firstNameRef = useRef(null);
+  const lastNameRef = useRef(null);
+  const [lastName, setLastName] = useState(() => formNameParts(savedDraft).lastName);
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmRef = useRef(null);
@@ -44,14 +53,25 @@ export default function Setup() {
     document.title = 'Setup — plato';
   }, []);
 
+  useEffect(() => { if (setupComplete) signInRef.current?.focus(); }, [setupComplete]);
+
+  function storageFailureMessage() {
+    setSetupComplete(true);
+    return 'Setup is complete. Your browser could not save your sign-in. Allow browser storage, then sign in with the admin account you created.';
+  }
+
   useEffect(() => {
     try {
-      sessionStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify({ classroomName, email, name }));
+      sessionStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify({ classroomName, email, firstName, lastName }));
     } catch { /* ignore */ }
-  }, [classroomName, email, name]);
+  }, [classroomName, email, firstName, lastName]);
 
-  async function handleProviderSession(session, provider) {
-    await adoptExternalSession(session, provider);
+  async function handleProviderSession(session, provider, attemptId) {
+    try { await adoptExternalSession(session, provider, attemptId); }
+    catch (error) {
+      if (error.code === 'auth_storage_unavailable') error.message = storageFailureMessage();
+      throw error;
+    }
     try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
     window.location.href = '/plato';
   }
@@ -67,7 +87,7 @@ export default function Setup() {
     if (e) e.preventDefault();
     if (submitting || providerSubmitting) return;
     const nextErrs = {};
-    if (!name.trim()) nextErrs.name = 'Name is required.';
+    if (!firstName.trim()) nextErrs.firstName = 'First name is required.';
     const emailErr = validateEmail(email);
     if (emailErr) nextErrs.email = emailErr;
     if (!password) nextErrs.password = 'Password is required.';
@@ -79,7 +99,7 @@ export default function Setup() {
     if (Object.keys(nextErrs).length > 0) {
       setFieldErrors(nextErrs);
       // The classroom name is optional, so name only the fields that are missing.
-      const missing = [!name.trim() && 'your name', !email.trim() && 'your email', !password && 'a password'].filter(Boolean);
+      const missing = [!firstName.trim() && 'your first name', !email.trim() && 'your email', !password && 'a password'].filter(Boolean);
       if (missing.length) {
         setError(missingFieldsMessage(missing));
       } else if (nextErrs.email) {
@@ -89,7 +109,7 @@ export default function Setup() {
       } else if (nextErrs.confirm) {
         setError(nextErrs.confirm);
       }
-      if (nextErrs.name) nameRef.current?.focus();
+      if (nextErrs.firstName) firstNameRef.current?.focus();
       else if (nextErrs.email) emailRef.current?.focus();
       else if (nextErrs.password) passwordRef.current?.focus();
       else if (nextErrs.confirm) confirmRef.current?.focus();
@@ -100,20 +120,21 @@ export default function Setup() {
     setSubmitting(true);
     setError('');
     try {
+      const attemptId = await beginAuthAttempt();
       const res = await fetch('/v1/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), name: name.trim(), password, classroomName: classroomName.trim() }),
+        body: JSON.stringify({ email: email.trim(), lastName: lastName.trim(), firstName: firstName.trim(), password, classroomName: classroomName.trim() }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "We couldn't finish setup. Try again.");
       try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
-      await saveAuthTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
-      await saveAuthUser(data.user);
-      saveAuthProvider('password');
+      // One guarded write, like every other new session (js/auth.js).
+      await adoptAuthSession(data, 'password', attemptId);
       window.location.href = '/plato';
     } catch (e) {
-      setError(requestError(e, "We couldn't finish setup. Try again."));
+      setError(e.code === 'auth_storage_unavailable' ? storageFailureMessage()
+        : requestError(e, "We couldn't finish setup. Try again."));
     } finally {
       setSubmitting(false);
     }
@@ -124,8 +145,8 @@ export default function Setup() {
       <img src="/assets/logo-white.svg" alt="plato" width="160" height="40" fetchPriority="high" className="h-10 w-auto mb-6" />
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle as="h1" className="text-2xl">Build your classroom</CardTitle>
-          <CardDescription>Name your classroom and create your admin account.</CardDescription>
+          <CardTitle as="h1" className="text-2xl">{setupComplete ? 'Your classroom is ready' : 'Build your classroom'}</CardTitle>
+          <CardDescription>{setupComplete ? 'Your admin account has been created. Continue to sign in.' : 'Name your classroom and create your admin account.'}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
@@ -133,7 +154,9 @@ export default function Setup() {
               {error}
             </div>
           )}
-          <form className="space-y-4" onSubmit={handleSetup} noValidate>
+          {setupComplete ? (
+            <p><a ref={signInRef} href="/login" className="font-medium underline underline-offset-4">Sign in</a></p>
+          ) : <form className="space-y-4" onSubmit={handleSetup} noValidate>
             <div className="space-y-2">
               <Label htmlFor="setup-classroom">Classroom Name</Label>
               <Input
@@ -146,7 +169,7 @@ export default function Setup() {
                 aria-describedby="setup-classroom-hint"
                 value={classroomName}
                 onChange={e => setClassroomName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); nameRef.current?.focus(); } }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); firstNameRef.current?.focus(); } }}
               />
               <p id="setup-classroom-hint" className="text-xs text-muted-foreground">This appears in the header and on login pages. Up to 100 characters; you can change it later.</p>
             </div>
@@ -157,7 +180,8 @@ export default function Setup() {
               context={{
                 options: {
                   classroomName: classroomName.trim() || undefined,
-                  name: name.trim() || undefined,
+                  lastName: lastName.trim(),
+                  firstName: firstName.trim() || undefined,
                 },
                 busy: submitting || providerSubmitting,
                 setBusy: setProviderSubmitting,
@@ -165,33 +189,10 @@ export default function Setup() {
                 onError: setError,
               }}
             />
-            <div className="space-y-2">
-              <Label htmlFor="setup-name">Your Name</Label>
-              <Input
-                id="setup-name"
-                ref={nameRef}
-                type="text"
-                enterKeyHint="next"
-                placeholder="Your name"
-                autoComplete="name"
-                value={name}
-                aria-invalid={fieldErrors.name ? true : undefined}
-                aria-describedby={fieldErrors.name ? 'setup-name-error' : undefined}
-                onChange={e => {
-                  setName(e.target.value);
-                  if (fieldErrors.name) setFieldErrors(prev => ({ ...prev, name: '' }));
-                }}
-                onBlur={() => {
-                  if (name || fieldErrors.name) {
-                    setFieldErrors(prev => ({ ...prev, name: name.trim() ? '' : 'Name is required.' }));
-                  }
-                }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); emailRef.current?.focus(); } }}
-              />
-              {fieldErrors.name && (
-                <p id="setup-name-error" className="text-xs text-destructive" role="alert">{fieldErrors.name}</p>
-              )}
-            </div>
+            <NameFields idPrefix="setup" value={{ firstName, lastName }} firstNameRef={firstNameRef} lastNameRef={lastNameRef} nextRef={emailRef}
+              errors={fieldErrors} disabled={submitting || providerSubmitting}
+              onChange={value => { setFirstName(value.firstName); setLastName(value.lastName); if (fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: '' })); }}
+              onBlur={() => { if (firstName || fieldErrors.firstName) setFieldErrors(prev => ({ ...prev, firstName: firstName.trim() ? '' : 'First name is required.' })); }} />
             <div className="space-y-2">
               <Label htmlFor="setup-email">Email</Label>
               <Input
@@ -284,7 +285,7 @@ export default function Setup() {
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
               <span>{submitting ? 'Creating admin account...' : 'Create admin account'}</span>
             </Button>
-          </form>
+          </form>}
         </CardContent>
       </Card>
       {/* Every route shows this page until setup finishes, so there is no privacy page yet. */}

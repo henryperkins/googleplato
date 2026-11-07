@@ -1,18 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../contexts/AppContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import NameFields from '../components/NameFields.jsx';
+import { formNameParts } from '../../../server/src/shared/names.js';
+import { sendKeyOf, SEND_KEYS, sendHint } from '../lib/chatPrefs.js';
 import PasswordField from '../components/PasswordField.jsx';
 import {
   savePreferences,
   getLearnerProfileSummary,
-  saveLearnerProfile, saveLearnerProfileSummary,
+  getLearnerProfile,
 } from '../../js/storage.js';
-import { updateProfile, getMyFields } from '../../js/auth.js';
+import { updateProfile, getMyFields, authenticatedFetch, captureAuthSession, isAuthSessionCurrent } from '../../js/auth.js';
 import { missingRequired, pickValues, validateCustomField, validateCustomFields } from '../lib/userFields.js';
 import CustomFieldInput from '../components/CustomFieldInput.jsx';
-import * as orchestrator from '../../js/orchestrator.js';
-import { syncInBackground } from '../lib/syncDebounce.js';
-import { ensureProfileExists, mergeProfile } from '../lib/profileQueue.js';
+import { addLearnerNote, removeLearnerNote, MAX_LEARNER_NOTE_LENGTH } from '../lib/profileQueue.js';
 import { aiErrorMessage } from '../lib/aiErrors.js';
 import { assertTurnOwner } from '../../js/turnPersistence.js';
 import { settingsDrafts, enabledSettingsValues } from '../lib/settingsDrafts.js';
@@ -36,7 +37,25 @@ export default function Settings() {
 function AccountSettings() {
   const { state, dispatch } = useApp();
   const { user, refreshUser } = useAuth();
-  const [name, setName] = useState(user?.name || state.preferences?.name || '');
+  // A cached account can predate first/last names (#402), with only `name`;
+  // /v1/me brings the split moments later. The fields follow the account's
+  // name until the person edits them, and never start with a whole name as
+  // the first name (saving it would store that, with no last name).
+  const accountName = formNameParts(user);
+  const accountNameKey = `${accountName.firstName}\n${accountName.lastName}`;
+  const [name, setName] = useState(accountName);
+  const [nameEdited, setNameEdited] = useState(false);
+  const [shownAccountName, setShownAccountName] = useState(accountNameKey);
+  if (shownAccountName !== accountNameKey) {
+    setShownAccountName(accountNameKey);
+    if (!nameEdited) setName(accountName);
+  }
+  const [learnerNotes, setLearnerNotes] = useState([]);
+  const [removingNote, setRemovingNote] = useState(false);
+  const [chatSaving, setChatSaving] = useState(false);
+  const [pendingSendKey, setPendingSendKey] = useState(null);
+  const selectedSendKey = pendingSendKey ?? sendKeyOf(state.preferences);
+  const [chatFeedback, setChatFeedback] = useState(null);
   const [username, setUsername] = useState(user?.username || '');
   const [profileSummary, setProfileSummary] = useState('');
   const [profileFeedback, setProfileFeedback] = useState(null);
@@ -63,8 +82,12 @@ function AccountSettings() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const summary = await getLearnerProfileSummary();
-      if (!cancelled) setProfileSummary(summary);
+      try {
+        const options = { expectedUserId: user?.userId };
+        const [summary, profile] = await Promise.all([getLearnerProfileSummary(options), getLearnerProfile(options)]);
+        await assertTurnOwner(user?.userId);
+        if (!cancelled) { setProfileSummary(summary); setLearnerNotes(profile?.learnerNotes || []); }
+      } catch (error) { if (!cancelled) setProfileFeedback({ type: 'error', message: error.message }); }
     })();
     getMyFields(user?.userId)
       .then((data) => {
@@ -133,17 +156,21 @@ function AccountSettings() {
 
   const handleSaveName = async (e) => {
     e.preventDefault();
-    if (nameSubmitting) return;
+    if (nameSubmitting || chatSaving || !state.preferencesLoaded) return;
     setNameFeedback(null);
     setNameSubmitting(true);
-    const trimmed = name.trim();
-    const prefs = { ...state.preferences, name: trimmed };
+    const session = await captureAuthSession();
+    const firstName = name.firstName.trim(), lastName = name.lastName.trim();
+    const prefs = { ...state.preferences, name: [firstName, lastName].filter(Boolean).join(' ') };
 
     try {
-      await savePreferences(prefs);
+      await updateProfile({ firstName, lastName }, user?.userId);
+      await assertTurnOwner(user?.userId);
+      await savePreferences(prefs, { expectedUserId: user?.userId, authSession: session });
+      if (!await isAuthSessionCurrent(session)) throw new Error('Your preferences were saved for the original session. Reload before continuing.');
+      await assertTurnOwner(user?.userId);
       dispatch({ type: 'SET_PREFERENCES', preferences: prefs });
-      syncInBackground('preferences');
-      await updateProfile({ name: trimmed }, user?.userId);
+      setNameEdited(false);
       await refreshUser();
       setNameFeedback({ type: 'success', message: 'Saved!' });
     } catch (err) {
@@ -183,6 +210,35 @@ function AccountSettings() {
     } finally {
       setPasswordSubmitting(false);
     }
+  };
+
+  const handleRemoveNote = async note => {
+    if (removingNote) return;
+    setRemovingNote(true);
+    setProfileFeedback(null);
+    try {
+      const result = await removeLearnerNote(note, { expectedUserId: user?.userId });
+      await assertTurnOwner(user?.userId);
+      setLearnerNotes(result.profile.learnerNotes || []);
+      setProfileFeedback({ type: 'success', message: 'Note removed. Future profile updates use your remaining notes.' });
+    } catch (error) { setProfileFeedback({ type: 'error', message: error.message }); }
+    finally { setRemovingNote(false); }
+  };
+
+  const handleChatPreference = async sendKey => {
+    if (chatSaving || nameSubmitting || !state.preferencesLoaded) return;
+    setPendingSendKey(sendKey);
+    setChatSaving(true); setChatFeedback(null);
+    try {
+      const session = await captureAuthSession();
+      const preferences = { ...state.preferences, sendKey };
+      await savePreferences(preferences, { expectedUserId: user?.userId, authSession: session });
+      if (!await isAuthSessionCurrent(session)) throw new Error('Your preferences were saved for the original session. Reload before continuing.');
+      await assertTurnOwner(user?.userId);
+      dispatch({ type: 'SET_PREFERENCES', preferences });
+      setChatFeedback({ type: 'success', message: 'Saved.' });
+    } catch (error) { setChatFeedback({ type: 'error', message: error.message }); }
+    finally { setPendingSendKey(null); setChatSaving(false); }
   };
 
   return (
@@ -232,21 +288,8 @@ function AccountSettings() {
           <Separator />
 
           <form className="space-y-3" onSubmit={handleSaveName} noValidate>
-            <div className="space-y-1.5">
-              <Label htmlFor="account-name">Name</Label>
-              <Input
-                id="account-name"
-                type="text"
-                autoComplete="name"
-                enterKeyHint="done"
-                value={name}
-                readOnly={nameSubmitting}
-                aria-invalid={nameFeedback?.type === 'error' ? true : undefined}
-                aria-describedby="name-feedback"
-                onChange={(e) => { setName(e.target.value); setNameFeedback(null); }}
-              />
-            </div>
-            <Button type="submit" disabled={nameSubmitting} focusableWhenDisabled aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
+            <NameFields idPrefix="account" value={name} onChange={value => { setName(value); setNameEdited(true); setNameFeedback(null); }} readOnly={nameSubmitting} inferred={user?.nameSource === 'auto'} />
+            <Button type="submit" disabled={nameSubmitting || chatSaving || !state.preferencesLoaded} focusableWhenDisabled aria-label={nameSubmitting ? 'Saving name' : 'Save name'}>{nameSubmitting ? 'Saving...' : 'Save'}</Button>
             <SettingsFeedback id="name-feedback" feedback={nameFeedback} />
           </form>
 
@@ -373,14 +416,38 @@ function AccountSettings() {
       )}
 
       <Card>
+        <CardHeader><CardTitle><h2>Chat</h2></CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <fieldset disabled={chatSaving || nameSubmitting || !state.preferencesLoaded} className="space-y-2">
+            <legend className="mb-2 text-sm font-medium">Send a message with</legend>
+            {[SEND_KEYS.MOD_ENTER, SEND_KEYS.ENTER].map(key => <label key={key} className="flex items-center gap-2 text-sm">
+              <input type="radio" name="send-key" value={key} checked={selectedSendKey === key} onChange={() => handleChatPreference(key)} />
+              {key === SEND_KEYS.ENTER ? 'Enter (Shift+Enter for a new line)' : sendHint(key).replace(' to send', '')}
+            </label>)}
+          </fieldset>
+          <SettingsFeedback id="chat-feedback" feedback={chatFeedback} />
+        </CardContent>
+      </Card>
+      <EmailPreferences userId={user?.userId} />
+
+      <Card>
         <CardHeader>
           <CardTitle><h2 id="profile-heading">Learner Profile</h2></CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">Updated automatically by the AI as you complete activities.</p>
+          <p className="text-sm text-muted-foreground">Your profile can be updated from demonstrated lesson work and optional learning preferences. Your own notes are kept verbatim.</p>
           <div className="rounded-md bg-muted p-3 text-sm leading-relaxed" aria-labelledby="profile-heading">
             {profileSummary || <em className="text-muted-foreground">No profile yet. Complete an activity to build your profile.</em>}
           </div>
+          {learnerNotes.length > 0 && <div className="space-y-2">
+            <h3 className="text-sm font-medium">Your notes</h3>
+            <ul aria-label="Your notes" className="space-y-2">
+              {learnerNotes.map(note => <li key={`${note.at}:${note.text}`} className="rounded-md border p-3 space-y-2">
+                <p className="text-sm wrap-anywhere">{note.text}</p>
+                <Button size="sm" variant="outline" disabled={removingNote} onClick={() => handleRemoveNote(note)} aria-label={`Remove note: ${note.text}`}>Remove note</Button>
+              </li>)}
+            </ul>
+          </div>}
           <Button variant="outline" onClick={() => setFeedbackOpen(true)}>
             Add Feedback
           </Button>
@@ -392,9 +459,10 @@ function AccountSettings() {
         userId={user?.userId}
         open={feedbackOpen}
         onOpenChange={setFeedbackOpen}
-        onDone={async ({ changed }) => {
-          setProfileSummary(await getLearnerProfileSummary());
-          setProfileFeedback({ type: 'success', message: changed ? 'Your profile has been updated.' : 'Your profile is already up to date.' });
+        onDone={({ profile, summary, modelError }) => {
+          setProfileSummary(summary);
+          setLearnerNotes(profile?.learnerNotes || []);
+          setProfileFeedback({ type: 'success', message: modelError ? 'Your note is saved. The optional profile rewrite was unavailable; your note will be included in future updates.' : 'Your note is saved.' });
         }}
       />
     </div>
@@ -414,6 +482,7 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
   const [text, setText] = useState(() => settingsDrafts.read(userId, 'feedback'));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const noteAt = useRef(null);
 
   const handleSubmit = async () => {
     if (submitting || !text.trim()) return;
@@ -421,28 +490,31 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
     setError('');
     try {
       await assertTurnOwner(userId);
-      const options = { expectedUserId: userId };
-      const profile = await ensureProfileExists('', options);
-      await assertTurnOwner(userId);
-      const result = await orchestrator.updateProfileFromFeedback(profile, text.trim(), {
-        lessonName: 'Settings', activityType: 'feedback', activityGoal: 'User-provided profile feedback',
-      }, { userId });
-      await assertTurnOwner(userId);
-      if (result?.changed !== false) {
-        if (!result?.profile || typeof result.profile !== 'object' || Array.isArray(result.profile)) {
-          throw new Error('The profile update was empty. Your feedback is retained; try again.');
-        }
-        const merged = mergeProfile(profile, result.profile);
-        await saveLearnerProfile(merged, options);
-        if (result.summary) await saveLearnerProfileSummary(result.summary, options);
-      }
+      // The note's identity (its time) is kept with this owner's draft until
+      // the text changes. Submitting the same draft again, here or from a
+      // later session, then finds the note already saved instead of adding a
+      // second copy (withLearnerNote skips a note with the same text and time).
+      noteAt.current ??= settingsDrafts.read(userId, 'noteAt') || Date.now();
+      settingsDrafts.write(userId, 'noteAt', noteAt.current);
+      const submittedAt = noteAt.current;
+      const result = await addLearnerNote(text.trim(), { expectedUserId: userId, at: submittedAt });
       await assertTurnOwner(userId);
       settingsDrafts.clear(userId, 'feedback', text);
+      settingsDrafts.clear(userId, 'noteAt', submittedAt);
       onOpenChange(false);
       setText('');
-      if (onDone) onDone({ changed: result.changed !== false });
+      noteAt.current = null;
+      if (onDone) onDone(result);
     } catch (e) {
-      setError(aiErrorMessage(e, 'profile-feedback'));
+      if (e?.noteSaved) {
+        // Saved before a later step failed (the account changed during the
+        // optional rewrite, say): don't keep it as a draft to submit again.
+        settingsDrafts.clear(userId, 'feedback', text);
+        setText('');
+        setError('Your note was saved, but your profile couldn’t be updated here. Reload to see it.');
+      } else {
+        setError(aiErrorMessage(e, 'profile-feedback'));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -462,11 +534,12 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
           <Textarea
             id="profile-feedback-input"
             rows={4}
+            maxLength={MAX_LEARNER_NOTE_LENGTH}
             placeholder="e.g. I'm a complete beginner. I use a Chromebook and don't have admin access."
             value={text}
             readOnly={submitting}
             aria-describedby="profile-feedback-error"
-            onChange={(e) => { settingsDrafts.write(userId, 'feedback', e.target.value); setText(e.target.value); setError(''); }}
+            onChange={(e) => { settingsDrafts.write(userId, 'feedback', e.target.value); settingsDrafts.clear(userId, 'noteAt'); setText(e.target.value); noteAt.current = null; setError(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSubmit(); } }}
           />
           <p id="profile-feedback-error" className={error ? 'text-sm text-destructive' : 'sr-only'} role="alert">
@@ -482,4 +555,58 @@ function ProfileFeedbackDialog({ open, onOpenChange, onDone, userId }) {
       </DialogContent>
     </Dialog>
   );
+}
+
+const EMAIL_KINDS = [
+  { key: 'nudge', label: 'Reminders to finish a lesson I started' },
+  { key: 'digest', label: 'A weekly summary of my progress and new lessons' },
+  { key: 'messages', label: 'Messages from my classroom' },
+];
+function EmailPreferences({ userId }) {
+  const [optOut, setOptOut] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    authenticatedFetch('/v1/me/notifications', { expectedUserId: userId })
+      .then(async response => {
+        if (!response.ok) throw new Error('Email preferences could not be loaded.');
+        const data = await response.json();
+        await assertTurnOwner(userId);
+        if (!cancelled) { setOptOut(data.optOut || {}); setFeedback(null); }
+      }).catch(error => { if (!cancelled) setFeedback({ type: 'error', message: error.message }); });
+    return () => { cancelled = true; };
+  }, [userId, attempt]);
+  const update = async (key, receive) => {
+    if (saving) return;
+    const before = optOut;
+    setOptOut({ ...optOut, [key]: !receive });
+    setSaving(true); setFeedback(null);
+    try {
+      const response = await authenticatedFetch('/v1/me/notifications', { expectedUserId: userId,
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ optOut: { [key]: !receive } }),
+      });
+      if (!response.ok) throw new Error('Email preference could not be saved. Try again.');
+      const data = await response.json();
+      await assertTurnOwner(userId);
+      setOptOut(data.optOut || { ...optOut, [key]: !receive });
+      setFeedback({ type: 'success', message: 'Saved.' });
+    } catch (error) { setOptOut(before); setFeedback({ type: 'error', message: error.message }); }
+    finally { setSaving(false); }
+  };
+  return <Card>
+    <CardHeader><CardTitle><h2>Email</h2></CardTitle></CardHeader>
+    <CardContent className="space-y-3">
+      <fieldset disabled={!optOut || saving} className="space-y-2">
+        <legend className="mb-2 text-sm font-medium">Email me</legend>
+        {EMAIL_KINDS.map(kind => <label key={kind.key} className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5" checked={!optOut?.[kind.key]} onChange={e => update(kind.key, e.target.checked)} />
+          <span>{kind.label}</span>
+        </label>)}
+      </fieldset>
+      <SettingsFeedback id="email-feedback" feedback={feedback} />
+      {!optOut && feedback && <Button variant="outline" onClick={() => setAttempt(n => n + 1)}>Retry loading email preferences</Button>}
+    </CardContent>
+  </Card>;
 }
