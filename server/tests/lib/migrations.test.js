@@ -5,6 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { runMigrations, runMigrationsBounded, MIGRATIONS, incompleteMigrations } from '../../src/lib/migrations.js';
+import { repairUnits } from '../../src/lib/unit-repair.js';
 
 // In-memory stand-in with the same version semantics as the real backends.
 function fakeDb() {
@@ -155,7 +156,7 @@ describe('m004_default_program', () => {
     return db;
   }
 
-  it('a retry after a lost unit write assigns the rest', async () => {
+  it('a retry preserves a unit already listed after a lost unit write', async () => {
     const db = unitDb();
     const put = db.putSyncData;
     let failOnce = true;
@@ -166,8 +167,12 @@ describe('m004_default_program', () => {
     const first = await m004.run({ db, dryRun: false });
     assert.equal(first.errors, 1);
     const second = await m004.run({ db, dryRun: false });
-    assert.deepEqual([second.errors, second.updated], [0, 1]);
+    assert.deepEqual([second.errors, second.updated], [0, 0]);
+    assert.equal(db.rows.get('_system:course:u2').data.programId, undefined);
+    const beforeRepair = structuredClone(db.rows.get('_system:program:prog-default'));
+    assert.deepEqual((await repairUnits({ db })).repaired, ['u2']);
     for (const id of ['u1', 'u2', 'u3']) assert.equal(db.rows.get(`_system:course:${id}`).data.programId, 'prog-default', id);
+    assert.deepEqual(db.rows.get('_system:program:prog-default'), beforeRepair);
   });
 
   it('leaves unassigned units alone when an admin already made courses', async () => {

@@ -82,7 +82,8 @@ export const MIGRATIONS = [
       // Neither does a course plato installed (Getting Started, `bundled`):
       // startup installs it before migrations run, and it isn't an admin's.
       const hasProgram = items.some((i) => i.dataKey.startsWith('program:') && i.dataKey !== 'program:prog-default' && !i.data?.bundled);
-      const pending = units.filter((u) => !u.data?.programId);
+      const listedUnits = new Set(items.filter((i) => i.dataKey.startsWith('program:')).flatMap((i) => i.data?.unitIds || []));
+      const pending = units.filter((u) => u.data?.programId === undefined && !listedUnits.has(u.dataKey.slice(7)));
       result.scanned = units.length;
       if (pending.length === 0) { result.skipped = units.length; return result; }
       if (hasProgram) {
@@ -99,15 +100,24 @@ export const MIGRATIONS = [
       // Units not in a course yet (the bundled Getting Started unit already is).
       const unitIds = pending.map((u) => ({ id: u.dataKey.slice(7), name: u.data?.name })).sort(sortByName).map((u) => u.id);
       const name = (settings.classroomName || settings.logoAlt || '').trim() || 'Main Course';
-      result.notes.push(`create Course "${name}" with ${unitIds.length} unit(s)`);
+      const existing = items.find((i) => i.dataKey === `program:${programId}`);
+      result.notes.push(`${existing ? 'append to' : 'create'} Course "${existing?.data?.name || name}" with ${unitIds.length} unit(s)`);
       if (!dryRun) {
         try {
-          await db.createSyncData('_system', `program:${programId}`, {
-            name, description: '', unitIds,
-            createdBy: 'migration', createdByName: 'migration', createdAt: new Date().toISOString(),
-          });
+          if (existing) {
+            await db.putSyncData('_system', `program:${programId}`, {
+              ...existing.data, unitIds: [...(existing.data.unitIds || []), ...unitIds],
+            }, existing.version, { strictVersion: true });
+          } else {
+            await db.createSyncData('_system', `program:${programId}`, {
+              name, description: '', unitIds,
+              createdBy: 'migration', createdByName: 'migration', createdAt: new Date().toISOString(),
+            });
+          }
         } catch (err) {
-          if (err.name !== 'ConditionalCheckFailedException') throw err; // another container created it
+          if (err.name !== 'ConditionalCheckFailedException') throw err;
+          result.errors++;
+          return result;
         }
       }
 
@@ -117,7 +127,7 @@ export const MIGRATIONS = [
         const lessonIds = u.data?.lessonIds || lessons.filter((l) => l.unit === unitId).sort(sortByName).map((l) => l.id);
         if (dryRun) { result.updated++; continue; }
         try {
-          await db.putSyncData('_system', u.dataKey, { ...u.data, programId, lessonIds }, u.version);
+          await db.putSyncData('_system', u.dataKey, { ...u.data, programId, lessonIds }, u.version, { strictVersion: true });
           result.updated++;
         } catch (err) {
           // Lost a race with an admin edit: retry on the next cold start.
