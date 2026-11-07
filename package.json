@@ -33,6 +33,8 @@
   "overrides": {
     "@firebase/firestore": {
       "@grpc/grpc-js": "1.14.6"
-    }
+    },
+    "rimraf": "6.1.4",
+    "follow-redirects": "1.16.2"
   }
 }
