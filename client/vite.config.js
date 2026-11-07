@@ -55,8 +55,23 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    rollupOptions: {
+    rolldownOptions: {
       input: resolve(import.meta.dirname, 'index.html'),
+      output: {
+        // React, React DOM and the router are half the code every page loads,
+        // and they change only when those dependencies do. In a chunk of their
+        // own they keep one hash across app releases, so a returning visitor
+        // reuses the cached copy (assets are immutable for a year) instead of
+        // downloading them again after every deploy.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'react-vendor',
+              test: /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/,
+            },
+          ],
+        },
+      },
     },
   },
 });

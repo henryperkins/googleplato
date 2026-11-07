@@ -522,7 +522,11 @@ signing out a new Google account without delaying local sign-out.
 The login page, lesson list, and lesson conversation ship in the entry bundle.
 Everything else (admin, settings, signup, setup, password reset, wait list,
 privacy) is a lazy route with a spinner fallback, and `ErrorBoundary` recovers
-when a chunk is stale after a deploy. `App` starts the `/v1/branding` request at
+when a chunk is stale after a deploy. React, React DOM, and React Router load
+beside the entry in a `react-vendor` chunk (`client/vite.config.js`). App code
+never goes into it, so its hash survives app releases and returning visitors
+keep it cached; it changes only when those dependencies, or the bundler's
+runtime helpers, do. `App` starts the `/v1/branding` request at
 boot alongside the setup check. `client/src/lib/publicBranding.js` shares that
 one request between auth pages (`usePublicBranding`) and the classroom
 (`BrandingProvider`), caches the result for the page session, and doesn't cache
