@@ -172,7 +172,7 @@ If you don't want to write a custom panel, declare `settingsSchema` in `plugin.j
 }
 ```
 
-Plato auto-renders a form. Don't ship `slots.adminSettingsPanel` in this case — drop it from `extensionPoints.slots` and from `capabilities`.
+Plato auto-renders a form. Don't ship `slots.adminSettingsPanel` in this case — drop it from `extensionPoints.slots` and from `capabilities`. Add property `title`s for display labels (including acronyms), use `default` for effective fallback values, and declare top-level `required` keys when needed. Blank schema-declared strings clear their overrides; required values are validated on both client and server.
 
 ### Recipe 6 — emit a custom event
 

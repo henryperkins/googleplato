@@ -141,6 +141,7 @@ export interface PluginLifecycleContext {
   logger: PluginLogger;
   /** Read/write access to the plugin's own settings record. */
   settings: Record<string, unknown>;
+  /** Replaces the stored settings, normalized and validated like the admin settings endpoint. */
   setSettings(next: Record<string, unknown>): Promise<void>;
   /** Read-only views of host data. */
   db: PluginDbView;
@@ -242,8 +243,14 @@ export interface ExternalAuthResult {
 
 export interface SettingsPanelProps {
   pluginId: string;
+  /** Effective settings: stored values plus manifest `default`s for missing keys. `writeOnly` values are never included. */
   settings: Record<string, unknown>;
-  /** Persists settings via PUT /v1/admin/plugins/<id>/settings. Throws on failure. */
+  /**
+   * Persists settings via PUT /v1/admin/plugins/<id>/settings, replacing the
+   * stored record. A blank string for a schema-declared key is treated as not
+   * set (its default applies), and `settingsSchema.required` must be satisfied.
+   * Throws on failure.
+   */
   onSave(next: Record<string, unknown>): Promise<void>;
 }
 

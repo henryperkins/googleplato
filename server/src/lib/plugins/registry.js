@@ -369,8 +369,20 @@ export function createRegistry(options = {}) {
       await reconcile({ force: true });
       const entry = state.entries.get(id);
       if (!entry) throw new Error(`unknown plugin: ${id}`);
+      const settings = { ...nextSettings };
+      const properties = entry.manifest?.settingsSchema?.properties || {};
+      for (const key of Object.keys(properties)) {
+        if (typeof settings[key] === 'string' && settings[key].trim() === '') delete settings[key];
+      }
+      const effective = settingsWithDefaults({ manifest: entry.manifest, settings });
+      for (const key of entry.manifest?.settingsSchema?.required || []) {
+        const value = effective[key];
+        if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+          throw new Error(`${properties[key]?.title || key} is required.`);
+        }
+      }
       const activation = await mutateActivation(id, (latest) => {
-        const next = { ...latest, settings: nextSettings };
+        const next = { ...latest, settings };
         delete next.dataUninstalled;
         return next;
       });
@@ -418,8 +430,9 @@ export function createRegistry(options = {}) {
       };
     },
 
-    sanitizeSettings(entry) {
-      return scrubSettings(entry?.settings || {}, entry?.manifest?.settingsSchema);
+    sanitizeSettings(entry, includeDefaults = false) {
+      const settings = includeDefaults ? settingsWithDefaults(entry) : entry?.settings || {};
+      return scrubSettings(settings, entry?.manifest?.settingsSchema);
     },
 
     async publicAuthProviders() {

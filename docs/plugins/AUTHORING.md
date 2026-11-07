@@ -45,7 +45,9 @@ Edit `plugins/my-plugin/plugin.json`:
 - Define your `settingsSchema` (or remove it if you don't have settings)
 - Set `defaultEnabled: true` if it should be on by default for new installs
 
-Each settings property descriptor should be an object. The fallback form treats missing or malformed descriptors as plain text fields, preserving their labels and existing values. Valid descriptors keep their titles, descriptions, input types, and constraints.
+Each settings property descriptor should be an object. The fallback form treats missing or malformed descriptors as plain text fields, preserving their labels and existing values. Valid descriptors keep their titles, descriptions, input types, and constraints. Use `title` for acronym-aware labels such as `API key` and `Project ID`.
+
+Admin forms show effective values: a schema `default` fills a missing stored value. Add top-level `required` keys when a setting must have a value. On save, a blank schema-declared string clears that override so its default applies; a required field without a usable value or default is rejected by both the form and the server. Help text is connected to its field, and unsaved edits survive unrelated plugin-card updates.
 
 Validate:
 

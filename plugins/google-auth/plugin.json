@@ -31,26 +31,31 @@
     "properties": {
       "apiKey": {
         "type": "string",
+        "title": "API key",
         "default": "AIzaSyDqsndJNzd-s4c-xcNB7lCVjH8ITu3yOLY",
         "description": "Public Firebase web API key for Google sign-in."
       },
       "authDomain": {
         "type": "string",
+        "title": "Auth domain",
         "default": "idk-4e9b9.firebaseapp.com",
         "description": "Firebase Auth domain. Add this deployment's hostname to Firebase authorized domains."
       },
       "projectId": {
         "type": "string",
+        "title": "Project ID",
         "default": "idk-4e9b9",
         "description": "Firebase project ID used for both the browser and ID-token issuer/audience verification."
       },
       "appId": {
         "type": "string",
+        "title": "App ID",
         "default": "1:790704980390:web:7c0bfd1a2868f6f3fc4f67",
         "description": "Public Firebase web application ID."
       },
       "messagingSenderId": {
         "type": "string",
+        "title": "Messaging sender ID",
         "default": "790704980390",
         "description": "Optional Firebase messaging sender ID."
       }

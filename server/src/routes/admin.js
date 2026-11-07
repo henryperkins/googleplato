@@ -1327,7 +1327,7 @@ admin.get('/v1/admin/plugins', async (c) => {
   await pluginRegistry.reconcile({ force: true });
   return c.json(pluginRegistry.list().map((e) => {
     const view = pluginRegistry.publicView(e);
-    return { ...view, settings: pluginRegistry.sanitizeSettings(e) };
+    return { ...view, settings: pluginRegistry.sanitizeSettings(e, true) };
   }));
 });
 
@@ -1403,7 +1403,7 @@ admin.put('/v1/admin/plugins/:id/settings', async (c) => {
   }
   try {
     const entry = await pluginRegistry.updateSettings(id, body);
-    return c.json({ ...pluginRegistry.publicView(entry), settings: pluginRegistry.sanitizeSettings(entry) });
+    return c.json({ ...pluginRegistry.publicView(entry), settings: pluginRegistry.sanitizeSettings(entry, true) });
   } catch (err) {
     return c.json({ error: err.message }, 400);
   }

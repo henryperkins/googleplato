@@ -8,6 +8,9 @@ import react from '@vitejs/plugin-react';
 
 let vite;
 let SettingsForm;
+let effectivePluginSettings;
+let settingsForSave;
+let validateRequiredSettings;
 
 before(async () => {
   vite = await createServer({
@@ -20,16 +23,17 @@ before(async () => {
     appType: 'custom',
     logLevel: 'error',
   });
-  ({ default: SettingsForm } = await vite.ssrLoadModule('/src/lib/plugins/SettingsForm.jsx'));
+  ({ default: SettingsForm, effectivePluginSettings, settingsForSave, validateRequiredSettings } = await vite.ssrLoadModule('/src/lib/plugins/SettingsForm.jsx'));
 });
 
 after(async () => {
   await vite?.close();
 });
 
-const render = (properties, settings = {}) => renderToStaticMarkup(createElement(SettingsForm, {
+const render = (properties, settings = {}, required = []) => renderToStaticMarkup(createElement(SettingsForm, {
   pluginId: 'example',
-  schema: { type: 'object', properties },
+  pluginName: 'Example',
+  schema: { type: 'object', properties, required },
   settings,
   onSave: async () => {},
 }));
@@ -44,7 +48,7 @@ describe('Plugin settings form', () => {
     assert.match(html, />Workspace name<\/label>/);
     assert.match(html, />Retry count<\/label>/);
     assert.match(html, />Connected<\/label>/);
-    assert.match(html, /<button[^>]*>Save<\/button>/);
+    assert.match(html, /<button[^>]*aria-label="Save Example settings"[^>]*>Save<\/button>/);
   });
 
   it('preserves valid descriptions, titles, and typed controls', () => {
@@ -61,5 +65,33 @@ describe('Plugin settings form', () => {
     assert.match(html, /type="number"[^>]*min="0"[^>]*max="5"/);
     assert.match(html, /<select[^>]*id="plugin-example-mode"/);
     assert.match(html, /<option value="quiet" selected="">quiet<\/option>/);
+    assert.match(html, /<select[^>]*class="[^"]*border-input[^"]*bg-transparent/);
+  });
+
+  it('shows effective defaults and connects required labels, help, and fields', () => {
+    const html = render({
+      apiKey: { type: 'string', title: 'API key', description: 'Public browser key.', default: 'default-key' },
+    }, {}, ['apiKey']);
+    assert.match(html, />API key<span[^>]*> \(required\)<\/span><\/label>/);
+    assert.match(html, /aria-describedby="plugin-example-apiKey-description"/);
+    assert.match(html, /aria-required="true"/);
+    assert.match(html, /id="plugin-example-apiKey-description"/);
+    assert.match(html, /value="default-key"/);
+  });
+
+  it('drops blank declared strings and validates required effective values', () => {
+    const schema = {
+      type: 'object',
+      required: ['apiKey', 'projectId'],
+      properties: {
+        apiKey: { type: 'string', title: 'API key', default: 'default-key' },
+        projectId: { type: 'string', title: 'Project ID' },
+        note: { type: 'string' },
+      },
+    };
+    assert.deepEqual(settingsForSave(schema, { apiKey: ' \t ', note: '\n', undeclared: '  ' }), { undeclared: '  ' });
+    assert.deepEqual(validateRequiredSettings(schema, { apiKey: '', projectId: '' }), { projectId: 'Project ID is required.' });
+    assert.deepEqual(validateRequiredSettings(schema, { apiKey: '', projectId: 'project' }), {});
+    assert.deepEqual(effectivePluginSettings(schema, { projectId: 'stored' }), { apiKey: 'default-key', projectId: 'stored' });
   });
 });

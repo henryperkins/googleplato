@@ -5,7 +5,7 @@
 
 import { authenticatedFetch } from '../../../js/auth.js';
 import { discoverPlugins, loadPluginClient } from './loader.js';
-import { resolveSlotComponent, resolveSettingsPanel } from './resolvers.js';
+import { needsAuthenticatedClient, resolveSlotComponent, resolveSettingsPanel } from './resolvers.js';
 
 const state = {
   manifests: new Map(),
@@ -22,7 +22,7 @@ async function applyActivation(list) {
   }
 
   await Promise.all([...nextEnabled.keys()].map(async (id) => {
-    if (state.modules.has(id)) return;
+    if (state.modules.has(id) || !needsAuthenticatedClient(state.manifests.get(id))) return;
     try {
       const mod = await loadPluginClient(id);
       if (mod) state.modules.set(id, mod);

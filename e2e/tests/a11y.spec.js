@@ -146,4 +146,22 @@ test.describe('admin pages', () => {
       await expectAccessible(page, { include: '[role=dialog]', label: `${button} dialog` });
     });
   }
+
+  test('dialog: Slack disconnect', async ({ page }) => {
+    await page.route('**/v1/admin/plugins', async route => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const response = await route.fetch();
+      const plugins = await response.json();
+      const slack = plugins.find(plugin => plugin.id === 'slack');
+      slack.settings = { ...slack.settings, workspaceName: 'Accessibility Test', connected: true };
+      await route.fulfill({ response, json: plugins });
+    });
+    await page.route('**/v1/plugins/slack/admin/channels', route => route.fulfill({ json: [] }));
+    await page.route('**/v1/plugins/slack/admin/auto-invite', route => route.fulfill({ json: { results: [] } }));
+    await page.goto('/plato/plugins');
+    await settle(page);
+    await page.getByRole('button', { name: 'Disconnect Slack', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Disconnect Slack?', exact: true })).toBeVisible();
+    await expectAccessible(page, { include: '[role=dialog]', label: 'Slack disconnect dialog' });
+  });
 });

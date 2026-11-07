@@ -1,9 +1,29 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveSettingsPanel, resolveSlotComponent } from '../src/lib/plugins/resolvers.js';
+import { needsAuthenticatedClient, resolveSettingsPanel, resolveSlotComponent } from '../src/lib/plugins/resolvers.js';
 
 const Panel = () => null;
 const RowAction = () => null;
+
+describe('needsAuthenticatedClient', () => {
+  it('does not import a public-auth-only provider into signed-in pages', () => {
+    const googleAuth = { extensionPoints: { slots: { publicAuthProvider: 'client/GoogleAuthProvider.jsx' } }, settingsSchema: {} };
+    assert.equal(needsAuthenticatedClient(googleAuth), false);
+  });
+
+  it('loads plugins with a signed-in slot, even alongside a public one', () => {
+    const slack = { extensionPoints: { slots: { adminSettingsPanel: 'client/SlackSettingsPanel.jsx' } } };
+    assert.equal(needsAuthenticatedClient(slack), true);
+    const mixed = { extensionPoints: { slots: { publicAuthProvider: 'a.jsx', adminSettingsPanel: 'b.jsx' } } };
+    assert.equal(needsAuthenticatedClient(mixed), true);
+  });
+
+  it('keeps loading plugins that declare no slots (a top-level settingsPanel export)', () => {
+    assert.equal(needsAuthenticatedClient({ settingsSchema: {} }), true);
+    assert.equal(needsAuthenticatedClient({}), true);
+    assert.equal(needsAuthenticatedClient(undefined), true);
+  });
+});
 
 describe('resolveSettingsPanel', () => {
   it('resolves a slot.adminSettingsPanel from default-exported plugin module', () => {

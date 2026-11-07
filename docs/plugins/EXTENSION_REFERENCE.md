@@ -10,8 +10,8 @@ Every slot component renders inside its own error boundary. If one throws while 
 
 - **Capability:** `ui.slot.adminSettingsPanel`
 - **Renders inside:** `client/src/pages/admin/AdminPlugins.jsx` (the plugin card)
-- **Props:** `{ pluginId: string, settings: object, onSave: (next) => Promise<void> }`
-- **When:** the admin expands "Show settings" on the plugin's card
+- **Props:** `{ pluginId: string, settings: object, onSave: (next) => Promise<void> }`. `settings` holds effective values: stored settings plus manifest defaults, with `writeOnly` values omitted. `onSave` replaces the stored settings (see `PUT /v1/admin/plugins/:id/settings` below).
+- **When:** the plugin is enabled; the panel renders inline in its card
 - **Phase:** 1
 - **Example:** `plugins/slack/client/SlackSettingsPanel.jsx`
 - **Gotchas:** if you don't ship a custom panel, plato auto-renders a form from `manifest.settingsSchema`. Pick one; don't ship both.
@@ -349,7 +349,7 @@ Adding to this surface is a core change — it widens the public plugin contract
 
 ### `GET /v1/admin/plugins`
 
-Admin only. Returns every plugin (enabled, disabled, load-failed) with manifest + settings.
+Admin only. Returns every plugin (enabled, disabled, load-failed) with its manifest and effective settings: stored values plus any manifest-declared defaults for missing keys. `writeOnly` values are stripped recursively.
 
 ### `PUT /v1/admin/plugins/:id/activation`
 
@@ -357,7 +357,7 @@ Admin only. Body: `{ enabled: boolean }`. Toggles activation. Runs `onActivate`/
 
 ### `PUT /v1/admin/plugins/:id/settings`
 
-Admin only. Body: arbitrary settings object. Persists to `_system:plugins:activation.<id>.settings`.
+Admin only. Body: arbitrary settings object. Persists to `_system:plugins:activation.<id>.settings`. A whitespace-only string for a schema-declared property is treated as not set, so a manifest default can apply; explicit `null` still clears a value. `settingsSchema.required` is validated against the effective values after this normalization and default expansion. The response uses the same effective, sanitized shape as `GET /v1/admin/plugins`.
 
 ### `GET /v1/plugins`
 

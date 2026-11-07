@@ -8,20 +8,26 @@ import { cn } from '@/lib/utils';
  *
  * Forced colors drop both fills, so the track keeps an outline and the knob
  * takes a system color, and the state stays visible.
+ *
+ * `busy` marks a change in progress: the switch keeps keyboard focus
+ * (`aria-disabled`, not `disabled`), reports `aria-busy`, and ignores further
+ * presses until the caller clears it.
  */
-function Switch({ checked, onCheckedChange, disabled, label, className, ...props }) {
+function Switch({ checked, onCheckedChange, disabled, busy = false, label, className, ...props }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      aria-disabled={busy || undefined}
+      aria-busy={busy || undefined}
       disabled={disabled}
-      onClick={() => onCheckedChange(!checked)}
+      onClick={() => { if (!busy) onCheckedChange(!checked); }}
       className={cn(
         'touch-target inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-        'disabled:cursor-not-allowed disabled:opacity-50',
+        'disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-wait aria-disabled:opacity-50',
         className,
       )}
       {...props}

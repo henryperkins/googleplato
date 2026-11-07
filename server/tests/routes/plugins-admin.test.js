@@ -106,6 +106,26 @@ describe('GET /v1/admin/plugins', () => {
     assert.equal(list[0].settings.workspaceName, 'Acme', 'non-writeOnly fields preserved');
     assert.equal(list[0].settings.connected, true);
   });
+
+  it('returns effective settings with manifest defaults', async () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        workspaceName: { type: 'string', default: 'DefaultSpace' },
+        connected: { type: 'boolean', default: false },
+      },
+    };
+    pluginRegistry.list = () => [makeEntry({
+      id: 'slack',
+      settings: { workspaceName: 'Acme' },
+      schema,
+    })];
+    const app = new Hono();
+    app.route('/', admin);
+    const res = await adminReq(app, 'GET', '/v1/admin/plugins');
+    const list = await res.json();
+    assert.deepEqual(list[0].settings, { workspaceName: 'Acme', connected: false });
+  });
 });
 
 describe('PUT /v1/admin/plugins/:id/activation', () => {
@@ -163,7 +183,11 @@ describe('PUT /v1/admin/plugins/:id/settings', () => {
   it('persists settings and returns sanitized response', async () => {
     const schema = {
       type: 'object',
-      properties: { botToken: { type: 'string', writeOnly: true }, workspaceName: { type: 'string' } },
+      properties: {
+        botToken: { type: 'string', writeOnly: true },
+        workspaceName: { type: 'string' },
+        region: { type: 'string', default: 'us-east' },
+      },
     };
     let saved = null;
     pluginRegistry.updateSettings = async (id, settings) => {
@@ -182,6 +206,7 @@ describe('PUT /v1/admin/plugins/:id/settings', () => {
     // writeOnly stripped from the response too
     assert.equal(data.settings.botToken, undefined);
     assert.equal(data.settings.workspaceName, 'NewSpace');
+    assert.equal(data.settings.region, 'us-east');
   });
 
   it('keeps a stored writeOnly value the body leaves out; an explicit null clears it', async () => {
@@ -246,7 +271,12 @@ describe('GET /v1/plugins (non-admin sanitized list)', () => {
         settings: { botToken: 'xoxb-LEAK', workspaceName: 'WS', connected: true },
         schema: {
           type: 'object',
-          properties: { botToken: { type: 'string', writeOnly: true }, workspaceName: { type: 'string' }, connected: { type: 'boolean' } },
+          properties: {
+            botToken: { type: 'string', writeOnly: true },
+            workspaceName: { type: 'string' },
+            connected: { type: 'boolean' },
+            region: { type: 'string', default: 'us-east' },
+          },
         },
       }),
       // A plugin that failed to load (no manifest) — must be filtered out.
@@ -261,6 +291,7 @@ describe('GET /v1/plugins (non-admin sanitized list)', () => {
     assert.equal(list[0].id, 'slack');
     assert.equal(list[0].settings.botToken, undefined, 'writeOnly secret leaked to non-admin');
     assert.equal(list[0].settings.workspaceName, 'WS');
+    assert.equal(list[0].settings.region, undefined, 'non-admin response must contain stored settings only');
   });
 });
 

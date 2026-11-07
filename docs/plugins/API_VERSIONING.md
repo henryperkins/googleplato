@@ -5,12 +5,16 @@ Plato's plugin API is versioned with semver. The host declares a single `PLUGIN_
 ## Current host version
 
 ```
-PLUGIN_API_VERSION = '1.6.0'
+PLUGIN_API_VERSION = '1.6.1'
 ```
 
 Defined in `server/src/lib/plugins/version.js`.
 
 ## Changelog
+
+### 1.6.1 (fix)
+- **Changed** `GET /v1/admin/plugins`, the `PUT /v1/admin/plugins/:id/settings` response, and the `adminSettingsPanel` slot's `settings` prop to carry effective settings: stored values plus manifest `default`s for missing keys, with `writeOnly` values still stripped. Authenticated `GET /v1/plugins` and lifecycle `ctx.settings` still carry stored values only.
+- **Changed** settings writes, through the admin endpoint and `ctx.setSettings()`: a whitespace-only string for a schema-declared property is treated as not set, so its default applies, and `null` still clears a value. `settingsSchema.required` is validated against the effective values, and a write that leaves one without a value is rejected with `<title or key> is required.` Previously, clearing a field stored `""` over a working default, which could break a plugin such as Google sign-in.
 
 ### 1.6.0 (additive)
 - **Added** the `publicAuthProvider` slot, `auth.provider` capability, and `extensionPoints.authProvider` manifest declaration. Public `GET /v1/auth/providers` exposes only enabled providers and explicitly allowlisted, non-writeOnly browser settings; disabled providers are not imported by the client.

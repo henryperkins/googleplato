@@ -234,6 +234,87 @@ describe('plugin settings and manifest-declared hooks', () => {
     assert.equal(settings.credentials.token, 'do-not-return');
   });
 
+  it('includes manifest defaults only when requested', () => {
+    const registry = createRegistry({ db: memoryDb(), pluginsDir: fixture() });
+    const entry = {
+      settings: { projectId: 'stored-project' },
+      manifest: {
+        settingsSchema: {
+          type: 'object',
+          properties: {
+            apiKey: { type: 'string', default: 'default-key' },
+            projectId: { type: 'string', default: 'default-project' },
+            secret: { type: 'string', writeOnly: true, default: 'default-secret' },
+          },
+        },
+      },
+    };
+    assert.deepEqual(registry.sanitizeSettings(entry), { projectId: 'stored-project' });
+    assert.deepEqual(registry.sanitizeSettings(entry, true), {
+      apiKey: 'default-key',
+      projectId: 'stored-project',
+    });
+    assert.deepEqual(entry.settings, { projectId: 'stored-project' });
+  });
+
+  it('persists blank declared strings as absent so manifest defaults apply', async () => {
+    const settingsSchema = {
+      type: 'object',
+      required: ['apiKey', 'projectId', 'enabled', 'retries'],
+      properties: {
+        apiKey: { type: 'string', default: 'default-public-key' },
+        projectId: { type: 'string', default: 'default-project' },
+        optionalNote: { type: 'string' },
+        enabled: { type: 'boolean' },
+        retries: { type: 'number' },
+      },
+    };
+    const database = memoryDb({ demo: { enabled: false, settings: { projectId: 'old' } } });
+    const registry = createRegistry({ db: database, pluginsDir: fixture({ settingsSchema }) });
+    await registry.boot();
+    await registry.updateSettings('demo', {
+      apiKey: ' \t ',
+      projectId: '\n',
+      optionalNote: null,
+      enabled: false,
+      retries: 0,
+      undeclared: '  ',
+    });
+    assert.deepEqual(database.read().demo.settings, {
+      optionalNote: null,
+      enabled: false,
+      retries: 0,
+      undeclared: '  ',
+    });
+    assert.deepEqual(registry.sanitizeSettings(registry.get('demo'), true), {
+      apiKey: 'default-public-key',
+      projectId: 'default-project',
+      optionalNote: null,
+      enabled: false,
+      retries: 0,
+      undeclared: '  ',
+    });
+  });
+
+  it('rejects required settings without usable values before writing', async () => {
+    const settingsSchema = {
+      type: 'object',
+      required: ['projectId'],
+      properties: {
+        apiKey: { type: 'string' },
+        projectId: { type: 'string', title: 'Project ID' },
+      },
+    };
+    const database = memoryDb({ demo: { enabled: false, settings: { projectId: 'old' } } });
+    const registry = createRegistry({ db: database, pluginsDir: fixture({ settingsSchema }) });
+    await registry.boot();
+    for (const settings of [{}, { projectId: '  ' }, { projectId: null }]) {
+      await assert.rejects(registry.updateSettings('demo', settings), /Project ID is required\./);
+    }
+    assert.equal(database.state.writes.length, 0);
+    assert.deepEqual(database.read().demo.settings, { projectId: 'old' });
+  });
+
   it('loads a manifest-declared userDeleted handler', async () => {
     const database = memoryDb({ demo: { enabled: true, settings: {} } });
     const registry = createRegistry({ db: database, pluginsDir: fixture() });
