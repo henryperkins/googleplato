@@ -11,7 +11,7 @@ import { getClassroom } from '../lib/email.js';
 import { nameFields } from '../lib/names.js';
 import { APP_URL } from '../config.js';
 import db from '../lib/db.js';
-import { validateMessage, createMessage, listMessages, previewAudience } from '../lib/messages.js';
+import { validateMessage, createMessage, listMessages, previewAudience, closeMessage } from '../lib/messages.js';
 import { dispatchJob } from '../lib/jobs.js';
 
 // Sample values for a test send, so every variable shows something.
@@ -67,7 +67,7 @@ export function registerNotificationRoutes(admin) {
     if (checked.error) return c.json({ error: checked.error }, 400);
     const user = c.get('user');
     const message = await createMessage(checked.message, user, undefined, { requestId: body.requestId });
-    if (message.email && message.status !== 'sent') {
+    if (message.email && !['sent', 'closed'].includes(message.status)) {
       const failure = await deliverMessage(message.id);
       if (failure) return c.json({ error: failure, message: await storedMessage(message.id) }, 503);
     }
@@ -85,11 +85,19 @@ export function registerNotificationRoutes(admin) {
     const id = c.req.param('id');
     const message = await storedMessage(id);
     if (!message) return c.json({ error: 'Message not found' }, 404);
-    if (message.email && message.status !== 'sent') {
+    if ((await listMessages()).find(item => item.id === id)?.status === 'closed') return c.json({ error: 'This message is closed. Delivery cannot be retried.' }, 409);
+    if (message.email && !['sent', 'closed'].includes(message.status)) {
       const failure = await deliverMessage(id);
       if (failure) return c.json({ error: failure, message: await storedMessage(id) }, 503);
     }
     return c.json({ message: await storedMessage(id) });
+  });
+
+  admin.post('/v1/admin/notifications/messages/:id/close', async (c) => {
+    const message = await closeMessage(c.req.param('id'));
+    if (message.missing) return c.json({ error: 'Message not found' }, 404);
+    if (message.active) return c.json({ error: 'Delivery is in progress. Try stopping retries after it finishes.' }, 409);
+    return c.json({ message });
   });
 
   // Back to plato's default copy.
@@ -119,7 +127,7 @@ export function registerNotificationRoutes(admin) {
 }
 
 async function storedMessage(id) {
-  const item = await db.getSyncData('_system', `message:${id}`);
+  const item = await db.getSyncData('_system', `message:${id}`, { consistentRead: true });
   return item ? { id, ...item.data } : null;
 }
 
@@ -128,8 +136,8 @@ async function deliverMessage(id) {
     const result = await dispatchJob('send-message', { id });
     if (!result?.error) return null;
   } catch { /* The recipient job already recorded its failure counts. */ }
-  const item = await db.getSyncData('_system', `message:${id}`);
-  if (item && item.data.status !== 'sent' && !item.data.deliveryLease) {
+  const item = await db.getSyncData('_system', `message:${id}`, { consistentRead: true });
+  if (item && !['sent', 'closed'].includes(item.data.status) && !item.data.deliveryLease) {
     try {
       await db.putSyncData('_system', `message:${id}`, { ...item.data, status: 'failed', deliveryError: 'Email delivery failed. Retry this message.' }, item.version, { strictVersion: true });
     } catch (error) {

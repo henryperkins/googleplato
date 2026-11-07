@@ -16,7 +16,10 @@
  *   playground users are real people);
  * - **unsubscribe**: HMAC-signed tokens per user and kind (`nudge`, `digest`,
  *   `messages`), honored through the per-user server-only `notify:state`
- *   record, which learners can't write through /v1/sync.
+ *   record, which learners can't write through /v1/sync. It preserves optOut,
+ *   visible-message read acknowledgements, nudges, lastNudgeAt, lastDigestAt,
+ *   emailPending claims and emailed receipts. Closed/sent messages retain at
+ *   most 49 finished receipts; closed claims are pruned (lib/messages.js).
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { SESClient, SendRawEmailCommand } from '@aws-sdk/client-ses';

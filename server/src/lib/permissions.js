@@ -67,6 +67,7 @@ const R = [
   ['POST', '/v1/admin/users/:userId/lessons/:lessonId/continuity-repair', 'users.repair'],
   ['POST', '/v1/admin/waitlist/:token/apply', 'waitlist.write'],
   ['POST', '/v1/admin/notifications/messages/:id/retry', 'notifications.write'],
+  ['POST', '/v1/admin/notifications/messages/:id/close', 'notifications.write'],
   // Content: lessons and courses
   ['GET', '/v1/admin/lessons', 'content.read'],
   ['GET', '/v1/admin/lessons/:lessonId', 'content.read'],

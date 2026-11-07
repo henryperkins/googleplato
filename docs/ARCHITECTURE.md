@@ -180,7 +180,7 @@ an existing environment.
 | `_system:unitOrder:<unitId>` | lesson order: `{ lessonIds, unitCreatedAt }`, stamped with the unit incarnation | unit order route, `m006_unit_order`, bundled seed |
 | `_system:course:<id>` | a **Unit**: `{ name, programId, createdAt }` | `/v1/admin/units*`, with `/v1/admin/courses*` as an alias |
 | `_system:message:<id>` | a message, its audience and its delivery state | `server/src/lib/messages.js` |
-| `<userId>:notify:state` | opt-outs, read state, delivery claims, reminder bookkeeping | server only. `/v1/sync` can't write it, and a progress reset keeps it |
+| `<userId>:notify:state` | optOut, bounded read, emailPending, emailed, nudges, lastNudgeAt, lastDigestAt | server only. `/v1/sync` can't write it, and a progress reset keeps it |
 | `_system:jobs:schedule` | when each scheduled job last ran | `server/src/lib/schedule.js` |
 | `_system:automations`, `_system:emailTemplate:<id>` | automation switches, admin-edited templates | `server/src/routes/admin-notifications.js` |
 | `_system:migrations` | applied migrations and the run lock | `server/src/lib/migrations.js` |
@@ -224,7 +224,7 @@ same scheduled job. Upstream used a version-0 upsert, which allowed both.
 
 **Message delivery** (`server/src/lib/messages.js`, upstream behavior in
 [Notifications](#notifications-388-389-400)):
-- A message's `status` is `sending`, `sent` or `failed`. Before it handles any
+- A message's `status` is `sending`, `sent`, `failed` or `closed`. Before it handles any
   recipient, a delivery attempt takes a version-checked execution lease on the
   message record (`deliveryLease: { owner, until }`, 10 minutes, renewed while
   the attempt runs). A competing attempt reports the active one instead of
@@ -236,11 +236,7 @@ same scheduled job. Upstream used a version-0 upsert, which allowed both.
   claim, so a retry tries the person again. Recipients already emailed are
   skipped.
 - Those `emailed` receipts are what stop a retry from emailing someone twice,
-  so a message that can still be retried (email on, not `sent`) keeps every
-  receipt however many messages follow it. Only receipts of finished messages
-  (`sent` is final) are capped, at the newest 49 per person. Each attempt
-  reads which messages are finished when it starts; a message it doesn't
-  know about yet counts as unfinished.
+  so a message inside its retry window keeps every receipt however many messages follow it. Finished (`sent`, `closed`, or in-app only) messages share a cap of the newest 49 receipts per person. Each attempt reads the current finished states and prunes terminal receipts and claims before growing a recipient's item. Successful finalization also applies the cap. A message absent from the snapshot stays unfinished; terminal cleanup is safe to repeat after interruption.
 - An **uncertain** outcome, such as an attempt that died mid-send, keeps its
   pending claim. It isn't resent automatically and isn't counted as delivered.
   Counts can under-report but never double-send: this is at most once, not
@@ -251,7 +247,9 @@ same scheduled job. Upstream used a version-0 upsert, which allowed both.
   (including "not sent (email delivery disabled)" and "pending confirmation")
   and offers Retry to anyone with `notifications.write`. Composing again with
   the same `requestId` reuses the same message id (`msg_r…`), so it can
-  re-dispatch a message that isn't `sent` but never creates a duplicate.
+  re-dispatch a message that is neither `sent` nor `closed`, but never creates a duplicate.
+- Admins with `notifications.write` can choose **Stop retrying** in History (`POST /v1/admin/notifications/messages/:id/close`). This closes a message permanently, prunes its pending claims, and keeps its in-app content and recorded delivery outcomes. An active delivery lease must finish or expire before closing. Incomplete email messages automatically close after 30 days when delivery/history is next accessed; no timer or migration is required. Both delivery claims and the retry route refuse closed messages. A late worker cannot overwrite closure because finalization still requires its durable lease owner and exact version.
+- `notify:state.read` accepts only `/^msg_[a-z0-9]{8,40}$/` IDs visible to that caller in `messagesFor`. Each acknowledgement write keeps only that visible set (at most 50), rather than accumulating arbitrary client input. Receipt/read pruning preserves every other field, including `optOut`, `nudges`, `lastNudgeAt` and `lastDigestAt`. No additional key family or storage model is introduced.
 
 The notification composer binds each resolved audience preview to the exact
 current audience. A changed, pending or failed preview cannot enable Send or
@@ -2785,8 +2783,7 @@ Only the password-reset email stays in `email.js`.
     unsubscribe anyone. `POST` (the button, or a mail client's one-click
     request) records the opt-out.
   - Opt-outs and per-user bookkeeping live in the server-only `notify:state`
-    sync record, which learners can't write through `/v1/sync` and which a
-    progress reset keeps. Learners manage them through
+    sync record (`optOut`, bounded `read`, `emailPending`, `emailed`, `nudges`, `lastNudgeAt`, `lastDigestAt`), which learners can't write through `/v1/sync` and which a progress reset keeps. Learners manage them through
     `GET/PUT /v1/me/notifications`.
 - **Wait list confirmation (#388):** sent by `POST /v1/waitlist` only when
   *that request* created the entry. The create-only insert means a retry or a
@@ -2812,23 +2809,24 @@ Only the password-reset email stays in `email.js`.
     aren't changed.
   - In-app delivery is worked out when the learner reads (`GET /v1/me/messages`),
     so nothing is written per recipient. Read state is `notify:state.read`
-    (`POST /v1/me/messages/read`). `important` messages also open as a pop-up.
+    (`POST /v1/me/messages/read`), restricted to valid IDs the caller can see and capped to their newest 50 visible messages on each write. `important` messages also open as a pop-up.
   - Email goes out in the `send-message` background job, five at a time,
     honoring the `messages` opt-out with an unsubscribe link. It records
     `counts` (emailed, opted out, not allowlisted, failed), and a re-run of a
     finished job sends nothing.
-  - **Delivery state (fork).** A message is `sending`, `sent` or `failed`. An
+  - **Delivery state (fork).** A message is `sending`, `sent`, `failed` or `closed`. An
     attempt takes a durable execution lease on the message first, claims each
     recipient in `notify:state.emailPending[messageId]`, and records
     `emailed[messageId]` only after the transport confirms. A known failure
     releases that attempt's own claim so a retry tries the person again; an
     uncertain outcome keeps its claim (at most once, never twice). Failed
     delivery returns 503 with the message, and
-    `POST /v1/admin/notifications/messages/:id/retry` retries it. See
+    `POST /v1/admin/notifications/messages/:id/retry` retries only open messages. Stop retrying or a 30-day retry-window expiry makes the message permanently `closed`; closing prunes its pending claims and bounds finished receipts to 49 per recipient. See
     [Launch data contracts](#launch-data-contracts-2026-11-06).
   - Compose shows the audience size first (`POST …/preview`) and asks for
     confirmation.
   - Each send writes a `message_sent` audit entry.
+- **Learner-job isolation.** Inactivity reminders and weekly digests log and continue when a single learner’s read/write fails. Other learners still run. Existing opt-outs, daily/repeat nudge guards, digest timing guards, known-failure release and uncertain-claim retention remain in force.
 - **Job events skip first-request setup.** The API handler routes a job event
   straight to `runJob`, before the middleware that seeds content, runs
   migrations, and boots plugins. Jobs must only need the database, which is

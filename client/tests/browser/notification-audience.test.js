@@ -14,7 +14,7 @@ let server, browser, base;
 
 // Render the real page and UI components; only authentication and HTTP are
 // synthetic. No persistent server/database or external delivery is involved.
-async function open(t) {
+async function open(t, { history = [] } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1100 } });
   const page = await context.newPage();
   page.setDefaultTimeout(8000);
@@ -55,7 +55,12 @@ async function open(t) {
       }
       return reply({ message: { status: 'sent' } });
     }
-    if (path === '/v1/admin/notifications/messages') return reply({ messages: [] });
+    if (path === '/v1/admin/notifications/messages') return reply({ messages: history });
+    if (path.endsWith('/close') && request.method() === 'POST') {
+      const message = history.find(message => path.endsWith(`/${message.id}/close`));
+      message.status = 'closed'; message.deliveryError = null;
+      return reply({ message });
+    }
     if (path === '/v1/admin/notifications') return reply({ settings: {}, templates: [] });
     if (path === '/v1/admin/users') return reply([]);
     if (path === '/v1/groups') return reply({ userGroups: ['Two-person group'] });
@@ -112,6 +117,24 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
     browser = await chromium.launch();
   });
   after(async () => { await browser?.close(); await server?.close(); });
+
+  it('stops retrying a failed message from History and retains its delivery outcomes', async t => {
+    const f = await open(t, { history: [{ id: 'msg_history123', subject: 'Earlier update', body: 'News', email: true, inApp: true,
+      createdAt: '2026-11-01T00:00:00.000Z', audience: { type: 'all', allRoles: true }, status: 'failed',
+      counts: { recipients: 3, emailed: 1, failed: 2, pending: 1 } }] });
+    await f.page.getByRole('tab', { name: 'History', exact: true }).click();
+    const row = f.page.getByRole('row').filter({ hasText: 'Earlier update' });
+    await row.getByRole('button', { name: 'Stop retrying', exact: true }).click();
+    const confirmation = f.page.getByRole('alertdialog');
+    await confirmation.getByRole('heading', { name: 'Stop retrying this message?', exact: true }).waitFor();
+    await confirmation.getByRole('button', { name: 'Stop retrying', exact: true }).click();
+    await row.getByText('Closed', { exact: true }).waitFor();
+    assert.equal(await row.getByRole('button', { name: 'Retry delivery', exact: true }).count(), 0);
+    assert.equal(await row.getByRole('button', { name: 'Stop retrying', exact: true }).count(), 0);
+    assert.match(await row.innerText(), /1 emailed.*2 failed.*1 pending confirmation/);
+    assert.equal(await f.page.getByRole('tab', { name: 'History', selected: true }).count(), 1);
+    await f.page.screenshot({ path: join(evidence, 'closed-message-history.png'), fullPage: true });
+  });
 
   it('keeps a newer draft and its focus when an earlier send completes', async t => {
     const f = await open(t);

@@ -125,12 +125,12 @@ describe('admin messages (#389)', () => {
   });
 
   it('learners see their messages in the bell and mark them read', async () => {
-    store['_system:message:msg_1'] = { subject: 'Hi {{firstName}}', body: 'News', inApp: true, important: false, audience: { type: 'users', userIds: ['usr_ada'] }, createdAt: '2026-05-01T00:00:00Z', createdByName: 'Ann Admin' };
+    store['_system:message:msg_visible123'] = { subject: 'Hi {{firstName}}', body: 'News', inApp: true, important: false, audience: { type: 'users', userIds: ['usr_ada'] }, createdAt: '2026-05-01T00:00:00Z', createdByName: 'Ann Admin' };
     role = 'learner';
     db.getUserById = async (id) => ({ userId: id, role, email: 'ada@x.com', firstName: 'Ada' });
     const list = await (await req('GET', '/v1/me/messages', null, 'usr_ada')).json();
-    assert.deepEqual(list.messages.map((x) => [x.id, x.subject, x.read]), [['msg_1', 'Hi Ada', false]]);
-    assert.deepEqual(await (await req('POST', '/v1/me/messages/read', { ids: ['msg_1'] }, 'usr_ada')).json(), { read: 1 });
+    assert.deepEqual(list.messages.map((x) => [x.id, x.subject, x.read]), [['msg_visible123', 'Hi Ada', false]]);
+    assert.deepEqual(await (await req('POST', '/v1/me/messages/read', { ids: ['msg_visible123'] }, 'usr_ada')).json(), { read: 1 });
     assert.equal((await (await req('GET', '/v1/me/messages', null, 'usr_ada')).json()).messages[0].read, true);
     assert.equal((await (await req('GET', '/v1/me/messages', null, 'usr_bo')).json()).messages.length, 0);
   });
@@ -152,4 +152,25 @@ it('reports message delivery failure and retries only failed recipients through 
   assert.equal(retry.status, 200);
   assert.equal((await retry.json()).message.status, 'sent');
   assert.equal(mails.length, 2);
+});
+
+
+it('an admin closes a failed message, prunes claims, and cannot retry it', async () => {
+  setEmailTransport(async raw => {
+    if (raw.includes('To: bo@')) throw Object.assign(new Error('Unconfirmed'), { name: 'TimeoutError' });
+    mails.push(raw);
+  });
+  const first = await req('POST', '/v1/admin/notifications/messages', { subject: 'News', body: 'Hello', inApp: true, email: true, audience: { type: 'all' } });
+  assert.equal(first.status, 503);
+  const { message } = await first.json();
+  assert.ok(store['usr_bo:notify:state'].emailPending[message.id]);
+  const closed = await req('POST', `/v1/admin/notifications/messages/${message.id}/close`, {});
+  assert.equal(closed.status, 200);
+  assert.equal((await closed.json()).message.status, 'closed');
+  assert.equal(store['usr_bo:notify:state'].emailPending[message.id], undefined);
+  const count = mails.length;
+  assert.equal((await req('POST', `/v1/admin/notifications/messages/${message.id}/retry`, {})).status, 409);
+  assert.equal(mails.length, count);
+  role = 'educator';
+  assert.equal((await req('POST', `/v1/admin/notifications/messages/${message.id}/close`, {})).status, 403);
 });

@@ -4,6 +4,7 @@ import { GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, Delet
 // Models committed rows and a replica one write behind. Never silently accept
 // an unknown expression: that would bypass the adapter's actual atomicity.
 export class StaleDocumentClient {
+  constructor({ maxItemBytes = Infinity } = {}) { this.maxItemBytes = maxItemBytes; }
   rows = new Map();
   commands = [];
 
@@ -45,15 +46,23 @@ export class StaleDocumentClient {
       let items = [...this.rows].filter(([key]) => JSON.parse(key)[0] === input.TableName)
         .map(([, row]) => input.ConsistentRead ? row.current : row.previous).filter(Boolean);
       if (command instanceof QueryCommand) {
-        if (!['userId = :uid', 'email = :email', 'username = :username'].includes(input.KeyConditionExpression)) {
-          throw new Error(`Unsupported query: ${input.KeyConditionExpression}`);
+        if (input.KeyConditionExpression === 'userId = :uid AND begins_with(dataKey, :p)') {
+          const values = input.ExpressionAttributeValues;
+          items = items.filter(item => item.userId === values[':uid'] && item.dataKey.startsWith(values[':p']));
+        } else {
+          if (!['userId = :uid', 'email = :email', 'username = :username'].includes(input.KeyConditionExpression)) {
+            throw new Error(`Unsupported query: ${input.KeyConditionExpression}`);
+          }
+          const [field, value] = input.KeyConditionExpression.split(' = ');
+          items = items.filter(item => item[field] === input.ExpressionAttributeValues[value]);
         }
-        const [field, value] = input.KeyConditionExpression.split(' = ');
-        items = items.filter(item => item[field] === input.ExpressionAttributeValues[value]);
       }
       return { Items: structuredClone(items), Count: items.length };
     }
     if (command instanceof PutCommand || command instanceof UpdateCommand || command instanceof DeleteCommand) {
+      if (command instanceof PutCommand && Buffer.byteLength(JSON.stringify(input.Item)) > this.maxItemBytes) {
+        throw Object.assign(new Error('Item size exceeded'), { name: 'ValidationException' });
+      }
       const key = this.key(input.TableName, input.Item || input.Key);
       const current = this.rows.get(key)?.current;
       if (!this.condition(input.ConditionExpression, current, input.ExpressionAttributeNames, input.ExpressionAttributeValues)) {

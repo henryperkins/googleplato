@@ -168,13 +168,16 @@ describe('send-message job', () => {
       const later = await m.createMessage(m.validateMessage(draft({ subject: `Update ${i}`, email: true, audience: audience(['usr_ada']) })).message, admin, db);
       await m.sendMessageEmails({ id: later.id }, { db });
     }
+    const retained = (await readNotifyState('usr_ada', db)).emailed;
+    assert.ok(retained[msg.id], 'an unfinished message retains its receipt before retry');
+    assert.equal(Object.keys(retained).length, 50, '49 finished receipts plus the retryable message');
     mails.length = 0;
     const counts = await m.sendMessageEmails({ id: msg.id }, { db });
     assert.deepEqual(mails.map((raw) => raw.match(/^To: (.+)$/m)[1]), ['bo@x.com'], 'Ada is not emailed again');
     assert.deepEqual([counts.emailed, counts.failed], [2, 0]);
     const receipts = (await readNotifyState('usr_ada', db)).emailed;
-    assert.ok(receipts[msg.id], 'the retryable message kept its receipt');
-    assert.equal(Object.keys(receipts).length, 51, 'finished messages stay capped at 49, plus the newest and the retryable one');
+    assert.equal(receipts[msg.id], undefined, 'the now-sent message may release its oldest receipt because sent delivery is final');
+    assert.equal(Object.keys(receipts).length, 49, 'all receipts are finished after the retry succeeds, so only the newest 49 remain');
   });
 
   it('an uncertain acknowledgement keeps its recipient claim and never emails twice', async () => {

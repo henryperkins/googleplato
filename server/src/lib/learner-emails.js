@@ -69,51 +69,56 @@ export async function runInactivityNudges({ db = defaultDb, now = Date.now() } =
   const system = await db.getAllSyncData('_system');
   for (const u of await learners(db)) {
     counts.learners++;
-    const lessons = visibleLessons(system, u.userId);
-    // Only lesson progress: the whole partition holds screenshots and conversations.
-    const items = await db.getSyncDataByPrefix(u.userId, 'lessonKB:');
-    const state = await readNotifyState(u.userId, db);
-    if (state.optOut?.nudge) { counts.optedOut++; continue; }
-    if (state.lastNudgeAt && now - Date.parse(state.lastNudgeAt) < DAY - 60 * 60 * 1000) continue;
-    const stale = items
-      .filter((i) => i.dataKey.startsWith('lessonKB:'))
-      .map((i) => ({ lessonId: i.dataKey.slice('lessonKB:'.length), kb: i.data || {}, at: Date.parse(i.updatedAt || '') }))
-      .filter((l) => lessons[l.lessonId] && l.kb.status !== 'completed' && Number.isFinite(l.at)
-        && now - l.at >= NUDGE_AFTER_DAYS * DAY
-        && !(state.nudges?.[l.lessonId] && now - Date.parse(state.nudges[l.lessonId]) < NUDGE_REPEAT_DAYS * DAY))
-      .sort((a, b) => b.at - a.at);
-    const pick = stale[0];
-    if (!pick) continue;
-    const stamp = new Date(now).toISOString();
-    const claimed = await claimFor(u.userId, (st) => {
-      if (st.nudges?.[pick.lessonId] && now - Date.parse(st.nudges[pick.lessonId]) < NUDGE_REPEAT_DAYS * DAY) return null;
-      return { ...st, lastNudgeAt: stamp, nudges: { ...(st.nudges || {}), [pick.lessonId]: stamp } };
-    }, db);
-    if (!claimed) continue;
-    const r = await sendTemplated('inactivity-nudge', {
-      to: u.email, userId: u.userId, kind: 'nudge',
-      vars: {
-        firstName: nameFields(u).firstName,
-        lessonName: lessons[pick.lessonId].name || 'your lesson',
-        progress: `${Math.max(0, Math.min(10, Number(pick.kb.progress) || 0)) * 10}%`,
-        link: `${APP_URL}/lessons/${encodeURIComponent(pick.lessonId)}`,
-      },
-    }, { db }).catch(async (err) => {
-      if (isUncertainEmailError(err)) {
-        // The provider may have accepted the email. Keep the claim so a retry
-        // cannot duplicate it; only definite pre-send refusals are retryable.
-        logger.warn('learner_email_unconfirmed', { job: 'inactivity-nudge' });
-        return { failed: true, uncertain: true };
-      }
-      logger.error('learner_email_failed', { job: 'inactivity-nudge', error: err?.message || String(err) });
-      await claimFor(u.userId, (st) => {
-        if (st.nudges?.[pick.lessonId] !== stamp) return null;
-        const { [pick.lessonId]: _drop, ...nudges } = st.nudges;
-        return { ...st, nudges, lastNudgeAt: null };
-      }, db).catch(() => {});
-      return { failed: true };
-    });
-    if (r.sent) counts.nudged++; else counts.notSent++;
+    try {
+      const lessons = visibleLessons(system, u.userId);
+      // Only lesson progress: the whole partition holds screenshots and conversations.
+      const items = await db.getSyncDataByPrefix(u.userId, 'lessonKB:');
+      const state = await readNotifyState(u.userId, db);
+      if (state.optOut?.nudge) { counts.optedOut++; continue; }
+      if (state.lastNudgeAt && now - Date.parse(state.lastNudgeAt) < DAY - 60 * 60 * 1000) continue;
+      const stale = items
+        .filter((i) => i.dataKey.startsWith('lessonKB:'))
+        .map((i) => ({ lessonId: i.dataKey.slice('lessonKB:'.length), kb: i.data || {}, at: Date.parse(i.updatedAt || '') }))
+        .filter((l) => lessons[l.lessonId] && l.kb.status !== 'completed' && Number.isFinite(l.at)
+          && now - l.at >= NUDGE_AFTER_DAYS * DAY
+          && !(state.nudges?.[l.lessonId] && now - Date.parse(state.nudges[l.lessonId]) < NUDGE_REPEAT_DAYS * DAY))
+        .sort((a, b) => b.at - a.at);
+      const pick = stale[0];
+      if (!pick) continue;
+      const stamp = new Date(now).toISOString();
+      const claimed = await claimFor(u.userId, (st) => {
+        if (st.nudges?.[pick.lessonId] && now - Date.parse(st.nudges[pick.lessonId]) < NUDGE_REPEAT_DAYS * DAY) return null;
+        return { ...st, lastNudgeAt: stamp, nudges: { ...(st.nudges || {}), [pick.lessonId]: stamp } };
+      }, db);
+      if (!claimed) continue;
+      const r = await sendTemplated('inactivity-nudge', {
+        to: u.email, userId: u.userId, kind: 'nudge',
+        vars: {
+          firstName: nameFields(u).firstName,
+          lessonName: lessons[pick.lessonId].name || 'your lesson',
+          progress: `${Math.max(0, Math.min(10, Number(pick.kb.progress) || 0)) * 10}%`,
+          link: `${APP_URL}/lessons/${encodeURIComponent(pick.lessonId)}`,
+        },
+      }, { db }).catch(async (err) => {
+        if (isUncertainEmailError(err)) {
+          // The provider may have accepted the email. Keep the claim so a retry
+          // cannot duplicate it; only definite pre-send refusals are retryable.
+          logger.warn('learner_email_unconfirmed', { job: 'inactivity-nudge' });
+          return { failed: true, uncertain: true };
+        }
+        logger.error('learner_email_failed', { job: 'inactivity-nudge', error: err?.message || String(err) });
+        await claimFor(u.userId, (st) => {
+          if (st.nudges?.[pick.lessonId] !== stamp) return null;
+          const { [pick.lessonId]: _drop, ...nudges } = st.nudges;
+          return { ...st, nudges, lastNudgeAt: null };
+        }, db).catch(() => {});
+        return { failed: true };
+      });
+      if (r.sent) counts.nudged++; else counts.notSent++;
+    } catch (error) {
+      counts.notSent++;
+      logger.error('learner_email_failed', { job: 'inactivity-nudge', error: error?.message || String(error) });
+    }
   }
   return counts;
 }
@@ -146,29 +151,34 @@ export async function runWeeklyDigest({ db = defaultDb, now = Date.now() } = {})
   const system = await db.getAllSyncData('_system');
   for (const u of await learners(db)) {
     counts.learners++;
-    const state = await readNotifyState(u.userId, db);
-    if (state.optOut?.digest) { counts.optedOut++; continue; }
-    if (state.lastDigestAt && now - Date.parse(state.lastDigestAt) < DIGEST_EVERY_DAYS * DAY) continue;
-    const content = digestContent({ items: await db.getSyncDataByPrefix(u.userId, 'lessonKB:'), lessons: visibleLessons(system, u.userId), now });
-    if (!content) { counts.nothingToSay++; continue; }
-    const stamp = new Date(now).toISOString();
-    const claimed = await claimFor(u.userId, (st) => (
-      st.lastDigestAt && now - Date.parse(st.lastDigestAt) < DIGEST_EVERY_DAYS * DAY ? null : { ...st, lastDigestAt: stamp }
-    ), db);
-    if (!claimed) continue;
-    const r = await sendTemplated('weekly-digest', {
-      to: u.email, userId: u.userId, kind: 'digest',
-      vars: { firstName: nameFields(u).firstName, ...content, link: `${APP_URL}/lessons` },
-    }, { db }).catch(async (err) => {
-      if (isUncertainEmailError(err)) {
-        logger.warn('learner_email_unconfirmed', { job: 'weekly-digest' });
-        return { failed: true, uncertain: true };
-      }
-      logger.error('learner_email_failed', { job: 'weekly-digest', error: err?.message || String(err) });
-      await claimFor(u.userId, (st) => (st.lastDigestAt === stamp ? { ...st, lastDigestAt: null } : null), db).catch(() => {});
-      return { failed: true };
-    });
-    if (r.sent) counts.sent++; else counts.notSent++;
+    try {
+      const state = await readNotifyState(u.userId, db);
+      if (state.optOut?.digest) { counts.optedOut++; continue; }
+      if (state.lastDigestAt && now - Date.parse(state.lastDigestAt) < DIGEST_EVERY_DAYS * DAY) continue;
+      const content = digestContent({ items: await db.getSyncDataByPrefix(u.userId, 'lessonKB:'), lessons: visibleLessons(system, u.userId), now });
+      if (!content) { counts.nothingToSay++; continue; }
+      const stamp = new Date(now).toISOString();
+      const claimed = await claimFor(u.userId, (st) => (
+        st.lastDigestAt && now - Date.parse(st.lastDigestAt) < DIGEST_EVERY_DAYS * DAY ? null : { ...st, lastDigestAt: stamp }
+      ), db);
+      if (!claimed) continue;
+      const r = await sendTemplated('weekly-digest', {
+        to: u.email, userId: u.userId, kind: 'digest',
+        vars: { firstName: nameFields(u).firstName, ...content, link: `${APP_URL}/lessons` },
+      }, { db }).catch(async (err) => {
+        if (isUncertainEmailError(err)) {
+          logger.warn('learner_email_unconfirmed', { job: 'weekly-digest' });
+          return { failed: true, uncertain: true };
+        }
+        logger.error('learner_email_failed', { job: 'weekly-digest', error: err?.message || String(err) });
+        await claimFor(u.userId, (st) => (st.lastDigestAt === stamp ? { ...st, lastDigestAt: null } : null), db).catch(() => {});
+        return { failed: true };
+      });
+      if (r.sent) counts.sent++; else counts.notSent++;
+    } catch (error) {
+      counts.notSent++;
+      logger.error('learner_email_failed', { job: 'weekly-digest', error: error?.message || String(error) });
+    }
   }
   return counts;
 }

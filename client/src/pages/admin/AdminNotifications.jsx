@@ -407,6 +407,8 @@ function audienceLabel(a = {}) {
 
 function History({ messages, canWrite, onChanged, onNotice }) {
   const [retrying, setRetrying] = useState(null);
+  const [closing, setClosing] = useState(null);
+  const [closeTarget, setCloseTarget] = useState(null);
   async function retry(message) {
     if (retrying) return;
     setRetrying(message.id);
@@ -415,6 +417,16 @@ function History({ messages, canWrite, onChanged, onNotice }) {
       onNotice({ text: result.message?.status === 'sending' ? 'Delivery is still in progress. Refresh History shortly.' : 'Retry processed. History shows the delivery outcomes.', type: 'success' });
     } catch (error) { onNotice({ text: error.message, type: 'error' }); }
     finally { await onChanged().catch(() => {}); setRetrying(null); }
+  }
+  async function stopRetrying() {
+    const message = closeTarget;
+    if (!message || retrying || closing) return;
+    setClosing(message.id);
+    try {
+      await adminApi('POST', `/v1/admin/notifications/messages/${encodeURIComponent(message.id)}/close`);
+      onNotice({ text: `Retries stopped for “${message.subject}”.`, type: 'success' });
+    } catch (error) { onNotice({ text: error.message, type: 'error' }); }
+    finally { await onChanged().catch(() => {}); setClosing(null); }
   }
   if (!messages.length) return <p className="text-sm text-muted-foreground">Nothing sent yet.</p>;
   return (
@@ -443,15 +455,22 @@ function History({ messages, canWrite, onChanged, onNotice }) {
                 <TableCell>{audienceLabel(m.audience)}</TableCell>
                 <TableCell>{[m.inApp && 'Classroom', m.email && 'Email'].filter(Boolean).join(', ')}</TableCell>
                 <TableCell>{peopleCount(c.recipients ?? 0)}{emailLine && <span className="block text-xs text-muted-foreground">{emailLine}</span>}</TableCell>
-                <TableCell><span className={m.status === 'failed' ? 'text-destructive' : ''}>{m.status === 'failed' ? 'Delivery failed' : m.status === 'sending' ? 'Sending' : 'Processed'}</span>
+                <TableCell><span className={m.status === 'failed' ? 'text-destructive' : ''}>{m.status === 'closed' ? 'Closed' : m.status === 'failed' ? 'Delivery failed' : m.status === 'sending' ? 'Sending' : 'Processed'}</span>
                   {m.deliveryError && <p className="text-xs text-muted-foreground">{m.deliveryError}</p>}
-                  {canWrite && ['failed', 'sending'].includes(m.status) && <Button size="sm" variant="outline" disabled={!!retrying} onClick={() => retry(m)}>{retrying === m.id ? 'Retrying…' : 'Retry delivery'}</Button>}
+                  {canWrite && ['failed', 'sending'].includes(m.status) && <div className="flex flex-wrap gap-2 mt-2">
+                    <Button size="sm" variant="outline" disabled={!!retrying || !!closing} focusableWhenDisabled onClick={() => retry(m)}>{retrying === m.id ? 'Retrying…' : 'Retry delivery'}</Button>
+                    <Button size="sm" variant="outline" disabled={!!retrying || !!closing} focusableWhenDisabled onClick={() => setCloseTarget(m)}>{closing === m.id ? 'Stopping…' : 'Stop retrying'}</Button>
+                  </div>}
                 </TableCell>
               </TableRow>
             );
           })}
         </TableBody>
       </Table>
+      <ConfirmModal open={!!closeTarget} onOpenChange={open => { if (!open) setCloseTarget(null); }}
+        title="Stop retrying this message?" confirmLabel="Stop retrying"
+        message={`“${closeTarget?.subject || ''}” will receive no further email delivery attempts.${closeTarget?.inApp ? ' People can still read it in the classroom.' : ''}`}
+        onConfirm={stopRetrying} />
     </Card>
   );
 }

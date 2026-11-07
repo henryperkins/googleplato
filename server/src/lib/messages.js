@@ -6,7 +6,7 @@
  * A message is `_system:message:<id>` =
  *   { subject, body,
  *     audience: { type: 'all' | 'role' | 'group' | 'users', roles?, group?, userIds?, allRoles? },
- *     inApp, email, important, status: 'sending' | 'failed' | 'sent', counts?, createdAt, createdBy, createdByName }
+ *     inApp, email, important, status: 'sending' | 'failed' | 'sent' | 'closed', counts?, createdAt, createdBy, createdByName }
  *
  * Who it reaches:
  * - `all` — everyone, any role. `group` — the group's members, any role.
@@ -23,6 +23,10 @@
  * goes out in the `send-message` background job (lib/jobs.js), honoring the
  * `messages` opt-out. A durable execution lease serializes delivery attempts;
  * per-user pending claims are distinct from acknowledged emailed recipients.
+ * Closed messages cannot deliver again. Admins can stop retrying; otherwise
+ * the retry window expires after 30 days. Closing prunes pending claims and
+ * bounds finished receipts to 49 while preserving reminder/digest guards.
+ * Read acknowledgements are limited to the caller's 50 visible messages.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import defaultDb from './db.js';
@@ -120,19 +124,35 @@ export async function createMessage(message, actor, db = defaultDb, { requestId 
     await db.createSyncData('_system', `message:${id}`, record);
   } catch (err) {
     if (err.name !== 'ConditionalCheckFailedException') throw err;
-    const existing = await db.getSyncData('_system', `message:${id}`);
+    const existing = await db.getSyncData('_system', `message:${id}`, { consistentRead: true });
     return { id, ...existing.data, duplicate: true };
   }
   return { id, ...record };
 }
 
 export async function listMessages(db = defaultDb) {
-  // Prefix query: the bell calls this on every load, and _system also holds
-  // every lesson, prompt, and the knowledge base.
-  const items = await db.getSyncDataByPrefix('_system', 'message:');
-  return items
-    .map((i) => ({ id: i.dataKey.slice('message:'.length), ...i.data }))
-    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  // The current snapshot determines which terminal messages may lose receipts.
+  // A lagging DynamoDB replica must never resurrect delivery after pruning.
+  const items = await db.getSyncDataByPrefix('_system', 'message:', { consistentRead: true });
+  let closed = false;
+  const messages = [];
+  for (const item of items) {
+    const id = item.dataKey.slice('message:'.length);
+    let data = item.data;
+    if (retryExpired(data) && !(data.deliveryLease?.until > Date.now())) {
+      try {
+        data = { ...data, status: 'closed', closedAt: new Date().toISOString(), closeReason: 'expired', deliveryLease: null, deliveryError: null };
+        await db.putSyncData('_system', item.dataKey, data, item.version, { strictVersion: true });
+        closed = true;
+      } catch (error) {
+        if (error.name !== 'ConditionalCheckFailedException') throw error;
+        data = (await db.getSyncData('_system', item.dataKey, { consistentRead: true }))?.data;
+      }
+    }
+    if (data) messages.push({ id, ...data });
+  }
+  if (closed) await pruneFinishedState(db, finishedIds(messages));
+  return messages.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 }
 
 /** The in-app messages a user can see, newest first, with `read`. */
@@ -147,10 +167,16 @@ export async function messagesFor(user, db = defaultDb) {
 }
 
 export async function markRead(userId, ids, db = defaultDb) {
-  const clean = (Array.isArray(ids) ? ids : []).filter((x) => typeof x === 'string' && x.startsWith('msg_')).slice(0, 100);
-  if (!clean.length) return { read: 0 };
+  const user = await db.getUserById(userId);
+  if (!user) return { read: 0 };
+  const visible = new Set((await messagesFor(user, db)).map(message => message.id));
+  const clean = [...new Set((Array.isArray(ids) ? ids : []).filter(id =>
+    typeof id === 'string' && /^msg_[a-z0-9]{8,40}$/.test(id) && visible.has(id)))];
   const now = new Date().toISOString();
-  await updateNotifyState(userId, (s) => ({ ...s, read: { ...(s.read || {}), ...Object.fromEntries(clean.map((id) => [id, now])) } }), db);
+  await updateNotifyState(userId, state => ({ ...state, read: {
+    ...Object.fromEntries(Object.entries(state.read || {}).filter(([id]) => visible.has(id))),
+    ...Object.fromEntries(clean.map(id => [id, now])),
+  } }), db);
   return { read: clean.length };
 }
 
@@ -158,14 +184,51 @@ const fill = (s, vars) => s.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, k) => (var
 
 const DELIVERY_LEASE_MS = 10 * 60 * 1000;
 const FINISHED_RECEIPTS_KEPT = 49;
+export const MESSAGE_RETRY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const retryExpired = message => message.email && !['sent', 'closed'].includes(message.status)
+  && Date.parse(message.createdAt || '') + MESSAGE_RETRY_WINDOW_MS <= Date.now();
+const finishedIds = messages => new Set(messages.filter(message => !message.email || ['sent', 'closed'].includes(message.status)).map(message => message.id));
+
+async function pruneFinishedState(db, finished, users = null) {
+  for (const user of users || await db.listAllUsers()) {
+    await updateNotifyState(user.userId, state => {
+      const emailed = keptReceipts(state.emailed, finished);
+      const emailPending = Object.fromEntries(Object.entries(state.emailPending || {}).filter(([id]) => !finished.has(id)));
+      if (Object.keys(emailed).length === Object.keys(state.emailed || {}).length
+        && Object.keys(emailPending).length === Object.keys(state.emailPending || {}).length) return state;
+      return { ...state, emailed, emailPending };
+    }, db);
+  }
+}
+
+/** Stop further attempts, then prune claims only once delivery is durably closed. */
+export async function closeMessage(id, db = defaultDb) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const item = await db.getSyncData('_system', `message:${id}`, { consistentRead: true });
+    if (!item) return { missing: true };
+    if (item.data.status === 'sent') return { id, ...item.data };
+    if (item.data.status !== 'closed') {
+      if (item.data.deliveryLease?.until > Date.now()) return { active: true };
+      try {
+        await db.putSyncData('_system', `message:${id}`, { ...item.data, status: 'closed', closedAt: new Date().toISOString(), closeReason: 'admin', deliveryLease: null, deliveryError: null }, item.version, { strictVersion: true });
+      } catch (error) {
+        if (error.name !== 'ConditionalCheckFailedException') throw error;
+        continue;
+      }
+    }
+    const messages = await listMessages(db);
+    await pruneFinishedState(db, finishedIds(messages));
+    return messages.find(message => message.id === id);
+  }
+  return { active: true };
+}
 
 /**
- * Messages whose email delivery is over: in-app only, or 'sent'. 'sent' is
- * final (claimDelivery and the retry route both skip it), so a stale read can
- * only miss a message that finished since, which then counts as unfinished.
+ * Finished delivery: in-app only, sent or closed. Expired retry windows are
+ * durably closed before their receipts or pending claims can be pruned.
  */
 async function finishedMessageIds(db) {
-  return new Set((await listMessages(db)).filter((m) => !m.email || m.status === 'sent').map((m) => m.id));
+  return finishedIds(await listMessages(db));
 }
 
 /**
@@ -185,8 +248,12 @@ function keptReceipts(emailed, finished) {
 async function claimDelivery(id, db) {
   const owner = randomBytes(16).toString('hex');
   for (let attempt = 0; attempt < 3; attempt++) {
-    const item = await db.getSyncData('_system', `message:${id}`);
-    if (!item || !item.data.email || item.data.status === 'sent') return { skipped: true };
+    const item = await db.getSyncData('_system', `message:${id}`, { consistentRead: true });
+    if (!item || !item.data.email || ['sent', 'closed'].includes(item.data.status)) return { skipped: true };
+    if (retryExpired(item.data)) {
+      const closed = await closeMessage(id, db);
+      return closed.active ? { active: true } : { skipped: true };
+    }
     if (item.data.deliveryLease?.until > Date.now()) return { active: true };
     const until = Date.now() + DELIVERY_LEASE_MS;
     try {
@@ -205,7 +272,7 @@ async function claimDelivery(id, db) {
 // A worker that outlives its lease cannot overwrite a newer attempt's outcome.
 async function updateDelivery(id, owner, change, db) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const item = await db.getSyncData('_system', `message:${id}`);
+    const item = await db.getSyncData('_system', `message:${id}`, { consistentRead: true });
     if (item?.data.deliveryLease?.owner !== owner) throw new Error('Message delivery ownership changed');
     try {
       await db.putSyncData('_system', `message:${id}`, change(item.data), item.version, { strictVersion: true });
@@ -235,6 +302,9 @@ export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
   try {
     const [people, classroom, finished] = await Promise.all([recipientsOf(message, db), getClassroom(), finishedMessageIds(db)]);
     counts.recipients = people.length;
+    // Repeat terminal cleanup before growing any recipient item. This also
+    // recovers a worker that stopped after closing a message but before pruning.
+    await pruneFinishedState(db, finished, people);
     const queue = [...people];
     async function worker() {
       for (let u = queue.shift(); u; u = queue.shift()) {
@@ -300,6 +370,7 @@ export async function sendMessageEmails({ id }, { db = defaultDb, send } = {}) {
       ...(counts.failed ? {} : { sentAt: new Date().toISOString() }),
     }), db);
     finalized = true;
+    if (!counts.failed) { finished.add(id); await pruneFinishedState(db, finished, people); }
     if (counts.failed) throw new Error(`Message delivery failed for ${counts.failed} recipient(s)`);
     return counts;
   } finally {
