@@ -3,9 +3,10 @@
 **Cloud Run status:** GitHub-hosted Actions are permanently unavailable here.
 Do not retry or troubleshoot their billing. The workflow descriptions below
 are historical/portable deployment context. For Cloud Run, Cloud Build is the
-CI: the `test` step in `deploy/cloudrun/cloudbuild.yaml` runs lint and the
-client/server unit tests (including PostgreSQL), builds the client, installs
-Chromium and its system dependencies, then runs every browser suite serially
+CI: the `test` step in `deploy/cloudrun/cloudbuild.yaml` runs lint, the
+client/server unit tests (including PostgreSQL), every plugin suite plus manifest
+validation (`npm run test:plugins`), builds the client, installs Chromium and its
+system dependencies, then runs every browser suite serially
 (`npm --prefix client run test:browser`) before any image is
 built or deployed. Its `source` step also extracts Beta-RC-232's `server/src`
 (the pinned commit in `ROLLBACK_BASELINE`, `server/src/lib/migrations.js`)
@@ -20,7 +21,7 @@ build configuration.
 
 For each pushed candidate head, submit the test-only configuration and record
 its build ID with the reviewed commit. It fetches that exact commit, starts a
-disposable PostgreSQL 17, runs the same lint/unit/build/browser gate as the
+disposable PostgreSQL 17, runs the same lint/unit/plugin/build/browser gate as the
 deploy pipeline, then runs the separate Playwright end-to-end suite. It has no
 image build, image push, or Cloud Run update steps:
 

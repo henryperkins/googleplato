@@ -248,7 +248,7 @@ describe('upgrade from Beta-RC-232', () => {
   it('runs every browser regression before either Cloud Build gate can pass', () => {
     for (const filename of ['cloudbuild.yaml', 'cloudbuild.verify.yaml']) {
       const config = readFileSync(join(REPO_DIR, 'deploy/cloudrun', filename), 'utf8');
-      assert.match(config, /npm run lint\s+npm test\s+npm run build:client/);
+      assert.match(config, /npm run lint\s+npm test\s+npm run test:plugins\s+npm run build:client/);
       assert.match(config, new RegExp(`git fetch -q --no-tags --depth=1 origin ${RC232_COMMIT}`));
       assert.match(config, /playwright install --with-deps chromium\s+ npm --prefix client run test:browser\s*(?:\n|$)/);
       assert.doesNotMatch(config, /run test:browser:admin/);
@@ -259,6 +259,16 @@ describe('upgrade from Beta-RC-232', () => {
       const steps = [...config.matchAll(/^ {2}- id: ([^\n]+)\n([\s\S]*?)(?=^ {2}- id: |$(?![\s\S]))/gm)];
       assert.ok(steps.length >= 4);
       for (const [, id, step] of steps) assert.match(step, /^ {4}timeout: '[0-9]+s'$/m, `${filename}: explicit ${id} timeout`);
+    }
+  });
+
+  it('runs every plugin regression and validates manifests before either Cloud Build gate can pass', () => {
+    const root = JSON.parse(readFileSync(join(REPO_DIR, 'package.json'), 'utf8'));
+    assert.match(root.scripts['test:plugins'], /plugins\/\*\/server\/\*\.test\.js/);
+    assert.match(root.scripts['test:plugins'], /node scripts\/validate-plugins\.js/);
+    for (const filename of ['cloudbuild.yaml', 'cloudbuild.verify.yaml']) {
+      const config = readFileSync(join(REPO_DIR, 'deploy/cloudrun', filename), 'utf8');
+      assert.match(config, /npm test\s+npm run test:plugins\s+npm run build:client/);
     }
   });
 

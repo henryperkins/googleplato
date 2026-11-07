@@ -113,15 +113,17 @@ test('a course deletion invalidates an earlier lost-response retry', async () =>
   const body = { expectedVersion: 1, operationId: 'save-before-delete', course: 'communication', conversation: [] };
   assert.equal((await request('PUT', body)).status, 200);
   db.getAllSyncData = async () => [{ ...record, dataKey: 'lesson:test' }];
+  const deletedKeys = [];
   db.deleteSyncData = async (userId, dataKey) => {
     assert.equal(userId, '_system');
-    assert.equal(dataKey, 'course:communication');
+    deletedKeys.push(dataKey);
   };
   const deleted = await app.request('/v1/admin/courses/communication', {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${await signAccessToken('admin', 'admin')}` },
   });
   assert.equal(deleted.status, 200);
+  assert.deepEqual(deletedKeys, ['course:communication', 'unitOrder:communication']);
   assert.equal(record.data.course, null);
   assert.equal((await request('PUT', body)).status, 409);
   const saved = await (await request('GET')).json();

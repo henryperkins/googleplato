@@ -24,6 +24,15 @@ PR links this file. Upgrading installs come from **Beta-RC-232** (`629c778`).
 | plato-pilot keeps running; `ready-for-pilot` is removed from sprint issues (247 261 385 386 388 389 400 402 408 411 421 434 438) and restored on anything left open | Blake 2026-10-30 |
 | Defaults (open to override): weekly digest + 7-day nudge; assessment page with "To be decided by the program team" notes; no AI-text detector; lesson rewrite drafts in the private deploy repo; Testers may take lessons; Educators get no logs or View-as; Getting Started arrives private on existing installs (admins get a notice to review and publish it); email automations ship OFF | sprint plan |
 
+## Fork review-remediation behavior changes (2026-11-07)
+
+- Sign-in attempts are fenced across browser tabs, failed credential storage no longer publishes a session, and malformed stored sessions recover to a usable signed-out screen. Discarded sessions revoke only their own unused refresh token.
+- Migration markers and lock releases are owner-fenced and verified; m004 and the new m006 are safe to rerun. Unit lesson order is independent of course membership and old-release unit rewrites.
+- Group assignment settles after admission and administration writes. Learner notes and notification drafts preserve newer work, while editor recovery copy names the action that is actually available.
+- Notification retry state is bounded and Slack auto-invite outcomes are attempt-fenced. The production dependency audit is clean; remaining development-only advisories have a dated exception in `DEPENDENCIES.md`.
+- Five bundled agent prompts change behavior: `coach`, `course-progress-update`, `learner-profile-owner`, `learner-profile-update`, and `lesson-creator`. Startup seeding installs the changed prompt text without an admin review step. Their configured-production-model qualification is a separate release gate; offline checks are not a substitute for it.
+- On a new, empty classroom, Getting Started installs **public** by owner decision. Existing classrooms keep the private-install behavior described below.
+
 ## Data migrations
 | Id | What it changes | Reversible by | PR |
 |---|---|---|---|
@@ -106,8 +115,8 @@ rehearsal (restore copies, migrate them, diff, then serve them with
 Beta-RC-232's code), see `server/scripts/rehearse-upgrade.js`.
 
 **3. Deploy.** On first start, the server:
-- runs `m003_role_learner`, `m004_default_program`, and `m005_name_split`
-  (table above). Each is conditional and idempotent, runs once per install
+- runs `m003_role_learner`, `m004_default_program`, `m005_name_split`, and
+  `m006_unit_order` (table above). Each is conditional and idempotent, runs once per install
   under a lock. Startup waits up to 20 seconds for a competing lock and fails readiness if migration remains incomplete.
 - installs the **Getting Started with plato** course (one unit, three
   lessons) with its lessons *private*, after the migrations run. Admin →

@@ -61,7 +61,12 @@ export async function autoInvite({ userId, email }, settings, deps = {}) {
   const channelId = settings.autoInviteChannelId;
   const target = { channelId, channelName: settings.autoInviteChannelName || null };
   const attemptId = randomUUID();
+  let hadMetadata = false;
   const claim = await mutate(userId, async current => {
+    // A CAS loss after explicit metadata deletion is final, not an instruction
+    // to recreate that record on the next comparison.
+    if (hadMetadata && !current) throw new SkipWrite();
+    hadMetadata ||= Boolean(current);
     if (!await db.getUserById(userId, { consistentRead: true })) throw new SkipWrite();
     if (current?.autoInvite?.status === 'invited' && current.autoInvite.channelId === channelId) throw new SkipWrite();
     const time = now();
@@ -74,6 +79,16 @@ export async function autoInvite({ userId, email }, settings, deps = {}) {
     } };
   });
   if (claim !== true) return claim;
+
+  // Account deletion can complete between the updater's check and a first
+  // create. Re-read both records before any external call and remove only this
+  // attempt's orphaned claim; later account deletion cascades normally.
+  const claimed = await db.getSyncData(userId, 'userMeta:slack', { consistentRead: true });
+  if (claimed?.data?.autoInvite?.attemptId !== attemptId) return null;
+  if (!await db.getUserById(userId, { consistentRead: true })) {
+    await db.deleteSyncData(userId, 'userMeta:slack', { expectedVersion: claimed.version });
+    return null;
+  }
 
   let result;
   try {

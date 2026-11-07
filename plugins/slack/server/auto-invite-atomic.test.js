@@ -166,6 +166,47 @@ for (const backend of ['sqlite', 'dynamodb']) {
       try { await autoInvite(PERSON, SETTINGS); assert.equal(removed, true); assert.equal(await read(), null); }
       finally { install(); }
     });
+    await t.test('claim-time account deletion leaves no metadata or Slack call', async () => {
+      await setup();
+      await adapter.deleteSyncData(PERSON.userId, 'userMeta:slack');
+      const put = db.putSyncData;
+      let removed = false;
+      db.putSyncData = async (...args) => {
+        if (args[0] === PERSON.userId && args[1] === 'userMeta:slack' && args[2].autoInvite?.status === 'pending' && !removed) {
+          removed = true;
+          await adapter.deleteUser(PERSON.userId);
+        }
+        return put(...args);
+      };
+      let lookups = 0;
+      try {
+        const result = await autoInvite(PERSON, SETTINGS, { lookup: async () => { lookups++; return 'U1'; } });
+        assert.equal(removed, true);
+        assert.equal(result, null);
+        assert.equal(await read(), null);
+        assert.equal(lookups, 0);
+      } finally { install(); }
+    });
+    await t.test('claim-time metadata deletion is not recreated by a CAS retry', async () => {
+      await setup();
+      const put = db.putSyncData;
+      let removed = false;
+      db.putSyncData = async (...args) => {
+        if (args[0] === PERSON.userId && args[1] === 'userMeta:slack' && args[2].autoInvite?.status === 'pending' && !removed) {
+          removed = true;
+          await adapter.deleteSyncData(PERSON.userId, 'userMeta:slack');
+        }
+        return put(...args);
+      };
+      let lookups = 0;
+      try {
+        const result = await autoInvite(PERSON, SETTINGS, { lookup: async () => { lookups++; return 'U1'; } });
+        assert.equal(removed, true);
+        assert.equal(result, null);
+        assert.equal(await read(), null);
+        assert.equal(lookups, 0);
+      } finally { install(); }
+    });
     await t.test('Retry all counts exhausted CAS conflicts and continues with later users', async () => {
       await setup({ second: true });
       const put = db.putSyncData;

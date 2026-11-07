@@ -37,7 +37,7 @@ not in the workspace is recorded as "Not in the workspace".
   use the same `updateUserMeta` compare-and-set claim (plugin API **1.6.0+**).
   A pending record holds a cryptographically random `attemptId`, `startedAt`
   and a **60-second lease**. A live lease blocks another call to the same
-  channel; a completed successful invite to that channel is skipped.
+  channel; a completed successful invite to that channel is skipped. A post-claim account read removes an orphaned first claim before Slack is called, and a CAS retry never recreates metadata deleted after an earlier read.
 - **Recoverable attempts:** after lease expiry, Retry can claim an abandoned
   pending attempt. Legacy pending records without a lease are reclaimable.
   Choosing another channel can take over immediately. The lease suppresses

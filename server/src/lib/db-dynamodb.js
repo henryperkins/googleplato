@@ -567,7 +567,6 @@ const db = {
         ...filter,
         ExpressionAttributeValues: { ':uid': userId, ...(filter.ExpressionAttributeValues || {}) },
         ExclusiveStartKey: lastKey,
-        ConsistentRead: consistentRead,
       }));
       items.push(...result.Items);
       lastKey = result.LastEvaluatedKey;
