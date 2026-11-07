@@ -21,7 +21,7 @@
     "test:firestore": "node --test client/tests/firestore-rules.test.js",
     "test": "npm run test:client && npm run test:server",
     "lint": "npm --prefix client run lint && npm --prefix server run lint",
-    "deploy": "npm run build:client && npm run build:server && cd server && sam deploy"
+    "deploy": "npm run build:client && npm run build:server && bash scripts/bundle-lambda-artifacts.sh && cd server && sam deploy"
   },
   "dependencies": {
     "firebase": "^13.0.0"
