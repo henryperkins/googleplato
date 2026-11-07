@@ -47,8 +47,34 @@ test('DynamoDB conditional conflicts are recoverable but capacity failures remai
     throw Object.assign(new Error('Transaction failed'), { name: 'TransactionCanceledException', CancellationReasons: [{ Code: reason }] });
   });
   await assert.rejects(db.commitLessonTurn('learner', 'lesson', base, {}), { name: 'ConditionalCheckFailedException' });
+  // A concurrent transaction on the same items cancels with
+  // TransactionConflict, not ConditionalCheckFailed; callers recover from
+  // the portable ConditionalCheckFailedException name only.
+  reason = 'TransactionConflict';
+  await assert.rejects(db.commitLessonTurn('learner', 'lesson', base, {}), { name: 'ConditionalCheckFailedException' });
   reason = 'ProvisionedThroughputExceeded';
   await assert.rejects(db.commitLessonTurn('learner', 'lesson', base, {}), { name: 'TransactionCanceledException' });
+});
+
+test('DynamoDB activity writes never resurrect a deleted user or invite', async () => {
+  const conditional = Object.assign(new Error('condition failed'), { name: 'ConditionalCheckFailedException' });
+  mock.method(DynamoDBDocumentClient.prototype, 'send', async command => {
+    if (command.input.UpdateExpression?.startsWith('SET usageCount')) {
+      assert.match(command.input.ConditionExpression, /attribute_exists\(inviteToken\)/);
+    } else {
+      assert.match(command.input.ConditionExpression, /attribute_exists\((userId|inviteToken)\)/);
+    }
+    throw conditional;
+  });
+  // Postgres/SQLite patch on a missing row is a no-op; Dynamo must match
+  // instead of upserting a stub user/invite.
+  await db.updateUser('usr_gone', { name: 'Ghost' });
+  await db.incrementUserCounter('usr_gone', 'lessonsCompleted');
+  await db.setUserActivityField('usr_gone', 'lastActiveAt', new Date().toISOString());
+  await db.markInviteUsed('inv_gone');
+  // A missing link invite must fail the way Postgres/SQLite fail it, so
+  // callers read it as "missing or limit reached".
+  await assert.rejects(db.incrementLinkUsage('inv_gone'), { name: 'ConditionalCheckFailedException' });
 });
 
 test('DynamoDB reset deletes the record and rotates its durable generation in one transaction', async () => {

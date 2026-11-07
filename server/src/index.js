@@ -29,10 +29,29 @@ import { isSelfInvokeEvent } from './lib/lesson-stats-cache.js';
 
 clientCompatibility();
 
+// Lambda-only fail-fast, mirroring the production gates in server/start.js.
+// SAM supplies these via SSM; silently falling back to the dev JWT secret
+// would sign forgeable tokens. Gated on the Lambda runtime marker so local
+// and test imports of this module (SQLite) are unaffected.
+if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32 || process.env.JWT_SECRET === 'dev-secret-change-me') {
+    throw new Error('Lambda requires a JWT_SECRET of at least 32 characters');
+  }
+  if (process.env.DB_BACKEND && !['postgres', 'dynamodb'].includes(process.env.DB_BACKEND)) {
+    throw new Error('Lambda requires DB_BACKEND=postgres or dynamodb');
+  }
+  if (process.env.APP_URL && !process.env.APP_URL.startsWith('https://')) {
+    throw new Error('Lambda requires an HTTPS APP_URL');
+  }
+}
+// config.js has already captured the bootstrap credential; keep it out of
+// the process environment that plugin code can read.
+delete process.env.ADMIN_PASSWORD;
+
 const server = new Hono();
 
 server.use('*', cors({
-  origin: '*',
+  origin: process.env.APP_URL || '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Plato-View-As', ...CLIENT_COMPATIBILITY_HEADERS],
 }));
@@ -61,6 +80,7 @@ async function initializeServer() {
         await db.createUser({
           userId,
           email: ADMIN_EMAIL.toLowerCase(),
+          username: 'admin',
           passwordHash,
           name: 'Admin',
           role: 'admin',

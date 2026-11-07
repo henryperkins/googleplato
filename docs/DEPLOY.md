@@ -53,11 +53,13 @@ Create these in AWS Systems Manager Parameter Store before deploying. Replace `{
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `/plato/{stage}/jwt-secret` | SecureString | JWT signing secret |
+| `/plato/{stage}/jwt-secret` | String | JWT signing secret (at least 32 characters — the Lambda entry refuses to boot on a shorter one) |
 | `/plato/{stage}/ses-from-email` | String | Verified SES sender email |
-| `/plato/{stage}/app-url` | String | Public URL (for invite/reset links) |
-| `/plato/{stage}/admin-email` | String | Bootstrap admin email (optional — setup UI handles this) |
-| `/plato/{stage}/admin-password` | SecureString | Bootstrap admin password (optional) |
+| `/plato/{stage}/app-url` | String | Public HTTPS URL (for invite/reset links) |
+| `/plato/{stage}/admin-email` | String | Bootstrap admin email |
+| `/plato/{stage}/admin-password` | String | Bootstrap admin password |
+
+Create all five as `String` parameters: the template reads them with `{{resolve:ssm:…}}` dynamic references, which read only `String` and `StringList` parameters, so a `SecureString` here fails the deploy. Restrict who can read `/plato/*` with IAM. All five parameters must exist before deploying: `server/template.yaml` resolves each one unconditionally, so a missing parameter fails stack creation. On AWS a fresh stack always bootstraps the admin from `admin-email`/`admin-password` on first request; the setup-UI first-admin path that `server/start.js` supports on Cloud Run is not reachable on a fresh Lambda stack.
 
 ### Stack parameters
 
@@ -99,24 +101,15 @@ cp samconfig.toml.example samconfig.toml
 cd client && npm ci && npm run build && cd ..
 
 # Build server
-cd server && sam build
+cd server && sam build && cd ..
 
-# Bundle client SPA into Lambda artifacts
-cp -r ../client/dist .aws-sam/build/PlatoStreamFunction/client-dist
-cp -r ../client/dist .aws-sam/build/PlatoApiFunction/client-dist
-
-# Bundle prompt source files for seeding
-mkdir -p .aws-sam/build/PlatoApiFunction/client-content .aws-sam/build/PlatoStreamFunction/client-content
-cp -r ../client/prompts .aws-sam/build/PlatoApiFunction/client-content/
-cp -r ../client/prompts .aws-sam/build/PlatoStreamFunction/client-content/
-
-# Generate version.json from the latest Beta-RC-* tag
-VERSION=$(git describe --tags --abbrev=0 --match='Beta-RC-*' 2>/dev/null || echo 'Beta-RC-0')
-echo "{\"version\":\"${VERSION}\"}" > .aws-sam/build/PlatoApiFunction/version.json
-cp .aws-sam/build/PlatoApiFunction/version.json .aws-sam/build/PlatoStreamFunction/version.json
+# Bundle the SPA, seed prompts, plugin server code, and version.json into
+# both Lambda artifacts (sam build copies none of these; without them the
+# deploy boots as a hollow shell with no client, prompts, or plugins)
+bash scripts/bundle-lambda-artifacts.sh
 
 # Deploy (default stage is prod)
-sam deploy
+cd server && sam deploy
 # Or deploy a specific stage
 sam deploy --parameter-overrides Stage=playground --stack-name plato-playground
 ```
@@ -167,6 +160,8 @@ gh repo edit my-org/my-plato --visibility private --accept-visibility-change-con
 **Create a dispatch token:** In GitHub, generate a fine-grained personal access token with `contents:write` permission scoped to your private fork. Add it to the **public repo** as a secret named `DEPLOY_DISPATCH_TOKEN`. The public repo's trigger workflow uses this token to fire dispatch events at the private fork.
 
 **The trigger workflow** lives in the public repo at `.github/workflows/trigger-deploy.yml` (already included in this project). On push to `main` or `playground`, it fires a `deploy-prod` or `deploy-playground` `repository_dispatch` event at the private fork with the commit SHA as payload.
+
+**Deploy freeze:** set the repository variable `DEPLOY_FREEZE=true` to stop automatic prod deploys on push to `main` (event days, incidents). A manual `workflow_dispatch` run still deploys, for a deliberate hotfix or rollback. Same behaviour as upstream. It covers only this dispatch path: a deployment that builds from its own trigger on `main` (for example the Cloud Run setup in `deploy/cloudrun/`, a Cloud Build trigger) isn't frozen by it. Freeze that one by not merging to `main`, or by disabling the trigger.
 
 **Add a deploy workflow** to your private fork at `.github/workflows/deploy.yml`:
 
@@ -230,18 +225,8 @@ jobs:
           aws-region: YOUR_REGION
       - run: cd client && npm ci && npm run build
       - run: cd server && sam build
-      - run: |
-          cp -r client/dist server/.aws-sam/build/PlatoApiFunction/client-dist
-          cp -r client/dist server/.aws-sam/build/PlatoStreamFunction/client-dist
-      - run: |
-          mkdir -p server/.aws-sam/build/PlatoApiFunction/client-content server/.aws-sam/build/PlatoStreamFunction/client-content
-          cp -r client/prompts server/.aws-sam/build/PlatoApiFunction/client-content/
-          cp -r client/prompts server/.aws-sam/build/PlatoStreamFunction/client-content/
-      - name: Generate version.json from latest tag
-        run: |
-          VERSION=$(git describe --tags --abbrev=0 --match='Beta-RC-*' 2>/dev/null || echo 'Beta-RC-0')
-          echo "{\"version\":\"${VERSION}\"}" > server/.aws-sam/build/PlatoApiFunction/version.json
-          cp server/.aws-sam/build/PlatoApiFunction/version.json server/.aws-sam/build/PlatoStreamFunction/version.json
+      - name: Bundle SPA, prompts, plugins, and version.json into both Lambda artifacts
+        run: bash scripts/bundle-lambda-artifacts.sh
       - run: >
           cd server && sam deploy
           --config-env ci
@@ -343,7 +328,7 @@ on playground, instead of being console-only config that exists in prod alone.
 
 Production DynamoDB tables are protected by two backup layers:
 
-- **Point-in-Time Recovery (PITR)** — enabled on all 5 prod tables, allowing restore to any second in the last 35 days. Handles accidental deletes, data corruption, or bugs discovered after the fact.
+- **Point-in-Time Recovery (PITR)** — enabled on all 5 prod tables in the AWS console, allowing restore to any second in the last 35 days. Handles accidental deletes, data corruption, or bugs discovered after the fact. PITR is deliberately not in `server/template.yaml` (same as upstream): the deploy role cannot manage continuous backups, so enable it per table in the console after a fresh deploy. The tables themselves are protected in the template by `DeletionPolicy: Retain` / `UpdateReplacePolicy: Retain`.
 - **Pre-deploy snapshots** — the CI/CD deploy workflow automatically creates on-demand backups of all prod tables before each deploy. Old backups are pruned to keep the last 5 per table. These provide named restore points tied to specific deploys.
 
 To restore from a pre-deploy snapshot, use the AWS Console (DynamoDB > Backups) or the CLI:

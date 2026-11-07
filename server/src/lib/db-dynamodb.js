@@ -82,13 +82,21 @@ const db = {
     const values = Object.fromEntries(keys.map((k, i) => [`:v${i}`, fields[k]]));
     names['#upd'] = 'updatedAt';
     values[':now'] = new Date().toISOString();
-    await doc.send(new UpdateCommand({
-      TableName: USERS_TABLE,
-      Key: { userId },
-      UpdateExpression: `SET ${expr}, #upd = :now`,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
-    }));
+    try {
+      await doc.send(new UpdateCommand({
+        TableName: USERS_TABLE,
+        Key: { userId },
+        UpdateExpression: `SET ${expr}, #upd = :now`,
+        // UpdateItem upserts: without this guard a deleted user is
+        // resurrected as a stub. Postgres/SQLite patch on a missing row is
+        // a no-op, so a failed condition is swallowed to match.
+        ConditionExpression: 'attribute_exists(userId)',
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+      }));
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+    }
   },
 
   // Compare the complete prior profile while updating only its attributes.
@@ -141,24 +149,34 @@ const db = {
   // user-profile edits.
   async incrementUserCounter(userId, field, delta = 1) {
     if (!['lessonsCompleted'].includes(field)) throw new Error(`Unsupported counter field: ${field}`);
-    await doc.send(new UpdateCommand({
-      TableName: USERS_TABLE,
-      Key: { userId },
-      UpdateExpression: 'ADD #f :d',
-      ExpressionAttributeNames: { '#f': field },
-      ExpressionAttributeValues: { ':d': delta },
-    }));
+    try {
+      await doc.send(new UpdateCommand({
+        TableName: USERS_TABLE,
+        Key: { userId },
+        UpdateExpression: 'ADD #f :d',
+        ConditionExpression: 'attribute_exists(userId)',
+        ExpressionAttributeNames: { '#f': field },
+        ExpressionAttributeValues: { ':d': delta },
+      }));
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+    }
   },
 
   async setUserActivityField(userId, field, value) {
     if (!['lastActiveAt', 'lessonsCompleted'].includes(field)) throw new Error(`Unsupported activity field: ${field}`);
-    await doc.send(new UpdateCommand({
-      TableName: USERS_TABLE,
-      Key: { userId },
-      UpdateExpression: 'SET #f = :v',
-      ExpressionAttributeNames: { '#f': field },
-      ExpressionAttributeValues: { ':v': value },
-    }));
+    try {
+      await doc.send(new UpdateCommand({
+        TableName: USERS_TABLE,
+        Key: { userId },
+        UpdateExpression: 'SET #f = :v',
+        ConditionExpression: 'attribute_exists(userId)',
+        ExpressionAttributeNames: { '#f': field },
+        ExpressionAttributeValues: { ':v': value },
+      }));
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+    }
   },
 
   // Remove one custom user field value (#364) in place — a nested REMOVE, not
@@ -351,13 +369,18 @@ const db = {
   },
 
   async markInviteUsed(inviteToken) {
-    await doc.send(new UpdateCommand({
-      TableName: INVITES_TABLE,
-      Key: { inviteToken },
-      UpdateExpression: 'SET #s = :used, usedAt = :now',
-      ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':used': 'used', ':now': new Date().toISOString() },
-    }));
+    try {
+      await doc.send(new UpdateCommand({
+        TableName: INVITES_TABLE,
+        Key: { inviteToken },
+        UpdateExpression: 'SET #s = :used, usedAt = :now',
+        ConditionExpression: 'attribute_exists(inviteToken)',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':used': 'used', ':now': new Date().toISOString() },
+      }));
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+    }
   },
 
   async deleteInvite(inviteToken) {
@@ -408,7 +431,11 @@ const db = {
       TableName: INVITES_TABLE,
       Key: { inviteToken },
       UpdateExpression: 'SET usageCount = if_not_exists(usageCount, :zero) + :one',
-      ConditionExpression: 'attribute_not_exists(maxUsages) OR maxUsages > usageCount',
+      // attribute_exists first: on a missing token the bare maxUsages check
+      // passes against the upserted stub and silently creates a phantom
+      // invite. Postgres/SQLite throw ConditionalCheckFailedException here,
+      // which callers read as "missing or limit reached".
+      ConditionExpression: 'attribute_exists(inviteToken) AND (attribute_not_exists(maxUsages) OR maxUsages > usageCount)',
       ExpressionAttributeValues: { ':zero': 0, ':one': 1 },
     }));
   },
@@ -717,7 +744,7 @@ const db = {
       }));
     } catch (error) {
       if (error.name === 'TransactionCanceledException'
-        && error.CancellationReasons?.some(reason => reason.Code === 'ConditionalCheckFailed')) {
+        && error.CancellationReasons?.some(reason => ['ConditionalCheckFailed', 'TransactionConflict'].includes(reason.Code))) {
         throw Object.assign(new Error('Lesson changed while saving'), { name: 'ConditionalCheckFailedException' });
       }
       throw error;
@@ -743,12 +770,20 @@ const db = {
     const condition = expectedVersion === undefined ? {} : { ConditionExpression: 'version = :v', ExpressionAttributeValues: { ':v': expectedVersion } };
     const lessonId = invalidateLesson && /^(?:messages|lessonKB):(.+)$/.exec(dataKey)?.[1];
     if (lessonId) {
-      await doc.send(new TransactWriteCommand({ TransactItems: [
-        { Delete: { TableName: SYNC_DATA_TABLE, Key: { userId, dataKey }, ...condition } },
-        { Put: { TableName: SYNC_DATA_TABLE, Item: {
-          userId, dataKey: `lessonGeneration:${lessonId}`, data: randomUUID(), version: 1, updatedAt: new Date().toISOString(),
-        } } },
-      ] }));
+      try {
+        await doc.send(new TransactWriteCommand({ TransactItems: [
+          { Delete: { TableName: SYNC_DATA_TABLE, Key: { userId, dataKey }, ...condition } },
+          { Put: { TableName: SYNC_DATA_TABLE, Item: {
+            userId, dataKey: `lessonGeneration:${lessonId}`, data: randomUUID(), version: 1, updatedAt: new Date().toISOString(),
+          } } },
+        ] }));
+      } catch (error) {
+        if (error.name === 'TransactionCanceledException'
+          && error.CancellationReasons?.some(reason => ['ConditionalCheckFailed', 'TransactionConflict'].includes(reason.Code))) {
+          throw Object.assign(new Error('Lesson changed while deleting'), { name: 'ConditionalCheckFailedException' });
+        }
+        throw error;
+      }
       return;
     }
     await doc.send(new DeleteCommand({

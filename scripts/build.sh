@@ -13,8 +13,13 @@ echo "==> Building server..."
 cd server
 npm ci
 sam build
+cd ..
+
+echo "==> Bundling client, prompts, plugins, and version into Lambda artifacts..."
+bash scripts/bundle-lambda-artifacts.sh
 
 echo "==> Deploying..."
+cd server
 sam deploy
 
 echo "==> Done!"
