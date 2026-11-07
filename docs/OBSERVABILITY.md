@@ -200,6 +200,7 @@ lost something?* Yes → A. No → B.
 | `ai_invoke_failed` | error | B | a non-streamed AI call failed (background agents: learner profile, unit notes, lesson creation, extractors); the caller gets a 500 |
 | `sync_item_too_large` | — | — | **Not a log code in the fork.** It's the 413 response's `code`; the refusal logs one content-free `sync_validation_failure` (status 413), which log-watch and the Cloud Monitoring alert count as a save failure. See `docs/SAVE_OBSERVABILITY.md` |
 | `email_not_allowlisted` | warn | C | a notification email was skipped by `EMAIL_ALLOWLIST` (expected on non-prod) |
+| `sign_in_delayed` | info | C | a wrong password started or lengthened a sign-in delay for one requester (`{ trusted, waitMs }`, no names or addresses). Expected; a burst means someone is guessing (`server/src/lib/sign-in-guard.js`) |
 
 ## How to add a check
 

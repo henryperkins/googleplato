@@ -13,8 +13,28 @@ import { logger } from '../lib/logger.js';
 import pluginRegistry from '../lib/plugins/registry.js';
 import { getFieldDefinitions, mergeFieldValues } from '../lib/user-fields.js';
 import { validateUsername, generateUsername } from '../lib/usernames.js';
+import { clientIp, createLimiter, readJson } from '../lib/rate-limit.js';
+import { attemptSucceeded, beginAttempt, issueDeviceToken, requesterFor, verifyDeviceToken, _resetSignInGuard } from '../lib/sign-in-guard.js';
 
 const auth = new Hono();
+
+// Per-address flood guards, sized for a room of learners on one Wi-Fi address
+// (upstream #517/#520). Password guessing is held back per requester by
+// lib/sign-in-guard.js.
+const TEN_MIN = 10 * 60 * 1000;
+export const AUTH_IP_LIMITS = { login: 1000, refresh: 3000, forgot: 100, reset: 200, signup: 500, setup: 10 };
+const limits = Object.fromEntries(Object.entries(AUTH_IP_LIMITS)
+  .map(([name, limit]) => [name, createLimiter({ limit, windowMs: TEN_MIN })]));
+const limited = (c, name) => limits[name].hit(clientIp(c));
+const TOO_MANY = { error: 'Too many requests. Please try again later.' };
+const INVALID_JSON = { error: 'Invalid JSON' };
+
+export function signInDelayed(c, waitMs) {
+  const seconds = Math.ceil(waitMs / 1000);
+  const when = seconds < 90 ? `${seconds} seconds` : `${Math.ceil(seconds / 60)} minutes`;
+  c.header('Retry-After', String(seconds));
+  return c.json({ error: `Too many sign-in attempts. Try again in ${when}.`, code: 'sign_in_delayed', retryAfterMs: waitMs }, 429);
+}
 
 // GET /v1/auth/setup-status — check if initial setup is needed
 auth.get('/v1/auth/setup-status', async (c) => {
@@ -30,12 +50,14 @@ auth.get('/v1/auth/providers', async (c) => {
 
 // POST /v1/auth/setup — create the first admin account (only works when no users exist)
 auth.post('/v1/auth/setup', async (c) => {
+  if (limited(c, 'setup')) return c.json(TOO_MANY, 429);
   const count = await db.countUsers();
   if (count > 0) {
     return c.json({ error: 'Setup already completed' }, 400);
   }
 
-  const body = await c.req.json();
+  const body = await readJson(c);
+  if (!body) return c.json(INVALID_JSON, 400);
   const { email, password, username: rawUsername, classroomName } = body;
   if (!email || !password) {
     return c.json({ error: 'email, first name, and password are required' }, 400);
@@ -96,6 +118,7 @@ auth.post('/v1/auth/setup', async (c) => {
   return c.json({
     accessToken,
     refreshToken,
+    deviceToken: issueDeviceToken(userId),
     user: { userId, email: email.toLowerCase(), username, ...nameFields(nameInput.fields), role: 'admin' },
   }, 201);
 });
@@ -130,7 +153,9 @@ auth.get('/v1/auth/invite/:token', async (c) => {
 
 // POST /v1/auth/signup — sign up with invite token
 auth.post('/v1/auth/signup', async (c) => {
-  const body = await c.req.json();
+  if (limited(c, 'signup')) return c.json(TOO_MANY, 429);
+  const body = await readJson(c);
+  if (!body) return c.json(INVALID_JSON, 400);
   const { inviteToken, password, username: rawUsername, userGroup, email: providedEmail, customFields: rawCustomFields } = body;
 
   if (!inviteToken || !password) {
@@ -265,9 +290,12 @@ auth.post('/v1/auth/signup', async (c) => {
 
 // POST /v1/auth/login
 auth.post('/v1/auth/login', async (c) => {
-  const { email, password } = await c.req.json();
+  if (limited(c, 'login')) return c.json(TOO_MANY, 429);
+  const body = await readJson(c);
+  if (!body) return c.json(INVALID_JSON, 400);
+  const { email, password, deviceToken } = body;
 
-  if (!email || !password) {
+  if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
     return c.json({ error: 'Email/username and password are required' }, 400);
   }
 
@@ -275,14 +303,26 @@ auth.post('/v1/auth/login', async (c) => {
   const user = email.includes('@')
     ? await db.getUserByEmail(email)
     : await db.getUserByUsername(email);
-  if (!user) {
-    return c.json({ error: 'Invalid credentials' }, 401);
-  }
+  // Failures count against this device, or this account from this address,
+  // never the account as a whole (lib/sign-in-guard.js). Unknown names alike.
+  const deviceId = user ? verifyDeviceToken(deviceToken, user.userId) : null;
+  const requester = requesterFor({
+    accountKey: user ? user.userId : `unknown:${email.trim().toLowerCase()}`,
+    deviceId,
+    ip: clientIp(c),
+  });
+  const attempt = beginAttempt(requester);
+  if (attempt.wait > 0) return signInDelayed(c, attempt.wait);
 
-  const valid = await comparePassword(password, user.passwordHash);
+  const valid = user ? await comparePassword(password, user.passwordHash) : false;
   if (!valid) {
+    if (attempt.next > 0) {
+      logger.info('sign_in_delayed', { trusted: requester.trusted, waitMs: attempt.next });
+      return signInDelayed(c, attempt.next);
+    }
     return c.json({ error: 'Invalid credentials' }, 401);
   }
+  attemptSucceeded(requester);
 
   const accessToken = await signAccessToken(user.userId, user.role);
   const refreshToken = generateRefreshToken();
@@ -307,13 +347,17 @@ auth.post('/v1/auth/login', async (c) => {
   return c.json({
     accessToken,
     refreshToken,
+    deviceToken: issueDeviceToken(user.userId, deviceId ? { deviceId } : undefined),
     user: { userId: user.userId, email: user.email, username: user.username, ...nameFields(user), role: normalizeRole(user.role) },
   });
 });
 
 // POST /v1/auth/refresh
 auth.post('/v1/auth/refresh', async (c) => {
-  const { refreshToken } = await c.req.json();
+  if (limited(c, 'refresh')) return c.json(TOO_MANY, 429);
+  const body = await readJson(c);
+  if (!body) return c.json(INVALID_JSON, 400);
+  const { refreshToken } = body;
   if (!refreshToken) {
     return c.json({ error: 'refreshToken is required' }, 400);
   }
@@ -365,7 +409,9 @@ auth.post('/v1/auth/refresh', async (c) => {
 
 // POST /v1/auth/logout
 auth.post('/v1/auth/logout', async (c) => {
-  const { refreshToken } = await c.req.json();
+  const body = await readJson(c);
+  if (!body) return c.json(INVALID_JSON, 400);
+  const { refreshToken } = body;
   if (refreshToken) {
     await db.deleteRefreshToken(hashToken(refreshToken));
   }
@@ -374,7 +420,10 @@ auth.post('/v1/auth/logout', async (c) => {
 
 // POST /v1/auth/forgot-password
 auth.post('/v1/auth/forgot-password', async (c) => {
-  const { email } = await c.req.json();
+  if (limited(c, 'forgot')) return c.json(TOO_MANY, 429);
+  const body = await readJson(c);
+  if (!body) return c.json(INVALID_JSON, 400);
+  const { email } = body;
   if (!email) {
     return c.json({ error: 'Email is required' }, 400);
   }
@@ -405,7 +454,10 @@ auth.post('/v1/auth/forgot-password', async (c) => {
 
 // POST /v1/auth/reset-password
 auth.post('/v1/auth/reset-password', async (c) => {
-  const { resetToken, password } = await c.req.json();
+  if (limited(c, 'reset')) return c.json(TOO_MANY, 429);
+  const body = await readJson(c);
+  if (!body) return c.json(INVALID_JSON, 400);
+  const { resetToken, password } = body;
   if (!resetToken || !password) {
     return c.json({ error: 'resetToken and password are required' }, 400);
   }
@@ -436,3 +488,9 @@ auth.post('/v1/auth/reset-password', async (c) => {
 
 export default auth;
 export { validateUsername, generateUsername };
+
+/** Tests: clear the per-address limits and the sign-in failure counts. */
+export function _resetAuthLimits() {
+  for (const limiter of Object.values(limits)) limiter.reset();
+  _resetSignInGuard();
+}

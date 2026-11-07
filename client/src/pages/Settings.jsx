@@ -9,6 +9,7 @@ import {
   savePreferences,
   getLearnerProfileSummary,
   getLearnerProfile,
+  getAuthTokens,
 } from '../../js/storage.js';
 import { updateProfile, getMyFields, authenticatedFetch, captureAuthSession, isAuthSessionCurrent } from '../../js/auth.js';
 import { missingRequired, pickValues, validateCustomField, validateCustomFields } from '../lib/userFields.js';
@@ -60,6 +61,8 @@ function AccountSettings() {
   const [profileSummary, setProfileSummary] = useState('');
   const [profileFeedback, setProfileFeedback] = useState(null);
 
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [externalSession, setExternalSession] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordErrors, setPasswordErrors] = useState({});
@@ -76,6 +79,7 @@ function AccountSettings() {
   const [fieldsFeedback, setFieldsFeedback] = useState(null);
   const [fieldsSaving, setFieldsSaving] = useState(false);
   const usernameRef = useRef(null);
+  const currentPasswordRef = useRef(null);
   const newPasswordRef = useRef(null);
   const confirmPasswordRef = useRef(null);
 
@@ -180,11 +184,21 @@ function AccountSettings() {
     }
   };
 
+  // Accounts made through Google sign-in have a password nobody chose.
+  useEffect(() => {
+    let live = true;
+    getAuthTokens().then((tokens) => { if (live) setExternalSession(!!tokens?.provider && tokens.provider !== 'password'); });
+    return () => { live = false; };
+  }, []);
+
   const handleChangePassword = async (e) => {
     e.preventDefault();
     if (passwordSubmitting) return;
     setPasswordFeedback(null);
     const nextErrs = {};
+    if (!currentPassword) {
+      nextErrs.currentPassword = 'Enter your current password.';
+    }
     if (!newPassword || newPassword.length < 8) {
       nextErrs.newPassword = 'Password must be at least 8 characters.';
     }
@@ -193,19 +207,25 @@ function AccountSettings() {
     }
     if (Object.keys(nextErrs).length > 0) {
       setPasswordErrors(nextErrs);
-      setPasswordFeedback({ type: 'error', message: nextErrs.newPassword || nextErrs.confirmPassword });
-      if (nextErrs.newPassword) newPasswordRef.current?.focus();
+      setPasswordFeedback({ type: 'error', message: nextErrs.currentPassword || nextErrs.newPassword || nextErrs.confirmPassword });
+      if (nextErrs.currentPassword) currentPasswordRef.current?.focus();
+      else if (nextErrs.newPassword) newPasswordRef.current?.focus();
       else if (nextErrs.confirmPassword) confirmPasswordRef.current?.focus();
       return;
     }
     setPasswordErrors({});
     setPasswordSubmitting(true);
     try {
-      await updateProfile({ password: newPassword }, user?.userId);
+      await updateProfile({ password: newPassword, currentPassword }, user?.userId);
+      setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setPasswordFeedback({ type: 'success', message: 'Password changed. Your other devices will need to sign in again.' });
     } catch (err) {
+      if (err.code === 'current_password_required') {
+        setPasswordErrors({ currentPassword: `${err.message}.` });
+        currentPasswordRef.current?.focus();
+      }
       setPasswordFeedback({ type: 'error', message: err.message || 'Failed to change password' });
     } finally {
       setPasswordSubmitting(false);
@@ -299,6 +319,31 @@ function AccountSettings() {
             {/* Lets password managers attach the new password to this account. */}
             <input type="text" name="username" autoComplete="username" value={user?.email || ''} readOnly hidden />
             <div className="space-y-1.5">
+              <Label htmlFor="current-password">Current Password</Label>
+              <PasswordField
+                id="current-password"
+                autoComplete="current-password"
+                enterKeyHint="next"
+                inputRef={currentPasswordRef}
+                value={currentPassword}
+                onChange={(e) => {
+                  setCurrentPassword(e.target.value);
+                  setPasswordFeedback(null);
+                  if (passwordErrors.currentPassword) setPasswordErrors((prev) => ({ ...prev, currentPassword: '' }));
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); newPasswordRef.current?.focus(); } }}
+                readOnly={passwordSubmitting}
+                aria-invalid={passwordErrors.currentPassword ? true : undefined}
+                aria-describedby={[passwordErrors.currentPassword && 'current-password-error', externalSession && 'current-password-hint', 'password-feedback'].filter(Boolean).join(' ')}
+              />
+              {externalSession && (
+                <p id="current-password-hint" className="text-xs text-muted-foreground">Signed in with Google and never set a password? Ask an admin to set one for you.</p>
+              )}
+              {passwordErrors.currentPassword && (
+                <p id="current-password-error" className="text-xs text-destructive" role="alert">{passwordErrors.currentPassword}</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="new-password">New Password</Label>
               <PasswordField
                 id="new-password"
@@ -319,7 +364,7 @@ function AccountSettings() {
                 }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); confirmPasswordRef.current?.focus(); } }}
                 readOnly={passwordSubmitting}
-                aria-invalid={passwordErrors.newPassword || (passwordFeedback?.type === 'error' && !passwordErrors.confirmPassword) ? true : undefined}
+                aria-invalid={passwordErrors.newPassword || (passwordFeedback?.type === 'error' && !passwordErrors.confirmPassword && !passwordErrors.currentPassword) ? true : undefined}
                 aria-describedby={passwordErrors.newPassword ? 'new-password-error password-feedback' : 'password-feedback'}
               />
               {passwordErrors.newPassword && (

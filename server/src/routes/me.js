@@ -2,10 +2,12 @@ import { Hono } from 'hono';
 import db from '../lib/db.js';
 import { normalizeRole } from '../lib/permissions.js';
 import { authenticate } from '../middleware/authenticate.js';
-import { hashPassword } from '../lib/password.js';
+import { hashPassword, comparePassword } from '../lib/password.js';
+import { clientIp, readJson } from '../lib/rate-limit.js';
+import { attemptSucceeded, beginAttempt, requesterFor } from '../lib/sign-in-guard.js';
 import { generateRefreshToken, hashToken } from '../lib/crypto.js';
 import { signAccessToken } from '../lib/jwt.js';
-import { validateUsername } from './auth.js';
+import { validateUsername, signInDelayed } from './auth.js';
 import { nameFields, readNameInput } from '../lib/names.js';
 import { readNotifyState, setOptOut } from '../lib/notifications.js';
 import { messagesFor, markRead } from '../lib/messages.js';
@@ -64,10 +66,28 @@ me.get('/v1/me/fields', async (c) => {
 // PATCH /v1/me — update profile fields
 me.patch('/v1/me', async (c) => {
   const userId = c.get('userId');
-  const body = await c.req.json();
+  const body = await readJson(c);
+  if (!body) return c.json({ error: 'Invalid JSON' }, 400);
   const allowed = ['email', 'username', 'group', 'password'];
   const updates = {};
   let defs = null;
+
+  // A new password or email needs the current password, so a stolen session
+  // alone can't take the account over (upstream #517). Wrong guesses count
+  // like sign-in attempts from this address (lib/sign-in-guard.js), and the
+  // change ends every other session below.
+  const current = c.get('user');
+  const changesEmail = body.email !== undefined && String(body.email).trim().toLowerCase() !== (current.email || '').toLowerCase();
+  if (body.password !== undefined || changesEmail) {
+    const requester = requesterFor({ accountKey: userId, ip: clientIp(c) });
+    const attempt = beginAttempt(requester);
+    if (attempt.wait > 0) return signInDelayed(c, attempt.wait);
+    if (typeof body.currentPassword !== 'string' || !(await comparePassword(body.currentPassword, current.passwordHash || ''))) {
+      if (attempt.next > 0) return signInDelayed(c, attempt.next);
+      return c.json({ error: 'Your current password is incorrect', code: 'current_password_required' }, 403);
+    }
+    attemptSucceeded(requester);
+  }
 
   // firstName / lastName (#402); a lone `name` from an older client is split.
   const nameInput = readNameInput(body, { current: c.get('user') });
@@ -84,16 +104,20 @@ me.patch('/v1/me', async (c) => {
   for (const key of allowed) {
     if (body[key] !== undefined) {
       if (key === 'password') {
-        if (body.password.length < 8) {
+        if (typeof body.password !== 'string' || body.password.length < 8) {
           return c.json({ error: 'Password must be at least 8 characters' }, 400);
         }
         updates.passwordHash = await hashPassword(body.password);
       } else if (key === 'email') {
-        const existing = await db.getUserByEmail(body.email);
+        const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+          return c.json({ error: 'A valid email is required' }, 400);
+        }
+        const existing = await db.getUserByEmail(email);
         if (existing && existing.userId !== userId) {
           return c.json({ error: 'Email already in use' }, 409);
         }
-        updates.email = body.email.toLowerCase();
+        updates.email = email;
       } else if (key === 'username') {
         const usernameErr = validateUsername(body.username);
         if (usernameErr) return c.json({ error: usernameErr }, 400);
@@ -113,14 +137,15 @@ me.patch('/v1/me', async (c) => {
   }
 
   await db.updateUser(userId, updates);
-  // A password change revokes every session, like a reset (SEC-3), including
-  // legacy tokens that carry no credential fingerprint. This device gets a
-  // new pair bound to the new credential, so only the other sessions end.
+  // A password or email change revokes every session, like a reset (SEC-3),
+  // including legacy tokens that carry no credential fingerprint. This device
+  // gets a new pair bound to the current credential, so only the other
+  // sessions end.
   let refreshToken;
-  if (updates.passwordHash) {
+  if (updates.passwordHash || changesEmail) {
     await db.revokeUserTokens(userId);
     refreshToken = generateRefreshToken();
-    await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(updates.passwordHash));
+    await db.storeRefreshToken(hashToken(refreshToken), userId, hashToken(updates.passwordHash || current.passwordHash || ''));
   }
   const updated = await db.getUserById(userId);
   if (!defs) defs = await loadFieldDefinitions();

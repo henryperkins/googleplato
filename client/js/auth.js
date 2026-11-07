@@ -95,13 +95,25 @@ function staleSignIn() {
  * Such a response is discarded (its refresh token revoked, best effort) and
  * the call rejects with `code: 'stale_auth_exchange'`.
  */
+// A device token marks this browser as one that has signed in to an account
+// before, so other people's failed guesses never delay it (server
+// lib/sign-in-guard.js). It grants nothing on its own and outlives sign-out.
+const DEVICE_TOKEN_KEY = 'plato_device';
+function readDeviceToken() {
+  try { return localStorage.getItem(DEVICE_TOKEN_KEY) || undefined; } catch { return undefined; }
+}
+function saveDeviceToken(token) {
+  if (typeof token !== 'string' || !token) return;
+  try { localStorage.setItem(DEVICE_TOKEN_KEY, token); } catch { /* storage blocked: sign-in still works */ }
+}
+
 export async function login(email, password, attemptId) {
   const generation = ++sessionGeneration;
   attemptId ||= await beginAuthAttempt();
   const res = await fetch(`${SERVICE_URL}/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, deviceToken: readDeviceToken() }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -141,6 +153,7 @@ async function commitSession(session, provider, attemptId, generation) {
     throw error;
   }
   if (!committed || generation !== sessionGeneration) return rejectStaleAuthSession(session);
+  saveDeviceToken(session.deviceToken);
   return session.user;
 }
 
@@ -526,7 +539,10 @@ export async function updateProfile(updates, expectedUserId) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'Update failed');
+    const error = new Error(body.error || 'Update failed');
+    error.status = res.status;
+    if (body.code) error.code = body.code;
+    throw error;
   }
   const { session, ...user } = await res.json();
   const current = await getAuthTokens();

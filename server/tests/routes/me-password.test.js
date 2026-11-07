@@ -33,7 +33,7 @@ async function signedInTwice() {
 describe('changing the password in Settings', () => {
   it('keeps this device signed in and signs out every other session', async () => {
     const { thisDevice, otherDevice } = await signedInTwice();
-    const res = await patchMe(thisDevice.accessToken, { password: 'new-password' });
+    const res = await patchMe(thisDevice.accessToken, { password: 'new-password', currentPassword: 'old-password' });
     assert.equal(res.status, 200);
     const { session, passwordHash } = await res.json();
     assert.equal(passwordHash, undefined);
@@ -46,7 +46,7 @@ describe('changing the password in Settings', () => {
   it('revokes legacy refresh tokens that carry no credential fingerprint', async () => {
     const { userId, thisDevice } = await signedInTwice();
     await db.storeRefreshToken(hashToken('legacy-session'), userId);
-    assert.equal((await patchMe(thisDevice.accessToken, { password: 'new-password' })).status, 200);
+    assert.equal((await patchMe(thisDevice.accessToken, { password: 'new-password', currentPassword: 'old-password' })).status, 200);
     assert.equal((await post('refresh', { refreshToken: 'legacy-session' })).status, 401);
   });
 
