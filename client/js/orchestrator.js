@@ -3,7 +3,7 @@
  * parses structured JSON responses.
  */
 
-import { parseSSEStream, parseResponse, LLM, ApiError, withoutEmptyMessages } from './api.js';
+import { parseSSEStream, parseResponse, LLM, ApiError, withoutEmptyMessages, retryDelay, MAX_RETRY_WAIT_MS } from './api.js';
 import { authenticatedFetch } from './auth.js';
 import { validateLessonKB } from './validators.js';
 import { createInferenceOperation } from './inferenceTelemetry.js';
@@ -109,14 +109,14 @@ async function callApi({ model, systemPrompt, messages, maxTokens = 1024, agentR
   };
 
   const RETRIES = 2;
-  const DELAYS = [3000, 6000];
   let lastError;
   for (let i = 0; i <= RETRIES; i++) {
     try { return await attempt(); } catch (e) {
       lastError = e;
-      const isRetryable = e.type === 'overloaded' || (e.type === 'api' && e.status === 500);
+      const isRetryable = e.type === 'overloaded' || (e.type === 'api' && e.status === 500)
+        || (e.type === 'rate_limit' && (e.retryAfterMs ?? 0) <= MAX_RETRY_WAIT_MS);
       if (!isRetryable || i === RETRIES) throw e;
-      await new Promise(r => setTimeout(r, DELAYS[i]));
+      await new Promise(r => setTimeout(r, retryDelay(e, i)));
     }
   }
   throw lastError;

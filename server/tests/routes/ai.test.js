@@ -40,7 +40,7 @@ describe('POST /v1/ai/messages', () => {
       return { content: [{ type: 'text', text: 'ok' }] };
     };
     const res = await authedReq(new Hono().route('/', ai), 'POST', '/v1/ai/messages', {
-      model: 'model', messages: [{ role: 'user', content: 'Work' }], telemetry,
+      model: 'qwen3-vl-235b', messages: [{ role: 'user', content: 'Work' }], telemetry,
     });
     assert.equal(res.status, 200);
   });
@@ -78,7 +78,7 @@ describe('POST /v1/ai/messages', () => {
     try {
       const app = new Hono();
       app.route('/', ai);
-      const res = await authedReq(app, 'POST', '/v1/ai/messages', { model: 'm', messages: [{ role: 'user', content: 'Hi' }] });
+      const res = await authedReq(app, 'POST', '/v1/ai/messages', { model: 'qwen3-vl-235b', messages: [{ role: 'user', content: 'Hi' }] });
       assert.equal(res.status, 502);
       assert.equal((await res.json()).code, 'ai_error');
       assert.deepEqual(codes, []);
@@ -87,7 +87,7 @@ describe('POST /v1/ai/messages', () => {
     }
   });
 
-  it('passes model ID through to provider', async () => {
+  it('passes plato\'s model ID through to the provider', async () => {
     let receivedModel;
     aiProvider.invoke = async (model) => {
       receivedModel = model;
@@ -96,10 +96,43 @@ describe('POST /v1/ai/messages', () => {
     const app = new Hono();
     app.route('/', ai);
     await authedReq(app, 'POST', '/v1/ai/messages', {
-      model: 'anthropic.claude-custom-v1:0',
+      model: 'qwen3-vl-235b',
       messages: [{ role: 'user', content: 'Hi' }],
     });
-    assert.equal(receivedModel, 'anthropic.claude-custom-v1:0');
+    assert.equal(receivedModel, 'qwen3-vl-235b');
+  });
+
+  it('caps a request at the size plato\'s agents send', async () => {
+    aiProvider.invoke = async () => ({ content: [{ type: 'text', text: 'ok' }] });
+    const app = new Hono().route('/', ai);
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } };
+    const send = (extra) => authedReq(app, 'POST', '/v1/ai/messages', { model: 'qwen3-vl-235b', messages: [{ role: 'user', content: 'Hi' }], ...extra });
+    assert.equal((await send({ max_tokens: 4097 })).status, 400);
+    assert.equal((await send({ messages: Array.from({ length: 61 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x' })) })).status, 400);
+    assert.equal((await send({ messages: [{ role: 'user', content: [image, image, image, image, image] }] })).status, 400);
+    assert.equal((await send({ messages: [1, 2, 3].map(() => ({ role: 'user', content: [image, image, image] })) })).status, 400);
+    assert.equal((await send({ system: 'x'.repeat(200_001) })).status, 400);
+    assert.equal((await send({ max_tokens: 4096, system: 'x'.repeat(200_000) })).status, 200);
+    const tooBig = await app.request('/v1/ai/messages', {
+      method: 'POST',
+      headers: { ...currentClientHeaders, 'Content-Type': 'application/json', Authorization: 'Bearer ' + await signAccessToken('usr_test', 'user') },
+      body: JSON.stringify({ model: 'qwen3-vl-235b', messages: [{ role: 'user', content: 'x'.repeat(5 * 1024 * 1024 + 10) }] }),
+    });
+    assert.equal(tooBig.status, 413);
+  });
+
+  it('a throttled provider is a real 429 with how long to wait, before any stream starts', async () => {
+    const throttled = Object.assign(new Error('slow down'), { name: 'ThrottlingException' });
+    aiProvider.invokeStream = async function* () {
+      if (throttled) throw throttled;
+      yield { type: 'message_stop' };
+    };
+    const res = await authedReq(new Hono().route('/', ai), 'POST', '/v1/ai/messages', {
+      model: 'qwen3-vl-235b', messages: [{ role: 'user', content: 'Hi' }], stream: true,
+    });
+    assert.equal(res.status, 429);
+    assert.equal(res.headers.get('Retry-After'), '5');
+    assert.deepEqual(await res.json(), { code: 'ai_rate_limited', error: 'The AI service is rate limiting requests.', retryAfterMs: 5000 });
   });
 
   it('returns 400 when model is missing', async () => {
@@ -215,7 +248,7 @@ describe('POST /v1/ai/messages', () => {
     assert.ok(raw.includes('data: [DONE]'));
   });
 
-  it('streams a classified error event without the raw provider message', async () => {
+  it('a provider failure before the stream starts is a classified HTTP error without the raw provider message', async () => {
     const denied = new Error('User: arn:aws:sts::123456789012:assumed-role/plato-api/fn is not authorized');
     denied.name = 'AccessDeniedException';
     denied.$metadata = { httpStatusCode: 403 };
@@ -223,25 +256,30 @@ describe('POST /v1/ai/messages', () => {
       if (denied) throw denied;
       yield { type: 'message_stop' };
     };
-    const app = new Hono();
-    app.route('/', ai);
-    const originalConsoleError = console.error;
-    console.error = () => {};
-    let raw;
-    try {
-      const res = await authedReq(app, 'POST', '/v1/ai/messages', {
-        model: 'qwen3-vl-235b',
-        messages: [{ role: 'user', content: 'Hi' }],
-        stream: true,
-      });
-      assert.equal(res.status, 200);
-      raw = await res.text();
-    } finally {
-      console.error = originalConsoleError;
-    }
+    const res = await authedReq(new Hono().route('/', ai), 'POST', '/v1/ai/messages', {
+      model: 'qwen3-vl-235b', messages: [{ role: 'user', content: 'Hi' }], stream: true,
+    });
+    assert.equal(res.status, 503);
+    const raw = await res.text();
+    assert.deepEqual(JSON.parse(raw), { code: 'ai_unavailable', error: 'The AI service is unavailable.' });
+    assert.doesNotMatch(raw, /arn:|123456789012/);
+  });
 
+  it('a failure mid-stream is a classified error event without the raw provider message', async () => {
+    const denied = new Error('User: arn:aws:sts::123456789012:assumed-role/plato-api/fn is not authorized');
+    denied.name = 'AccessDeniedException';
+    denied.$metadata = { httpStatusCode: 403 };
+    aiProvider.invokeStream = async function* () {
+      yield { type: 'message_start', message: { role: 'assistant' } };
+      throw denied;
+    };
+    const res = await authedReq(new Hono().route('/', ai), 'POST', '/v1/ai/messages', {
+      model: 'qwen3-vl-235b', messages: [{ role: 'user', content: 'Hi' }], stream: true,
+    });
+    assert.equal(res.status, 200);
+    const raw = await res.text();
     const events = raw.split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
-    assert.deepEqual(events, [{ type: 'error', error: { code: 'ai_unavailable', message: 'The AI service is unavailable.' } }]);
+    assert.deepEqual(events.at(-1), { type: 'error', error: { code: 'ai_unavailable', message: 'The AI service is unavailable.' } });
     assert.doesNotMatch(raw, /arn:|123456789012/);
   });
 

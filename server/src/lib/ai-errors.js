@@ -42,6 +42,10 @@ const NETWORK = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN',
 export function classifyAiError(err) {
   const name = err?.name || '';
   const status = err?.$metadata?.httpStatusCode ?? err?.status;
+  // This account's own per-user limit (lib/ai-limits.js), not the provider's.
+  if (name === 'AiUserRateLimited') {
+    return { code: 'ai_rate_limited', message: 'Too many AI requests from your account at once. Try again in a few seconds.', retryAfterMs: err.retryAfterMs || 2000 };
+  }
   let code = 'ai_error';
 
   if (UNAVAILABLE.has(name) || status === 401 || status === 403 || status === 404) code = 'ai_unavailable';
@@ -52,7 +56,10 @@ export function classifyAiError(err) {
   else if (OVERLOADED.has(name) || status >= 500) code = 'ai_overloaded';
   else if (NETWORK.has(err?.code) || NETWORK.has(err?.cause?.code)) code = 'ai_unavailable';
 
-  return { code, message: MESSAGES[code] };
+  // Busy, not broken: tell the client how long to wait before trying again.
+  const retryAfterMs = Number.isFinite(err?.retryAfterMs) && err.retryAfterMs > 0 ? err.retryAfterMs
+    : code === 'ai_rate_limited' || code === 'ai_overloaded' ? 5000 : undefined;
+  return { code, message: MESSAGES[code], ...(retryAfterMs ? { retryAfterMs } : {}) };
 }
 
 // No spaces or dots: error names, codes and reasons never need them, and a
