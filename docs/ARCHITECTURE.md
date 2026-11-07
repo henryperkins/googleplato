@@ -410,6 +410,26 @@ local rules testing, cutover order, and publication status.
   consistent index is not sufficient for this security boundary; exhausted
   retries fail explicitly.
 
+Because each refresh token works once, the client runs one refresh per
+session at a time (`client/js/auth.js`). Requests in a tab that hold the same
+token pair share one refresh, and the exclusive Web Lock `plato:auth-refresh`
+serializes refreshes across tabs. Inside the lock the client re-reads
+`plato_auth`; if another tab already rotated the pair, the request retries
+with it instead of spending the old token again. Without this, two requests
+that hit an expired access token together both spent the same token, the
+losing 401 came back first, and the learner was signed out of a valid session.
+One request cancelling doesn't cancel a refresh its siblings still wait on.
+A refresh that is still waiting for the lock stops when every waiter has
+cancelled, and a later request starts its own rather than joining it. Once a
+refresh has been sent, nothing cancels it: the server may already have used the
+old token, so it always finishes and saves the replacement. A 15-second
+deadline bounds it so a stalled refresh can't hold the lock; a refresh that
+times out doesn't sign anyone out, and a later request finds out with a real
+401 whether the token was spent. There is deliberately no server-side grace
+window for a rotated token. The cross-process localStorage lag described
+below applies here too: a tab that reads a stale record behaves as it did
+before this lock.
+
 Sign-in attempts share a non-secret `plato_auth_attempt` localStorage record
 containing a cryptographically random `attemptId` and local diagnostic epoch.
 Password submit, signup before account creation, setup before its request, and

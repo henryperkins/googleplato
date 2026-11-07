@@ -388,11 +388,17 @@ test('compatibility checks support cancellation and deadlines without newer Abor
       if (cancel === 'caller') controller.abort();
       else t.mock.timers.tick(10_000);
       await nextTurn();
-      assert.equal(settled, true, `${cancel} cancellation must also end a stalled token refresh`);
+      assert.equal(settled, true, `${cancel} cancellation must also end the caller's wait for a stalled token refresh`);
       assert.equal((await result).name, cancel === 'caller' ? 'AbortError' : 'TimeoutError');
-      assert.equal(refreshSignal.aborted, true);
+      // A sent refresh may already have spent the old token on the server, so
+      // neither the caller nor its deadline cancels it (the second caller
+      // joins the same refresh). Only the refresh's own deadline ends it.
+      assert.equal(refreshSignal.aborted, false);
       assert.equal(writes, 0);
     }
+    t.mock.timers.tick(5_000);
+    await nextTurn();
+    assert.equal(refreshSignal.aborted, true, 'the refresh deadline ends a stalled refresh');
 
     completeStatus = true;
     const successfulCaller = new AbortController();
