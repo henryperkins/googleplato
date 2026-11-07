@@ -8,7 +8,7 @@
 export const LLM = 'qwen3-vl-235b';
 
 export class ApiError extends Error {
-  constructor(type, message, status, code) {
+  constructor(type, message, status, code, retryAfterMs) {
     super(message);
     this.name = 'ApiError';
     this.type = type;   // 'invalid_key' | 'rate_limit' | 'network' | 'parse' | 'api' | 'empty_response'
@@ -16,7 +16,18 @@ export class ApiError extends Error {
     // Server classification (e.g. 'ai_unavailable', 'empty_message'), which
     // client/src/lib/aiErrors.js turns into contextual copy.
     this.code = code;
+    // How long the server asked us to wait when it is busy (server ai-errors.js).
+    if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) this.retryAfterMs = retryAfterMs;
   }
+}
+
+// Wait as long as the server asked (busy AI service or this account's own
+// limit), else back off exponentially from 3 s. Jitter keeps a room of
+// learners from retrying in step after the same throttle.
+export const MAX_RETRY_WAIT_MS = 30_000;
+export function retryDelay(error, attempt, random = Math.random) {
+  const base = Number.isFinite(error?.retryAfterMs) ? error.retryAfterMs : 3000 * 2 ** attempt;
+  return Math.min(base, MAX_RETRY_WAIT_MS) + Math.round(random() * 0.25 * base);
 }
 
 /**
@@ -40,13 +51,14 @@ export async function parseResponse(resp) {
     try { body = await resp.json(); } catch { body = {}; }
     const msg = body?.error?.message || body?.error || `API returned ${status}`;
     const code = body?.code || body?.error?.code;
+    const retryAfterMs = Number(body?.retryAfterMs ?? body?.error?.retryAfterMs) || undefined;
 
     if (status === 401) throw new ApiError('invalid_key', 'Session expired. Please sign in again.', status, code);
     // A configuration failure needs an admin, not the orchestrator's automatic
     // overload retries. Preserve its stable code and surface-specific guidance.
     if (code === 'ai_unavailable') throw new ApiError('api', msg, status, code);
-    if (status === 429) throw new ApiError('rate_limit', 'Rate limited. Try again in a moment.', status, code);
-    if (status === 503 || status === 529) throw new ApiError('overloaded', 'API is temporarily overloaded. Retrying...', status, code);
+    if (status === 429) throw new ApiError('rate_limit', 'Rate limited. Try again in a moment.', status, code, retryAfterMs);
+    if (status === 503 || status === 529) throw new ApiError('overloaded', 'API is temporarily overloaded. Retrying...', status, code, retryAfterMs);
     if (status === 500) throw new ApiError('api', 'Internal server error. This may be a temporary issue.', status, code);
     throw new ApiError('api', msg, status, code);
   }
@@ -98,7 +110,7 @@ export async function* parseSSEStream(body, onDone, { failOnTruncation = false }
         // look empty, and the empty turn then tripped the server's
         // empty-content check on the next send, hiding the real cause.
         if (event.type === 'error') {
-          throw new ApiError('api', event.error?.message || 'The AI service failed to respond.', undefined, event.error?.code);
+          throw new ApiError('api', event.error?.message || 'The AI service failed to respond.', undefined, event.error?.code, event.error?.retryAfterMs);
         }
         if (failOnTruncation && event.type === 'message_delta' && event.delta?.stop_reason === 'max_tokens') {
           throw new ApiError('truncated', 'The reply was cut off. Please try again.');

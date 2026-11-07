@@ -20,7 +20,7 @@ export async function requestCoachTurn(lessonId, input, onText, userId) {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new ApiError('api', error.error || 'The coach could not respond. Your submission is retained.', response.status, error.code);
+    throw new ApiError('api', error.error || 'The coach could not respond. Your submission is retained.', response.status, error.code, error.retryAfterMs);
   }
   let turn;
   if (!response.headers.get('content-type')?.includes('text/event-stream')) turn = await response.json();
@@ -39,7 +39,7 @@ export async function requestCoachTurn(lessonId, input, onText, userId) {
           const event = JSON.parse(line.slice(6));
           if (event.type === 'coach_text') onText?.(event.text);
           if (event.type === 'coach_turn') turn = event.turn;
-          if (event.type === 'error') throw new ApiError('api', event.error || event.message, event.status, event.code);
+          if (event.type === 'error') throw new ApiError('api', event.error || event.message, event.status, event.code, event.retryAfterMs);
         }
         if (done) break;
       }

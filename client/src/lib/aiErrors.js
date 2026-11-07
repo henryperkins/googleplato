@@ -77,7 +77,12 @@ export function aiErrorKind(err) {
   return 'other';
 }
 
-function describe(kind, s) {
+const waitHint = (err) => {
+  const seconds = Math.ceil((err?.retryAfterMs || 0) / 1000);
+  return seconds >= 2 && seconds <= 600 ? `Wait about ${seconds} seconds` : 'Wait a moment';
+};
+
+function describe(kind, s, err) {
   if (kind === 'upgrade') return 'Update this page before continuing. Keep your unsaved work until a recovery copy is confirmed.';
   const who = s.subject;
   const act = s.action;
@@ -90,7 +95,7 @@ function describe(kind, s) {
         ? `${who} can't ${act} because the server can't reach the AI service. Open AI Settings in the admin dashboard to check the selected provider, server credentials, and model access.`
         : `${who} can't ${act} because the AI service is unavailable right now. Try again later, and tell your program admin if this keeps happening.`;
     case 'busy':
-      return `${who} couldn't ${act} because the AI service is busy. Wait a moment, then ${lowerFirst(retry)}`;
+      return `${who} couldn't ${act} because the AI service is busy. ${waitHint(err)}, then ${lowerFirst(retry)}`;
     case 'timeout':
       return `${who} took too long to ${act}. ${retry}`;
     case 'rejected':
@@ -120,6 +125,6 @@ function describe(kind, s) {
 export function aiErrorMessage(err, surface) {
   const s = SURFACES[surface] || DEFAULT_SURFACE;
   const kind = aiErrorKind(err);
-  const text = kind === 'other' && err?.message ? withPeriod(err.message) : describe(kind, s);
+  const text = kind === 'other' && err?.message ? withPeriod(err.message) : describe(kind, s, err);
   return kind === 'session' || !s.recovery ? text : `${text} ${s.recovery}`;
 }

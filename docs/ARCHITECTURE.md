@@ -772,6 +772,38 @@ Partial, malformed, and reasoning-only Cloudflare streams fail explicitly;
 they do not become successful empty replies. The admin connection test makes
 a small non-streaming request without saving or activating the draft settings.
 
+### AI request limits (upstream #516, adapted)
+
+Every signed-in user can make AI calls, so `server/src/lib/ai-limits.js` bounds
+them. Upstream limits only `POST /v1/ai/messages`; in this fork the coach runs
+on the server (`POST /v1/ai/coach/:lessonId`) and never uses that route, so the
+per-user limits sit in `ai-provider.js` and cover **every** AI call a user
+causes: coach turns, assessment repairs, the profile and unit-note agents, and
+admin authoring.
+
+- **Per user:** 30 calls a minute (burst 30) and 4 in flight, keyed by the
+  inference context's `actor_ref` (a hash of the user id), in each instance's
+  memory. Calls without a user (plugin jobs) aren't limited. A refusal is typed
+  `ai_rate_limited` with how long to wait.
+- **`/v1/ai/messages` caps** (upstream's sizes): `max_tokens` 1–4096, ≤ 60
+  messages, ≤ 4 images per message and 8 per request, a system prompt ≤ 200,000
+  characters, a body ≤ 5 MB (413). `model` is required, but any value is
+  accepted: the provider uses the admin's choice, and a browser on an older
+  bundle may send an older id.
+- **Busy, not broken:** `ai_rate_limited` and `ai_overloaded` errors carry
+  `retryAfterMs` (and a `Retry-After` header) on JSON responses, SSE error
+  events and both coach routes. `/v1/ai/messages` waits for the provider's
+  first event before committing SSE headers, so a throttle at the start is a
+  real 429/503. The client waits as long as asked plus up to 25% jitter (else
+  3 s, then 6 s), retries a busy 429 too, and tells learners how long to wait.
+- **The provider's own account limit is the shared ceiling.** Cloudflare caps
+  paid Workers AI text models, including DeepSeek V4.1 Flash, at 20 requests a
+  minute per account and model (50 with prepaid AI Gateway credits and unified
+  billing); other text models get 300. At about one exchange per 1.8 minutes,
+  more than about 15 active learners can reach the 20 per minute cap: choose
+  Mistral Small 3.1, raise the limit, or use Bedrock for a larger group.
+- `POST /v1/links/fetch` allows 20 fetches per user per minute.
+
 ### Historical Bedrock model selection
 
 The following evaluation describes the original Bedrock deployment. Its

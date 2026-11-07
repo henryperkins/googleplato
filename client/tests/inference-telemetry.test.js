@@ -32,6 +32,7 @@ test('output-validation retries share an operation but each has its own retry in
 });
 
 test('overload retries are counted without changing retry policy or model budgets', async () => {
+  mock.method(Math, 'random', () => 0); // no jitter: the base waits are 3 s, then 6 s
   const delays = [];
   const timeout = globalThis.setTimeout;
   mock.method(globalThis, 'setTimeout', (fn, ms, ...args) => {

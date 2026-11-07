@@ -1,11 +1,19 @@
 import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
+import { bodyLimit } from 'hono/body-limit';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireCurrentClient } from '../middleware/clientCompatibility.js';
 import ai from '../lib/ai-provider.js';
 import { classifyAiError, aiErrorStatus } from '../lib/ai-errors.js';
 import { inferenceContext } from '../lib/inference-telemetry.js';
 import { generateCoachTurn, recoverCoachTurn } from '../lib/lesson-coaching.js';
+import { MAX_BODY_BYTES, validateAiRequest } from '../lib/ai-limits.js';
+
+// Busy, not broken: a typed error carries how long to wait (lib/ai-errors.js).
+const retryFields = ({ retryAfterMs }) => (retryAfterMs ? { retryAfterMs } : {});
+function retryHeader(c, { retryAfterMs }) {
+  if (retryAfterMs) c.header('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
+}
 
 const aiRoute = new Hono();
 
@@ -26,7 +34,11 @@ aiRoute.post('/v1/ai/coach/:lessonId', async (c) => {
     : { ...classifyAiError(error), status: aiErrorStatus(classifyAiError(error).code) };
   if (!body.stream) {
     try { return c.json(await generateCoachTurn(c.get('userId'), c.req.param('lessonId'), body)); }
-    catch (error) { const result = report(error); return c.json({ code: result.code, error: result.error || result.message }, result.status); }
+    catch (error) {
+      const result = report(error);
+      retryHeader(c, result);
+      return c.json({ code: result.code, error: result.error || result.message, ...retryFields(result) }, result.status);
+    }
   }
   c.header('Content-Type', 'text/event-stream');
   c.header('Cache-Control', 'no-store');
@@ -43,48 +55,46 @@ aiRoute.post('/v1/ai/coach/:lessonId', async (c) => {
   });
 });
 
-aiRoute.post('/v1/ai/messages', async (c) => {
-  const body = await c.req.json();
-  const { model, max_tokens, system, messages, stream: isStream } = body;
-
-  if (!model) return c.json({ error: 'model is required' }, 400);
-  if (!messages || !Array.isArray(messages)) return c.json({ error: 'messages array is required' }, 400);
-
-  // Reject messages with empty content — Bedrock returns ValidationException for these
-  for (const msg of messages) {
-    if (!msg.content || (typeof msg.content === 'string' && !msg.content.trim()) || (Array.isArray(msg.content) && msg.content.length === 0)) {
-      return c.json({ error: 'messages must have non-empty content', code: 'empty_message' }, 400);
-    }
-  }
-
-  const aiBody = {
-    max_tokens: max_tokens || 1024,
-    ...(system ? { system } : {}),
-    messages,
-  };
+aiRoute.post('/v1/ai/messages', bodyLimit({
+  maxSize: MAX_BODY_BYTES,
+  onError: c => c.json({ error: `Request is too large (over ${MAX_BODY_BYTES / 1024 / 1024} MB)` }, 413),
+}), async (c) => {
+  const body = await c.req.json().catch(() => null);
+  // Only plato's model, and calls the size of what plato's agents send (lib/ai-limits.js).
+  const checked = validateAiRequest(body);
+  if (checked.error) return c.json({ error: checked.error, ...(checked.code ? { code: checked.code } : {}) }, 400);
+  const { aiBody } = checked;
   const context = inferenceContext(c.get('userId'), body.telemetry);
+  const fail = (err) => {
+    const { code, message, retryAfterMs } = classifyAiError(err);
+    retryHeader(c, { retryAfterMs });
+    return c.json({ code, error: message, ...retryFields({ retryAfterMs }) }, aiErrorStatus(code));
+  };
 
-  if (!isStream) {
-    try {
-      const responseBody = await ai.invoke(model, aiBody, { context });
-      return c.json(responseBody);
-    } catch (err) {
-      const { code, message } = classifyAiError(err);
-      return c.json({ code, error: message }, aiErrorStatus(code));
-    }
+  if (!checked.stream) {
+    try { return c.json(await ai.invoke(body.model, aiBody, { context })); }
+    catch (err) { return fail(err); }
   }
+
+  // Wait for the provider's first event before committing the SSE headers, so
+  // a throttle or outage at the start is a real 429/503 the client can back
+  // off from, not a 200 followed by an error event (upstream #516).
+  const controller = new AbortController();
+  const events = ai.invokeStream(body.model, aiBody, { signal: controller.signal, context })[Symbol.asyncIterator]();
+  let first;
+  try { first = await events.next(); }
+  catch (err) { controller.abort(); return fail(err); }
 
   c.header('Content-Type', 'text/event-stream');
   c.header('Cache-Control', 'no-cache');
   c.header('Connection', 'keep-alive');
 
   return stream(c, async (s) => {
-    const controller = new AbortController();
     s.onAbort(() => controller.abort());
     try {
-      for await (const event of ai.invokeStream(model, aiBody, { signal: controller.signal, context })) {
+      for (let next = first; !next.done; next = await events.next()) {
         if (s.aborted) break;
-        await s.write(`data: ${JSON.stringify(event)}\n\n`);
+        await s.write(`data: ${JSON.stringify(next.value)}\n\n`);
       }
       if (!s.aborted) await s.write('data: [DONE]\n\n');
     } catch (err) {
@@ -92,10 +102,11 @@ aiRoute.post('/v1/ai/messages', async (c) => {
       // The shared provider records a content-free classified failure.
       // A stable code and a generic message, never the raw provider text,
       // which can include the AWS account ID and IAM role name.
-      const { code, message } = classifyAiError(err);
-      await s.write(`data: ${JSON.stringify({ type: 'error', error: { code, message } })}\n\n`);
+      const { code, message, retryAfterMs } = classifyAiError(err);
+      await s.write(`data: ${JSON.stringify({ type: 'error', error: { code, message, ...retryFields({ retryAfterMs }) } })}\n\n`);
     } finally {
       controller.abort();
+      await events.return?.(); // releases this user's slot if the stream stopped early
     }
   });
 });

@@ -7,14 +7,26 @@ import workersAi from './workers-ai.js';
 import { BEDROCK_MODEL, readAiSettings, mockProviderEnabled } from './ai-settings.js';
 import { createInferenceTelemetry, currentInferenceContext, recordSettingsFailure } from './inference-telemetry.js';
 import { classifyAiError } from './ai-errors.js';
+import { acquire, userLimitError } from './ai-limits.js';
 
 // Compatibility with existing browsers and ctx.LLM in plugins. The server's
 // selection is authoritative; a caller-supplied model never overrides it.
 export const LLM = BEDROCK_MODEL;
 
+// Per-user rate and concurrency (lib/ai-limits.js) for every AI call a user
+// causes, the server-side coach included. A refusal is an AiUserRateLimited
+// error, typed ai_rate_limited with retryAfterMs (lib/ai-errors.js).
+function takeSlot(context) {
+  const slot = acquire((context ?? currentInferenceContext())?.actor_ref);
+  if (!slot.ok) throw userLimitError(slot);
+  return slot;
+}
+
 const ai = {
   async invoke(_model, body, options) {
-    return ai.invokeWithSettings(await selectedSettings(false, options?.context), body, options);
+    const slot = takeSlot(options?.context);
+    try { return await ai.invokeWithSettings(await selectedSettings(false, options?.context), body, options); }
+    finally { slot.release(); }
   },
 
   async invokeWithSettings(settings, body, { context } = {}) {
@@ -33,8 +45,10 @@ const ai = {
   },
 
   async *invokeStream(_model, body, { signal, context } = {}) {
+    const slot = takeSlot(context);
     // Resolve once per request so a switch cannot change an in-flight stream.
-    const settings = await selectedSettings(true, context);
+    let settings;
+    try { settings = await selectedSettings(true, context); } catch (error) { slot.release(); throw error; }
     const { adapter, model, telemetry } = invocation(settings, true, context);
     let outcome = 'cancelled', errorCode;
     try {
@@ -48,7 +62,7 @@ const ai = {
       errorCode = classifyAiError(error).code;
       if (outcome === 'error') telemetry.fail(errorCode, error);
       throw error;
-    } finally { telemetry.finish(outcome, errorCode); }
+    } finally { telemetry.finish(outcome, errorCode); slot.release(); }
   },
 };
 
