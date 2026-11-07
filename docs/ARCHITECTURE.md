@@ -2891,9 +2891,30 @@ Only the password-reset email stays in `email.js`.
 - **Admin UI:** Admin → **Notifications** (`client/src/pages/admin/AdminNotifications.jsx`)
   has three tabs. Compose: audience radios, a searchable people picker, the
   channels, the subject and message, the audience count, and a confirm dialog.
-  Automations: each automation's on/off toggle and its email editor, with
-  save, a test send to yourself, and reset to default. History: sent messages
-  with their delivery status and counts, and Retry for a failed message. Testers can see everything and send nothing.
+  Send's description says what's missing (a role, a group, a person, a way to
+  send it, a subject or a message), and **A group** says why it's off when the
+  classroom has no groups. Automations: one card per email, headed by its name
+  (`h2`), with an on/off switch beside it as on Plugins (the shared
+  `components/ui/switch.jsx`; a failed change puts the switch back and says
+  so) and its copy behind **Edit email**: save, a test send to yourself, and
+  reset to default. History: sent messages with their recipients, delivery
+  counts and status (**Retries stopped** for a closed message), and Retry for
+  a failed one; table cells wrap so Status stays in view, and below 48 rem
+  it's a list, as Users is. Testers can see everything and send nothing.
+  - **Unsaved work survives tabs.** Template edits are drafts held by the page
+    (Compose stays mounted), so switching tabs keeps them and an email with
+    unsaved changes reopens. A Compose draft, unsaved email edits, or a save or
+    send in flight make leaving the page ask first (`useBlocker`, `beforeunload`).
+  - **Feedback sits beside its action** (a save, a test send, a toggle, a send
+    that leaves Compose open); the page notice is for sends that open History,
+    retries, and Refresh. Actions keep focus while they work. When one removes
+    its own control, focus moves to what remains: Use the default → **Send a
+    test to me**; a retry or Stop retrying that settles a message → its new
+    status; a send that opens History → the History tab.
+  - **Loading fails safe.** If the settings can't load, the page keeps its
+    heading and offers **Try again** (the heading takes focus once it loads). If
+    History can't load or refresh, only History says so, keeps its last list,
+    and offers its own **Try again**.
 
 ## Admin "View as User"
 

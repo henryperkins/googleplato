@@ -31,11 +31,15 @@ test('automations start off; the wait list email is editable and validated', asy
   await login(page, ADMIN);
   await page.goto('/plato/notifications');
   await page.getByRole('tab', { name: 'Automations' }).click();
-  const toggle = page.getByLabel('Send the wait list confirmation email');
-  await expect(toggle).not.toBeChecked();
+  // Automatic emails turn on and off with a switch, as plugins do.
+  const toggle = page.getByRole('switch', { name: 'Wait list confirmation email', exact: true });
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
   await expectAccessible(page, { label: 'notifications automations' });
 
-  const card = page.locator('[data-slot=card]', { has: page.getByText('Wait list confirmation', { exact: true }) });
+  const card = page.locator('[data-slot=card]', { has: page.getByRole('heading', { name: 'Wait list confirmation', exact: true }) });
+  // Each email's copy sits behind its own disclosure.
+  await card.locator('summary', { hasText: 'Edit email' }).click();
+  await expectAccessible(page, { label: 'notifications automations editor' });
   const subject = card.getByLabel('Subject');
   await subject.fill('Thanks {{lessonName}}');
   await card.getByRole('button', { name: 'Save' }).click();
@@ -46,13 +50,15 @@ test('automations start off; the wait list email is editable and validated', asy
   await card.getByRole('button', { name: 'Use the default' }).click();
   await expect(subject).toHaveValue("You're on the wait list for {{classroomName}}");
 
-  await toggle.check();
-  await expect(page.getByText('Wait list confirmation is on.').first()).toBeVisible();
-  await toggle.uncheck();
-  await expect(page.getByText('Wait list confirmation is off.').first()).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await expect(card.getByText('On', { exact: true })).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await expect(card.getByText('Off', { exact: true })).toBeVisible();
   // The scheduled ones are listed too, also off.
-  await expect(page.getByLabel('Send the inactivity reminder email')).not.toBeChecked();
-  await expect(page.getByLabel('Send the weekly digest email')).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Inactivity reminder email', exact: true })).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByRole('switch', { name: 'Weekly digest email', exact: true })).toHaveAttribute('aria-checked', 'false');
 });
 
 // Blake's review on #451: everyone means every role, and messages can go by role.
@@ -86,12 +92,12 @@ test('invitations are always on and editable; removal from the wait list starts 
     await expect(card.getByRole('checkbox')).toHaveCount(0);
     await expect(card.getByLabel('Subject')).not.toHaveValue('');
   }
-  const removed = page.getByLabel('Send the removed from the wait list email');
-  await expect(removed).not.toBeChecked();
-  await removed.check();
-  await expect(page.getByText('Removed from the wait list is on.').first()).toBeVisible();
-  await removed.uncheck();
-  await expect(page.getByText('Removed from the wait list is off.').first()).toBeVisible();
+  const removed = page.getByRole('switch', { name: 'Removed from the wait list email', exact: true });
+  await expect(removed).toHaveAttribute('aria-checked', 'false');
+  await removed.click();
+  await expect(removed).toHaveAttribute('aria-checked', 'true');
+  await removed.click();
+  await expect(removed).toHaveAttribute('aria-checked', 'false');
 });
 
 test('testers can look at Notifications but not send', async ({ page }) => {
