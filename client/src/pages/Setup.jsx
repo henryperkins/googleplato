@@ -40,6 +40,8 @@ export default function Setup() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [providerSubmitting, setProviderSubmitting] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const signInRef = useRef(null);
   const firstNameRef = useRef(null);
   const lastNameRef = useRef(null);
   const [lastName, setLastName] = useState(() => formNameParts(savedDraft).lastName);
@@ -51,6 +53,13 @@ export default function Setup() {
     document.title = 'Setup — plato';
   }, []);
 
+  useEffect(() => { if (setupComplete) signInRef.current?.focus(); }, [setupComplete]);
+
+  function storageFailureMessage() {
+    setSetupComplete(true);
+    return 'Setup is complete. Your browser could not save your sign-in. Allow browser storage, then sign in with the admin account you created.';
+  }
+
   useEffect(() => {
     try {
       sessionStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify({ classroomName, email, firstName, lastName }));
@@ -58,7 +67,11 @@ export default function Setup() {
   }, [classroomName, email, firstName, lastName]);
 
   async function handleProviderSession(session, provider, attemptId) {
-    await adoptExternalSession(session, provider, attemptId);
+    try { await adoptExternalSession(session, provider, attemptId); }
+    catch (error) {
+      if (error.code === 'auth_storage_unavailable') error.message = storageFailureMessage();
+      throw error;
+    }
     try { sessionStorage.removeItem(SETUP_DRAFT_KEY); } catch { /* ignore */ }
     window.location.href = '/plato';
   }
@@ -120,7 +133,8 @@ export default function Setup() {
       await adoptAuthSession(data, 'password', attemptId);
       window.location.href = '/plato';
     } catch (e) {
-      setError(requestError(e, "We couldn't finish setup. Try again."));
+      setError(e.code === 'auth_storage_unavailable' ? storageFailureMessage()
+        : requestError(e, "We couldn't finish setup. Try again."));
     } finally {
       setSubmitting(false);
     }
@@ -131,8 +145,8 @@ export default function Setup() {
       <img src="/assets/logo-white.svg" alt="plato" width="160" height="40" fetchPriority="high" className="h-10 w-auto mb-6" />
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle as="h1" className="text-2xl">Build your classroom</CardTitle>
-          <CardDescription>Name your classroom and create your admin account.</CardDescription>
+          <CardTitle as="h1" className="text-2xl">{setupComplete ? 'Your classroom is ready' : 'Build your classroom'}</CardTitle>
+          <CardDescription>{setupComplete ? 'Your admin account has been created. Continue to sign in.' : 'Name your classroom and create your admin account.'}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
@@ -140,7 +154,9 @@ export default function Setup() {
               {error}
             </div>
           )}
-          <form className="space-y-4" onSubmit={handleSetup} noValidate>
+          {setupComplete ? (
+            <p><a ref={signInRef} href="/login" className="font-medium underline underline-offset-4">Sign in</a></p>
+          ) : <form className="space-y-4" onSubmit={handleSetup} noValidate>
             <div className="space-y-2">
               <Label htmlFor="setup-classroom">Classroom Name</Label>
               <Input
@@ -269,7 +285,7 @@ export default function Setup() {
               {submitting && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
               <span>{submitting ? 'Creating admin account...' : 'Create admin account'}</span>
             </Button>
-          </form>
+          </form>}
         </CardContent>
       </Card>
       {/* Every route shows this page until setup finishes, so there is no privacy page yet. */}

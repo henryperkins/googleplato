@@ -53,6 +53,62 @@ describe('AuthContext session publication', { timeout: 120000 }, () => {
   });
   after(async () => { await browser?.close(); if (server && server.exitCode === null) { const done = once(server, 'exit'); server.kill('SIGTERM'); await done; } });
 
+  for (const name of ['QuotaExceededError', 'SecurityError']) {
+    it(`failed external adoption keeps React and storage on the previous account after ${name}`, async () => {
+      const { context, page } = await open();
+      try {
+        const result = await page.evaluate(async name => {
+          const previous = localStorage.getItem('plato_auth');
+          const write = Storage.prototype.setItem;
+          const serve = window.fetch;
+          const revoked = [];
+          window.fetch = async (url, options) => {
+            if (url === '/v1/auth/logout') revoked.push(JSON.parse(options.body).refreshToken);
+            return serve(url, options);
+          };
+          Storage.prototype.setItem = function(key, value) {
+            if (key === 'plato_auth') throw new DOMException('Storage refused', name);
+            return write.call(this, key, value);
+          };
+          let code;
+          try {
+            await window.authHarness.adoptExternalSession({ accessToken: 'access-b', refreshToken: 'refresh-b',
+              user: { userId: 'b', name: 'B', role: 'learner' } }, 'google-auth');
+          } catch (error) { code = error.code; }
+          finally { Storage.prototype.setItem = write; }
+          return { code, previous, stored: localStorage.getItem('plato_auth'), revoked };
+        }, name);
+        assert.equal(result.code, 'auth_storage_unavailable');
+        assert.equal(result.stored, result.previous);
+        assert.deepEqual(result.revoked, ['refresh-b']);
+        await page.waitForFunction(() => window.authHarness.user?.userId === 'a');
+        assert.equal(await page.evaluate(() => window.publishedUsers.includes('B')), false);
+      } finally { await context.close(); }
+    });
+  }
+
+  for (const record of [{ accessToken: 'stale' }, { accessToken: 'a', refreshToken: 'r', user: null },
+    { accessToken: 'a', refreshToken: 42, user: { userId: 'a' } }, {}]) {
+    it(`settles malformed initial auth ${JSON.stringify(record)} into a usable signed-out state`, async () => {
+      const context = await browser.newContext();
+      await context.addInitScript(record => {
+        localStorage.setItem('plato_auth', JSON.stringify(record));
+        localStorage.setItem('plato_auth_attempt', '{"attemptId":42}');
+        sessionStorage.setItem('plato_compose_draft_v2:a:lesson', 'Keep this draft');
+        window.fetch = async () => Response.json({});
+      }, record);
+      const page = await context.newPage();
+      try {
+        await page.goto(`${base}/tests/browser/fixtures/auth-context.html`);
+        await page.waitForFunction(() => window.authHarness && !window.authHarness.loading, null, { timeout: 1500 });
+        assert.deepEqual(await page.evaluate(() => ({ loggedIn: window.authHarness.loggedIn,
+          user: window.authHarness.user, stored: localStorage.getItem('plato_auth'),
+          intent: localStorage.getItem('plato_auth_attempt'), draft: sessionStorage.getItem('plato_compose_draft_v2:a:lesson') })),
+        { loggedIn: false, user: null, stored: null, intent: null, draft: 'Keep this draft' });
+      } finally { await context.close(); }
+    });
+  }
+
   for (const transition of ['switch', 'logout', 'relogin']) {
     it(`does not publish a delayed profile after ${transition}`, async () => {
       const { context, page } = await open();

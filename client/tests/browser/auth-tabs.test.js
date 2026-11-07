@@ -7,9 +7,11 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { browserEvidence } from './evidence.js';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../../..', import.meta.url));
+const evidence = browserEvidence('auth-tabs');
 const session = id => ({ accessToken: `access-${id}`, refreshToken: `refresh-${id}`, provider: 'password', user: { userId: id, name: `Account ${id}`, role: 'learner' } });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 let browser, server, base;
@@ -237,6 +239,45 @@ describe('auth intent across independent tabs sharing storage', { timeout: 12000
       } finally { held.resolve(); await context.close(); }
     });
   }
+  for (const method of ['password', 'google']) {
+    it(`successful ${method} setup with denied storage directs sign-in instead of repeating account creation`, async () => {
+      const { context, a, revoked } = await pair();
+      try {
+        await a.route('**/v1/auth/setup-status', route => route.fulfill({ json: { needsSetup: true } }));
+        await a.route('**/v1/auth/providers', route => route.fulfill({ json: method === 'google'
+          ? [{ id: 'google-auth', label: 'Google', config: {} }] : [] }));
+        await a.route('**/firebaseAuth.js*', route => route.fulfill({ contentType: 'application/javascript', body:
+          'export async function signInWithGooglePopup() { return { idToken: "setup-id-token" }; } export async function signOutFirebase() {}' }));
+        await a.route(method === 'password' ? '**/v1/auth/setup' : '**/v1/plugins/google-auth/exchange',
+          route => route.fulfill({ json: session('created-admin') }));
+        await a.goto(`${base}/`);
+        await a.getByRole('heading', { name: 'Build your classroom' }).waitFor();
+        await a.evaluate(() => {
+          const write = Storage.prototype.setItem;
+          Storage.prototype.setItem = function(key, value) {
+            if (key === 'plato_auth') throw new DOMException('Storage full', 'QuotaExceededError');
+            return write.call(this, key, value);
+          };
+        });
+        if (method === 'password') {
+          await a.getByLabel('Email', { exact: true }).fill('created@example.test');
+          await a.getByLabel('First name', { exact: false }).fill('Created');
+          await a.getByLabel('Password', { exact: true }).fill('password123');
+          await a.getByLabel('Confirm password', { exact: true }).fill('password123');
+          await a.getByRole('button', { name: 'Create admin account', exact: true }).click();
+        } else await a.getByRole('button', { name: 'Create admin account with Google', exact: true }).click();
+        await a.getByRole('alert').filter({ hasText: 'Setup is complete' }).waitFor({ timeout: 2000 });
+        assert.equal(await a.getByRole('button', { name: 'Create admin account', exact: true }).count(), 0);
+        const signIn = a.getByRole('link', { name: 'Sign in', exact: true });
+        assert.equal(await signIn.getAttribute('href'), '/login');
+        assert.equal(await signIn.evaluate(node => node === document.activeElement), true);
+        assert.equal(await stored(a), null);
+        assert.deepEqual(revoked, ['refresh-created-admin']);
+        if (method === 'password') await a.screenshot({ path: join(evidence, 'setup-storage-recovery.png') });
+      } finally { await context.close(); }
+    });
+  }
+
   it('same-user cross-tab relogin cannot publish the old mounted profile response', async () => {
     const { context, a, b } = await pair();
     const held = deferred(), received = deferred();

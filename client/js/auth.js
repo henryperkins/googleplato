@@ -7,7 +7,7 @@ import {
   getAuthTokens, saveAuthTokens, clearAuth,
   saveAuthUser, saveAuthSession, clearCache,
 } from './storage.js';
-import { beginAuthAttempt, commitAuthAttempt, invalidateAuthAttempts } from './authCoordination.js';
+import { beginAuthAttempt, commitAuthAttempt, invalidateAuthAttempts, reconcileInvalidAuthSession } from './authCoordination.js';
 import { compatibilityHeaders, isCompatibilityPath, requireClientUpgrade } from './clientCompatibility.js';
 
 // When served from the same origin (Lambda), use relative paths.
@@ -120,15 +120,26 @@ export function rejectStaleAuthSession(session) {
 }
 
 async function commitSession(session, provider, attemptId, generation) {
-  const committed = await commitAuthAttempt(attemptId, () => {
-    if (generation !== sessionGeneration) return;
-    saveAuthSession({
-      accessToken: session.accessToken, refreshToken: session.refreshToken,
-      user: session.user, provider, attemptId,
+  let committed;
+  try {
+    committed = await commitAuthAttempt(attemptId, () => {
+      if (generation !== sessionGeneration) return;
+      if (!saveAuthSession({
+        accessToken: session.accessToken, refreshToken: session.refreshToken,
+        user: session.user, provider, attemptId,
+      })) {
+        const error = new Error('Your browser could not save your sign-in. Allow browser storage and try again.');
+        error.code = 'auth_storage_unavailable';
+        throw error;
+      }
+      observedIdentity = readCommittedIdentity();
+      sessionNeedsReload = false;
     });
-    observedIdentity = readCommittedIdentity();
-    sessionNeedsReload = false;
-  });
+  } catch (error) {
+    // The Web Lock has been released; revoke only this unadopted session.
+    if (error.code === 'auth_storage_unavailable' && session.refreshToken) void revokeSession(session.refreshToken);
+    throw error;
+  }
   if (!committed || generation !== sessionGeneration) return rejectStaleAuthSession(session);
   return session.user;
 }
@@ -148,14 +159,20 @@ export async function logout() {
   sessionGeneration += 1;
   sessionNeedsReload = true;
   let previousTokens;
-  await invalidateAuthAttempts(() => {
-    previousTokens = getAuthTokens();
-    void clearAuth();
-    observedIdentity = null;
-    sessionNeedsReload = false;
-  });
-  const tokens = await previousTokens;
-  if (tokens?.refreshToken) void revokeSession(tokens.refreshToken);
+  try {
+    await invalidateAuthAttempts(() => {
+      previousTokens = getAuthTokens();
+      // Snapshot and removal both execute synchronously. Keep the local fence
+      // if removal rejects, and consume the rejection instead of abandoning it.
+      return clearAuth().then(() => {
+        observedIdentity = null;
+        sessionNeedsReload = false;
+      });
+    });
+  } finally {
+    const tokens = await previousTokens;
+    if (tokens?.refreshToken) void revokeSession(tokens.refreshToken);
+  }
 }
 
 async function revokeSession(refreshToken) {
@@ -185,8 +202,33 @@ async function revokeSession(refreshToken) {
  * Check if the user is logged in (has stored tokens).
  */
 export async function isLoggedIn() {
-  const tokens = await getAuthTokens();
-  return !!tokens?.accessToken;
+  let raw;
+  try { raw = localStorage.getItem('plato_auth'); } catch { return false; }
+  if (raw === null) return false;
+  const parse = value => { try { return JSON.parse(value); } catch { return null; } };
+  if (validStoredSession(parse(raw))) return true;
+  try {
+    await reconcileInvalidAuthSession(() => {
+      const currentRaw = localStorage.getItem('plato_auth');
+      if (currentRaw !== raw || validStoredSession(parse(currentRaw))) return false;
+      const invalidAttempt = parse(currentRaw)?.attemptId;
+      localStorage.removeItem('plato_auth');
+      sessionGeneration += 1;
+      observedIdentity = null;
+      sessionNeedsReload = false;
+      clearCache();
+      try { setImpersonation(null); } catch { /* storage can be unavailable independently */ }
+      return typeof invalidAttempt === 'string' ? invalidAttempt : null;
+    });
+    return validStoredSession(parse(localStorage.getItem('plato_auth')));
+  } catch { return false; /* denied storage still settles initialization */ }
+}
+
+function validStoredSession(record) {
+  return typeof record?.accessToken === 'string' && !!record.accessToken
+    && typeof record?.refreshToken === 'string' && !!record.refreshToken
+    && typeof record?.user?.userId === 'string' && !!record.user.userId.trim()
+    && (record.attemptId === undefined || (typeof record.attemptId === 'string' && !!record.attemptId));
 }
 
 /**

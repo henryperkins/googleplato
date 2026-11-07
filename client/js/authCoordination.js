@@ -8,7 +8,9 @@ let warned = false;
 
 function exclusive(write) {
   if (globalThis.navigator?.locks?.request) {
-    return navigator.locks.request(LOCK_NAME, { mode: 'exclusive' }, write);
+    // Returning a rejected promise also releases Node 24's native lock. The
+    // callback still executes the storage write synchronously, before yielding.
+    return navigator.locks.request(LOCK_NAME, { mode: 'exclusive' }, async () => write());
   }
   if (!warned) {
     warned = true;
@@ -46,5 +48,30 @@ export function commitAuthAttempt(attemptId, write) {
 
 // Optional synchronous callback keeps logout's snapshot/removal in this lock.
 export function invalidateAuthAttempts(write = () => {}) {
-  return exclusive(() => { recordIntent(); return write(); });
+  return exclusive(() => {
+    try { recordIntent(); }
+    catch {
+      // Quota can block a new intent while removals still work. An absent
+      // intent also fences every pending completion, and lets logout proceed.
+      localAttempt = undefined;
+      localStorage.removeItem(ATTEMPT_KEY);
+    }
+    return write();
+  });
+}
+
+// The callback rechecks/removes only the invalid session under this lock and
+// returns its attempt ID (or null). A different, valid pending intent survives.
+export function reconcileInvalidAuthSession(clearSession) {
+  return exclusive(() => {
+    const invalidAttempt = clearSession();
+    if (invalidAttempt === false) return;
+    let intent;
+    try { intent = JSON.parse(localStorage.getItem(ATTEMPT_KEY)); } catch { /* invalid record */ }
+    if (!intent || typeof intent.attemptId !== 'string' || !Number.isSafeInteger(intent.epoch)
+      || intent.epoch < 1 || intent.attemptId === invalidAttempt) {
+      localStorage.removeItem(ATTEMPT_KEY);
+      localAttempt = undefined;
+    }
+  });
 }

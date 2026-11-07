@@ -47,21 +47,26 @@ export function AuthProvider({ children }) {
     const generation = authModule.getSessionGeneration();
     const valid = () => !cancelled && ticket === publication.current && generation === authModule.getSessionGeneration();
     (async () => {
-      const result = await authModule.isLoggedIn();
-      if (!valid()) return;
-      if (result) {
-        const session = await authModule.captureAuthSession();
-        const u = await authModule.getCurrentUser();
-        if (!valid() || u?.userId !== session?.userId || !await authModule.isAuthSessionCurrent(session) || !valid()) return;
-        setLoggedIn(true);
-        publishUser(u);
-        const stashed = authModule.getImpersonation();
-        if (stashed && can(u, 'impersonation.use')) setImpersonatedUserState(stashed);
-        authModule.refreshCurrentUser().then(async fresh => {
-          if (fresh && valid() && await authModule.isAuthSessionCurrent(session) && valid()) publishUser(fresh);
-        });
+      try {
+        const result = await authModule.isLoggedIn();
+        if (!valid()) return;
+        if (result) {
+          const session = await authModule.captureAuthSession();
+          const u = await authModule.getCurrentUser();
+          if (!valid() || u?.userId !== session?.userId || !await authModule.isAuthSessionCurrent(session) || !valid()) return;
+          setLoggedIn(true);
+          publishUser(u);
+          const stashed = authModule.getImpersonation();
+          if (stashed && can(u, 'impersonation.use')) setImpersonatedUserState(stashed);
+          authModule.refreshCurrentUser().then(async fresh => {
+            if (fresh && valid() && await authModule.isAuthSessionCurrent(session) && valid()) publishUser(fresh);
+          });
+        }
+      } finally {
+        // Cleanup can advance the generation itself. A newer publication owns
+        // its loading state, but every settled initialization must release it.
+        if (!cancelled && ticket === publication.current) setLoading(false);
       }
-      if (valid()) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [publishUser]);

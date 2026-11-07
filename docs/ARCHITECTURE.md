@@ -443,6 +443,17 @@ shown. They do
 not publish the other tab's account into mounted UI or automatically navigate;
 a fresh local sign-in or reload establishes their next session.
 
+Credential adoption succeeds only after the synchronous `plato_auth` write
+commits inside the auth lock. A denied write leaves the previous record and
+React account intact, throws `auth_storage_unavailable`, and revokes the newly
+issued unused refresh token outside the lock. A completed setup whose adoption
+fails directs the admin to sign in; it does not offer another account creation.
+Initialization always settles its loading state. Invalid session records are
+rechecked under the lock and discarded without removing owner-scoped drafts;
+malformed or matching stale coordination records are removed too, while a valid
+newer pending intent survives. Complete legacy sessions without `attemptId`
+remain valid.
+
 Legacy Firebase-provider probing cannot delay local
 sign-out or overwrite a newer provider decision. Firebase detection/import is
 bounded to five seconds, and stale cleanup is skipped after another login
