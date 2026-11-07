@@ -9,13 +9,29 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '');
+// One automation's email as GET /v1/admin/notifications returns it, plus the
+// default the fixture restores on DELETE.
+const waitlistEmail = (overrides = {}) => {
+  const defaults = { subject: 'You’re on the wait list', body: 'Thanks for joining.' };
+  return { id: 'waitlist-confirmation', label: 'Wait list confirmation', description: 'Sent once, when someone joins the wait list.',
+    variables: ['firstName', 'classroomName'], isDefault: true, updatedAt: null, ...defaults, defaults, ...overrides };
+};
+const failedMessage = (overrides = {}) => ({ id: 'msg_failed123', subject: 'Earlier update', body: 'News', email: true, inApp: true,
+  createdAt: '2026-11-01T00:00:00.000Z', createdByName: 'Synthetic Admin', audience: { type: 'all', allRoles: true }, status: 'failed',
+  counts: { recipients: 3, emailed: 1, failed: 2 }, ...overrides });
+const longFailure = () => failedMessage({ id: 'msg_long123', important: true,
+  subject: 'Capstone deadline moved to Friday — please re-read the exemplar before submitting your final artifact',
+  audience: { type: 'role', roles: ['learner', 'educator'], allRoles: true },
+  counts: { recipients: 214, emailed: 180, optedOut: 12, blocked: 3, failed: 19 },
+  deliveryError: 'The email service rejected 19 messages (451 temporary failure).' });
 const evidence = browserEvidence('notification-audience');
 let server, browser, base;
 
 // Render the real page and UI components; only authentication and HTTP are
 // synthetic. No persistent server/database or external delivery is involved.
-async function open(t, { history = [] } = {}) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 1100 } });
+async function open(t, { history = [], templates = [], automations = {}, settingsFailures = 0, draft = true, viewport = { width: 1280, height: 1100 } } = {}) {
+  const ready = settingsFailures === 0;
+  const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   // Cold Vite dependency optimization in Cloud Build can exceed eight seconds
   // before the first fixture navigation completes; behavioral waits stay bounded.
@@ -58,21 +74,41 @@ async function open(t, { history = [] } = {}) {
       return reply({ message: { status: 'sent' } });
     }
     if (path === '/v1/admin/notifications/messages') return reply({ messages: history });
+    if (path.endsWith('/retry') && request.method() === 'POST') {
+      const message = history.find(message => path.endsWith(`/${message.id}/retry`));
+      message.status = 'sent'; message.deliveryError = null;
+      return reply({ message });
+    }
+    if (path.startsWith('/v1/admin/notifications/templates/')) {
+      const template = templates.find(template => path.endsWith(`/${template.id}`));
+      if (request.method() === 'PUT') Object.assign(template, request.postDataJSON(), { isDefault: false, updatedAt: new Date().toISOString() });
+      if (request.method() === 'DELETE') Object.assign(template, template.defaults, { isDefault: true, updatedAt: null });
+      return reply({ template: { ...template } });
+    }
+    if (path === '/v1/admin/notifications/automations' && request.method() === 'PUT') {
+      Object.assign(automations, request.postDataJSON());
+      return reply({ automations: { ...automations } });
+    }
     if (path.endsWith('/close') && request.method() === 'POST') {
       const message = history.find(message => path.endsWith(`/${message.id}/close`));
       message.status = 'closed'; message.deliveryError = null;
       return reply({ message });
     }
-    if (path === '/v1/admin/notifications') return reply({ settings: {}, templates: [] });
+    if (path === '/v1/admin/notifications') {
+      if (settingsFailures-- > 0) return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Controlled settings failure"}' });
+      return reply({ automations: { ...automations }, alwaysOn: [], templates: templates.map(template => ({ ...template })) });
+    }
     if (path === '/v1/admin/users') return reply([]);
     if (path === '/v1/groups') return reply({ userGroups: ['Two-person group'] });
     throw new Error(`Unexpected fixture request: ${request.method()} ${path}`);
   });
   await page.goto(`${base}/__audience-review`);
   await page.getByRole('heading', { name: 'Notifications', exact: true }).waitFor();
-  await page.getByRole('status').filter({ hasText: 'Goes to 10 people.' }).waitFor();
-  await page.getByLabel('Subject', { exact: true }).fill('Reviewed message');
-  await page.getByLabel('Message', { exact: true }).fill('Synthetic classroom message.');
+  if (ready) await page.getByRole('status').filter({ hasText: 'Goes to 10 people.' }).waitFor();
+  if (draft && ready) {
+    await page.getByLabel('Subject', { exact: true }).fill('Reviewed message');
+    await page.getByLabel('Message', { exact: true }).fill('Synthetic classroom message.');
+  }
   t.after(async () => {
     assert.deepEqual(errors, [], 'no unhandled browser errors');
     assert.equal(await page.locator('vite-error-overlay').count(), 0);
@@ -81,6 +117,10 @@ async function open(t, { history = [] } = {}) {
   });
   return {
     page, sent,
+    // The page under test sits in a data router, as in the app, so its
+    // leave guard can hold a navigation.
+    navigate(path) { return page.evaluate(to => { window.__router.navigate(to); }, path); },
+    focused() { return page.evaluate(() => document.activeElement?.textContent?.trim() ?? ''); },
     holdSend() { holdSend = true; },
     nextSend() { return sendPending.length ? Promise.resolve(sendPending.shift()) : new Promise(resolve => sendWaiters.push(resolve)); },
     send: page.getByRole('button', { name: 'Send', exact: true }),
@@ -103,7 +143,7 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
         name: 'notification-audience-test', enforce: 'pre',
         resolveId(id) { if (id === '/__audience-entry.jsx') return '\0audience-review'; },
         load(id) {
-          if (id === '\0audience-review') return `import React from 'react'; import {createRoot} from 'react-dom/client'; import AdminNotifications from '${root}/client/src/pages/admin/AdminNotifications.jsx'; import '${root}/client/src/index.css'; createRoot(document.getElementById('root')).render(React.createElement(AdminNotifications));`;
+          if (id === '\0audience-review') return `import React from 'react'; import {createRoot} from 'react-dom/client'; import {createMemoryRouter, RouterProvider} from 'react-router-dom'; import AdminNotifications from '${root}/client/src/pages/admin/AdminNotifications.jsx'; import '${root}/client/src/index.css'; const router = createMemoryRouter([{ path: '/plato/notifications', element: React.createElement(AdminNotifications) }, { path: '/plato', element: React.createElement('h1', null, 'Dashboard') }], { initialEntries: ['/plato/notifications'] }); window.__router = router; createRoot(document.getElementById('root')).render(React.createElement(RouterProvider, { router }));`;
           if (id === join(root, 'client/src/contexts/AuthContext.jsx')) return "export const useAuth=()=>({user:{userId:'synthetic-admin',role:'admin'}});";
         },
         configureServer(vite) {
@@ -187,6 +227,7 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
     await f.page.screenshot({ path: join(evidence, 'audience-current-confirmation.png'), fullPage: true });
     await confirmation.getByRole('button', { name: 'Send', exact: true }).click();
     await f.page.getByRole('tab', { name: 'History', selected: true }).waitFor();
+    assert.equal(await f.focused(), 'History', 'the History tab takes focus from the hidden Send button');
     assert.equal(f.sent.length, 1);
     assert.deepEqual(f.sent[0].audience, { type: 'all' });
     assert.equal(f.sent[0].subject, 'Reviewed message');
@@ -259,5 +300,82 @@ describe('notification audience preview and confirmation', { timeout: 120000 }, 
     });
     await confirmation.waitFor({ state: 'hidden' });
     assert.deepEqual(f.sent, []);
+  });
+
+  it('keeps unsaved email edits across tabs and asks before leaving the page', async t => {
+    const f = await open(t, { templates: [waitlistEmail()], automations: { waitlistConfirmation: false }, draft: false });
+    await f.page.getByRole('tab', { name: 'Automations', exact: true }).click();
+    const panel = f.page.getByRole('tabpanel');
+    await panel.getByRole('heading', { name: 'Wait list confirmation', level: 2 }).waitFor();
+    await panel.locator('summary').click();
+    await panel.getByLabel('Subject', { exact: true }).fill('Thanks, {{firstName}}');
+    await panel.getByRole('status').filter({ hasText: 'Unsaved changes' }).waitFor();
+    await f.page.getByRole('tab', { name: 'History', exact: true }).click();
+    await f.page.getByRole('tab', { name: 'Automations', exact: true }).click();
+    assert.equal(await panel.getByLabel('Subject', { exact: true }).inputValue(), 'Thanks, {{firstName}}', 'the draft outlives the tab');
+    await f.navigate('/plato');
+    const leave = f.page.getByRole('alertdialog');
+    await leave.getByRole('heading', { name: 'Leave without saving?', exact: true }).waitFor();
+    assert.match(await leave.innerText(), /Your changes to “Wait list confirmation” haven’t been saved/);
+    await leave.getByRole('button', { name: 'Stay here', exact: true }).click();
+    await leave.waitFor({ state: 'hidden' });
+    const save = panel.getByRole('button', { name: 'Save', exact: true });
+    await save.focus();
+    await f.page.keyboard.press('Enter');
+    await panel.getByRole('status').filter({ hasText: 'Email saved.' }).waitFor();
+    assert.equal(await save.evaluate(element => document.activeElement === element), true, 'Save keeps focus');
+    await f.navigate('/plato');
+    await f.page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor();
+  });
+
+  it('moves focus to what remains after Use the default or a retry that settles the message', async t => {
+    const f = await open(t, { templates: [waitlistEmail({ subject: 'Custom subject', isDefault: false, updatedAt: '2026-11-01T00:00:00.000Z' })],
+      history: [failedMessage()], draft: false });
+    await f.page.getByRole('tab', { name: 'Automations', exact: true }).click();
+    const panel = f.page.getByRole('tabpanel');
+    await panel.locator('summary').click();
+    await panel.getByRole('button', { name: 'Use the default', exact: true }).focus();
+    await f.page.keyboard.press('Enter');
+    await panel.getByRole('status').filter({ hasText: 'Back to plato’s default email.' }).waitFor();
+    assert.equal(await f.focused(), 'Send a test to me');
+    assert.equal(await panel.getByLabel('Subject', { exact: true }).inputValue(), 'You’re on the wait list');
+    await f.page.getByRole('tab', { name: 'History', exact: true }).click();
+    await f.page.getByRole('button', { name: 'Retry delivery', exact: true }).focus();
+    await f.page.keyboard.press('Enter');
+    await f.page.getByRole('row').filter({ hasText: 'Earlier update' }).getByText('Processed', { exact: true }).waitFor();
+    assert.equal(await f.focused(), 'Processed', 'the new status takes focus from the removed actions');
+  });
+
+  it('fits History beside long subjects, with Status and its actions in view', async t => {
+    const f = await open(t, { history: [longFailure()], draft: false });
+    await f.page.getByRole('tab', { name: 'History', exact: true }).click();
+    const region = f.page.getByRole('region', { name: 'Sent messages' });
+    await region.getByRole('cell', { name: /Delivery failed/ }).waitFor();
+    assert.equal(await region.evaluate(element => element.scrollWidth <= element.clientWidth), true, 'the table needs no sideways scroll');
+    const [retry, frame] = await Promise.all([region.getByRole('button', { name: 'Retry delivery', exact: true }).boundingBox(), region.boundingBox()]);
+    assert.ok(retry.x + retry.width <= frame.x + frame.width, 'Retry delivery is inside the table frame');
+    await f.page.screenshot({ path: join(evidence, 'history-desktop.png'), fullPage: true });
+  });
+
+  it('lists History on a phone, with a failed delivery and its actions in view', async t => {
+    const f = await open(t, { history: [longFailure()], draft: false, viewport: { width: 390, height: 844 } });
+    await f.page.getByRole('tab', { name: 'History', exact: true }).click();
+    const list = f.page.getByRole('list', { name: 'Sent messages' });
+    await list.getByText('Delivery failed', { exact: true }).waitFor();
+    assert.equal(await f.page.getByRole('table').count(), 0);
+    const retry = await list.getByRole('button', { name: 'Retry delivery', exact: true }).boundingBox();
+    assert.ok(retry.x >= 0 && retry.x + retry.width <= 390, 'Retry delivery is on screen');
+    assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no sideways scroll');
+    await f.page.screenshot({ path: join(evidence, 'history-phone.png'), fullPage: true });
+  });
+
+  it('offers Try again when Notifications can’t load, then focuses the page heading', async t => {
+    const f = await open(t, { settingsFailures: 1 });
+    const alert = f.page.getByRole('alert').filter({ hasText: 'Notifications could not be loaded.' });
+    await alert.waitFor();
+    await alert.getByRole('button', { name: 'Try again', exact: true }).focus();
+    await f.page.keyboard.press('Enter');
+    await f.page.getByRole('tab', { name: 'Compose', exact: true }).waitFor();
+    assert.equal(await f.focused(), 'Notifications');
   });
 });

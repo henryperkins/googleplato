@@ -104,6 +104,15 @@ test.describe('admin pages', () => {
     });
   }
 
+  test('dialog: leave Notifications without sending', async ({ page }) => {
+    await page.goto('/plato/notifications');
+    await settle(page);
+    await page.getByLabel('Subject', { exact: true }).fill('An unsent draft');
+    await page.getByRole('navigation').getByRole('link', { name: 'Home', exact: true }).first().click();
+    await expect(page.getByRole('alertdialog')).toContainText('Leave without saving?');
+    await expectAccessible(page, { include: '[role=alertdialog]', label: 'leave notifications dialog' });
+  });
+
   test('/plato/users/:id (edit user)', async ({ page }) => {
     await page.goto('/plato/users');
     await settle(page);

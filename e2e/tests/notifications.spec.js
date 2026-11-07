@@ -35,7 +35,10 @@ test('automations start off; the wait list email is editable and validated', asy
   await expect(toggle).not.toBeChecked();
   await expectAccessible(page, { label: 'notifications automations' });
 
-  const card = page.locator('[data-slot=card]', { has: page.getByText('Wait list confirmation', { exact: true }) });
+  const card = page.locator('[data-slot=card]', { has: page.getByRole('heading', { name: 'Wait list confirmation', exact: true }) });
+  // Each email's copy sits behind its own disclosure.
+  await card.locator('summary', { hasText: 'Edit email' }).click();
+  await expectAccessible(page, { label: 'notifications automations editor' });
   const subject = card.getByLabel('Subject');
   await subject.fill('Thanks {{lessonName}}');
   await card.getByRole('button', { name: 'Save' }).click();
