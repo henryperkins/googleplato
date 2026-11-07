@@ -5,6 +5,8 @@
  * would serve. If a migration ever breaks rollback to RC-232, this is where
  * it shows up.
  *
+ * With `--delete <json>` (`[unitId, ...]`) deletes through RC-232 routes.
+ *
  * Prints one JSON line: { results: { [label]: { status, count? } } }.
  *
  * With `--rename <json>` (`[[unitId, name], ...]`) it instead renames those
@@ -44,6 +46,15 @@ const checks = [
 ];
 
 const results = {};
+const deleteAt = process.argv.indexOf('--delete');
+if (deleteAt > 0) {
+  for (const unitId of JSON.parse(process.argv[deleteAt + 1])) {
+    const res = await app.request(`/v1/admin/courses/${unitId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${adminToken}` } });
+    results[`delete ${unitId}`] = { status: res.status };
+  }
+  process.stdout.write(JSON.stringify({ results }) + '\n');
+  process.exit(0);
+}
 const renameAt = process.argv.indexOf('--rename');
 if (renameAt > 0) {
   for (const [unitId, name] of JSON.parse(process.argv[renameAt + 1])) {

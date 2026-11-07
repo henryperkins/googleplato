@@ -195,6 +195,28 @@ export const MIGRATIONS = [
       return result;
     },
   },
+  {
+    id: 'm006_unit_order',
+    description: 'copy legacy unit lesson order into incarnation-stamped records',
+    async run({ db, dryRun }) {
+      const result = { scanned: 0, updated: 0, skipped: 0, errors: 0 };
+      const items = await db.getAllSyncData('_system', { consistentRead: true });
+      for (const unit of items.filter(i => i.dataKey.startsWith('course:'))) {
+        result.scanned++;
+        const key = `unitOrder:${unit.dataKey.slice(7)}`;
+        if (!Array.isArray(unit.data?.lessonIds) || items.some(i => i.dataKey === key)) { result.skipped++; continue; }
+        if (dryRun) { result.updated++; continue; }
+        try {
+          await db.createSyncData('_system', key, { lessonIds: unit.data.lessonIds, unitCreatedAt: unit.data.createdAt ?? null });
+          result.updated++;
+        } catch (err) {
+          if (err.name === 'ConditionalCheckFailedException') result.skipped++;
+          else throw err;
+        }
+      }
+      return result;
+    },
+  },
 ];
 
 function emptyResult() {

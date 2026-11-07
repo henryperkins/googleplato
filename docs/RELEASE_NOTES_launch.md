@@ -30,6 +30,7 @@ PR links this file. Upgrading installs come from **Beta-RC-232** (`629c778`).
 | `m003_role_learner` | stored role `user` → `learner` (conditional; `updatedAt` untouched) | `UPDATE … SET role='user' WHERE role='learner'` — and `normalizeRole` makes code indifferent to which is stored | roles PR |
 | `m004_default_program` | creates `_system:program:prog-default` (one Course named after the classroom) holding every existing unit; each unit gains `programId` + its current name-sorted `lessonIds` | delete the program record; Beta-RC-232 ignores both | hierarchy PR |
 | `m005_name_split` | users gain `firstName`/`lastName` inferred from `name` (split at the first whitespace; one word = first name only; empty names left alone), `nameSource: 'auto'`; `name` and `updatedAt` untouched; conditional on `name` unchanged and no split yet | drop the three fields; Beta-RC-232 reads only `name` | names PR |
+| `m006_unit_order` | copies legacy unit `lessonIds` into `_system:unitOrder:<unitId>` = `{ lessonIds, unitCreatedAt }`, create-only; bundled seed creates its own first-start order | Reversible by deleting `_system:unitOrder:*`, which Beta-RC-232 ignores | hierarchy remediation |
 
 ## Sub-PRs merged into playground
 | PR | Area | Issues |
@@ -150,8 +151,12 @@ role name, so do this right after redeploying:
 Edits made under Beta-RC-232 survive a later re-upgrade. A name changed
 there wins over the stored first and last name, and a Getting Started that it
 saved is taken back as an edited copy, with "update available". A unit renamed
-there keeps its new name and, on the next start, gets back its course, its
-lesson order, and (for Getting Started) its marker. Restoring the
+there keeps its new name and independent stamped lesson order; on the next
+start it gets back its uniquely listed course and (for Getting Started) its
+marker. Explicit unassignment stays unchanged. An RC-232 delete followed by
+recreation of the same ID cannot resurrect the old order because the unit
+incarnation must match. The order records can be deleted to reverse m006;
+Beta-RC-232 ignores them. Restoring the
 backup from step 1 is the last resort; it also loses anything learners did
 after the upgrade.
 

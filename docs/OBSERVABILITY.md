@@ -184,8 +184,10 @@ lost something?* Yes → A. No → B.
 | `migrations_failed`, `migrations_startup_budget_exceeded` | error / warn | B | upstream's bounded startup runner (`runMigrationsBounded`) failed or ran past its 20 s budget. **Not emitted by the fork's startup**: `initializeLaunch` awaits migrations and fails startup instead, so watch for a revision that never becomes ready |
 | `migration_lock_release_failed` | error | B | markers verified but lock release failed; includes owner, lock expiry, version and revision; new pending migrations may wait for lock expiry |
 | `migration_failed` | error | B | one migration finished with item errors (`migration`, counts); it isn't recorded as applied, so it retries on the next start. In the fork that startup also fails, so the revision never becomes ready |
-| `units_repaired` | warn | — | startup put back a unit's course, lesson order or Getting Started marker after an older release rewrote it (`repaired`), or found a unit two courses both list (`ambiguous`, left for an admin). Expected only after a rollback or a rolling deploy (`lib/unit-repair.js`) |
+| `units_repaired` | warn | — | startup restored absent unit ownership or bundled metadata (`repaired`); multiple owners (`ambiguous`) remain for an admin; version conflicts (`conflicted`) retry next start. Order is stored independently and needs no repair (`lib/unit-repair.js`) |
 | `unit_repair_failed` | error | B | that startup repair threw; startup continues and the next start tries again |
+| `unit_orders_reconciled` | warn | — | removed orphaned or incarnation-mismatched order records (`removed`), or preserved concurrently changed records (`conflicted`) |
+| `unit_order_reconcile_failed` | error | B | best-effort unit order cleanup threw; startup continues and next start retries |
 | `job_completed` | warn | — | a background job finished, with its counts |
 | `job_failed`, `job_unknown`, `job_dispatch_failed` | error | B | a background job threw, wasn't registered, or couldn't be invoked |
 | `schedule_check_failed` | error | B | the traffic-driven schedule check (`lib/schedule.js`) threw |

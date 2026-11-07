@@ -31,20 +31,6 @@ function nameTaken(items, prefix, selfId, name) {
 
 const actorName = (u) => u.username || u.email;
 
-// A unit's lesson order is also kept on its course record (`lessonOrder`).
-// Older releases (Beta-RC-232, and this fork before the launch integration)
-// rename a unit by replacing its record, which drops `lessonIds`, but they
-// never write course records, so lib/unit-repair.js restores the order from
-// this copy. Never writes `undefined` (DynamoDB's document client refuses it).
-function withOrder(d, unitId, lessonIds) {
-  return Array.isArray(lessonIds) ? { ...d, lessonOrder: { ...(d.lessonOrder || {}), [unitId]: lessonIds } } : d;
-}
-function withoutOrder(d, unitId) {
-  if (!d.lessonOrder || !(unitId in d.lessonOrder)) return d;
-  const { [unitId]: _dropped, ...rest } = d.lessonOrder;
-  return { ...d, lessonOrder: rest };
-}
-
 /**
  * Write with a version check; on a lost race, re-read and apply `change` once
  * more. If `change` returns the record unchanged (the same object), nothing
@@ -140,10 +126,10 @@ export function registerHierarchyRoutes(admin) {
     // membership, but keeping them tidy keeps the next reorder exact.)
     if (programId !== undefined && programId !== (prev.programId || null)) {
       if (prev.programId) {
-        await updateRecord(`program:${prev.programId}`, (d) => withoutOrder({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }, id));
+        await updateRecord(`program:${prev.programId}`, (d) => ({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }));
       }
       if (programId) {
-        await updateRecord(`program:${programId}`, (d) => withOrder({ ...d, unitIds: [...(d.unitIds || []).filter((u) => u !== id), id] }, id, prev.lessonIds));
+        await updateRecord(`program:${programId}`, (d) => ({ ...d, unitIds: [...(d.unitIds || []).filter((u) => u !== id), id] }));
       }
     }
     return c.json({ unitId: id, courseId: id, ok: true });
@@ -154,17 +140,23 @@ export function registerHierarchyRoutes(admin) {
     const id = c.req.param('unitId') || c.req.param('courseId');
     const item = await db.getSyncData('_system', `course:${id}`);
     if (!item) return c.json({ error: 'Unit not found' }, 404);
+    const order = await db.getSyncData('_system', `unitOrder:${id}`, { consistentRead: true });
     const items = await db.getAllSyncData('_system');
     const affected = items.filter((i) => i.dataKey.startsWith('lesson:') && i.data?.course === id).map((i) => i.dataKey);
 
     await db.deleteSyncData('_system', `course:${id}`);
+    if (order) {
+      try { await db.deleteSyncData('_system', `unitOrder:${id}`, { expectedVersion: order.version }); } catch (err) {
+        if (err.name !== 'ConditionalCheckFailedException') throw err;
+      }
+    }
     // Per-lesson re-read so a concurrent edit isn't clobbered, and skip any
     // lesson another admin already moved to a different unit.
     for (const key of affected) {
       await updateRecord(key, (d) => (d.course === id ? { ...d, course: null, authoringOperationId: null } : d));
     }
     if (item.data?.programId) {
-      await updateRecord(`program:${item.data.programId}`, (d) => withoutOrder({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }, id));
+      await updateRecord(`program:${item.data.programId}`, (d) => ({ ...d, unitIds: (d.unitIds || []).filter((u) => u !== id) }));
     }
     return c.json({ ok: true });
   }
@@ -173,15 +165,27 @@ export function registerHierarchyRoutes(admin) {
   admin.put('/v1/admin/units/:unitId/order', async (c) => {
     const id = c.req.param('unitId');
     const { lessonIds } = await c.req.json();
-    const h = buildHierarchy(await db.getAllSyncData('_system'));
-    const unit = h.units.get(id);
-    if (!unit) return c.json({ error: 'Unit not found' }, 404);
-    if (!isPermutation(lessonIds, unit.lessonIds)) {
-      return c.json({ error: "lessonIds must list each of the unit's lessons exactly once" }, 400);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [unit, order, items] = await Promise.all([
+        db.getSyncData('_system', `course:${id}`, { consistentRead: true }),
+        db.getSyncData('_system', `unitOrder:${id}`, { consistentRead: true }),
+        db.getAllSyncData('_system', { consistentRead: true }),
+      ]);
+      if (!unit) return c.json({ error: 'Unit not found' }, 404);
+      const members = items.filter(i => i.dataKey.startsWith('lesson:') && i.data?.course === id).map(i => i.dataKey.slice(7));
+      if (!isPermutation(lessonIds, members)) {
+        return c.json({ error: "lessonIds must list each of the unit's lessons exactly once" }, 400);
+      }
+      const data = { lessonIds, unitCreatedAt: unit.data.createdAt ?? null };
+      try {
+        if (order) await db.putSyncData('_system', `unitOrder:${id}`, data, order.version, { strictVersion: true });
+        else await db.createSyncData('_system', `unitOrder:${id}`, data);
+        return c.json({ unitId: id, lessonIds });
+      } catch (err) {
+        if (err.name !== 'ConditionalCheckFailedException') throw err;
+      }
     }
-    await updateRecord(`course:${id}`, (d) => ({ ...d, lessonIds }));
-    if (unit.programId) await updateRecord(`program:${unit.programId}`, (d) => withOrder(d, id, lessonIds));
-    return c.json({ unitId: id, lessonIds });
+    return c.json({ error: 'Unit order changed. Reload and try again.' }, 409);
   });
 
   admin.get('/v1/admin/units', listUnits);

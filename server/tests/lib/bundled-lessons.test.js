@@ -168,7 +168,8 @@ describe('the Getting Started course', () => {
     const program = await get(`program:${BUNDLED_COURSE.programId}`);
     assert.deepEqual([program.name, program.unitIds, program.bundled], [BUNDLED_COURSE.name, [BUNDLED_COURSE.unitId], { id: BUNDLED_COURSE.id }]);
     const unit = await get(`course:${BUNDLED_COURSE.unitId}`);
-    assert.deepEqual([unit.programId, unit.lessonIds], [BUNDLED_COURSE.programId, BUNDLED_LESSONS.map((b) => b.id)]);
+    assert.equal(unit.programId, BUNDLED_COURSE.programId);
+    assert.deepEqual((await db.getSyncData('_system', `unitOrder:${BUNDLED_COURSE.unitId}`)).data, { lessonIds: BUNDLED_LESSONS.map(b => b.id), unitCreatedAt: unit.createdAt });
     for (const b of BUNDLED_LESSONS) {
       const l = await get(`lesson:${b.id}`);
       assert.deepEqual([l.status, l.course, isStartHere(l)], ['public', BUNDLED_COURSE.unitId, true], b.id);

@@ -63,7 +63,9 @@ async function ensureBundledCourse(db, now) {
       }
     };
     await create(`program:${c.programId}`, { name: c.name, description: '', unitIds: [c.unitId], bundled: { id: c.id }, ...stamp });
-    await create(`course:${c.unitId}`, { name: c.unitName, programId: c.programId, lessonIds: BUNDLED_LESSONS.map((b) => b.id), bundled: { id: c.id }, ...stamp });
+    await create(`course:${c.unitId}`, { name: c.unitName, programId: c.programId, bundled: { id: c.id }, ...stamp });
+    const unit = await db.getSyncData('_system', `course:${c.unitId}`, { consistentRead: true });
+    if (unit) await create(`unitOrder:${c.unitId}`, { lessonIds: BUNDLED_LESSONS.map(b => b.id), unitCreatedAt: unit.data.createdAt ?? null });
     // Bundled lessons installed before the course existed (one lesson, no unit) join it.
     for (const b of BUNDLED_LESSONS) {
       const lesson = await db.getSyncData('_system', `lesson:${b.id}`);

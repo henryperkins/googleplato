@@ -1,0 +1,176 @@
+▶ unit order: sqlite
+  ✖ review reproduction: unassign, reorder, RC-232 rename and restart preserves exact order (24.491813ms)
+  ✖ review reproduction: reorder racing move between courses preserves exact order (3.547214ms)
+✖ unit order: sqlite (29.869727ms)
+▶ unit order: postgres
+  ✖ review reproduction: unassign, reorder, RC-232 rename and restart preserves exact order (20.119303ms)
+  ✖ review reproduction: reorder racing move between courses preserves exact order (28.968723ms)
+✖ unit order: postgres (84.783861ms)
+▶ unit order: dynamodb
+  ✖ review reproduction: unassign, reorder, RC-232 rename and restart preserves exact order (3.205549ms)
+  ✖ review reproduction: reorder racing move between courses preserves exact order (1.682044ms)
+✖ unit order: dynamodb (5.460164ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 0
+ℹ fail 9
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 257.465814
+
+✖ failing tests:
+
+test at tests/lib/unit-order.test.js:80:13
+✖ review reproduction: unassign, reorder, RC-232 rename and restart preserves exact order (24.491813ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  -   'l3',
+      'l1',
+      'l2',
+  +   'l3'
+    ]
+
+      at TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:85:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:80:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'l1', 'l2', 'l3' ],
+    expected: [ 'l3', 'l1', 'l2' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/lib/unit-order.test.js:87:13
+✖ review reproduction: reorder racing move between courses preserves exact order (3.547214ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  -   'l3',
+      'l1',
+      'l2',
+  +   'l3'
+    ]
+
+      at TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:105:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:87:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'l1', 'l2', 'l3' ],
+    expected: [ 'l3', 'l1', 'l2' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/lib/unit-order.test.js:80:13
+✖ review reproduction: unassign, reorder, RC-232 rename and restart preserves exact order (20.119303ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  -   'l3',
+      'l1',
+      'l2',
+  +   'l3'
+    ]
+
+      at TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:85:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:80:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'l1', 'l2', 'l3' ],
+    expected: [ 'l3', 'l1', 'l2' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/lib/unit-order.test.js:87:13
+✖ review reproduction: reorder racing move between courses preserves exact order (28.968723ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  -   'l3',
+      'l1',
+      'l2',
+  +   'l3'
+    ]
+
+      at TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:105:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:87:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'l1', 'l2', 'l3' ],
+    expected: [ 'l3', 'l1', 'l2' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/lib/unit-order.test.js:80:13
+✖ review reproduction: unassign, reorder, RC-232 rename and restart preserves exact order (3.205549ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  -   'l3',
+      'l1',
+      'l2',
+  +   'l3'
+    ]
+
+      at TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:85:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:80:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'l1', 'l2', 'l3' ],
+    expected: [ 'l3', 'l1', 'l2' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/lib/unit-order.test.js:87:13
+✖ review reproduction: reorder racing move between courses preserves exact order (1.682044ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  -   'l3',
+      'l1',
+      'l2',
+  +   'l3'
+    ]
+
+      at TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:105:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async TestContext.<anonymous> (file:///home/ubuntu/.codex/worktrees/pr43-units-red/server/tests/lib/unit-order.test.js:87:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'l1', 'l2', 'l3' ],
+    expected: [ 'l3', 'l1', 'l2' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

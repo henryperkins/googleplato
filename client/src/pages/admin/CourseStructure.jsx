@@ -76,10 +76,11 @@ export default function CourseStructure() {
     else el?.closest('li')?.querySelector('button:not([disabled])')?.focus();
   }, [focusRequest]);
 
-  async function run(fn, done, focusId) {
+  async function run(fn, done, focusId, reloadOnConflict = false) {
     if (!canWrite || busy) return;
     setBusy(true);
     setError('');
+    setAnnouncement('');
     try {
       await fn();
       if (done) setAnnouncement(done);
@@ -87,6 +88,11 @@ export default function CourseStructure() {
       // A fresh object each time, so repeating the same move refocuses.
       if (focusId) setFocusRequest((prev) => ({ id: focusId, n: (prev?.n || 0) + 1 }));
     } catch (e) {
+      if (reloadOnConflict && (e.status === 400 || e.status === 409)) {
+        await load();
+        setAnnouncement('Lesson order changed. Reloaded the latest courses and units. Try the move again.');
+        if (focusId) setFocusRequest(prev => ({ id: focusId, n: (prev?.n || 0) + 1 }));
+      }
       setError(e.message || 'Something went wrong.');
     } finally { setBusy(false); }
   }
@@ -108,7 +114,7 @@ export default function CourseStructure() {
   function moveLesson(unit, index, delta) {
     const lessonId = unit.lessonIds[index];
     run(() => adminApi('PUT', `/v1/admin/units/${unit.unitId}/order`, { lessonIds: move(unit.lessonIds, index, delta) }),
-      `Moved ${lessonNames.get(lessonId) || 'lesson'} ${delta < 0 ? 'up' : 'down'}.`, `lesson-${lessonId}-${delta < 0 ? 'up' : 'down'}`);
+      `Moved ${lessonNames.get(lessonId) || 'lesson'} ${delta < 0 ? 'up' : 'down'}.`, `lesson-${lessonId}-${delta < 0 ? 'up' : 'down'}`, true);
   }
 
   function saveEditing(e) {

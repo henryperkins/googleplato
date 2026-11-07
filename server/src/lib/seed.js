@@ -8,6 +8,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import db from './db.js';
 import { ensureBundledLessons } from './bundled-lessons.js';
+import { reconcileUnitOrders } from './unit-order.js';
 import { repairUnits } from './unit-repair.js';
 import { logger } from './logger.js';
 
@@ -99,12 +100,19 @@ async function seedOnce() {
   seeded += bundled.installed.length + bundled.updated.length;
 
   // Units an older release rewrote (a rollback, or an old instance during a
-  // rolling deploy) get their course, lesson order, and marker back.
+  // rolling deploy) get their course and marker back.
   try {
     const units = await repairUnits({ db });
-    if (units.repaired.length || units.ambiguous.length) logger.warn('units_repaired', units);
+    if (units.repaired.length || units.ambiguous.length || units.conflicted.length) logger.warn('units_repaired', units);
   } catch (err) {
     logger.error('unit_repair_failed', { error: err?.message });
+  }
+
+  try {
+    const orders = await reconcileUnitOrders({ db });
+    if (orders.removed.length || orders.conflicted.length) logger.warn('unit_orders_reconciled', orders);
+  } catch (err) {
+    logger.error('unit_order_reconcile_failed', { error: err?.message });
   }
 
   // Lessons are NOT seeded, with one exception: lessons bundled with plato

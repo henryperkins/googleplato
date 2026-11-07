@@ -563,6 +563,7 @@ const db = {
       const result = await doc.send(new QueryCommand({
         TableName: SYNC_DATA_TABLE,
         KeyConditionExpression: 'userId = :uid',
+        ConsistentRead: consistentRead,
         ...filter,
         ExpressionAttributeValues: { ':uid': userId, ...(filter.ExpressionAttributeValues || {}) },
         ExclusiveStartKey: lastKey,
@@ -739,11 +740,12 @@ const db = {
     return { version: 1, updatedAt: now };
   },
 
-  async deleteSyncData(userId, dataKey, { invalidateLesson = false } = {}) {
+  async deleteSyncData(userId, dataKey, { invalidateLesson = false, expectedVersion } = {}) {
+    const condition = expectedVersion === undefined ? {} : { ConditionExpression: 'version = :v', ExpressionAttributeValues: { ':v': expectedVersion } };
     const lessonId = invalidateLesson && /^(?:messages|lessonKB):(.+)$/.exec(dataKey)?.[1];
     if (lessonId) {
       await doc.send(new TransactWriteCommand({ TransactItems: [
-        { Delete: { TableName: SYNC_DATA_TABLE, Key: { userId, dataKey } } },
+        { Delete: { TableName: SYNC_DATA_TABLE, Key: { userId, dataKey }, ...condition } },
         { Put: { TableName: SYNC_DATA_TABLE, Item: {
           userId, dataKey: `lessonGeneration:${lessonId}`, data: randomUUID(), version: 1, updatedAt: new Date().toISOString(),
         } } },
@@ -753,6 +755,7 @@ const db = {
     await doc.send(new DeleteCommand({
       TableName: SYNC_DATA_TABLE,
       Key: { userId, dataKey },
+      ...condition,
     }));
   },
 

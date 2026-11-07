@@ -1,0 +1,1 @@
+Task 4 complete locally: RED original six review leaf failures retained; independent stamped record implemented; focused GREEN 100 server +18 migration compatibility +2 rendered browser tests; lint/build checked. See task-4-report.md for commands, rulings, evidence and integration notes. No push/merge/deploy.

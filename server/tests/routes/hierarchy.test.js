@@ -31,6 +31,10 @@ beforeEach(() => {
     put(`${u}:${k}`, data, (ev || 0) + 1);
     return { version: (ev || 0) + 1 };
   };
+  db.createSyncData = async (u, k, data) => {
+    if (store.has(`${u}:${k}`)) throw conflict();
+    put(`${u}:${k}`, data, 1);
+  };
   db.deleteSyncData = async (u, k) => { store.delete(`${u}:${k}`); };
 });
 const rec = (k) => store.get(`_system:${k}`)?.data;
@@ -69,7 +73,7 @@ describe('units', () => {
 
   it('reorders lessons only with an exact permutation', async () => {
     assert.equal((await req('PUT', '/v1/admin/units/u1/order', { lessonIds: ['l2', 'l1'] })).status, 200);
-    assert.deepEqual(rec('course:u1').lessonIds, ['l2', 'l1']);
+    assert.deepEqual(rec('unitOrder:u1'), { lessonIds: ['l2', 'l1'], unitCreatedAt: null });
     assert.equal((await req('PUT', '/v1/admin/units/u1/order', { lessonIds: ['l2'] })).status, 400);
     assert.equal((await req('PUT', '/v1/admin/units/u1/order', { lessonIds: ['l2', 'l1', 'l3'] })).status, 400);
   });

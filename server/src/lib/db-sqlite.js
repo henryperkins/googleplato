@@ -693,7 +693,7 @@ const db = {
     return { version: 1, updatedAt: now };
   },
 
-  async deleteSyncData(userId, dataKey, { invalidateLesson = false } = {}) {
+  async deleteSyncData(userId, dataKey, { invalidateLesson = false, expectedVersion } = {}) {
     sqlite.transaction(() => {
       const lessonId = invalidateLesson && /^(?:messages|lessonKB):(.+)$/.exec(dataKey)?.[1];
       if (lessonId) {
@@ -701,7 +701,10 @@ const db = {
           ON CONFLICT(userId, dataKey) DO UPDATE SET data = excluded.data, updatedAt = excluded.updatedAt`)
           .run(userId, `lessonGeneration:${lessonId}`, JSON.stringify(randomUUID()), new Date().toISOString());
       }
-      sqlite.prepare('DELETE FROM sync_data WHERE userId = ? AND dataKey = ?').run(userId, dataKey);
+      const deleted = expectedVersion === undefined
+        ? sqlite.prepare('DELETE FROM sync_data WHERE userId = ? AND dataKey = ?').run(userId, dataKey)
+        : sqlite.prepare('DELETE FROM sync_data WHERE userId = ? AND dataKey = ? AND version = ?').run(userId, dataKey, expectedVersion);
+      if (expectedVersion !== undefined && !deleted.changes) throw conditionalCheckFailed('Record changed before deletion');
     })();
   },
 

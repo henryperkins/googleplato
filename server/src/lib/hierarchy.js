@@ -8,11 +8,12 @@
  * |----------|--------------------------|-------------------------------|--------------------|
  * | Course   | `_system:program:<id>`   | (top level)                   | by name            |
  * | Unit     | `_system:course:<id>`    | `unit.programId`              | `program.unitIds`  |
- * | Lesson   | `_system:lesson:<id>`    | `lesson.course` (the unit id) | `unit.lessonIds`   |
+ * | Lesson   | `_system:lesson:<id>`    | `lesson.course` (the unit id) | `unitOrder.lessonIds` |
  *
- * The order route also keeps each unit's order on its course
- * (`program.lessonOrder[unitId]`), where releases that predate the hierarchy
- * can't drop it; lib/unit-repair.js restores units they rewrote.
+ * Lesson order lives in `_system:unitOrder:<unitId>` =
+ * `{ lessonIds, unitCreatedAt }`. Only a matching unit incarnation uses it;
+ * legacy `unit.lessonIds` remains a read fallback until migrated. RC-232
+ * ignores this key family, so its unit renames cannot drop custom order.
  *
  * Order arrays only order; they never decide membership. `orderIds` lists the
  * ids an array names that are still members, then any members it's missing,
@@ -51,11 +52,13 @@ export function orderIds(order, memberIds, nameOf = (id) => id) {
 export function buildHierarchy(systemItems) {
   const programData = new Map();
   const unitData = new Map();
+  const orders = new Map();
   const lessonsByUnit = new Map();
   const lessonName = new Map();
   for (const i of systemItems) {
     if (i.dataKey.startsWith('program:')) programData.set(i.dataKey.slice(8), i.data || {});
     else if (i.dataKey.startsWith('course:')) unitData.set(i.dataKey.slice(7), i.data || {});
+    else if (i.dataKey.startsWith('unitOrder:')) orders.set(i.dataKey.slice(10), i.data || {});
     else if (i.dataKey.startsWith('lesson:')) {
       const id = i.dataKey.slice(7);
       lessonName.set(id, i.data?.name || id);
@@ -68,7 +71,9 @@ export function buildHierarchy(systemItems) {
   for (const [id, d] of unitData) {
     const programId = d.programId && programData.has(d.programId) ? d.programId : null;
     const memberLessons = lessonsByUnit.get(id) || [];
-    units.set(id, { id, name: d.name || id, programId, lessonIds: orderIds(d.lessonIds, memberLessons, (l) => lessonName.get(l)) });
+    const stamped = orders.get(id);
+    const order = stamped && stamped.unitCreatedAt === (d.createdAt ?? null) ? stamped.lessonIds : d.lessonIds;
+    units.set(id, { id, name: d.name || id, programId, lessonIds: orderIds(order, memberLessons, (l) => lessonName.get(l)) });
   }
 
   const unitName = (u) => units.get(u)?.name;

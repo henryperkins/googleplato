@@ -217,6 +217,32 @@ describe('Rendered admin responsive regressions', { timeout: 300000 }, () => {
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
+  // Browser plugin not available: use the repository's regular Playwright fixture.
+  for (const status of [400, 409]) it(`lesson order ${status} reloads, announces and preserves keyboard focus`, async () => {
+    const { context, page } = await openPage({ width: 1280, height: 900 });
+    let reads = 0;
+    try {
+      await context.route('**/v1/admin/programs', route => route.fulfill({ json: { programs: [], unassignedUnitIds: ['u1'] } }));
+      await context.route('**/v1/admin/units', route => {
+        reads++;
+        return route.fulfill({ json: [{ unitId: 'u1', name: 'Unit One', programId: null, lessonIds: ['l1', 'l2', 'l3'] }] });
+      });
+      await context.route('**/v1/admin/lessons', route => route.fulfill({ json: ['l1', 'l2', 'l3'].map(lessonId => ({ lessonId, name: lessonId })) }));
+      await context.route('**/v1/admin/units/u1/order', route => route.fulfill({ status, json: { error: 'Membership changed. Try again.' } }));
+      await page.goto(`${base}/plato/lessons/structure`);
+      await page.getByRole('button', { name: /Unit One.*3 lessons/ }).click();
+      const button = page.getByRole('button', { name: 'Move l2 down', exact: true });
+      await button.focus();
+      await page.keyboard.press('Enter');
+      await page.getByRole('status').filter({ hasText: 'Reloaded the latest courses and units' }).waitFor();
+      await page.waitForFunction(() => document.activeElement?.id === 'lesson-l2-down' && !document.activeElement.disabled);
+      assert.equal(reads, 2, 'the failed reorder reloads the hierarchy once');
+      assert.equal(await page.getByRole('status').filter({ hasText: 'Reloaded' }).getAttribute('aria-live'), 'polite');
+      assert.equal(await button.evaluate(el => el === document.activeElement), true);
+      await page.screenshot({ path: join(browserEvidence('unit-order', browserName), `${status}-reloaded.png`) });
+    } finally { await context.close(); }
+  });
+
   it('registers the injected hosting worker at root on fresh and warm nested entries', async () => {
     const proxy = createHttpServer(async (request, response) => {
       if (request.url === '/_service-worker.js') {

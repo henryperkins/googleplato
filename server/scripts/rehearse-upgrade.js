@@ -50,8 +50,8 @@ async function snapshot() {
   return { out, users };
 }
 
-const allowedBundled = new Set([`sync:_system:program:${BUNDLED_COURSE.programId}`, `sync:_system:course:${BUNDLED_COURSE.unitId}`, `sync:_system:bundled:course:${BUNDLED_COURSE.id}`, ...BUNDLED_LESSONS.flatMap(b => [`sync:_system:lesson:${b.id}`, `sync:_system:bundled:${b.id}`])]);
-const ALLOWED_ADDED = [/^sync:_system:migrations$/, /^sync:_system:program:prog-default$/];
+const allowedBundled = new Set([`sync:_system:program:${BUNDLED_COURSE.programId}`, `sync:_system:course:${BUNDLED_COURSE.unitId}`, `sync:_system:unitOrder:${BUNDLED_COURSE.unitId}`, `sync:_system:bundled:course:${BUNDLED_COURSE.id}`, ...BUNDLED_LESSONS.flatMap(b => [`sync:_system:lesson:${b.id}`, `sync:_system:bundled:${b.id}`])]);
+const ALLOWED_ADDED = [/^sync:_system:unitOrder:/, /^sync:_system:migrations$/, /^sync:_system:program:prog-default$/];
 const ALLOWED_CHANGED = [/^user:/, /^sync:_system:course:/];
 const LEARNER_WORK = /^sync:usr_[^:]+:(messages|screenshot|lessonKB|courseProgress|lessons):/;
 
@@ -100,7 +100,7 @@ const applied = migrationState?.applied || {};
 const unapplied = MIGRATIONS.filter((m) => !applied[m.id]).map((m) => m.id);
 check(unapplied.length === 0, `every migration is recorded as applied${unapplied.length ? `; not: ${unapplied.join(', ')}` : ''}`);
 lines.push(`- bundled lessons: installed ${bundled.installed.join(', ') || 'none'}`);
-lines.push(`- units repaired: ${units.repaired.join(', ') || 'none'}${units.ambiguous.length ? `; listed by two courses: ${units.ambiguous.join(', ')}` : ''}`, '');
+lines.push(`- units repaired: ${units.repaired.join(', ') || 'none'}${units.ambiguous.length ? `; listed by two courses: ${units.ambiguous.join(', ')}` : ''}${units.conflicted.length ? `; changed concurrently: ${units.conflicted.join(', ')}` : ''}`, '');
 
 const after = await snapshot();
 const added = [...after.out.keys()].filter((k) => !before.out.has(k));

@@ -283,11 +283,14 @@ export async function createPostgresDatabase(pool) {
         return saved;
       }, userId);
     },
-    deleteSyncData(userId, dataKey, { invalidateLesson = false } = {}) {
+    deleteSyncData(userId, dataKey, { invalidateLesson = false, expectedVersion } = {}) {
       return transaction(async client => {
         const lessonId = invalidateLesson && /^(?:messages|lessonKB):(.+)$/.exec(dataKey)?.[1];
         if (lessonId) await writeSync(client, userId, `lessonGeneration:${lessonId}`, randomUUID(), 1);
-        await client.query('DELETE FROM sync_data WHERE user_id = $1 AND data_key = $2', [userId, dataKey]);
+        const deleted = expectedVersion === undefined
+          ? await client.query('DELETE FROM sync_data WHERE user_id = $1 AND data_key = $2', [userId, dataKey])
+          : await client.query('DELETE FROM sync_data WHERE user_id = $1 AND data_key = $2 AND version = $3', [userId, dataKey, expectedVersion]);
+        if (expectedVersion !== undefined && !deleted.rowCount) throw conflict('Record changed before deletion');
       }, userId);
     },
 

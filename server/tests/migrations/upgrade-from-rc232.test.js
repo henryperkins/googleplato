@@ -36,8 +36,9 @@ const { tag: TAG, commit: RC232_COMMIT } = ROLLBACK_BASELINE;
 const ALLOWED = {
   added: [
     /^sync:_system:migrations$/,
+    /^sync:_system:unitOrder:/, // m006 + bundled seed
     /^sync:_system:program:prog-default$/, // m004_default_program
-    // Bundled Getting Started course (#443): seeded at startup, before the migrations.
+    // Bundled Getting Started course (#443): seeded after migrations.
     /^sync:_system:lesson:getting-started(-sharing|-behind)?$/,
     /^sync:_system:bundled:getting-started(-sharing|-behind)?$/,
     /^sync:_system:bundled:course:getting-started$/,
@@ -107,13 +108,11 @@ describe('upgrade from Beta-RC-232', () => {
   before(async () => {
     await seedRc232(db);
     before1 = await snapshot(db);
-    // Upstream's startup order: bundled content first, then the migrations.
-    // It's the harder case for m004 (the bundled course already exists). The
-    // fork's startup (index.js, start.js) migrates first, then seeds; the
-    // second-start check below runs that order.
-    assert.deepEqual((await ensureBundledLessons({ db })).installed, ['getting-started', 'getting-started-sharing', 'getting-started-behind']);
+    // Fork startup: migrations first, then bundled seed, then ownership repair.
     const outcome = await runMigrations();
     for (const { id, result } of outcome.ran) assert.equal(result.errors, 0, `${id} reported errors: ${JSON.stringify(result)}`);
+    assert.deepEqual((await ensureBundledLessons({ db })).installed, ['getting-started', 'getting-started-sharing', 'getting-started-behind']);
+    assert.deepEqual(await repairUnits({ db }), { repaired: [], ambiguous: [], conflicted: [] });
     after1 = await snapshot(db);
   });
   after(() => { cleanup(); rmSync(RC232_DIR, { recursive: true, force: true }); });
@@ -157,6 +156,16 @@ describe('upgrade from Beta-RC-232', () => {
     }
   });
 
+  it('m006 stamps legacy order and seed creates bundled order on the first fork start', async () => {
+    for (const id of [...FIXTURE.courses.map(c => c.id), BUNDLED_COURSE.unitId]) {
+      const unit = await db.getSyncData('_system', `course:${id}`);
+      const order = await db.getSyncData('_system', `unitOrder:${id}`);
+      assert.ok(order, `order exists on first start: ${id}`);
+      assert.equal(order.data.unitCreatedAt, unit.data.createdAt ?? null);
+      assert.deepEqual(order.data.lessonIds, id === BUNDLED_COURSE.unitId ? BUNDLED_LESSONS.map(b => b.id) : unit.data.lessonIds);
+    }
+  });
+
   it('m005_name_split: first/last inferred at the first whitespace; name itself never rewritten', () => {
     const expected = {
       usr_admin: ['Admin', ''],
@@ -186,7 +195,7 @@ describe('upgrade from Beta-RC-232', () => {
     }
   });
 
-  it('the bundled course doesn\u2019t stop m004 from making the default course (startup seeds it first)', async () => {
+  it('the bundled and default courses both exist after the first fork start', async () => {
     const gs = (await db.getSyncData('_system', 'program:prog-getting-started')).data;
     assert.deepEqual(gs.unitIds, ['unit-getting-started']);
     assert.equal((await db.getSyncData('_system', 'course:unit-getting-started')).data.programId, 'prog-getting-started');
@@ -203,7 +212,7 @@ describe('upgrade from Beta-RC-232', () => {
     const outcome = await runMigrations();
     assert.equal(outcome.ran.length, 0);
     await ensureBundledLessons({ db });
-    assert.deepEqual(await repairUnits({ db }), { repaired: [], ambiguous: [] });
+    assert.deepEqual(await repairUnits({ db }), { repaired: [], ambiguous: [], conflicted: [] });
     assert.deepEqual(diffSnapshots(after1, await snapshot(db)), { added: [], removed: [], changed: [] });
   });
 
@@ -298,9 +307,23 @@ describe('upgrade from Beta-RC-232', () => {
     await ensureBundledLessons({ db });
     assert.deepEqual((await repairUnits({ db })).repaired.sort(), ['course-found01', BUNDLED_COURSE.unitId].sort());
     const found = await unit('course-found01');
-    assert.deepEqual([found.name, found.programId, found.lessonIds], ['Foundations (renamed on RC-232)', 'prog-default', ['les-f2', 'les-f1']]);
+    assert.deepEqual([found.name, found.programId, (await db.getSyncData('_system', 'unitOrder:course-found01')).data.lessonIds], ['Foundations (renamed on RC-232)', 'prog-default', ['les-f2', 'les-f1']]);
     const gs = await unit(BUNDLED_COURSE.unitId);
-    assert.deepEqual([gs.name, gs.programId, gs.lessonIds, gs.bundled],
+    assert.deepEqual([gs.name, gs.programId, (await db.getSyncData('_system', `unitOrder:${BUNDLED_COURSE.unitId}`)).data.lessonIds, gs.bundled],
       ['Orientation (renamed on RC-232)', BUNDLED_COURSE.programId, BUNDLED_LESSONS.map((b) => b.id), { id: BUNDLED_COURSE.id }]);
   });
+  it('RC-232 delete and recreated ID cannot resurrect the old custom order', async t => {
+    const src = rc232Source(t);
+    if (!src) return;
+    const id = 'course-found01';
+    assert.equal(runRc232(src, ['--delete', JSON.stringify([id])])[`delete ${id}`].status, 200);
+    await db.createSyncData('_system', `course:${id}`, { name: 'Recreated', createdAt: 'new-incarnation' });
+    for (const lessonId of ['les-f1', 'les-f2']) {
+      const lesson = await db.getSyncData('_system', `lesson:${lessonId}`);
+      await db.putSyncData('_system', `lesson:${lessonId}`, { ...lesson.data, course: id }, lesson.version, { strictVersion: true });
+    }
+    const { buildHierarchy } = await import('../../src/lib/hierarchy.js');
+    assert.deepEqual(buildHierarchy(await db.getAllSyncData('_system')).units.get(id).lessonIds, ['les-f1', 'les-f2']);
+  });
+
 });

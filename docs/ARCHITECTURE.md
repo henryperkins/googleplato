@@ -84,7 +84,7 @@ Detailed design notes and incident history for plato's load-bearing subsystems.
 
 Schema and data changes ship as append-only migrations in
 `server/src/lib/migrations.js` (`MIGRATIONS`): today `m003_role_learner`,
-`m004_default_program` and `m005_name_split`. Every install, self-hosted ones
+`m004_default_program`, `m005_name_split`, and `m006_unit_order`. Every install, self-hosted ones
 included, runs them once, on startup. `initializeLaunch()`
 (`server/src/lib/launch.js`) awaits them in every entry point, **before**
 content seeding and before any request is served: Cloud Run's `start.js`, the
@@ -177,7 +177,8 @@ an existing environment.
 | user `role` | `admin`, `educator`, `learner` or `tester`. A legacy stored `user` reads as `learner` (`normalizeRole`) | role route, signup, `m003_role_learner` |
 | user `firstName`, `lastName`, `nameSource` | entered or inferred name parts. `name` stays, derived from them | `server/src/lib/names.js`, `m005_name_split` |
 | `_system:program:<id>` | a **Course**: `{ name, description, unitIds }` | `/v1/admin/programs*`, `m004_default_program` |
-| `_system:course:<id>` | a **Unit**: `{ name, programId, lessonIds }` | `/v1/admin/units*`, with `/v1/admin/courses*` as an alias |
+| `_system:unitOrder:<unitId>` | lesson order: `{ lessonIds, unitCreatedAt }`, stamped with the unit incarnation | unit order route, `m006_unit_order`, bundled seed |
+| `_system:course:<id>` | a **Unit**: `{ name, programId, createdAt }` | `/v1/admin/units*`, with `/v1/admin/courses*` as an alias |
 | `_system:message:<id>` | a message, its audience and its delivery state | `server/src/lib/messages.js` |
 | `<userId>:notify:state` | opt-outs, read state, delivery claims, reminder bookkeeping | server only. `/v1/sync` can't write it, and a progress reset keeps it |
 | `_system:jobs:schedule` | when each scheduled job last ran | `server/src/lib/schedule.js` |
@@ -1649,12 +1650,12 @@ stats.
 
 | UI | Record | Membership | Order |
 |---|---|---|---|
-| Course | `_system:program:<id>` `{ name, description, unitIds, lessonOrder? }` | top level | by name |
-| Unit | `_system:course:<id>` `{ name, programId, lessonIds }` | `unit.programId` | `program.unitIds` |
-| Lesson | `_system:lesson:<id>` | `lesson.course` (the unit id) | `unit.lessonIds` |
+| Course | `_system:program:<id>` `{ name, description, unitIds }` | top level | by name |
+| Unit | `_system:course:<id>` `{ name, programId, createdAt }` | `unit.programId` | `program.unitIds` |
+| Lesson | `_system:lesson:<id>` | `lesson.course` (the unit id) | `_system:unitOrder:<unitId>.lessonIds` |
 
 `server/src/lib/hierarchy.js` is the single place that reads it:
-- **The lesson PUT doesn't touch `unit.lessonIds`.** A lesson moved into an
+- **The lesson PUT doesn't touch the unit order record.** A lesson moved into an
   ordered unit appears after the ordered ones, by name, until an admin
   reorders the unit.
 - **An install with no units at upgrade gets no default Course** (m004 only
@@ -1705,19 +1706,35 @@ the launch integration) save a unit by replacing its record, so a rename made
 there, during a rollback or by an old instance mid-deploy, drops `programId`,
 `lessonIds`, and the Getting Started unit's `bundled` marker. m004 is already
 recorded and the bundled course installs once, so neither would run again.
-Those releases never write course records, so:
-- `PUT /v1/admin/units/:id/order` also keeps the order on the unit's course,
-  as `program.lessonOrder[unitId]`. Moving a unit carries the copy to its new
-  course; deleting the unit drops it.
-- Every start (`seedDefaultContent`, after the bundled course) gives a unit
-  with **no `programId` key** back to the one course whose `unitIds` lists it,
-  with its `lessonOrder` copy, and the Getting Started unit its marker (and its
-  canonical order when it has no copy). Only absent fields are filled. An
-  explicit `programId: null` is an admin's own unassignment, a unit that two
-  courses list is left for an admin (`units_repaired` reports both), and a
-  unit that changed since it was read waits for the next start.
-- `server/tests/migrations/upgrade-from-rc232.test.js` renames units through
-  Beta-RC-232's own PUT handler and checks the next start restores them.
+Those releases ignore `_system:unitOrder:*`, so custom lesson order survives
+renames without depending on course ownership:
+- `PUT /v1/admin/units/:id/order` strongly reads the unit, its order record,
+  and current lesson membership, validates an exact permutation, and writes
+  only `{ lessonIds, unitCreatedAt }` in `unitOrder:<id>`. Missing records use
+  create-only writes; existing records use strict versions, with three attempts
+  for version conflicts. `m006_unit_order` copies legacy `unit.lessonIds` with
+  create-only writes. New bundled units get their order from the seed after
+  migrations. No order is mirrored on unit or course records. Preview databases
+  holding the removed course order mirror must be recreated; it is not read
+  as a fallback.
+- `buildHierarchy()` uses the order only when `unitCreatedAt` matches the
+  unit's data `createdAt`; otherwise it uses legacy `unit.lessonIds`. A missing
+  timestamp is represented as null for legacy units. Reused IDs have a new
+  stamp, so an old unit's custom order cannot reappear.
+- Every start (`seedDefaultContent`, after bundled content) restores absent
+  `programId` and bundled metadata only when exactly one course lists a unit.
+  Explicit `programId: null` stays unchanged; multiple owners are reported
+  separately. Repair never restores order. Conflicting repairs wait until
+  the next start (`units_repaired`: `repaired`, `ambiguous`, `conflicted`).
+- Unit deletion removes the unit before its stamped order. Best-effort startup
+  reconciliation removes orphaned or mismatched order records. Both deletion
+  paths pass the observed `expectedVersion` to the existing `deleteSyncData`
+  interface; a concurrently updated order survives. Cleanup logs separately
+  as `unit_orders_reconciled` or `unit_order_reconcile_failed`.
+- The RC-232 gate uses the fork's migrate, seed, repair startup sequence and
+  exercises actual RC-232 rename and delete handlers. A 400 or 409 reorder
+  response reloads the UI, announces the reload politely, and restores focus
+  to the pressed control (or the existing boundary fallback).
 
 **Learner side:** `loadLessons()` carries `unit` and `program` onto each lesson
 and returns them in hierarchy order. `client/src/lib/lessonOrder.js` holds the
