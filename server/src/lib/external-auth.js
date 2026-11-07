@@ -8,6 +8,7 @@
 
 import { randomBytes } from 'node:crypto';
 import db from './db.js';
+import { settleAdmissionGroupAssignment } from './groups.js';
 import { generateUserId, generateRefreshToken, hashToken } from './crypto.js';
 import { hashPassword } from './password.js';
 import { signAccessToken } from './jwt.js';
@@ -224,6 +225,7 @@ export async function completeExternalAuth(identity, options = {}) {
     customFields,
   };
   await db.createUser(user);
+  await settleAdmissionGroupAssignment(userId);
   await pluginRegistry.emit('userCreated', { userId, email, role: assignedRole });
 
   if (invite?.isLink) {

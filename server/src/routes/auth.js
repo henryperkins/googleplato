@@ -1,3 +1,4 @@
+import { settleAdmissionGroupAssignment } from '../lib/groups.js';
 import { Hono } from 'hono';
 import db from '../lib/db.js';
 import { normalizeRole } from '../lib/permissions.js';
@@ -236,6 +237,7 @@ auth.post('/v1/auth/signup', async (c) => {
     customFields,
   });
 
+  await settleAdmissionGroupAssignment(userId);
   await pluginRegistry.emit('userCreated', { userId, email: userEmail, role: 'learner' });
 
   // Mark invite as used after successful user creation

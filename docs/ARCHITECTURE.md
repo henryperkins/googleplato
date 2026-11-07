@@ -2537,11 +2537,12 @@ research and reporting. It's shown to staff only (everyone with `users.read`: ad
 
 Group names live in `_system:settings.userGroups`. Membership is the name on
 each user (`userGroup`), on wait-list entries and invites (`profile.userGroup`),
-and on messages sent to a group (`audience.group`). A new account only ever
-gets a listed group: password signup and an external sign-in
-(`completeExternalAuth`) both drop a chosen group that isn't listed, falling
-back to the invitation's (if still listed) or none. `server/src/lib/groups.js`
-owns them:
+and on messages sent to a group (`audience.group`). Password signup and an
+external sign-in (`completeExternalAuth`) initially choose a listed group.
+When a supplied choice was invalid from the outset, the invitation's listed
+group can still supply that initial choice. After the account write,
+reconciliation only clears disappeared groups; it never assigns a fallback.
+`server/src/lib/groups.js` owns them:
 - Names are 1–80 characters and **unique ignoring case**. The list is stored
   sorted A–Z, with "None" and "Other" last; `GET /v1/groups` sorts older lists
   on read.
@@ -2561,6 +2562,26 @@ owns them:
   removing people from X**, which deletes again: with the name gone from the
   list but still carried, the server only clears the remaining memberships. A
   name nobody lists or carries is 404 (the dialog treats that as finished).
+
+Group assignments reconcile against a strongly read account and settings after
+writing. Password and external signup, account-invite acceptance, wait-list
+application, and admin edits all use `settleGroupAssignment`; cleanup moves use
+profile comparisons and settle their own writes too. A vanished group is cleared
+with a profile CAS, retrying a lost comparison at most three times. Re-reading the
+current account preserves a concurrent valid rename or another assignment. The
+cleanup scans users, invites and system data with `consistentRead: true` after
+the settings write; SQL adapters already read committed rows and ignore this
+option. Admin user listings also request strong reads so group filters reflect
+the saved membership. The raw settings PUT rejects `userGroups`; edit the list
+through `/v1/admin/groups`.
+
+Names have no rename history. If cleanup finishes before an admission's late
+write, the stale group is cleared, without assigning an invitation fallback.
+Admission logs `admission_group_dropped` with only the stale group name. If the
+post-write check fails, `admission_group_settle_failed` contains no account or
+exception data; hooks, invite consumption and session issuance continue. This
+best-effort failure does not reject or delete a valid account, and requires
+operational follow-up if cleanup also missed its optional membership.
 
 The User Groups dialog (`client/src/pages/admin/GroupsDialog.jsx`) has inline
 rename (Enter saves, Escape cancels), member counts, and a delete

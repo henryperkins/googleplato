@@ -8,7 +8,7 @@ import { ROLES, normalizeRole, can } from '../lib/permissions.js';
 import { registerHierarchyRoutes } from './admin-hierarchy.js';
 import { bundledLessonStatus, actOnBundledLesson } from '../lib/bundled-lessons.js';
 import { registerNotificationRoutes } from './admin-notifications.js';
-import { addGroup, renameGroup, deleteGroup } from '../lib/groups.js';
+import { addGroup, renameGroup, deleteGroup, settleGroupAssignment, settleAdmissionGroupAssignment } from '../lib/groups.js';
 import { nameFields, readNameInput } from '../lib/names.js';
 import { validLessonId } from '../lib/lesson-files.js';
 import { validateLessonMarkdown } from '../lib/lesson-markdown.js';
@@ -121,7 +121,7 @@ admin.post('/v1/admin/users/:userId/lessons/:lessonId/continuity-repair', bodyLi
 admin.get('/v1/admin/users', async (c) => {
   const url = new URL(c.req.url);
   const includeStats = (url.searchParams.get('include') || '').split(',').includes('stats');
-  const users = await db.listAllUsers();
+  const users = await db.listAllUsers({ consistentRead: true });
   const fieldDefs = getFieldDefinitions((await db.getSyncData('_system', 'settings'))?.data);
   const baseRow = (p) => ({
     userId: p.userId,
@@ -598,6 +598,8 @@ admin.post('/v1/admin/waitlist/:token/apply', async (c) => {
   }
 
   if (Object.keys(updates).length) await db.updateUser(user.userId, updates);
+  const settled = await settleAdmissionGroupAssignment(user.userId);
+  if (settled && Object.hasOwn(updates, 'userGroup')) updates.userGroup = settled.userGroup;
   await db.deleteInvite(entry.inviteToken);
   await db.createAuditLog({
     action: 'waitlist_applied', userId: user.userId, performedBy: c.get('user').userId,
@@ -686,7 +688,13 @@ admin.patch('/v1/admin/users/:userId', async (c) => {
     }
     updates.username = body.username.toLowerCase();
   }
-  if (body.userGroup !== undefined) updates.userGroup = body.userGroup;
+  if (body.userGroup !== undefined) {
+    const settings = await db.getSyncData('_system', 'settings', { consistentRead: true });
+    if (body.userGroup !== null && !(typeof body.userGroup === 'string' && (settings?.data?.userGroups || []).includes(body.userGroup))) {
+      return c.json({ error: 'Choose one of the classroom groups, or null to clear it.' }, 400);
+    }
+    updates.userGroup = body.userGroup;
+  }
   if (body.customFields !== undefined) {
     // Same rule as learner self-edits: the result must have every required
     // field filled. (Users who simply haven't been edited yet are prompted by
@@ -698,6 +706,7 @@ admin.patch('/v1/admin/users/:userId', async (c) => {
   }
   if (Object.keys(updates).length === 0) return c.json({ error: 'No valid fields' }, 400);
   await db.updateUser(userId, updates);
+  if (Object.hasOwn(updates, 'userGroup')) await settleGroupAssignment(userId);
   return c.json({ ok: true });
 });
 
@@ -777,6 +786,7 @@ admin.get('/v1/admin/settings', async (c) => {
 admin.put('/v1/admin/settings', async (c) => {
   const body = await c.req.json();
   if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'A JSON object is required.' }, 400);
+  if (Object.hasOwn(body, 'userGroups')) return c.json({ error: 'Change groups with /v1/admin/groups.' }, 400);
   // Branding has its own validated route; a raw merge would bypass it.
   if (['theme', 'classroomName', 'logoAlt', 'logoBase64', 'logoHash'].some(key => Object.hasOwn(body, key))) {
     return c.json({ error: 'Change the classroom name, colors and logo with PUT /v1/admin/theme.' }, 400);

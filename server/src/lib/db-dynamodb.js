@@ -219,13 +219,14 @@ const db = {
     return (await this.listAllUsers()).filter(user => ['user', 'learner'].includes(user.role));
   },
 
-  async listAllUsers() {
+  async listAllUsers({ consistentRead = false } = {}) {
     const items = [];
     let lastKey;
     do {
       const result = await doc.send(new ScanCommand({
         TableName: USERS_TABLE,
         ExclusiveStartKey: lastKey,
+        ConsistentRead: consistentRead,
       }));
       items.push(...result.Items);
       lastKey = result.LastEvaluatedKey;
@@ -366,13 +367,14 @@ const db = {
     }));
   },
 
-  async listInvites() {
+  async listInvites({ consistentRead = false } = {}) {
     const items = [];
     let lastKey;
     do {
       const result = await doc.send(new ScanCommand({
         TableName: INVITES_TABLE,
         ExclusiveStartKey: lastKey,
+        ConsistentRead: consistentRead,
       }));
       items.push(...result.Items);
       lastKey = result.LastEvaluatedKey;
@@ -546,7 +548,7 @@ const db = {
     return result.Item || null;
   },
 
-  async getAllSyncData(userId, { excludePrefixes = [] } = {}) {
+  async getAllSyncData(userId, { excludePrefixes = [], consistentRead = false } = {}) {
     const items = [];
     let lastKey;
     // A FilterExpression saves payload, not RCU: DynamoDB still reads the
@@ -564,6 +566,7 @@ const db = {
         ...filter,
         ExpressionAttributeValues: { ':uid': userId, ...(filter.ExpressionAttributeValues || {}) },
         ExclusiveStartKey: lastKey,
+        ConsistentRead: consistentRead,
       }));
       items.push(...result.Items);
       lastKey = result.LastEvaluatedKey;

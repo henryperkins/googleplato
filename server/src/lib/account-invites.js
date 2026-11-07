@@ -10,6 +10,7 @@
  * valid. The name is never copied, and nothing already set is overwritten.
  */
 import defaultDb from './db.js';
+import { settleAdmissionGroupAssignment } from './groups.js';
 import { getFieldDefinitions, validateValue } from './user-fields.js';
 
 /** What accepting would change: `{ updates, userGroup, fields }`. Pure. */
@@ -56,6 +57,8 @@ export async function acceptInvite(user, token, { db = defaultDb } = {}) {
     }
   }
   if (!merged) return { error: 'Profile changed while accepting invite. Please retry.', status: 409 };
+  const settled = await settleAdmissionGroupAssignment(user.userId, { db });
+  if (settled && Object.hasOwn(merged.updates, 'userGroup')) merged.userGroup = settled.userGroup;
   await db.markInviteUsed(inv.inviteToken);
   await db.createAuditLog({
     action: 'account_invite_accepted', userId: user.userId, performedBy: user.userId,

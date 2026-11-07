@@ -190,6 +190,8 @@ lost something?* Yes → A. No → B.
 | `job_failed`, `job_unknown`, `job_dispatch_failed` | error | B | a background job threw, wasn't registered, or couldn't be invoked |
 | `schedule_check_failed` | error | B | the traffic-driven schedule check (`lib/schedule.js`) threw |
 | `learner_email_failed` | error | B | SES refused a reminder or digest; its claim was released for the next run |
+| `admission_group_dropped` | warn | B | a post-write check cleared a group no longer listed; metadata contains only the stale group name (`group`), with no account identifiers |
+| `admission_group_settle_failed` | warn | B | an admission post-write group check failed or exhausted three profile comparisons; no metadata or exception text; hooks, invite consumption and session issuance continue |
 | `waitlist_confirmation_failed` | error | B | the wait-list confirmation didn't send (the join still succeeded) |
 | `waitlist_removed_email_failed` | error | B | the "removed from the wait list" email didn't send (the entry was still removed) |
 | `ai_stream_failed` | error | B | an AI reply stream failed partway (Bedrock error or the 115 s timeout); the learner sees an error and the turn isn't saved |

@@ -12,7 +12,7 @@ const { default: sqlite } = await import('../../src/lib/db-sqlite.js');
 const { acceptInvite } = await import('../../src/lib/account-invites.js');
 const { default: dynamo, setDocumentClientForTests } = await import('../../src/lib/db-dynamodb.js');
 
-const settings = { userGroups: ['Invited'], userFields: [
+const settings = { userGroups: ['Invited', 'Admin group', 'Racing group', 'Existing'], userFields: [
   { id: 'org', type: 'text', label: 'Organization' },
   { id: 'team', type: 'text', label: 'Team' },
 ] };

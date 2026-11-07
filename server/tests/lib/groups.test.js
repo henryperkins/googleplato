@@ -64,10 +64,10 @@ describe('user groups', () => {
   });
 
   it('renaming again finishes a rename whose membership writes partly failed', async () => {
-    const update = db.updateUser;
-    db.updateUser = async () => { throw new Error('throttled'); };
+    const update = db.updateUserProfileIf;
+    db.updateUserProfileIf = async () => { throw new Error('throttled'); };
     const r = await renameGroup('Cohort A', 'Spring', { db });
-    db.updateUser = update;
+    db.updateUserProfileIf = update;
     assert.equal(r.moved.failed, 1);
     assert.equal((await db.getUserById('usr_a')).userGroup, 'Cohort A', 'left behind');
     const retry = await renameGroup('Cohort A', 'Spring', { db });
@@ -87,10 +87,10 @@ describe('user groups', () => {
 
   it('deleting again finishes a delete whose membership writes partly failed', async () => {
     await db.createInvite({ inviteToken: 'inv_p2', email: 'q@x.com', invitedBy: 'usr_admin', profile: { userGroup: 'Cohort B' } });
-    const update = db.updateUser;
-    db.updateUser = async () => { throw new Error('throttled'); };
+    const update = db.updateUserProfileIf;
+    db.updateUserProfileIf = async () => { throw new Error('throttled'); };
     let r;
-    try { r = await deleteGroup('Cohort B', { db }); } finally { db.updateUser = update; }
+    try { r = await deleteGroup('Cohort B', { db }); } finally { db.updateUserProfileIf = update; }
     assert.deepEqual(r.userGroups, ['Cohort A'], 'the list changed first');
     assert.deepEqual([r.moved.users, r.moved.invites, r.moved.failed], [0, 1, 1]);
     assert.equal((await db.getUserById('usr_b')).userGroup, 'Cohort B', 'left behind, still matching the group’s messages');
