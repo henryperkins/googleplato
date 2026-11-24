@@ -8,6 +8,7 @@ import {
   ConverseStreamCommand,
 } from '@aws-sdk/client-bedrock-runtime';
 import { toConverseRequest, fromConverseResponse, fromConverseStreamEvent } from './converse.js';
+import gemini from './gemini.js';
 import { observeInference } from './inference-telemetry.js';
 
 // Timeout for Bedrock requests — set just under the Lambda function timeout
@@ -15,6 +16,10 @@ import { observeInference } from './inference-telemetry.js';
 const BEDROCK_TIMEOUT_MS = 115_000;
 
 const client = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-east-2' });
+
+function shouldFallbackToGemini(error) {
+  return error?.name === 'CredentialsProviderError' && Boolean(process.env.GEMINI_API_KEY?.trim());
+}
 
 // Map friendly model IDs to Bedrock model / inference-profile IDs. Open-weight
 // models are invoked by bare model ID (no `us.` cross-region prefix); Anthropic
@@ -66,6 +71,9 @@ const ai = {
       observeInference(observe, { format: 'converse', usage: response.usage, finalUsage: true });
       return fromConverseResponse(response);
     } catch (error) {
+      if (shouldFallbackToGemini(error)) {
+        return await gemini.invoke(model, body, { observe });
+      }
       recordAttempts(observe, error);
       throw error;
     } finally {
@@ -105,6 +113,10 @@ const ai = {
         if (translated) yield translated;
       }
     } catch (error) {
+      if (shouldFallbackToGemini(error)) {
+        yield* gemini.invokeStream(model, body, { signal, observe });
+        return;
+      }
       recordAttempts(observe, error);
       throw error;
     } finally {

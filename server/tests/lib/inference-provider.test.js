@@ -2,6 +2,7 @@ import { test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import ai from '../../src/lib/ai-provider.js';
+import gemini from '../../src/lib/gemini.js';
 import db from '../../src/lib/db.js';
 import { logger } from '../../src/lib/logger.js';
 import { Hono } from 'hono';
@@ -237,3 +238,45 @@ test('an invalid or unreadable AI selection warns at the settings stage instead 
   assert.equal(fetchMock.mock.callCount(), 0);
   assert.doesNotMatch(JSON.stringify(logger.recent()), /10\.9\.8\.7/);
 });
+
+test('Bedrock falls back to Gemini when AWS credentials are missing and GEMINI_API_KEY is configured', async () => {
+  active = { ...settings, provider: 'bedrock' };
+  process.env.GEMINI_API_KEY = 'test-gemini-key';
+  mock.method(BedrockRuntimeClient.prototype, 'send', async () => {
+    throw Object.assign(new Error('Could not load credentials from any providers'), { name: 'CredentialsProviderError' });
+  });
+  mock.method(gemini, 'invoke', async (_model, _body, { observe }) => {
+    observe?.({ attempts: 1, retryDelayMs: 0 });
+    observe?.({ format: 'anthropic', usage: { input_tokens: 12, output_tokens: 8 }, finalUsage: true });
+    return { content: [{ type: 'text', text: 'Gemini fallback reply' }], stop_reason: 'end_turn', usage: { input_tokens: 12, output_tokens: 8 } };
+  });
+  mock.method(gemini, 'invokeStream', async function* (_model, _body, { observe }) {
+    observe?.({ attempts: 1, retryDelayMs: 0 });
+    yield { type: 'message_start', message: { role: 'assistant', content: [] } };
+    yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Streamed fallback' } };
+    observe?.({ format: 'anthropic', usage: { input_tokens: 15, output_tokens: 5 }, finalUsage: true });
+    yield { type: 'message_delta', delta: { stop_reason: 'end_turn' } };
+    yield { type: 'message_stop', usage: { input_tokens: 15, output_tokens: 5 } };
+  });
+  try {
+    const reply = await ai.invoke('ignored', body);
+    assert.equal(reply.content[0].text, 'Gemini fallback reply');
+    assert.equal(finished()?.outcome, 'success');
+    assert.equal(finished().prompt_tokens, 12);
+    assert.equal(finished().output_tokens, 8);
+
+    logger._reset();
+    const chunks = [];
+    for await (const event of ai.invokeStream('ignored', body)) {
+      if (event.type === 'content_block_delta') chunks.push(event.delta.text);
+    }
+    assert.deepEqual(chunks, ['Streamed fallback']);
+    assert.equal(finished()?.outcome, 'success');
+    assert.equal(finished().prompt_tokens, 15);
+    assert.equal(finished().output_tokens, 5);
+  } finally {
+    if (originalEnv.GEMINI_API_KEY === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = originalEnv.GEMINI_API_KEY;
+  }
+});
+

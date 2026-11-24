@@ -24,6 +24,7 @@
     "deploy": "npm run build:client && npm run build:server && cd server && sam deploy"
   },
   "dependencies": {
+    "@google/genai": "^2.31.0",
     "firebase": "^13.0.0"
   },
   "devDependencies": {

@@ -23,6 +23,7 @@ describe('Bedrock credential presence', () => {
       { AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/v2/credentials/id' },
       { AWS_CONTAINER_CREDENTIALS_FULL_URI: 'http://169.254.170.23/v1/credentials' },
       { AWS_BEARER_TOKEN_BEDROCK: 'bedrock-api-key' },
+      { GEMINI_API_KEY: 'gemini-api-key' },
     ]) assert.deepEqual(bedrockCredentialStatus({ HOME: emptyHome, ...env }), { configured: true }, Object.keys(env).join(' '));
   });
 

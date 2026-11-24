@@ -983,6 +983,50 @@ html {
   transition: transform 280ms var(--motion-arrive), background-color 150ms ease-out;
 }
 
+/* Smooth entrance and exit transitions for lesson cards when loading, filtering, or paging. */
+.lesson-card {
+  will-change: transform, opacity;
+}
+
+.lesson-card-enter,
+.lesson-card[data-state="entering"],
+.lesson-card[data-state="entered"] {
+  animation: lesson-card-enter 220ms var(--motion-arrive) calc(var(--lesson-card-index, 0) * 25ms) both;
+}
+
+.lesson-card-exit,
+.lesson-card[data-state="exiting"] {
+  animation: lesson-card-exit 160ms ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes lesson-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.375rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lesson-card-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+}
+
+@keyframes lesson-card-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 /* Keep state/color feedback while replacing travel, zoom, and rotation. */
 @media (prefers-reduced-motion: reduce) {
   .saved-reply-notice {
@@ -1006,6 +1050,18 @@ html {
     transition-duration: 150ms;
   }
 
+  .lesson-card-enter,
+  .lesson-card[data-state="entering"],
+  .lesson-card[data-state="entered"] {
+    animation: users-feedback-arrive 120ms ease-out both;
+  }
+
+  .lesson-card-exit,
+  .lesson-card[data-state="exiting"] {
+    animation: lesson-card-fade-out 100ms ease-in forwards;
+  }
+
+  [data-slot="lesson-card"],
   [data-slot="dialog-content"],
   [data-slot="alert-dialog-content"],
   [data-slot="dropdown-menu-content"],
